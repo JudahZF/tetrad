@@ -7,14 +7,16 @@
 # kept 2 h), so `stop` reaches the QC without a new proxy handshake.
 #
 #   upload BIN        maintenance-window upload of tetrad and tetrad-stage.sh, md5 check, R2
-#   presets NAME...   copy stock-saved test presets from "ZR Test" to the tetrad folder
+#   presets NAME...   copy stock-saved test presets from setlist TD_SETLIST to the tetrad folder
 #   stage S SECS ...  run one stage: sh tetrad-stage.sh S SECS [tetrad bringup args]
 #   stop              touch the stop file (abort; no prompt)
 #   logs              list the run folders on the QC
 #   pull RUN [DEST]   copy one run folder, one `cat` per file (default .local/tetrad-logs/RUN)
 #   launcher          upload scripts/launcher/*.sh to TD_DIR/launcher (no arm, no init change)
 #
-# Environment: QC_HOST (ssh host, default qc), TD_DIR (default /media/p4/tetrad).
+# Environment: QC_HOST (ssh host, default qc), TD_DIR (default /media/p4/tetrad), TD_SETLIST
+# (the stock setlist that `presets` copies from, default "Tetrad Test"; it is the folder
+# /media/p4/Presets/TD_SETLIST on the QC).
 
 [[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
@@ -22,6 +24,7 @@ set -euo pipefail
 
 HOST=${QC_HOST:-qc}
 D=${TD_DIR:-/media/p4/tetrad}
+SETLIST=${TD_SETLIST:-Tetrad Test}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 # One connection per host for every command (review B15). A dead master (the QC rebooted)
@@ -123,13 +126,16 @@ copy_and_check() {
 
 presets() {
     (($# > 0)) || die "usage: presets T1.pb [T2.pb ...]"
+    # Spaces are allowed: the name is single-quoted on the remote shell line.
+    [[ $SETLIST =~ ^[A-Za-z0-9_-][A-Za-z0-9._\ -]*$ ]] ||
+        die "TD_SETLIST '$SETLIST' is not a plain setlist name"
     local name
     for name; do plain "$name"; done
-    echo "Will copy on $HOST, for each name: cp '/media/p4/Presets/ZR Test/NAME' $D/presets/"
+    echo "Will copy on $HOST, for each name: cp '/media/p4/Presets/$SETLIST/NAME' $D/presets/"
     echo "  names: $*"
     confirm
     for name; do
-        qc "cp '/media/p4/Presets/ZR Test/$name' $D/presets/"
+        qc "cp '/media/p4/Presets/$SETLIST/$name' $D/presets/"
     done
 }
 
@@ -215,5 +221,5 @@ command=${1:-help}
 shift || true
 case $command in
     upload | presets | stage | stop | logs | pull | launcher) "$command" "$@" ;;
-    *) sed -n '2,17p' "${BASH_SOURCE[0]}" ;;
+    *) sed -n '2,19p' "${BASH_SOURCE[0]}" ;;
 esac
