@@ -16,7 +16,7 @@ contains no Neural DSP code, firmware, assets or keys.
 tested. Expect bugs. Keep a backup of your unit.
 
 The first release is
-[v0.1.0-alpha.1](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.1). All releases
+[v0.1.0-alpha.2](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.2). All releases
 are on [GitHub releases](https://github.com/JudahZF/tetrad/releases). The changes are in
 [CHANGELOG.md](CHANGELOG.md).
 

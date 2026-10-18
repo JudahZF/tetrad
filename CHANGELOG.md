@@ -3,7 +3,7 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [0.1.0-alpha.2](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.2) (2026-10-18)
 
 ### Added
 
@@ -12,6 +12,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
   after 180 s and then every 10 min, until a probe connects (docs/architecture.md). Before, a
   link that stayed associated but passed no traffic needed a restart.
 - The DHCP log line has the lease time.
+- The `qcdsp` submodule accepts CorOS 4.1.0 and 4.1.1 for custom blocks (`qc-deploy --pin` now takes
+  only the two per-unit kernel hashes).
 
 ### Changed
 
