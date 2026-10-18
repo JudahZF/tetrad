@@ -127,6 +127,8 @@ pub enum WifiAction {
     DisableOthers(u32),
     /// `DISCONNECT`.
     Disconnect,
+    /// `REASSOCIATE`: owned internet recovery step 2 (`internet::RecoveryStep`).
+    Reassociate,
 }
 
 /// Facts for the UI and the internet manager.
@@ -139,6 +141,8 @@ pub enum WifiNotice {
     Rejected,
     /// DHCP finished with this result (stock signal at VA 0x0088b9f4).
     Dhcp(bool),
+    /// A recovery renewal ([`super::WifiService::recover`]) failed; the association stays.
+    RenewalFailed,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

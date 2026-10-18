@@ -53,11 +53,13 @@ use tetrad_services::cloud::session::{TokenStore, TokenStoreError, Tokens};
 use tetrad_services::cloud::signing::{ClientIdBytes, SharcSigner, SigningMaterial};
 use tetrad_services::cloud::{ClientType, DeviceIdentity};
 use tetrad_services::dhcp::{self, AppliedLease, DhcpError};
-use tetrad_services::exec::{CancelToken, CommandError, FileError, Files, NetError, Secret};
+use tetrad_services::exec::{
+    CancelToken, CommandError, CommandRunner, FileError, Files, NetError, Secret,
+};
 use tetrad_services::http::{BackupsOp, HttpClient, HttpError, HttpRequest, Method, Route};
 use tetrad_services::internet::{
     InternetManager, InternetNotice, InternetProbe, InternetResult, InternetStatus, InternetWork,
-    STOCK_NTP_WAIT, STOCK_PROBE_TIMEOUT, STOCK_RECHECK_INTERVAL, TimeSync,
+    Recovery, RecoveryStep, STOCK_NTP_WAIT, STOCK_PROBE_TIMEOUT, STOCK_RECHECK_INTERVAL, TimeSync,
 };
 use tetrad_services::updater::cloud::{CheckOutcome, UpdateError, UpdateOffer, download_update};
 use tetrad_services::updater::install::{
@@ -66,7 +68,7 @@ use tetrad_services::updater::install::{
 use tetrad_services::updater::paths;
 use tetrad_services::updater::state::{UpdaterState, UpdaterStatus};
 use tetrad_services::wifi::events::{
-    STOCK_ASSOCIATION_TIMEOUT_MS, WifiNotice, WifiStatus as LinkStatus,
+    STOCK_ASSOCIATION_TIMEOUT_MS, WifiAction, WifiNotice, WifiStatus as LinkStatus,
 };
 use tetrad_services::wifi::scan::{SavedNetwork, ScanEntry, Security};
 use tetrad_services::wifi::{self, DhcpRun, Step, SupplicantLink, WifiError, WifiService};
@@ -762,8 +764,9 @@ impl Services {
         .collect())
     }
 
-    /// Wi-Fi association timers, the internet recheck and NTP retry as worker jobs, the signing
-    /// batch, licence timers and a due update check. Never waits for the network.
+    /// Wi-Fi association timers, the internet recheck and NTP retry as worker jobs, a due
+    /// internet recovery step, the signing batch, licence timers and a due update check. Never
+    /// waits for the network.
     pub fn tick(
         &mut self,
         backends: &mut impl ServiceBackends,
@@ -777,6 +780,7 @@ impl Services {
         let notices = self.internet.set_check_disabled(disabled, millis(now));
         effects.extend(self.internet_effects(&notices, now));
         effects.extend(self.internet_jobs(now));
+        effects.extend(self.recover_internet(io.supplicant, io.runner, io.files, now));
         effects.extend(self.finish_batch(settings, now));
         effects.extend(self.expire_batch(io.files, settings, now));
         effects.extend(self.expire_stamp(now));

@@ -28,6 +28,48 @@ impl Services {
             .map(|work| Effect::Service(ServiceJob::Internet(work)))
     }
 
+    /// The owned internet recovery ([`InternetManager::recovery_due`]) as Wi-Fi actions: a DHCP
+    /// renewal, `REASSOCIATE`, then `REASSOCIATE` and the interface reset. The second
+    /// `REASSOCIATE` ends a `DISCONNECT` that the stock DHCP rule sends after four failed runs
+    /// (step 2 can cause one), so the supplicant connects again when the interface is up; it
+    /// comes before the reset, because the supplicant refuses it while the interface is down.
+    /// Never during a CorOS install or without a saved network. Each step is logged once, with
+    /// the wlan0 counters when they can be read. No driver reload: stock never unloads
+    /// `wilc-spi`, and a new supplicant would leave the attached monitor on the old socket.
+    pub(super) fn recover_internet(
+        &mut self,
+        link: &mut impl SupplicantLink,
+        runner: &mut impl CommandRunner,
+        files: &mut impl Files,
+        now: Duration,
+    ) -> Vec<Effect> {
+        if self.installing() || self.saved.is_empty() {
+            return Vec::new();
+        }
+        let Some(Recovery { step, lost_for }) = self.internet.recovery_due(millis(now)) else {
+            return Vec::new();
+        };
+        let actions = match step {
+            RecoveryStep::RenewLease => vec![WifiAction::StartDhcp],
+            RecoveryStep::Reassociate => vec![WifiAction::Reassociate],
+            RecoveryStep::ResetInterface => {
+                vec![WifiAction::Reassociate, WifiAction::ResetInterface]
+            }
+        };
+        let counters = wifi::link_counters(files)
+            .map(|counters| format!("; wlan0 {counters}"))
+            .unwrap_or_default();
+        let mut effects = vec![notice(format!(
+            "internet lost for {} s: recovery {step}{counters}",
+            lost_for.as_secs()
+        ))];
+        match self.wifi.recover(link, runner, actions) {
+            Ok(wifi_step) => effects.extend(self.wifi_step(wifi_step, now)),
+            Err(error) => effects.push(notice(format!("recovery {step} failed: {error}"))),
+        }
+        effects
+    }
+
     /// Scan results are read when the supplicant reports them (stock `0x0088c000`); the saved
     /// list follows each scan and association change.
     pub(super) fn refresh_lists(
@@ -76,7 +118,13 @@ impl Services {
                     let lease = self
                         .wifi
                         .lease()
-                        .map(|l| format!("DHCP lease {}/{}", l.address, l.prefix_len))
+                        .map(|l| {
+                            let time = l
+                                .lease_seconds
+                                .map(|s| format!(", lease time {s} s"))
+                                .unwrap_or_default();
+                            format!("DHCP lease {}/{}{time}", l.address, l.prefix_len)
+                        })
                         .unwrap_or_else(|| "DHCP lease".to_owned());
                     effects.push(notice(lease));
                     effects.extend(self.link_changed(true, now));
@@ -85,6 +133,9 @@ impl Services {
                 WifiNotice::Dhcp(false) => {
                     effects.extend(self.link_changed(false, now));
                     "DHCP failed".to_owned()
+                }
+                WifiNotice::RenewalFailed => {
+                    "DHCP renewal failed; the association stays".to_owned()
                 }
             };
             effects.push(notice(text));
@@ -147,6 +198,7 @@ impl Services {
     ) -> Result<u32, ServiceError> {
         self.alert = None;
         self.joining = Some(ssid.to_owned());
+        self.internet.stop_recovery();
         let link = backends.supplicant();
         let id = self.wifi.connect(link, ssid, passphrase, millis(now))?;
         self.saved = wifi::saved_networks(link)?;
@@ -174,6 +226,7 @@ impl Services {
 
     /// Leave the joined network (stock cell tap `0x5d4834`).
     pub fn disconnect(&mut self, backends: &mut impl ServiceBackends) -> Result<(), ServiceError> {
+        self.internet.stop_recovery();
         Ok(wifi::disconnect(backends.supplicant())?)
     }
 
@@ -191,6 +244,7 @@ impl Services {
         link: &mut impl SupplicantLink,
         id: Option<u32>,
     ) -> Result<(), WifiError> {
+        self.internet.stop_recovery();
         wifi::forget(link, id)?;
         self.saved = wifi::saved_networks(link)?;
         Ok(())

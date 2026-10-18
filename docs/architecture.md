@@ -76,7 +76,9 @@ the stock SHARC DSP firmware that is on the unit.
 1. **Launcher.** The boot hook runs `tetrad-launch.sh`. It checks the armed binary, the start counter
    and the factory files, shows the boot selector, and runs `tetrad run`
    ([launcher.md](launcher.md)).
-2. **Firmware check.** `tetrad-firmware` hashes `/opt/neuraldsp/ZenUI` and
+2. **Firmware check.** `tetrad run` first names its process `ZenUI`: ZenWatchdog restarts the
+   unit after about 3 s without one, and the hash takes a few seconds. `tetrad bringup` and
+   `tetrad select` also take the name first. `tetrad-firmware` hashes `/opt/neuraldsp/ZenUI` and
    `/usr/bin/loadsharc_SC589`. A build without a complete profile exits 4 before anything opens.
    Else it selects the profile for the process.
 3. **Platform.** `tetrad-app` `device/linux.rs` opens the nodes through `tetrad-sys`: the framebuffer,
@@ -99,6 +101,23 @@ the stock SHARC DSP firmware that is on the unit.
    framebuffer), LED writes, file writes, service jobs.
 8. **Power action.** On restart or power off, `tetrad-watchdog` gives the stock teardown order.
    `tetrad` exits 0.
+
+## Wi-Fi recovery
+
+Stock only reports a lost internet. Tetrad also recovers the link, because a Wi-Fi link once
+stayed associated but passed no traffic until a restart. The internet probe (a TCP connect to
+8.8.8.8:53 or 8.8.4.4:53 every 5 s) starts the recovery when it finds the internet lost on a
+link that had it. Then, 60 s apart:
+
+1. a new DHCP run (`udhcpc`); a failure keeps the association;
+2. `REASSOCIATE` to the supplicant;
+3. `REASSOCIATE` and the interface reset (`ifconfig wlan0 down`, then `up`); this step repeats
+   every 10 min.
+
+A connected probe ends the recovery, and so do a Wi-Fi connect, disconnect or forget and a
+disabled connection check. No step runs during a CorOS install or without a saved network.
+Each step writes one log line with the wlan0 packet and error counters. The DHCP log line has
+the lease time.
 
 ## Offline tools
 

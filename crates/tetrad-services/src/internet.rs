@@ -1,7 +1,9 @@
 //! Internet reachability probe and NTP time set: the ZenUI internet manager (constructor VA
 //! 0x004af280), its TCP "ping" worker (0x004af778, 0x004b1cd4) and time worker (0x004b2a38,
-//! 0x004b23e4, 0x004b271c).
+//! 0x004b23e4, 0x004b271c). The link recovery ([`RecoveryStep`]) is owned: stock only reports
+//! the status.
 
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
@@ -31,6 +33,11 @@ pub const NTP_FAILURE_CODE: i32 = 99;
 pub const NTP_PACKET_LEN: usize = 48;
 /// Owned: how many IPv4 addresses of one pool host an NTP attempt tries.
 pub const NTP_ADDRESSES: usize = 4;
+/// Owned: how long the internet may stay lost on a link that had it before the first recovery
+/// step, the gap to the next step, and the wait for a probe after the link comes back.
+pub const RECOVERY_DELAY: Duration = Duration::from_secs(60);
+/// Owned: the gap between repeats of the last recovery step.
+pub const RECOVERY_REPEAT: Duration = Duration::from_secs(600);
 /// Seconds from 1900-01-01 to 1970-01-01. Stock adds `0x7c558180`, its two's complement.
 const NTP_UNIX_OFFSET: i64 = 2_208_988_800;
 
@@ -279,6 +286,58 @@ pub enum InternetNotice {
     FirstTimeSync,
 }
 
+/// Owned link recovery. On CorOS 4.1.0 the Wi-Fi link once stayed associated but passed no IP
+/// traffic until a restart; stock (and Tetrad before) only reported the lost internet. The steps
+/// run in this order, [`RECOVERY_DELAY`] apart; the last one repeats every
+/// [`RECOVERY_REPEAT`] while the internet stays lost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RecoveryStep {
+    /// A new DHCP run on the same association.
+    RenewLease = 1,
+    /// The supplicant makes the association again.
+    Reassociate = 2,
+    /// The interface goes down and up. I: the upstream WILC driver loads the chip firmware
+    /// again when the interface opens.
+    ResetInterface = 3,
+}
+
+impl RecoveryStep {
+    fn next(self) -> (Self, Duration) {
+        match self {
+            Self::RenewLease => (Self::Reassociate, RECOVERY_DELAY),
+            Self::Reassociate => (Self::ResetInterface, RECOVERY_DELAY),
+            Self::ResetInterface => (Self::ResetInterface, RECOVERY_REPEAT),
+        }
+    }
+}
+
+impl fmt::Display for RecoveryStep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text = match self {
+            Self::RenewLease => "renew the DHCP lease",
+            Self::Reassociate => "reassociate",
+            Self::ResetInterface => "reset the interface",
+        };
+        write!(f, "step {} ({text})", *self as u8)
+    }
+}
+
+/// A due [`RecoveryStep`] and how long the internet has been lost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Recovery {
+    pub step: RecoveryStep,
+    pub lost_for: Duration,
+}
+
+/// The running recovery: when the internet was lost, the next step and its time.
+#[derive(Debug, Clone, Copy)]
+struct Ladder {
+    lost_ms: u64,
+    next: RecoveryStep,
+    due_ms: u64,
+}
+
 /// Blocking internet work. [`InternetManager::due`] hands it out, a worker runs it with
 /// [`InternetWork::run`], and [`InternetManager::finish`] takes the result back, so the event
 /// loop never waits for the probe (up to [`STOCK_PROBE_TIMEOUT`]) or NTP (up to
@@ -328,11 +387,16 @@ impl InternetWork {
     }
 }
 
-/// Probe and time-sync scheduling over an associated link with a lease.
+/// Probe and time-sync scheduling over an associated link with a lease, and the owned link
+/// recovery.
 ///
 /// Stock retries NTP until the first success, each failure delayed by [`NTP_FAILURE_DELAY`]
 /// (VA 0x004af488 restarts the worker). Probes repeat every `recheck` while the link is up.
 /// At most one probe and one sync are in flight; NTP starts only after a probe connected.
+///
+/// The recovery starts when a probe finds the internet lost on a link that had it (status
+/// Connected to Disconnected), with the check on. A connected probe, a disabled check or
+/// [`Self::stop_recovery`] ends it. Link changes do not: its own steps take the link down.
 #[derive(Debug, Clone)]
 pub struct InternetManager {
     pub probe: InternetProbe,
@@ -347,6 +411,7 @@ pub struct InternetManager {
     syncing: bool,
     /// `DisableConnectionCheck` (settings `+0x8c`, getter 0x0064e628).
     check_disabled: bool,
+    ladder: Option<Ladder>,
 }
 
 impl InternetManager {
@@ -363,6 +428,7 @@ impl InternetManager {
             probing: false,
             syncing: false,
             check_disabled: false,
+            ladder: None,
         }
     }
 
@@ -374,6 +440,9 @@ impl InternetManager {
             return Vec::new();
         }
         self.check_disabled = disabled;
+        if disabled {
+            self.ladder = None;
+        }
         self.set_link(self.link_up, now_ms)
     }
 
@@ -385,10 +454,16 @@ impl InternetManager {
         self.time_synced
     }
 
-    /// Wi-Fi association plus DHCP lease. Going down reports Disconnected at once.
+    /// Wi-Fi association plus DHCP lease. Going down reports Disconnected at once. A link that
+    /// comes back gives the probe [`RECOVERY_DELAY`] before the next recovery step.
     pub fn set_link(&mut self, up: bool, now_ms: u64) -> Vec<InternetNotice> {
         self.link_up = up;
         self.next_probe_ms = now_ms;
+        if let Some(ladder) = self.ladder.as_mut().filter(|_| up) {
+            ladder.due_ms = ladder
+                .due_ms
+                .max(now_ms.saturating_add(RECOVERY_DELAY.as_millis() as u64));
+        }
         self.set_status(match (up, self.check_disabled) {
             (false, _) => InternetStatus::Disconnected,
             (true, true) => InternetStatus::Connected,
@@ -456,10 +531,18 @@ impl InternetManager {
                 if !self.link_up || self.check_disabled {
                     return Vec::new();
                 }
-                self.set_status(match result {
-                    Ok(_) => InternetStatus::Connected,
-                    Err(_) => InternetStatus::Disconnected,
-                })
+                if result.is_ok() {
+                    self.ladder = None;
+                    return self.set_status(InternetStatus::Connected);
+                }
+                if self.status == InternetStatus::Connected {
+                    self.ladder = Some(Ladder {
+                        lost_ms: now_ms,
+                        next: RecoveryStep::RenewLease,
+                        due_ms: now_ms.saturating_add(RECOVERY_DELAY.as_millis() as u64),
+                    });
+                }
+                self.set_status(InternetStatus::Disconnected)
             }
             // `0x4af488`: the first success since start signals once (`+0x24` was clear); an
             // NTP result and a Control time set may both arrive.
@@ -476,6 +559,29 @@ impl InternetManager {
                 vec![InternetNotice::TimeFailed(error)]
             }
         }
+    }
+
+    /// The recovery step due now, if any; the next one is then scheduled. It does not need the
+    /// link: a reset can leave the link down, and the reset repeats then too. The caller skips
+    /// what cannot run (a lease without an association).
+    pub fn recovery_due(&mut self, now_ms: u64) -> Option<Recovery> {
+        let ladder = self
+            .ladder
+            .as_mut()
+            .filter(|ladder| now_ms >= ladder.due_ms)?;
+        let step = ladder.next;
+        let (next, wait) = step.next();
+        ladder.next = next;
+        ladder.due_ms = now_ms.saturating_add(wait.as_millis() as u64);
+        Some(Recovery {
+            step,
+            lost_for: Duration::from_millis(now_ms.saturating_sub(ladder.lost_ms)),
+        })
+    }
+
+    /// Ends the recovery: the user changed the Wi-Fi (connect, disconnect, forget).
+    pub fn stop_recovery(&mut self) {
+        self.ladder = None;
     }
 
     /// Runs whatever is due on the calling thread, to the end. Blocks for the probe and the NTP
@@ -749,5 +855,87 @@ mod tests {
         assert!(manager.finish(failed, 20_001).is_empty());
         assert!(manager.due(20_002).is_empty(), "no NTP while unreachable");
         assert_eq!(manager.probe.target().to_string(), "8.8.4.4:53");
+    }
+
+    fn manager() -> InternetManager {
+        InternetManager::new(
+            InternetProbe::new(STOCK_PROBE_TIMEOUT),
+            TimeSync::new(STOCK_NTP_WAIT),
+            STOCK_RECHECK_INTERVAL,
+        )
+    }
+
+    /// Runs the probe due at `now_ms` with the given result.
+    fn probe(manager: &mut InternetManager, connected: bool, now_ms: u64) {
+        let work = manager.due(now_ms);
+        let Some(InternetWork::Probe { target, .. }) = work.first() else {
+            panic!("no probe due at {now_ms}: {work:?}");
+        };
+        let result = connected.then_some(*target).ok_or(ProbeError {
+            target: *target,
+            cause: NetError::Timeout,
+        });
+        manager.finish(InternetResult::Probe(result), now_ms);
+    }
+
+    fn step_at(manager: &mut InternetManager, now_ms: u64) -> Option<RecoveryStep> {
+        manager.recovery_due(now_ms).map(|recovery| recovery.step)
+    }
+
+    /// The internet is lost on a link that had it: one step 60 s later, the next two 60 s
+    /// apart, then the interface reset every 10 min. A link that comes back gives the probe
+    /// 60 s; a connected probe ends the recovery.
+    #[test]
+    fn recovery_steps_follow_a_lost_internet() {
+        use RecoveryStep::*;
+        let mut manager = manager();
+        manager.set_link(true, 0);
+        probe(&mut manager, true, 0);
+        assert_eq!(step_at(&mut manager, 1_000_000), None, "never lost");
+        probe(&mut manager, false, 5_000);
+        assert_eq!(step_at(&mut manager, 64_999), None);
+        assert_eq!(
+            manager.recovery_due(65_000),
+            Some(Recovery {
+                step: RenewLease,
+                lost_for: Duration::from_secs(60)
+            })
+        );
+        assert_eq!(step_at(&mut manager, 65_000), None, "once");
+        assert_eq!(step_at(&mut manager, 124_999), None);
+        assert_eq!(step_at(&mut manager, 125_000), Some(Reassociate));
+        assert_eq!(step_at(&mut manager, 185_000), Some(ResetInterface));
+        assert_eq!(step_at(&mut manager, 784_999), None);
+        assert_eq!(step_at(&mut manager, 785_000), Some(ResetInterface));
+        // The reset takes the link down; the recovery goes on, and it needs no link.
+        manager.set_link(false, 786_000);
+        assert_eq!(step_at(&mut manager, 1_385_000), Some(ResetInterface));
+        // The link comes back 30 s before the next reset: the probe gets 60 s.
+        manager.set_link(true, 1_955_000);
+        assert_eq!(step_at(&mut manager, 1_985_000), None);
+        assert_eq!(step_at(&mut manager, 2_015_000), Some(ResetInterface));
+        probe(&mut manager, true, 2_016_000);
+        assert_eq!(step_at(&mut manager, 100_000_000), None);
+    }
+
+    /// No recovery for a link that never reached the internet; a disabled check and a user
+    /// Wi-Fi action end a running one.
+    #[test]
+    fn recovery_needs_a_lost_internet_and_the_check() {
+        let mut manager = manager();
+        manager.set_link(true, 0);
+        probe(&mut manager, false, 0);
+        assert_eq!(step_at(&mut manager, 1_000_000), None, "never connected");
+
+        probe(&mut manager, true, 1_000_000);
+        probe(&mut manager, false, 1_005_000);
+        manager.set_check_disabled(true, 1_006_000);
+        manager.set_check_disabled(false, 1_007_000);
+        assert_eq!(step_at(&mut manager, 2_000_000), None, "check disabled");
+
+        probe(&mut manager, true, 2_000_000);
+        probe(&mut manager, false, 2_005_000);
+        manager.stop_recovery();
+        assert_eq!(step_at(&mut manager, 3_000_000), None, "user action");
     }
 }

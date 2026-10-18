@@ -5,6 +5,14 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ## Unreleased
 
+### Added
+
+- Wi-Fi recovery: when the internet probe finds the internet lost on a link that had it, Tetrad
+  renews the DHCP lease after 60 s, sends `REASSOCIATE` after 120 s, and resets the interface
+  after 180 s and then every 10 min, until a probe connects (docs/architecture.md). Before, a
+  link that stayed associated but passed no traffic needed a restart.
+- The DHCP log line has the lease time.
+
 ### Changed
 
 - `scripts/bringup/tetrad-host.sh`: `TD_SETLIST` selects the setlist that `presets` copies from

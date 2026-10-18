@@ -25,6 +25,15 @@ pub const CONTROL_SOCKET: &str = "/var/run/wpa_supplicant/wlan0";
 pub const TERMINATE_WAIT_MS: u64 = 60;
 /// Owned bound on `BSS <i>` requests per scan.
 pub const MAX_BSS: u32 = 256;
+/// The interface counters [`link_counters`] reads (`/sys/class/net/wlan0/statistics`).
+const COUNTERS: [&str; 6] = [
+    "rx_packets",
+    "tx_packets",
+    "rx_errors",
+    "tx_errors",
+    "rx_dropped",
+    "tx_dropped",
+];
 
 /// One supplicant control connection (tetrad-sys `supplicant::Transport` in production). Commands
 /// can carry a derived PSK; implementations must not log them.
@@ -101,6 +110,21 @@ pub fn mac_address(files: &mut impl Files) -> Result<Option<String>, FileError> 
     Ok(files
         .read(Path::new("/sys/class/net/wlan0/address"))?
         .map(|b| String::from_utf8_lossy(&b).trim().to_owned()))
+}
+
+/// The wlan0 packet and error counters as `name value` pairs, for the recovery log (owned).
+/// `None` when one cannot be read.
+pub fn link_counters(files: &mut impl Files) -> Option<String> {
+    let pairs = COUNTERS.map(|name| {
+        let path = format!("/sys/class/net/{INTERFACE}/statistics/{name}");
+        let text = files.read(Path::new(&path)).ok()??;
+        let value: u64 = String::from_utf8_lossy(&text).trim().parse().ok()?;
+        Some(format!("{name} {value}"))
+    });
+    pairs
+        .into_iter()
+        .collect::<Option<Vec<_>>>()
+        .map(|pairs| pairs.join(" "))
 }
 
 fn run(runner: &mut impl CommandRunner, program: &str, args: &[&str]) -> Result<(), WifiError> {
@@ -192,6 +216,8 @@ pub struct WifiService {
     scan: Vec<ScanEntry>,
     dhcp_runs: u32,
     pending_dhcp: Option<DhcpRun>,
+    /// The last run [`Self::recover`] started: its failure keeps the association.
+    renewal: Option<DhcpRun>,
 }
 
 impl WifiService {
@@ -203,6 +229,7 @@ impl WifiService {
             scan: Vec::new(),
             dhcp_runs: 0,
             pending_dhcp: None,
+            renewal: None,
         }
     }
 
@@ -380,9 +407,42 @@ impl WifiService {
             return Ok(Step::default());
         }
         self.pending_dhcp = None;
+        if self.renewal.take() == Some(run) && result.is_err() {
+            return Ok(Step {
+                notices: vec![WifiNotice::RenewalFailed],
+                dhcp: None,
+            });
+        }
         self.lease = result.as_ref().ok().copied();
         let reaction = self.association.on_dhcp(result.is_ok());
         self.execute(link, runner, reaction)
+    }
+
+    /// The actions of one owned internet recovery step (`internet::RecoveryStep`), in order.
+    /// A DHCP run needs the association and no run in flight, else nothing happens. That run
+    /// is a renewal: when it fails, the old lease and the association stay, with no stock retry
+    /// and no `DISCONNECT` (which would end the link until a user action);
+    /// [`WifiNotice::RenewalFailed`] reports it.
+    pub fn recover(
+        &mut self,
+        link: &mut impl SupplicantLink,
+        runner: &mut impl CommandRunner,
+        actions: Vec<WifiAction>,
+    ) -> Result<Step, WifiError> {
+        if actions.contains(&WifiAction::StartDhcp)
+            && (!self.association.is_associated() || self.pending_dhcp.is_some())
+        {
+            return Ok(Step::default());
+        }
+        let reaction = Reaction {
+            actions,
+            notices: Vec::new(),
+        };
+        let step = self.execute(link, runner, reaction)?;
+        if step.dhcp.is_some() {
+            self.renewal = step.dhcp;
+        }
+        Ok(step)
     }
 
     /// Run actions in order. `StartDhcp` is not run here; it becomes [`Step::dhcp`].
@@ -425,6 +485,7 @@ impl WifiService {
                     expect_ok(link, "SAVE_CONFIG", "SAVE_CONFIG")?;
                 }
                 WifiAction::Disconnect => expect_ok(link, "DISCONNECT", "DISCONNECT")?,
+                WifiAction::Reassociate => expect_ok(link, "REASSOCIATE", "REASSOCIATE")?,
             }
         }
         Ok(step)

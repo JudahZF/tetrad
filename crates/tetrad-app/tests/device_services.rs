@@ -410,7 +410,7 @@ fn association_runs_dhcp_job_then_lease_brings_internet_up() {
     assert_eq!(
         lines[..3],
         [
-            "DHCP lease 192.0.2.40/24",
+            "DHCP lease 192.0.2.40/24, lease time 600 s",
             "internet reachable",
             "time set from NTP"
         ]
@@ -1056,6 +1056,175 @@ fn recheck_waits_for_interval_then_reports_lost_internet() {
     let late = services.tick(&mut b, &mut settings, ms(5_000)).unwrap();
     let late = settle(&mut services, &mut b, &mut settings, late, ms(5_000));
     assert!(texts(&late).contains(&"internet unreachable".to_owned()));
+}
+
+/// One service tick with every job it starts run to the end (probes included); the notice
+/// lines of the internet recovery.
+fn recovery_tick(
+    services: &mut Services,
+    b: &mut Backends,
+    settings: &mut DeviceSettings,
+    now: u64,
+) -> Vec<String> {
+    let effects = services.tick(b, settings, ms(now)).unwrap();
+    let effects = settle(services, b, settings, effects, ms(now));
+    texts(&effects)
+        .into_iter()
+        .filter(|line| line.contains("recovery") || line.contains("renewal"))
+        .collect()
+}
+
+/// Association with a saved network, a lease and a connected probe at 0 ms; the probe at 5 s
+/// finds the internet lost while the link stays associated (CorOS 4.1.0, 2026-10-17).
+fn internet_lost() -> (Services, Backends, DeviceSettings) {
+    let mut services = Services::new();
+    let mut b = Backends::default();
+    let mut settings = settings();
+    let effects = services
+        .on_notice(
+            &mut b,
+            ServiceNotice::Supplicant(CONNECTED.into()),
+            &mut settings,
+            ms(0),
+        )
+        .unwrap();
+    b.runner
+        .expect(
+            "udhcpc --now --quit -i wlan0",
+            Ok(Output::code(0)
+                .with_stdout("udhcpc: Lease of 192.0.2.40 obtained, lease time 600\n")),
+        )
+        .expect(
+            "ifconfig wlan0",
+            Ok(Output::code(0).with_stdout(
+                "          inet addr:192.0.2.40  Bcast:192.0.2.255  Mask:255.255.255.0\n",
+            )),
+        )
+        .expect("route -n", Ok(Output::code(0)));
+    internet_up(&mut b);
+    settle(&mut services, &mut b, &mut settings, effects, ms(0));
+    let effects = services.tick(&mut b, &mut settings, ms(5_000)).unwrap();
+    let lines = texts(&settle(
+        &mut services,
+        &mut b,
+        &mut settings,
+        effects,
+        ms(5_000),
+    ));
+    assert!(
+        lines.contains(&"internet unreachable".to_owned()),
+        "{lines:?}"
+    );
+    assert!(b.runner.is_done());
+    (services, b, settings)
+}
+
+/// The recovery steps as Wi-Fi actions: a DHCP renewal 60 s after the loss (its failure keeps
+/// the association: no `DISCONNECT`), `REASSOCIATE` 60 s later, then `REASSOCIATE` and the
+/// interface reset, again every 10 min. Each step is logged once with the wlan0 counters. A
+/// connected probe ends it.
+#[test]
+fn a_lost_internet_runs_the_recovery_steps_as_wifi_actions() {
+    let (mut services, mut b, mut settings) = internet_lost();
+    let stats = "/sys/class/net/wlan0/statistics";
+    for (name, value) in [
+        ("rx_packets", "10"),
+        ("tx_packets", "20"),
+        ("rx_errors", "0"),
+        ("tx_errors", "3"),
+        ("rx_dropped", "0"),
+        ("tx_dropped", "1"),
+    ] {
+        b.files
+            .put(&format!("{stats}/{name}"), format!("{value}\n"));
+    }
+    assert!(recovery_tick(&mut services, &mut b, &mut settings, 64_999).is_empty());
+
+    b.runner
+        .expect("udhcpc --now --quit -i wlan0", Ok(Output::code(1)));
+    assert_eq!(
+        recovery_tick(&mut services, &mut b, &mut settings, 65_000),
+        [
+            "internet lost for 60 s: recovery step 1 (renew the DHCP lease); wlan0 rx_packets 10 \
+             tx_packets 20 rx_errors 0 tx_errors 3 rx_dropped 0 tx_dropped 1",
+            "DHCP renewal failed; the association stays",
+        ]
+    );
+    assert!(!b.link.sent.contains(&"DISCONNECT".to_owned()));
+    assert!(recovery_tick(&mut services, &mut b, &mut settings, 124_999).is_empty());
+
+    let lines = recovery_tick(&mut services, &mut b, &mut settings, 125_000);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("internet lost for 120 s: recovery step 2 (reassociate);"));
+    assert_eq!(b.link.sent.last().map(String::as_str), Some("REASSOCIATE"));
+    b.link.sent.clear();
+
+    for (now, lost) in [(185_000, 180), (785_000, 780)] {
+        b.runner
+            .expect_ok("ifconfig wlan0 down")
+            .expect_ok("ifconfig wlan0 up");
+        let lines = recovery_tick(&mut services, &mut b, &mut settings, now);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with(&format!(
+                "internet lost for {lost} s: recovery step 3 (reset the interface);"
+            )),
+            "{lines:?}"
+        );
+        assert!(b.runner.is_done(), "at {now}");
+        assert_eq!(b.link.sent.last().map(String::as_str), Some("REASSOCIATE"));
+        b.link.sent.clear();
+        assert!(recovery_tick(&mut services, &mut b, &mut settings, now + 1).is_empty());
+    }
+
+    b.net.tcp.push_back(Ok(()));
+    let effects = services.tick(&mut b, &mut settings, ms(790_000)).unwrap();
+    let lines = texts(&settle(
+        &mut services,
+        &mut b,
+        &mut settings,
+        effects,
+        ms(790_000),
+    ));
+    assert!(
+        lines.contains(&"internet reachable".to_owned()),
+        "{lines:?}"
+    );
+    assert!(recovery_tick(&mut services, &mut b, &mut settings, 10_000_000).is_empty());
+}
+
+/// No recovery step during a CorOS install (the step waits for its end), and none after the
+/// user leaves the network.
+#[test]
+fn the_recovery_waits_for_an_install_and_ends_on_a_user_disconnect() {
+    let (mut services, mut b, mut settings) = internet_lost();
+    services
+        .on_notice(
+            &mut b,
+            ServiceNotice::Download(Ok(())),
+            &mut settings,
+            ms(6_000),
+        )
+        .unwrap();
+    services.install().unwrap();
+    assert!(recovery_tick(&mut services, &mut b, &mut settings, 65_000).is_empty());
+
+    services
+        .on_notice(
+            &mut b,
+            ServiceNotice::Install(Err(JobError::WorkerStopped)),
+            &mut settings,
+            ms(70_000),
+        )
+        .unwrap();
+    b.runner
+        .expect("udhcpc --now --quit -i wlan0", Ok(Output::code(1)));
+    let lines = recovery_tick(&mut services, &mut b, &mut settings, 70_001);
+    assert!(lines[0].contains("recovery step 1"), "{lines:?}");
+
+    services.disconnect(&mut b).unwrap();
+    assert!(recovery_tick(&mut services, &mut b, &mut settings, 10_000_000).is_empty());
+    assert!(b.runner.is_done());
 }
 
 #[test]
