@@ -1,0 +1,76 @@
+# Build the Tetrad device program `tetrad` for the Quad Cortex with the public toolchain in
+# qc-dev/ (https://github.com/JudahZF/tetrad-toolchain) and, for a `v*` tag, publish a GitHub
+# release with:
+#   tetrad, tetrad.sha256             the ARM binary and its SHA-256
+#   tetrad-<tag>-armv7.tar.gz (+ .sha256)  the layout that scripts/install.sh expects
+# A manual run (workflow_dispatch) builds and uploads a workflow artifact only.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tetrad-arm:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tetrad (armv7 hard-float, glibc 2.18)
+        run: nix develop path:./qc-dev --command ./qc-dev/build-arm.sh . dist
+
+      - name: Check the ELF file
+        run: nix develop path:./qc-dev --command ./qc-dev/check-elf.sh dist/tetrad
+
+      - name: Make the release archive
+        env:
+          NAME: tetrad-${{ github.ref_name }}-armv7
+        run: |
+          mkdir -p "pkg/$NAME/bin" "pkg/$NAME/launcher" "pkg/$NAME/scripts" "pkg/$NAME/docs"
+          install -m 755 dist/tetrad "pkg/$NAME/bin/tetrad"
+          install -m 755 scripts/launcher/*.sh "pkg/$NAME/launcher/"
+          install -m 755 scripts/install.sh scripts/qc-ssh-proxy.py "pkg/$NAME/scripts/"
+          install -m 644 docs/install.md docs/launcher.md docs/updates.md "pkg/$NAME/docs/"
+          install -m 644 README.md CHANGELOG.md LICENSE "pkg/$NAME/"
+          tar -C pkg --owner=0 --group=0 --numeric-owner -czf "dist/$NAME.tar.gz" "$NAME"
+          (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          {
+            echo '```'
+            cat dist/tetrad.sha256 "dist/$NAME.tar.gz.sha256"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tetrad-armv7-glibc2.18
+          path: |
+            dist/tetrad
+            dist/tetrad.sha256
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+      - name: Publish the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=()
+          case $TAG in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag "${flags[@]}" \
+            --title "Tetrad $TAG" --notes "See CHANGELOG.md. Install: docs/install.md." \
+            dist/tetrad dist/tetrad.sha256 dist/*.tar.gz dist/*.tar.gz.sha256

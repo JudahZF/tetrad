@@ -1,0 +1,26 @@
+[package]
+name = "tetrad-sys"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libc.workspace = true
+thiserror.workspace = true
+tetrad-dsp-host.workspace = true
+tetrad-dsp-protocol.workspace = true
+tetrad-hal.workspace = true
+tetrad-loader.workspace = true
+tetrad-runtime.workspace = true
+tetrad-watchdog.workspace = true
+
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
+undocumented_unsafe_blocks = "warn"

@@ -1,0 +1,21 @@
+[package]
+name = "tetrad-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+# The XXTEA key words of the Version key exchange are zeroed on drop.
+zeroize.workspace = true
+tetrad-core.workspace = true
+tetrad-preset.workspace = true
+
+[dev-dependencies]
+tetrad-storage.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+[submodule "qcdsp"]
+	path = qcdsp
+	url = https://github.com/JudahZF/qcdsp.git
+[submodule "qc-dev"]
+	path = qc-dev
+	url = https://github.com/JudahZF/tetrad-toolchain.git

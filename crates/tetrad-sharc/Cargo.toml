@@ -1,0 +1,21 @@
+[package]
+name = "tetrad-sharc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Independent VISA vectors (stock-identical return, Type 15b/17a/19a).
+qc-asm = { path = "../../qcdsp/crates/qc-asm" }
+# qcdsp's generated blocks run on this crate's machine (tests/qcdsp_blocks.rs).
+qcdsp = { path = "../../qcdsp/crates/qcdsp" }
+qc-format.workspace = true

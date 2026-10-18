@@ -1,0 +1,21 @@
+[package]
+name = "tetrad-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tetrad-dsp-protocol.workspace = true
+tetrad-sharc.workspace = true
+tetrad-blocks.workspace = true
+
+[dev-dependencies]
+tetrad-dsp-host.workspace = true
+tetrad-loader.workspace = true
+
+[lints]
+workspace = true

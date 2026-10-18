@@ -1,0 +1,575 @@
+//! Recovered VA/length metadata only; no table contents.
+use super::{StockPayload, payload};
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Channel {
+    pub buffers: [StockPayload; 4],
+    pub words: [StockPayload; 2],
+}
+pub(super) const FORTIN: [Channel; 4] = [
+    Channel {
+        buffers: [
+            payload!(0xffa400 => 0x78),
+            payload!(0xfbba18 => 0x71c4, 0xfc2bdc => 0xee84),
+            payload!(0xff07a8 => 0x2200, 0xff29a8 => 0x2400),
+            payload!(0xff9ba8 => 0x200, 0xffa3a8 => 0x58, 0xff9da8 => 0x200),
+        ],
+        words: [payload!(0xf8f950 => 0x4), payload!(0xf8f950 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xffa4d0 => 0x78),
+            payload!(0xfd1a60 => 0x71c4, 0xfd8c24 => 0xee84),
+            payload!(0xff4da8 => 0x2200, 0xff6fa8 => 0x2400),
+            payload!(0xff9fa8 => 0x200, 0xffa478 => 0x58, 0xffa1a8 => 0x200),
+        ],
+        words: [payload!(0xf8f958 => 0x4), payload!(0xf8f958 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xffa5a0 => 0x78),
+            payload!(0xf8f988 => 0x71c4, 0xf96b4c => 0xee84),
+            payload!(0xfe7aa8 => 0x2280, 0xfe9d28 => 0x2400),
+            payload!(0xff93a8 => 0x200, 0xffa548 => 0x58, 0xff95a8 => 0x200),
+        ],
+        words: [payload!(0xf8f954 => 0x4), payload!(0xf8f954 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xffa670 => 0x78),
+            payload!(0xfa59d0 => 0x71c4, 0xfacb94 => 0xee84),
+            payload!(0xfec128 => 0x2280, 0xfee3a8 => 0x2400),
+            payload!(0xff97a8 => 0x200, 0xffa618 => 0x58, 0xff99a8 => 0x200),
+        ],
+        words: [payload!(0xf8f95c => 0x4), payload!(0xf8f95c => 0x4)],
+    },
+];
+pub(super) const DELUXE_NORMAL: [Channel; 3] = [
+    Channel {
+        buffers: [
+            payload!(0xb40468 => 0x78),
+            payload!(0xaf0890 => 0x71c4, 0xaf7a54 => 0xee84),
+            payload!(0xb32968 => 0x2300, 0xb34c68 => 0x2200),
+            payload!(0xb3f868 => 0x200, 0xb3fa68 => 0x200),
+        ],
+        words: [payload!(0xaf0850 => 0x4), payload!(0xaf0850 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xb404e0 => 0x78),
+            payload!(0xb068d8 => 0x71c4, 0xb0da9c => 0xee84),
+            payload!(0xb36e68 => 0x2300, 0xb39168 => 0x2200),
+            payload!(0xb3fc68 => 0x200, 0xb3fe68 => 0x200),
+        ],
+        words: [payload!(0xaf0854 => 0x4), payload!(0xaf0854 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xb40558 => 0x78),
+            payload!(0xb1c920 => 0x71c4, 0xb23ae4 => 0xee84),
+            payload!(0xb3b368 => 0x2300, 0xb3d668 => 0x2200),
+            payload!(0xb40068 => 0x200, 0xb40268 => 0x200),
+        ],
+        words: [payload!(0xaf0858 => 0x4), payload!(0xaf0858 => 0x4)],
+    },
+];
+pub(super) const DELUXE_VIBRATO: [Channel; 3] = [
+    Channel {
+        buffers: [
+            payload!(0xb901a8 => 0x78),
+            payload!(0xb405d0 => 0x71c4, 0xb47794 => 0xee84),
+            payload!(0xb826a8 => 0x2300, 0xb849a8 => 0x2200),
+            payload!(0xb8f5a8 => 0x200, 0xb8f7a8 => 0x200),
+        ],
+        words: [payload!(0xaf085c => 0x4), payload!(0xaf085c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xb90220 => 0x78),
+            payload!(0xb56618 => 0x71c4, 0xb5d7dc => 0xee84),
+            payload!(0xb86ba8 => 0x2300, 0xb88ea8 => 0x2200),
+            payload!(0xb8f9a8 => 0x200, 0xb8fba8 => 0x200),
+        ],
+        words: [payload!(0xaf0860 => 0x4), payload!(0xaf0860 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xb90298 => 0x78),
+            payload!(0xb6c660 => 0x71c4, 0xb73824 => 0xee84),
+            payload!(0xb8b0a8 => 0x2300, 0xb8d3a8 => 0x2200),
+            payload!(0xb8fda8 => 0x200, 0xb8ffa8 => 0x200),
+        ],
+        words: [payload!(0xaf0864 => 0x4), payload!(0xaf0864 => 0x4)],
+    },
+];
+pub(super) const CORY: [Channel; 4] = [
+    Channel {
+        buffers: [
+            payload!(0x10653b0 => 0x78),
+            payload!(0xffa890 => 0xee84, 0x1009714 => 0x71c4),
+            payload!(0x10108d8 => 0x2400, 0x1012cd8 => 0x2280),
+            payload!(0x1014f58 => 0x200, 0x1015158 => 0x200),
+        ],
+        words: [payload!(0xffa858 => 0x4), payload!(0xffa858 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x1065428 => 0x78),
+            payload!(0x102fe20 => 0xee84, 0x103eca4 => 0x71c4),
+            payload!(0x1045e68 => 0x2400, 0x1048268 => 0x2280),
+            payload!(0x104a4e8 => 0x200, 0x104a6e8 => 0x200),
+        ],
+        words: [payload!(0xffa85c => 0x4), payload!(0xffa85c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x10654a0 => 0x78),
+            payload!(0x1015358 => 0xee84, 0x10241dc => 0x71c4),
+            payload!(0x102b3a0 => 0x2400, 0x102d7a0 => 0x2280),
+            payload!(0x102fa20 => 0x200, 0x102fc20 => 0x200),
+        ],
+        words: [payload!(0xffa860 => 0x4), payload!(0xffa860 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x1065518 => 0x78),
+            payload!(0x104a8e8 => 0xee84, 0x105976c => 0x71c4),
+            payload!(0x1060930 => 0x2400, 0x1062d30 => 0x2280),
+            payload!(0x1064fb0 => 0x200, 0x10651b0 => 0x200),
+        ],
+        words: [payload!(0xffa864 => 0x4), payload!(0xffa864 => 0x4)],
+    },
+];
+pub(super) const ODS: [Channel; 32] = [
+    Channel {
+        buffers: [
+            payload!(0xc269c0 => 0x3c, 0xc27140 => 0x3c),
+            payload!(0xc27f68 => 0x14d48),
+            payload!(0xc3ccb0 => 0x4600),
+            payload!(0xc412b0 => 0x100, 0x153f2f0 => 0x14, 0xc414b0 => 0x58, 0xc413b0 => 0x100),
+        ],
+        words: [payload!(0xc278c0 => 0x4), payload!(0xc27940 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc269fc => 0x3c, 0xc2717c => 0x3c),
+            payload!(0xc41508 => 0x14d48),
+            payload!(0xc56250 => 0x4600),
+            payload!(0xc5a850 => 0x100, 0x153f304 => 0x14, 0xc5aa50 => 0x58, 0xc5a950 => 0x100),
+        ],
+        words: [payload!(0xc278c4 => 0x4), payload!(0xc27944 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26a38 => 0x3c, 0xc271b8 => 0x3c),
+            payload!(0xc5aaa8 => 0x14d48),
+            payload!(0xc6f7f0 => 0x4600),
+            payload!(0xc73df0 => 0x100, 0x153f318 => 0x14, 0xc73ff0 => 0x58, 0xc73ef0 => 0x100),
+        ],
+        words: [payload!(0xc278c8 => 0x4), payload!(0xc27948 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26a74 => 0x3c, 0xc271f4 => 0x3c),
+            payload!(0xc74048 => 0x14d48),
+            payload!(0xc88d90 => 0x4600),
+            payload!(0xc8d390 => 0x100, 0x153f32c => 0x14, 0xc8d590 => 0x58, 0xc8d490 => 0x100),
+        ],
+        words: [payload!(0xc278cc => 0x4), payload!(0xc2794c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26ab0 => 0x3c, 0xc27230 => 0x3c),
+            payload!(0xc8d5e8 => 0x14d48),
+            payload!(0xca2330 => 0x4600),
+            payload!(0xca6930 => 0x100, 0x153f340 => 0x14, 0xca6b30 => 0x58, 0xca6a30 => 0x100),
+        ],
+        words: [payload!(0xc278d0 => 0x4), payload!(0xc27950 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26aec => 0x3c, 0xc2726c => 0x3c),
+            payload!(0xca6b88 => 0x14d48),
+            payload!(0xcbb8d0 => 0x4600),
+            payload!(0xcbfed0 => 0x100, 0x153f354 => 0x14, 0xcc00d0 => 0x58, 0xcbffd0 => 0x100),
+        ],
+        words: [payload!(0xc278d4 => 0x4), payload!(0xc27954 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26b28 => 0x3c, 0xc272a8 => 0x3c),
+            payload!(0xcc0128 => 0x14d48),
+            payload!(0xcd4e70 => 0x4600),
+            payload!(0xcd9470 => 0x100, 0x153f368 => 0x14, 0xcd9670 => 0x58, 0xcd9570 => 0x100),
+        ],
+        words: [payload!(0xc278d8 => 0x4), payload!(0xc27958 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26b64 => 0x3c, 0xc272e4 => 0x3c),
+            payload!(0xcd96c8 => 0x14d48),
+            payload!(0xcee410 => 0x4600),
+            payload!(0xcf2a10 => 0x100, 0x153f37c => 0x14, 0xcf2c10 => 0x58, 0xcf2b10 => 0x100),
+        ],
+        words: [payload!(0xc278dc => 0x4), payload!(0xc2795c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26ba0 => 0x3c, 0xc27320 => 0x3c),
+            payload!(0xcf2c68 => 0x14d48),
+            payload!(0xd079b0 => 0x4600),
+            payload!(0xd0bfb0 => 0x100, 0x153f390 => 0x14, 0xd0c1b0 => 0x58, 0xd0c0b0 => 0x100),
+        ],
+        words: [payload!(0xc278e0 => 0x4), payload!(0xc27960 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26bdc => 0x3c, 0xc2735c => 0x3c),
+            payload!(0xd0c208 => 0x14d48),
+            payload!(0xd20f50 => 0x4600),
+            payload!(0xd25550 => 0x100, 0x153f3a4 => 0x14, 0xd25750 => 0x58, 0xd25650 => 0x100),
+        ],
+        words: [payload!(0xc278e4 => 0x4), payload!(0xc27964 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26c18 => 0x3c, 0xc27398 => 0x3c),
+            payload!(0xd257a8 => 0x14d48),
+            payload!(0xd3a4f0 => 0x4600),
+            payload!(0xd3eaf0 => 0x100, 0x153f3b8 => 0x14, 0xd3ecf0 => 0x58, 0xd3ebf0 => 0x100),
+        ],
+        words: [payload!(0xc278e8 => 0x4), payload!(0xc27968 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26c54 => 0x3c, 0xc273d4 => 0x3c),
+            payload!(0xd3ed48 => 0x14d48),
+            payload!(0xd53a90 => 0x4600),
+            payload!(0xd58090 => 0x100, 0x153f3cc => 0x14, 0xd58290 => 0x58, 0xd58190 => 0x100),
+        ],
+        words: [payload!(0xc278ec => 0x4), payload!(0xc2796c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26c90 => 0x3c, 0xc27410 => 0x3c),
+            payload!(0xd582e8 => 0x14d48),
+            payload!(0xd6d030 => 0x4600),
+            payload!(0xd71630 => 0x100, 0x153f3e0 => 0x14, 0xd71830 => 0x58, 0xd71730 => 0x100),
+        ],
+        words: [payload!(0xc278f0 => 0x4), payload!(0xc27970 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26ccc => 0x3c, 0xc2744c => 0x3c),
+            payload!(0xd71888 => 0x14d48),
+            payload!(0xd865d0 => 0x4600),
+            payload!(0xd8abd0 => 0x100, 0x153f3f4 => 0x14, 0xd8add0 => 0x58, 0xd8acd0 => 0x100),
+        ],
+        words: [payload!(0xc278f4 => 0x4), payload!(0xc27974 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26d08 => 0x3c, 0xc27488 => 0x3c),
+            payload!(0xd8ae28 => 0x14d48),
+            payload!(0xd9fb70 => 0x4600),
+            payload!(0xda4170 => 0x100, 0x153f408 => 0x14, 0xda4370 => 0x58, 0xda4270 => 0x100),
+        ],
+        words: [payload!(0xc278f8 => 0x4), payload!(0xc27978 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26d44 => 0x3c, 0xc274c4 => 0x3c),
+            payload!(0xda43c8 => 0x14d48),
+            payload!(0xdb9110 => 0x4600),
+            payload!(0xdbd710 => 0x100, 0x153f41c => 0x14, 0xdbd910 => 0x58, 0xdbd810 => 0x100),
+        ],
+        words: [payload!(0xc278fc => 0x4), payload!(0xc2797c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26d80 => 0x3c, 0xc27500 => 0x3c),
+            payload!(0xdbd968 => 0x14d48),
+            payload!(0xdd26b0 => 0x4700),
+            payload!(0xdd6db0 => 0x100, 0x153f430 => 0x14, 0xdd6fb0 => 0x58, 0xdd6eb0 => 0x100),
+        ],
+        words: [payload!(0xc27900 => 0x4), payload!(0xc27980 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26dbc => 0x3c, 0xc2753c => 0x3c),
+            payload!(0xdd7008 => 0x14d48),
+            payload!(0xdebd50 => 0x4700),
+            payload!(0xdf0450 => 0x100, 0x153f444 => 0x14, 0xdf0650 => 0x58, 0xdf0550 => 0x100),
+        ],
+        words: [payload!(0xc27904 => 0x4), payload!(0xc27984 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26df8 => 0x3c, 0xc27578 => 0x3c),
+            payload!(0xdf06a8 => 0x14d48),
+            payload!(0xe053f0 => 0x4700),
+            payload!(0xe09af0 => 0x100, 0x153f458 => 0x14, 0xe09cf0 => 0x58, 0xe09bf0 => 0x100),
+        ],
+        words: [payload!(0xc27908 => 0x4), payload!(0xc27988 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26e34 => 0x3c, 0xc275b4 => 0x3c),
+            payload!(0xe09d48 => 0x14d48),
+            payload!(0xe1ea90 => 0x4700),
+            payload!(0xe23190 => 0x100, 0x153f46c => 0x14, 0xe23390 => 0x58, 0xe23290 => 0x100),
+        ],
+        words: [payload!(0xc2790c => 0x4), payload!(0xc2798c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26e70 => 0x3c, 0xc275f0 => 0x3c),
+            payload!(0xe233e8 => 0x14d48),
+            payload!(0xe38130 => 0x4700),
+            payload!(0xe3c830 => 0x100, 0x153f480 => 0x14, 0xe3ca30 => 0x58, 0xe3c930 => 0x100),
+        ],
+        words: [payload!(0xc27910 => 0x4), payload!(0xc27990 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26eac => 0x3c, 0xc2762c => 0x3c),
+            payload!(0xe3ca88 => 0x14d48),
+            payload!(0xe517d0 => 0x4700),
+            payload!(0xe55ed0 => 0x100, 0x153f494 => 0x14, 0xe560d0 => 0x58, 0xe55fd0 => 0x100),
+        ],
+        words: [payload!(0xc27914 => 0x4), payload!(0xc27994 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26ee8 => 0x3c, 0xc27668 => 0x3c),
+            payload!(0xe56128 => 0x14d48),
+            payload!(0xe6ae70 => 0x4700),
+            payload!(0xe6f570 => 0x100, 0x153f4a8 => 0x14, 0xe6f770 => 0x58, 0xe6f670 => 0x100),
+        ],
+        words: [payload!(0xc27918 => 0x4), payload!(0xc27998 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26f24 => 0x3c, 0xc276a4 => 0x3c),
+            payload!(0xe6f7c8 => 0x14d48),
+            payload!(0xe84510 => 0x4700),
+            payload!(0xe88c10 => 0x100, 0x153f4bc => 0x14, 0xe88e10 => 0x58, 0xe88d10 => 0x100),
+        ],
+        words: [payload!(0xc2791c => 0x4), payload!(0xc2799c => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26f60 => 0x3c, 0xc276e0 => 0x3c),
+            payload!(0xe88e68 => 0x14d48),
+            payload!(0xe9dbb0 => 0x4700),
+            payload!(0xea22b0 => 0x100, 0x153f4d0 => 0x14, 0xea24b0 => 0x58, 0xea23b0 => 0x100),
+        ],
+        words: [payload!(0xc27920 => 0x4), payload!(0xc279a0 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26f9c => 0x3c, 0xc2771c => 0x3c),
+            payload!(0xea2508 => 0x14d48),
+            payload!(0xeb7250 => 0x4700),
+            payload!(0xebb950 => 0x100, 0x153f4e4 => 0x14, 0xebbb50 => 0x58, 0xebba50 => 0x100),
+        ],
+        words: [payload!(0xc27924 => 0x4), payload!(0xc279a4 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc26fd8 => 0x3c, 0xc27758 => 0x3c),
+            payload!(0xebbba8 => 0x14d48),
+            payload!(0xed08f0 => 0x4700),
+            payload!(0xed4ff0 => 0x100, 0x153f4f8 => 0x14, 0xed51f0 => 0x58, 0xed50f0 => 0x100),
+        ],
+        words: [payload!(0xc27928 => 0x4), payload!(0xc279a8 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc27014 => 0x3c, 0xc27794 => 0x3c),
+            payload!(0xed5248 => 0x14d48),
+            payload!(0xee9f90 => 0x4700),
+            payload!(0xeee690 => 0x100, 0x153f50c => 0x14, 0xeee890 => 0x58, 0xeee790 => 0x100),
+        ],
+        words: [payload!(0xc2792c => 0x4), payload!(0xc279ac => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc27050 => 0x3c, 0xc277d0 => 0x3c),
+            payload!(0xeee8e8 => 0x14d48),
+            payload!(0xf03630 => 0x4700),
+            payload!(0xf07d30 => 0x100, 0x153f520 => 0x14, 0xf07f30 => 0x58, 0xf07e30 => 0x100),
+        ],
+        words: [payload!(0xc27930 => 0x4), payload!(0xc279b0 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc2708c => 0x3c, 0xc2780c => 0x3c),
+            payload!(0xf07f88 => 0x14d48),
+            payload!(0xf1ccd0 => 0x4700),
+            payload!(0xf213d0 => 0x100, 0x153f534 => 0x14, 0xf215d0 => 0x58, 0xf214d0 => 0x100),
+        ],
+        words: [payload!(0xc27934 => 0x4), payload!(0xc279b4 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc270c8 => 0x3c, 0xc27848 => 0x3c),
+            payload!(0xf21628 => 0x14d48),
+            payload!(0xf36370 => 0x4700),
+            payload!(0xf3aa70 => 0x100, 0x153f548 => 0x14, 0xf3ac70 => 0x58, 0xf3ab70 => 0x100),
+        ],
+        words: [payload!(0xc27938 => 0x4), payload!(0xc279b8 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0xc27104 => 0x3c, 0xc27884 => 0x3c),
+            payload!(0xf3acc8 => 0x14d48),
+            payload!(0xf4fa10 => 0x4700),
+            payload!(0xf54110 => 0x100, 0x153f55c => 0x14, 0xf54310 => 0x58, 0xf54210 => 0x100),
+        ],
+        words: [payload!(0xc2793c => 0x4), payload!(0xc279bc => 0x4)],
+    },
+];
+pub(super) const VIBRO: [Channel; 2] = [
+    Channel {
+        buffers: [
+            payload!(0x1065630 => 0x3c, 0x10656a8 => 0x3c),
+            payload!(0x10657a8 => 0x16048),
+            payload!(0x107b7f0 => 0x4500),
+            payload!(0x107fcf0 => 0x100, 0x107fdf0 => 0x100),
+        ],
+        words: [payload!(0x1065720 => 0x4), payload!(0x1065728 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x106566c => 0x3c, 0x10656e4 => 0x3c),
+            payload!(0x107fef0 => 0x16048),
+            payload!(0x1095f38 => 0x4500),
+            payload!(0x109a438 => 0x100, 0x109a538 => 0x100),
+        ],
+        words: [payload!(0x1065724 => 0x4), payload!(0x106572c => 0x4)],
+    },
+];
+pub(super) const SSS: [Channel; 8] = [
+    Channel {
+        buffers: [
+            payload!(0x109a6d8 => 0x3c, 0x109a8b8 => 0x3c),
+            payload!(0x109ac40 => 0x14d48),
+            payload!(0x10af988 => 0x4580),
+            payload!(0x10b3f08 => 0x200, 0x10b4108 => 0x200),
+        ],
+        words: [payload!(0x109aa98 => 0x4), payload!(0x109aab8 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a714 => 0x3c, 0x109a8f4 => 0x3c),
+            payload!(0x10b4308 => 0x14d48),
+            payload!(0x10c9050 => 0x4580),
+            payload!(0x10cd5d0 => 0x200, 0x10cd7d0 => 0x200),
+        ],
+        words: [payload!(0x109aa9c => 0x4), payload!(0x109aabc => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a750 => 0x3c, 0x109a930 => 0x3c),
+            payload!(0x10cd9d0 => 0x14d48),
+            payload!(0x10e2718 => 0x4580),
+            payload!(0x10e6c98 => 0x200, 0x10e6e98 => 0x200),
+        ],
+        words: [payload!(0x109aaa0 => 0x4), payload!(0x109aac0 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a78c => 0x3c, 0x109a96c => 0x3c),
+            payload!(0x10e7098 => 0x14d48),
+            payload!(0x10fbde0 => 0x4580),
+            payload!(0x1100360 => 0x200, 0x1100560 => 0x200),
+        ],
+        words: [payload!(0x109aaa4 => 0x4), payload!(0x109aac4 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a7c8 => 0x3c, 0x109a9a8 => 0x3c),
+            payload!(0x1100760 => 0x14d48),
+            payload!(0x11154a8 => 0x4580),
+            payload!(0x1119a28 => 0x200, 0x1119c28 => 0x200),
+        ],
+        words: [payload!(0x109aaa8 => 0x4), payload!(0x109aac8 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a804 => 0x3c, 0x109a9e4 => 0x3c),
+            payload!(0x1119e28 => 0x14d48),
+            payload!(0x112eb70 => 0x4580),
+            payload!(0x11330f0 => 0x200, 0x11332f0 => 0x200),
+        ],
+        words: [payload!(0x109aaac => 0x4), payload!(0x109aacc => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a840 => 0x3c, 0x109aa20 => 0x3c),
+            payload!(0x11334f0 => 0x14d48),
+            payload!(0x1148238 => 0x4580),
+            payload!(0x114c7b8 => 0x200, 0x114c9b8 => 0x200),
+        ],
+        words: [payload!(0x109aab0 => 0x4), payload!(0x109aad0 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x109a87c => 0x3c, 0x109aa5c => 0x3c),
+            payload!(0x114cbb8 => 0x14d48),
+            payload!(0x1161900 => 0x4580),
+            payload!(0x1165e80 => 0x200, 0x1166080 => 0x200),
+        ],
+        words: [payload!(0x109aab4 => 0x4), payload!(0x109aad4 => 0x4)],
+    },
+];
+pub(super) const TWOROCK: [Channel; 4] = [
+    Channel {
+        buffers: [
+            payload!(0x1166320 => 0x3c, 0x1166410 => 0x3c),
+            payload!(0x11665f8 => 0x14d48),
+            payload!(0x117b340 => 0x4600),
+            payload!(0x117f940 => 0x200, 0x117fd40 => 0x58, 0x117fb40 => 0x200),
+        ],
+        words: [payload!(0x1166500 => 0x4), payload!(0x1166510 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x116635c => 0x3c, 0x116644c => 0x3c),
+            payload!(0x117fd98 => 0x14d48),
+            payload!(0x1194ae0 => 0x4600),
+            payload!(0x11990e0 => 0x200, 0x11994e0 => 0x58, 0x11992e0 => 0x200),
+        ],
+        words: [payload!(0x1166504 => 0x4), payload!(0x1166514 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x1166398 => 0x3c, 0x1166488 => 0x3c),
+            payload!(0x1199538 => 0x14d48),
+            payload!(0x11ae280 => 0x4600),
+            payload!(0x11b2880 => 0x200, 0x11b2c80 => 0x58, 0x11b2a80 => 0x200),
+        ],
+        words: [payload!(0x1166508 => 0x4), payload!(0x1166518 => 0x4)],
+    },
+    Channel {
+        buffers: [
+            payload!(0x11663d4 => 0x3c, 0x11664c4 => 0x3c),
+            payload!(0x11b2cd8 => 0x14d48),
+            payload!(0x11c7a20 => 0x4600),
+            payload!(0x11cc020 => 0x200, 0x11cc420 => 0x58, 0x11cc220 => 0x200),
+        ],
+        words: [payload!(0x116650c => 0x4), payload!(0x116651c => 0x4)],
+    },
+];
+pub(super) fn payloads() -> impl Iterator<Item = StockPayload> {
+    FORTIN
+        .into_iter()
+        .chain(DELUXE_NORMAL)
+        .chain(DELUXE_VIBRATO)
+        .chain(CORY)
+        .chain(ODS)
+        .chain(VIBRO)
+        .chain(SSS)
+        .chain(TWOROCK)
+        .flat_map(|channel| channel.buffers.into_iter().chain(channel.words))
+}

@@ -1,0 +1,23 @@
+[package]
+name = "tetrad-library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tetrad-capture.workspace = true
+tetrad-core.workspace = true
+tetrad-media.workspace = true
+tetrad-preset.workspace = true
+tetrad-services.workspace = true
+tetrad-settings.workspace = true
+tetrad-storage.workspace = true
+
+[lints]
+workspace = true

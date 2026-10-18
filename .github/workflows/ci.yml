@@ -1,0 +1,37 @@
+# Host checks on each push and pull request: build, tests, Clippy and rustfmt, with the
+# qcdsp/ (JudahZF/qcdsp) and qc-dev/ (JudahZF/tetrad-toolchain) submodules. The device (ARM)
+# build is in release.yml.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Rust 1.95.0
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+          rustup default 1.95.0
+
+      - name: Build
+        run: cargo build --locked --workspace --all-targets
+
+      - name: Test
+        run: cargo test --locked --workspace
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Format
+        run: cargo fmt --all -- --check

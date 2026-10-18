@@ -1,0 +1,15 @@
+[package]
+name = "tetrad-assets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fontdue.workspace = true
+ttf-parser = "0.25"
+
+[lints]
+workspace = true

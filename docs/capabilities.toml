@@ -1,0 +1,100 @@
+# What Tetrad does, and how far each part is tested. `tetrad-cli capabilities` prints this file.
+#
+# tested:
+#   "unit"  ran on the test unit (one original, non-ESS Quad Cortex; CorOS 4.1.0 and 4.1.1)
+#   "host"  host tests only; not run on a unit
+# gaps: what is missing or not tested. README.md, "Known gaps", has the full list.
+
+schema_version = 2
+release = "0.1.0-alpha.1"
+coros = ["4.1.0", "4.1.1"]
+
+[[capability]]
+id = "firmware_profiles"
+what = "Identifies the stock CorOS build by file hashes. On a build without a profile, the unit starts stock CorOS."
+tested = "unit"
+
+[[capability]]
+id = "dsp"
+what = "Boots the stock SHARC firmware on both DSP chips and deploys presets in the stock order, with audio over USB."
+tested = "unit"
+gaps = "Output parity with stock was checked on the test presets only."
+
+[[capability]]
+id = "block_drivers"
+what = "A driver for every stock model except the Looper. The drivers read their tables from the stock ZenUI on the unit."
+tested = "unit"
+
+[[capability]]
+id = "touch_ui"
+what = "The 800x480 touch UI: Grid, Gig and Stomp views, preset and capture browsers, block editors, settings, dialogs and keypads."
+tested = "unit"
+
+[[capability]]
+id = "performance"
+what = "Footswitches, stomp and scene modes, scene copy, bank cycling, expression pedals, tempo and tap tempo, tuner, metronome and Looper."
+tested = "unit"
+gaps = "The panel controls were not tested one by one."
+
+[[capability]]
+id = "midi"
+what = "DIN and USB MIDI in and out, program changes, MIDI clock and Preset MIDI Out."
+tested = "unit"
+gaps = "DIN MIDI is tested on the host only."
+
+[[capability]]
+id = "cortex_control"
+what = "The USB link to Cortex Control: settings, Global EQ, meters, file browser, model presets, backups, the USB CorOS updater and cloud forwarding."
+tested = "unit"
+gaps = "Gain calibration and the log request are refused. Capture over Cortex Control is not tested."
+
+[[capability]]
+id = "services"
+what = "Wi-Fi, DHCP, time, internet checks, cloud sign-in, downloads and uploads, local and cloud backups."
+tested = "unit"
+gaps = "Support reports are off."
+
+[[capability]]
+id = "library"
+what = "Reads and writes the stock preset library (CorOS 4.1.x schema) so that stock CorOS reads it back, and restores backups."
+tested = "unit"
+
+[[capability]]
+id = "neural_capture"
+what = "The capture screens, the Neural Capture V1 flow steps and the Neural Capture 2 dialog."
+tested = "unit"
+gaps = "Capture training and loading a user Neural Capture 2 capture are not tested on a unit."
+
+[[capability]]
+id = "boot_launcher"
+what = "A one-line boot hook, the boot selector (CorOS or Tetrad for 5 seconds), and the start counter that starts stock CorOS after three failed starts."
+tested = "unit"
+gaps = "Not tested on a unit: a touch during a real boot, the 8 second selector kill and chooser off."
+
+[[capability]]
+id = "coros_updates"
+what = "Downloads and installs a CorOS update on the unit. The new CorOS keeps the boot hook and the SSH keys."
+tested = "unit"
+gaps = "Tested from 4.1.0 to 4.1.1 only. A roll back to the other root partition is not tested."
+
+[[capability]]
+id = "installer"
+what = "scripts/install.sh: install, update, status, disable, enable and uninstall over root SSH, and the move of a zen-rs installation to Tetrad."
+tested = "host"
+gaps = "The release scripts and the zen-rs move are tested on a fake unit only."
+
+[[capability]]
+id = "owned_dsp_blocks"
+what = "Five SHARC blocks with no stock code (Volume, Gain, Low-High Cut, Simple Gate, Graphic-9), experimental."
+tested = "unit"
+gaps = "Bring-up mode only, on DSP core 0, muted runs only."
+
+[[capability]]
+id = "offline_cli"
+what = "tetrad-cli inspects and exports local files: presets, the model catalog, blobs, LDR images, settings and captures. It never connects to a unit."
+tested = "host"
+
+[[capability]]
+id = "soak"
+what = "A 61 minute run with Cortex Control connected and the USB clock."
+tested = "unit"

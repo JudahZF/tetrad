@@ -1,0 +1,25 @@
+[package]
+name = "tetrad-services"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+flate2.workspace = true
+hmac = { workspace = true, features = ["zeroize"] }
+pbkdf2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+# The HMAC inner and outer states are SHA-256 cores derived from the signing key. Only the
+# `sha2` `zeroize` feature compiles in their zeroize-on-drop; the `hmac` feature alone does not.
+sha2 = { workspace = true, features = ["zeroize"] }
+thiserror.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true
