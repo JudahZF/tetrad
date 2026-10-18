@@ -118,10 +118,10 @@ impl Selector {
 /// saved choice. A failed save of a touched choice is only logged: the choice still starts.
 #[cfg(target_os = "linux")]
 pub fn run(file: &Path) -> io::Result<BootChoice> {
-    use crate::device::linux::{LinuxRoot, STOCK_COMM, Touch};
+    use crate::device::linux::{LinuxRoot, Touch};
     use tetrad_sys::display::Framebuffer;
 
-    fs::write("/proc/self/comm", STOCK_COMM)?;
+    LinuxRoot::new("/").take_stock_comm()?;
     let default = read_choice(file);
     let mut framebuffer = Framebuffer::open(Path::new(tetrad_sys::paths::FRAMEBUFFER))?;
     let mut notes = Vec::new();

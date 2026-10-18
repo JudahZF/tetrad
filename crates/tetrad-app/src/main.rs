@@ -669,32 +669,34 @@ fn stock_umask() -> String {
     format!("umask {now:04o} (caller {caller:04o})")
 }
 
-/// `tetrad run`. The firmware check comes first, after the comm name `ZenUI`: ZenWatchdog
-/// reboots the unit when `pidof ZenUI` fails for 3 s (o-lifecycle §2), and hashing the 22 MB
-/// image on the QC takes time (not measured yet). The check selects the running build
-/// (`tetrad_firmware::select`) before any stock read. A failed check exits
+/// `tetrad run`. The firmware check comes first, after the comm name `ZenUI`
+/// ([`LinuxRoot::start_as_stock`]): ZenWatchdog reboots the unit when `pidof ZenUI` fails for
+/// 3 s (o-lifecycle §2), and hashing the 22 MB image takes about 3 to 6 s on the unit. The
+/// check selects the running build (`tetrad_firmware::select`) before any stock read. A failed
+/// check exits
 /// [`WRONG_FIRMWARE_EXIT`] with nothing opened, so the boot launcher can start stock ZenUI in
 /// the same boot.
 ///
+/// [`LinuxRoot::start_as_stock`]: tetrad_app::device::linux::LinuxRoot::start_as_stock
 /// [`WRONG_FIRMWARE_EXIT`]: tetrad_app::device::linux::WRONG_FIRMWARE_EXIT
 #[cfg(target_os = "linux")]
 fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
     use tetrad_app::device::bringup::RunOptions;
-    use tetrad_app::device::linux::{
-        LinuxError, LinuxPlatform, LinuxRoot, STOCK_COMM, WRONG_FIRMWARE_EXIT,
-    };
+    use tetrad_app::device::linux::{LinuxError, LinuxPlatform, LinuxRoot, WRONG_FIRMWARE_EXIT};
 
     let umask = stock_umask();
-    if !args.check {
-        std::fs::write("/proc/self/comm", STOCK_COMM)?;
+    let root = LinuxRoot::new("/");
+    // `--check` runs while stock ZenUI still runs: it keeps its own name.
+    let pinned = if args.check {
+        root.check_pinned_firmware()
+    } else {
+        root.start_as_stock()?
     }
-    let pinned = LinuxRoot::new("/")
-        .check_pinned_firmware()
-        .and_then(|profile| {
-            tetrad_firmware::select(profile)
-                .map(|()| profile)
-                .map_err(LinuxError::Firmware)
-        });
+    .and_then(|profile| {
+        tetrad_firmware::select(profile)
+            .map(|()| profile)
+            .map_err(LinuxError::Firmware)
+    });
     if args.check || pinned.is_err() {
         let firmware = match &pinned {
             Ok(profile) => format!("stock firmware is the supported {} build", profile.firmware),
@@ -754,9 +756,11 @@ fn bringup(args: BringupArgs) -> Result<ExitCode, Error> {
         )?;
         return Ok(ExitCode::SUCCESS);
     }
+    // The comm name comes before the firmware hash, as in `tetrad run`: the stage has stopped
+    // stock ZenUI, and ZenWatchdog restarts the unit after about 3 s without a ZenUI.
     // A known complete build runs as itself. Else the default build stays, and its stock reads
     // refuse the files as before (bring-up is a drill, not the boot path).
-    if let Ok(profile) = LinuxRoot::new("/").check_pinned_firmware() {
+    if let Ok(profile) = LinuxRoot::new("/").start_as_stock()? {
         tetrad_firmware::select(profile).map_err(LinuxError::Firmware)?;
     }
     let mut platform = LinuxPlatform::open()?;

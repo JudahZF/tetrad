@@ -305,6 +305,26 @@ fn pinned_firmware_check_needs_the_coros_4_1_0_images() {
     }
 }
 
+/// `run` and `bringup` take the comm name `ZenUI` before the slow firmware hash: a stage that
+/// hashed first was restarted by ZenWatchdog (CorOS 4.1.1, 2026-10-18). Here the ZenUI image is a
+/// link to the comm file, so the hash can read it only when the rename came first; then the
+/// check fails on the missing loadsharc, not on ZenUI.
+#[test]
+fn the_comm_name_comes_before_the_firmware_hash() {
+    let fake = FakeRoot::new("comm");
+    fs::create_dir_all(fake.at("/proc/self")).unwrap();
+    std::os::unix::fs::symlink(fake.at("/proc/self/comm"), fake.at("/opt/neuraldsp/ZenUI"))
+        .unwrap();
+    let check = fake.linux().start_as_stock().unwrap();
+    assert_eq!(fs::read(fake.at("/proc/self/comm")).unwrap(), b"ZenUI");
+    match check {
+        Err(LinuxError::File { path, .. }) => {
+            assert_eq!(path, fake.at("/usr/bin/loadsharc_SC589"));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
 /// The seed VA belongs to one ZenUI build; any other image is refused before a key exists.
 #[test]
 fn device_cipher_refuses_an_unpinned_zenui() {

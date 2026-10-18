@@ -83,6 +83,8 @@ use super::{Notice, Subsystem};
 
 /// ZenWatchdog finds the UI by this comm name and reboots the unit without it (o-lifecycle).
 pub const STOCK_COMM: &str = "ZenUI";
+/// The comm name of this process ([`LinuxRoot::take_stock_comm`]).
+const SELF_COMM: &str = "/proc/self/comm";
 /// Exit code of `tetrad run` when [`LinuxRoot::check_pinned_firmware`] fails. Nothing was opened
 /// or written, so the boot launcher (`scripts/launcher/tetrad-launch.sh`, `TD_WRONG_FIRMWARE`)
 /// starts stock ZenUI in the same boot (docs/launcher.md).
@@ -216,6 +218,21 @@ impl LinuxRoot {
     /// `stock` (an absolute device path) under this root.
     pub fn path(&self, stock: impl AsRef<Path>) -> PathBuf {
         under(&self.root, stock)
+    }
+
+    /// Names this process [`STOCK_COMM`]. ZenWatchdog restarts the unit when `pidof ZenUI`
+    /// fails for about 3 s (o-lifecycle §2), so each on-unit command that runs while stock
+    /// ZenUI is stopped (`run`, `select`, `bringup`) does this before any slow step.
+    pub fn take_stock_comm(&self) -> io::Result<()> {
+        fs::write(self.path(SELF_COMM), STOCK_COMM)
+    }
+
+    /// The start of `tetrad run` and `tetrad bringup`: [`Self::take_stock_comm`], then
+    /// [`Self::check_pinned_firmware`], which hashes the 22 MB ZenUI image (about 3 to 6 s on
+    /// the unit). The outer error is the rename; each caller treats the check in its own way.
+    pub fn start_as_stock(&self) -> io::Result<Result<&'static Profile, LinuxError>> {
+        self.take_stock_comm()?;
+        Ok(self.check_pinned_firmware())
     }
 
     fn read(&self, stock: impl AsRef<Path>) -> Result<Vec<u8>, LinuxError> {
@@ -1245,8 +1262,8 @@ impl LinuxPlatform {
     /// the emulation markers can fail it; a node that does not open is logged and its feature
     /// answers [`LinuxError::Unavailable`].
     pub fn open() -> Result<Self, LinuxError> {
-        fs::write("/proc/self/comm", STOCK_COMM)?;
         let root = LinuxRoot::new("/");
+        root.take_stock_comm()?;
         let clock = SystemClock::new();
         let mut failures = Vec::new();
         let product = Product::from_cmdline(&fs::read_to_string(root.path(CMDLINE))?);

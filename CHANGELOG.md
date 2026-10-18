@@ -15,6 +15,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Fixed
 
+- `tetrad bringup` takes the process name `ZenUI` before it hashes the stock firmware, as
+  `tetrad run` does. Before, the hash took about 6 s on the unit and ZenWatchdog restarted the
+  unit during every bring-up stage.
 - Rustdoc warnings: links from public docs to private items, and a string that rustdoc read as
   an HTML tag.
 
