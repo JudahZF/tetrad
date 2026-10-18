@@ -1,5 +1,5 @@
-# Host checks on each push and pull request: build, tests, Clippy and rustfmt, with the
-# qcdsp/ (JudahZF/qcdsp) and qc-dev/ (JudahZF/tetrad-toolchain) submodules. The device (ARM)
+# Host checks on each push and pull request: build, tests, Clippy, rustfmt and rustdoc, with
+# the qcdsp/ (JudahZF/qcdsp) and qc-dev/ (JudahZF/tetrad-toolchain) submodules. The device (ARM)
 # build is in release.yml.
 name: ci
 
@@ -24,6 +24,12 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
           rustup default 1.95.0
 
+      # The cache key includes the rustc version, so this step comes after the toolchain.
+      # Only main saves the cache; other branches and pull requests restore it.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Build
         run: cargo build --locked --workspace --all-targets
 
@@ -35,3 +41,8 @@ jobs:
 
       - name: Format
         run: cargo fmt --all -- --check
+
+      - name: Rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps

@@ -25,6 +25,9 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      # No Cargo or Nix cache: a tag run can read only the caches of its tag and of main, so a
+      # cache that one release saves is never read by the next release. The tools come from
+      # cache.nixos.org and the Rust release servers.
       - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
