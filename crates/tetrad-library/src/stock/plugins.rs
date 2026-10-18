@@ -91,7 +91,7 @@ impl StockLibrary {
 
     /// Cortex Control plugin sub-folder CREATE (`0x248968` → `addPluginSubfolder` `0x76f2b8`,
     /// C): `<parent>/<name>` made with `mkdir`; a path that exists is refused (stock logs "path
-    /// already exists"). O: the parent is writable ([`Self::plugin_directory`]), the name is one
+    /// already exists"). O: the parent is writable (`Self::plugin_directory`), the name is one
     /// plain path part, and the new folder is at most [`PLUGIN_DEPTH`] folders below the plugin
     /// (stock checks neither). Returns the new folder key, below the `parent` key.
     pub fn create_plugin_folder(&mut self, parent: &str, name: &str) -> Result<String> {

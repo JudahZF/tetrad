@@ -72,11 +72,11 @@ impl<P: super::platform::Platform> super::Device<P> {
     }
 
     /// The DOWNLOADS rows of `kind` (review r28 A1): first the products stored on this unit in
-    /// table order ([`downloads::stored_rows`]), then the queue rows listed this run that are
+    /// table order (`downloads::stored_rows`), then the queue rows listed this run that are
     /// not stored, in list order. I: the stock merge order is not traced. A stored row loads
     /// on a tap (`0x78d204`: `vt+0x6c` finds it → `0x5b37f0`), a queue row downloads. IRs have
     /// no Downloads table: only queue rows. The views read the stored rows on a worker
-    /// ([`Self::poll_stored_downloads`]); this reads them here.
+    /// (`Self::poll_stored_downloads`); this reads them here.
     pub fn downloads_rows(&self, kind: ProductKind) -> Vec<DownloadsRow> {
         self.probe.enter();
         let table = match kind {

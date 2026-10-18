@@ -678,7 +678,7 @@ impl TouchDecoder {
     }
 }
 
-/// The touch screen through the stock tslib chain ([`TouchDecoder`]). `run` and the boot
+/// The touch screen through the stock tslib chain (`TouchDecoder`). `run` and the boot
 /// selector (`crate::boot_select`) read it.
 pub struct Touch {
     node: RecordNode,

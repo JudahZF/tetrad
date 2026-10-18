@@ -618,7 +618,7 @@ pub struct RowView {
 pub struct SidechainMarks {
     /// Blocks whose SOURCE selects anything but Off (option index > 0).
     pub sinks: [bool; GRID_CELLS],
-    /// Blocks a sink selects ("R<row> C<column>").
+    /// Blocks a sink selects (`"R<row> C<column>"`).
     pub sources: [bool; GRID_CELLS],
     /// Row inputs whose stored `Chain.input_control` has the source flag (field 8; the
     /// preset load `0x00681d44` copies it to the input item).

@@ -109,7 +109,7 @@ pub struct Control {
     request: Option<u64>,
     /// The request deferred its preset reply ([`tetrad_control::device::Reply::Deferred`]).
     preset_reply: bool,
-    /// The GridMove echo of a Control drop, sent by [`Self::sync`] ([`grid::DropEcho`]).
+    /// The GridMove echo of a Control drop, sent by [`Self::sync`] (`grid::DropEcho`).
     drop_echo: Option<grid::DropEcho>,
     /// The mode settings last seen; a change is pushed.
     mode: Option<ModeSettings>,
@@ -476,7 +476,7 @@ impl Control {
     /// UndoRedo frames (`0x1be1a8`, tetrad-control skips an unchanged pair), the available
     /// modes (`0x58ce2c` → `0x273854`), Mode (`0x58c738`, `0x589c98` → `0x2734e8`), message
     /// 42 (deploy `0x585464` → `0x581358`/`0x581398`), the GridMove echo of a Control drop
-    /// ([`grid::DropEcho`]), then the timer senders outside any
+    /// (`grid::DropEcho`), then the timer senders outside any
     /// request: PresetDirty (`0x5ad250` → `0x1a6dfc`, every [`DIRTY_CHECK`]; not sent while a
     /// capture preset runs, `+0x758`), a due MasterVolume echo and the held Grid echoes.
     pub fn sync(
@@ -812,7 +812,7 @@ impl Control {
     /// [`Action::Undoable`]): its GridMove echo goes out with the next [`Self::sync`], as
     /// stock sends one from `Chain::dropSlot` (`0x59f620`) for every drop. The device calls
     /// this before the action runs: the move list comes from the layout before the drop. A
-    /// Cortex Control drop records its own echo ([`grid::move_grid`]).
+    /// Cortex Control drop records its own echo (`grid::move_grid`).
     pub fn record_drop(&mut self, action: &Action, state: &State) {
         let mut action = action;
         while let Action::Undoable(_, inner) = action {
@@ -842,7 +842,7 @@ impl Control {
         self.spread.is_some()
     }
 
-    /// One step of the READ reply in progress (A3, [`files::Spread`]): at most
+    /// One step of the READ reply in progress (A3, `files::Spread`): at most
     /// [`READS_PER_PASS`] library reads, and the finished messages with the request ID,
     /// as the receiver would send them. The device runs one step per pass in place of the next
     /// Control message, so the reports after the READ wait, in order, until it is done.

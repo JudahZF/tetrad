@@ -261,7 +261,7 @@ pub(super) fn module_stats(state: &State) -> ModuleStatsMessage {
     }
 }
 
-/// The parts of [`module_stats`] that follow from the catalog alone: the [`report_rows`] and
+/// The parts of `module_stats` that follow from the catalog alone: the `report_rows` and
 /// the message without `stats`. Host, QC-scale catalog: building them took 0.2 ms of the
 /// 0.3 ms READ (A3).
 pub struct StatsBase {

@@ -20,7 +20,7 @@ use super::super::super::services::UploadState;
 use super::super::products;
 use super::{FolderRef, Library, PendingFile, Source};
 
-/// The library reads ([`PendingFile::reads`]) of one step. Host, release, QC-scale sim: a capture
+/// The library reads (`PendingFile::reads`) of one step. Host, release, QC-scale sim: a capture
 /// row with its metadata costs about 6 µs, a Downloads metadata about 1 µs, so a step costs at
 /// most about 0.2 ms on the host and about 30 ms on the QC (general code there runs about
 /// 150 times slower).
