@@ -123,6 +123,16 @@ QC_CORPUS_DIR=/path/to/corpus cargo test --locked --workspace -- --include-ignor
 The `tetrad-blocks` decode tests also need `QC_BLOBDIS`, the path of a `blobdis` binary (not in
 this repository).
 
+The corpus tests of the `qcdsp` submodule use the same `QC_CORPUS_DIR` folder. They read the
+decrypted files in `plain/`: `blobs/core1/*.raw`, `ModelRepo.xml`, `moduleReport.xml` and, if it
+is there, `kernel_call_map.json`. They read the core 2-4 diff files from
+`plain/blobs/core{2,3,4}/diffs.blob`, or else from `rootfs/opt/neuraldsp/blobs/`. Some of these
+tests also need `QC_BLOBDIS` and `SELACHE` (see `qcdsp/README.md`).
+
+```sh
+cd qcdsp && QC_CORPUS_DIR=/path/to/corpus cargo test --locked --workspace -- --include-ignored
+```
+
 ### Device (ARM) build
 
 The device build uses the public toolchain in the `qc-dev` submodule: Rust 1.95.0, zig 0.16.0
