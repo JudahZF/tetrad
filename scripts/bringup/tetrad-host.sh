@@ -78,7 +78,7 @@ upload() {
     bin_md5=$(md5sum "$bin" | cut -d' ' -f1)
     script_md5=$(md5sum "$script" | cut -d' ' -f1)
     cat <<EOF
-Maintenance-window upload to $HOST:$D/bin (plan §1.5):
+Maintenance-window upload to $HOST:$D/bin:
   1. stop ZenWatchdog (SIGTERM), then stock ZenUI: SIGTERM, wait up to 5 s, then SIGKILL
      (the process killer stops with it)
   2. mkdir -p $D/bin $D/logs $D/presets

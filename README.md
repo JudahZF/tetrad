@@ -15,6 +15,11 @@ contains no Neural DSP code, firmware, assets or keys.
 4.1.0, and later CorOS 4.1.1 after an on-device update. No other unit, model or CorOS version is
 tested. Expect bugs. Keep a backup of your unit.
 
+The first release is
+[v0.1.0-alpha.1](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.1). All releases
+are on [GitHub releases](https://github.com/JudahZF/tetrad/releases). The changes are in
+[CHANGELOG.md](CHANGELOG.md).
+
 What ran on that unit:
 
 - Boot of the stock SHARC firmware, preset deploys and audio over USB, with output parity
@@ -147,12 +152,15 @@ The result is `dist/tetrad` and `dist/tetrad.sha256`. `build-arm.sh` checks the 
 without Nix.
 
 Releases: a `v*` tag runs `.github/workflows/release.yml`. It builds `tetrad`, checks it and
-attaches `tetrad`, `tetrad.sha256` and a release archive (`bin/tetrad`, `launcher/*.sh`,
-`scripts/install.sh`) to the GitHub release.
+attaches `tetrad`, `tetrad.sha256`, the release archive `tetrad-<tag>-armv7.tar.gz` and its
+`.sha256` to the [GitHub release](https://github.com/JudahZF/tetrad/releases). The archive has `bin/tetrad`,
+`launcher/*.sh`, `scripts/install.sh`, `scripts/qc-ssh-proxy.py`, the install, launcher and
+update guides in `docs/`, `README.md`, `CHANGELOG.md` and `LICENSE`.
 
 ## Install
 
-See [docs/install.md](docs/install.md). A unit with zen-rs (the old working name of Tetrad):
+Download the release archive from [GitHub releases](https://github.com/JudahZF/tetrad/releases), then
+follow [docs/install.md](docs/install.md). A unit with zen-rs (the old working name of Tetrad):
 see [Migrating from zen-rs](docs/install.md#migrating-from-zen-rs).
 
 ## Recovery

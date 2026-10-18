@@ -22,7 +22,7 @@ Terms in this guide:
 | Root SSH | You can log in to the unit as `root` over SSH from the computer. This guide does not tell you how to get this access. That is out of scope. |
 | Init script | `/etc/init.d/S80drvinit` on the unit is the stock CorOS file (md5 `688ddb2805f34c69a8a1d7d173a406b7`), or that file with the Tetrad hook or the zen-rs hook. If it is different, the script stops and changes nothing. |
 | Computer | Linux or macOS with `sh`, OpenSSH `ssh`, `od`, and `md5sum` or `md5`. `python3` only for `--proxy`. |
-| Tetrad files | A release archive, or your own build (see below). |
+| Tetrad files | A release archive from [GitHub releases](https://github.com/JudahZF/tetrad/releases) (check it with its `.sha256` file), or your own build (see below). |
 | Network | The unit and the computer are on the same network. The upload is about 15 MB and takes about one minute over Wi-Fi. |
 
 The script uses these local files:

@@ -3,7 +3,22 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
-## 0.1.0-alpha.1 (unreleased)
+## Unreleased
+
+### Changed
+
+- `scripts/bringup/tetrad-host.sh`: `TD_SETLIST` selects the setlist that `presets` copies from
+  (default "Tetrad Test").
+- CI runs rustdoc with `-D warnings` and caches the Cargo build (`Swatinem/rust-cache`).
+- README: the corpus tests of the `qcdsp` submodule use the same `QC_CORPUS_DIR` layout. The
+  README and docs/install.md link to the GitHub releases.
+
+### Fixed
+
+- Rustdoc warnings: links from public docs to private items, and a string that rustdoc read as
+  an HTML tag.
+
+## [0.1.0-alpha.1](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.1) (2026-10-18)
 
 The first public alpha. Tested on one original (non-ESS) Quad Cortex with CorOS 4.1.0 and 4.1.1.
 
@@ -25,8 +40,8 @@ The first public alpha. Tested on one original (non-ESS) Quad Cortex with CorOS 
 - `scripts/install.sh`: install, update, status, disable, enable and uninstall over root SSH,
   and `scripts/qc-ssh-proxy.py` for the unit's OpenSSH 6.7.
 - Host test suite with synthetic data, and the device build with the public toolchain in
-  `qc-dev` ([tetrad-toolchain](https://github.com/JudahZF/tetrad-toolchain): Rust, zig and cargo-zigbuild, glibc 2.18
-  symbols).
+  `qc-dev` ([tetrad-toolchain](https://github.com/JudahZF/tetrad-toolchain): Rust, zig and
+  cargo-zigbuild, glibc 2.18 symbols).
 - GitHub workflows: host checks (`ci.yml`) and the release build (`release.yml`).
 
 ### Changed
