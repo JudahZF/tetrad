@@ -61,6 +61,8 @@ pub struct MidiController {
     tempo: TempoContext,
     preset_ready: bool,
     receive_enabled: bool,
+    /// Bit `n`: channel index `n` is reserved by an extension.
+    reserved: u16,
 }
 
 impl MidiController {
@@ -76,6 +78,7 @@ impl MidiController {
             tempo: TempoContext::default(),
             preset_ready: false,
             receive_enabled: true,
+            reserved: 0,
         }
     }
 
@@ -124,6 +127,17 @@ impl MidiController {
             self.parser = MidiParser::default();
         }
         self.receive_enabled = enabled;
+    }
+
+    /// Channels (bit `n` = channel index `n`) whose voice messages go to extensions as
+    /// [`MidiOutput::Reserved`] instead of native dispatch. Realtime and system messages are
+    /// never reserved.
+    pub fn set_reserved_channels(&mut self, channels: u16) {
+        self.reserved = channels;
+    }
+
+    pub fn reserved_channels(&self) -> u16 {
+        self.reserved
     }
 
     /// The application refused the last `LoadPreset` (null or auditioned setlist).
@@ -254,6 +268,14 @@ impl MidiController {
     /// and the dispatch slots it feeds.
     fn handle(&mut self, message: MidiMessage, now: Duration, out: &mut Vec<MidiOutput>) {
         if !self.receive_enabled {
+            return;
+        }
+        // Owned: an extension's reserved channel is consumed here, after admission and before
+        // the native channel filter, so OMNI or a matching native channel never acts on it.
+        if let Some(channel) = message.channel()
+            && self.reserved & (1 << channel.index()) != 0
+        {
+            out.push(MidiOutput::Reserved(message));
             return;
         }
         let action = |out: &mut Vec<MidiOutput>, action| out.push(MidiOutput::Action(action));
@@ -604,6 +626,32 @@ mod tests {
                 },
                 &MidiAction::SelectScene(2)
             ]
+        );
+    }
+
+    /// A reserved channel's voice messages reach only the extension, even under OMNI and for
+    /// the native expression, bank and note paths; clock stays native.
+    #[test]
+    fn reserved_channel_bypasses_native_dispatch() {
+        let mut midi = controller();
+        midi.set_channel(ChannelSetting::Omni);
+        midi.set_reserved_channels(1 << 1);
+        let t = Duration::ZERO;
+        let out = midi.receive_din(&[0xb1, 1, 127, 0xb1, 0, 3, 0x91, 60, 100, 0xc1, 4], t);
+        assert!(actions(&out).is_empty(), "{out:?}");
+        assert_eq!(
+            out.iter()
+                .filter(|o| matches!(o, MidiOutput::Reserved(_)))
+                .count(),
+            4
+        );
+        let other = midi.receive_din(&[0xb0, 1, 127], t);
+        assert_eq!(actions(&other).len(), 1);
+        let realtime = midi.receive_din(&[0xfa, 0xf8, 0xfc], t);
+        assert!(
+            !realtime
+                .iter()
+                .any(|o| matches!(o, MidiOutput::Reserved(_)))
         );
     }
 

@@ -96,6 +96,9 @@ pub struct HttpRequest {
     /// then has no `Content-Type`: a direct client sends the form's own, and Cortex Control
     /// gets the JSON with `is_multipart` (`0x80c254`).
     pub multipart: Option<String>,
+    /// Follow up to three HTTPS redirects (a direct client only). Off by default: stock
+    /// requests never follow; extension repositories need it for GitHub release assets.
+    pub follow_redirects: bool,
 }
 
 impl HttpRequest {
@@ -109,7 +112,13 @@ impl HttpRequest {
             route,
             cancel: None,
             multipart: None,
+            follow_redirects: false,
         }
+    }
+
+    pub fn follow_redirects(mut self) -> Self {
+        self.follow_redirects = true;
+        self
     }
 
     pub fn cancel(mut self, token: CancelToken) -> Self {
@@ -241,6 +250,10 @@ impl<R: CommandRunner, F: Files> CurlHttp<R, F> {
             quote(request.method.as_str()),
             request.timeout.as_secs_f64(),
         );
+        if request.follow_redirects {
+            // `proto-redir` above keeps every hop on HTTPS.
+            config += "location\nmax-redirs = 3\n";
+        }
         for (name, value) in &request.headers {
             config += &format!("header = {}\n", quote(&format!("{name}: {value}")));
         }
@@ -447,7 +460,33 @@ mod tests {
             !config.contains("MIME-Version"),
             "only a multipart request has it"
         );
+        assert!(
+            !config.contains("location"),
+            "stock requests never follow redirects"
+        );
         assert!(!format!("{request:?}").contains("tok"));
+    }
+
+    /// Extension repositories follow GitHub release redirects: HTTPS only, at most three.
+    #[test]
+    fn redirects_are_opt_in_and_bounded() {
+        let mut http = curl();
+        http.runner.expect(
+            "curl -K -",
+            Ok(crate::exec::Output::code(0).with_stdout(b"x\n200".to_vec())),
+        );
+        let request = HttpRequest::new(
+            Method::Get,
+            "https://github.com/o/r/releases/download/t/a.tetradext",
+            Route::Product,
+            Duration::from_secs(30),
+        )
+        .follow_redirects();
+        http.send(&request).unwrap();
+        let sent = &http.runner.calls[0];
+        let config = String::from_utf8(sent.stdin.clone().unwrap().expose().to_vec()).unwrap();
+        assert!(config.contains("location\nmax-redirs = 3\n"));
+        assert!(config.contains("proto-redir = \"=https\"\n"));
     }
 
     /// U1 (`0x80ccf8` case `+0x10 == 1`): the Wi-Fi upload is one `productFile` part with the

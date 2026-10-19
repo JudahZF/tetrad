@@ -12,6 +12,9 @@ pub enum MidiOutput {
     Dsp(DspCommand),
     /// Work for the application.
     Action(MidiAction),
+    /// A channel voice message on a channel an extension reserved
+    /// ([`crate::MidiController::set_reserved_channels`]). Native dispatch never sees it.
+    Reserved(crate::MidiMessage),
 }
 
 /// SHARC requests the MIDI controller sends (layouts: `tetrad-dsp-protocol`).
