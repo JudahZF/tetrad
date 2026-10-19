@@ -299,9 +299,9 @@ fn invalid_parameters_do_not_write_state_or_raise_float_faults() {
     }
 }
 
-/// The stock Volume template from `QC_CORPUS_DIR` (README, "Corpus tests"): the decrypted core 1
-/// blob in `plain/blobs` and the core 2-4 diff files of the root file system. `None` with a note
-/// when it is not set.
+/// The stock Volume template from `QC_CORPUS_DIR` (docs/development.md, "Corpus tests"): the
+/// decrypted core 1 blob in `plain/blobs` and the core 2-4 diff files of the root file system.
+/// `None` with a note when it is not set.
 fn template() -> Option<VolumeTemplate> {
     let Some(dir) = std::env::var_os("QC_CORPUS_DIR") else {
         eprintln!("skipped: set QC_CORPUS_DIR");

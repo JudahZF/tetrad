@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+flate2.workspace = true
 tetrad-assets.workspace = true
 thiserror.workspace = true
 

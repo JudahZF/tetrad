@@ -1,5 +1,5 @@
-//! Corpus check against `$QC_CORPUS_DIR/rootfs/media/p4` (README, "Corpus tests"). Ignored by
-//! default. Never prints values: AccountConfig.ini holds tokens.
+//! Corpus check against `$QC_CORPUS_DIR/rootfs/media/p4` (docs/development.md, "Corpus tests").
+//! Ignored by default. Never prints values: AccountConfig.ini holds tokens.
 
 use std::path::PathBuf;
 

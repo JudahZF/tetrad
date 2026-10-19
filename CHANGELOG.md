@@ -3,6 +3,22 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- README: written for players, with images of the UI. The build, test, corpus and project
+  layout sections moved to docs/development.md.
+- `render_owned readme <dir>` writes the README images (`docs/images/`) as PNG. The PNG encoder
+  moved from `tetrad-app` to `tetrad-ui` (`tetrad_ui::png`).
+- The release archive has the README images (`docs/images/`).
+
+### Fixed
+
+- `render_owned`: the `gig`, `gigpreset`, `stomp`, `account`, `picker` and `draft` views rendered
+  the Grid or the scene menu. They used controls that do nothing on that screen. The `block`
+  view released its press before the long press, and now shows the block menu.
+
 ## [0.1.0-alpha.2](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.2) (2026-10-18)
 
 ### Added

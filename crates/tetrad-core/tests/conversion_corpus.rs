@@ -1,6 +1,7 @@
 //! Local corpus check: every ModelRepo parameter converts under the stock
-//! parser rules. Reads `$QC_CORPUS_DIR/plain/ModelRepo.xml` (README, "Corpus tests"); run
-//! with `cargo test -p tetrad-core --test conversion_corpus -- --ignored`.
+//! parser rules. Reads `$QC_CORPUS_DIR/plain/ModelRepo.xml`
+//! (docs/development.md, "Corpus tests"); run with
+//! `cargo test -p tetrad-core --test conversion_corpus -- --ignored`.
 
 use std::collections::BTreeMap;
 use tetrad_core::conversion::{DefaultValue, ParameterScale, ParameterType, XmlParameter};

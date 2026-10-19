@@ -513,8 +513,8 @@ fn optional_models_and_valid_unreferenced_files_do_not_fail_validation() {
     assert_eq!(report.unreferenced_files, 1);
 }
 
-/// `$QC_CORPUS_DIR/plain` (README, "Corpus tests"), or `None` (with a note) when it has no
-/// `ModelRepo.xml`.
+/// `$QC_CORPUS_DIR/plain` (docs/development.md, "Corpus tests"), or `None` (with a note) when it
+/// has no `ModelRepo.xml`.
 fn corpus_dir() -> Option<PathBuf> {
     let root = std::env::var_os("QC_CORPUS_DIR").map(|dir| PathBuf::from(dir).join("plain"));
     if root

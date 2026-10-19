@@ -1,7 +1,7 @@
-//! Opt-in corpus checks against local stock data in `QC_CORPUS_DIR` (README, "Corpus tests").
-//! Nothing here is committed data: `plain/` holds plaintext `ModelRepo.xml`/`moduleReport.xml`,
-//! `presets/` a directory tree of stock `.pb` presets. Each test skips with a message when its
-//! data is absent.
+//! Opt-in corpus checks against local stock data in `QC_CORPUS_DIR`
+//! (docs/development.md, "Corpus tests"). Nothing here is committed data: `plain/` holds
+//! plaintext `ModelRepo.xml`/`moduleReport.xml`, `presets/` a directory tree of stock `.pb`
+//! presets. Each test skips with a message when its data is absent.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
