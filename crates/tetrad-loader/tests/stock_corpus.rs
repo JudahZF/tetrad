@@ -1,6 +1,6 @@
-//! Structural facts of the local stock boot inputs. Reads files in `QC_CORPUS_DIR` (README,
-//! "Corpus tests"); nothing is copied into the repository. Run with `cargo test -p
-//! tetrad-loader -- --ignored`.
+//! Structural facts of the local stock boot inputs. Reads files in `QC_CORPUS_DIR`
+//! (docs/development.md, "Corpus tests"); nothing is copied into the repository. Run with
+//! `cargo test -p tetrad-loader -- --ignored`.
 use std::fs;
 use std::path::PathBuf;
 

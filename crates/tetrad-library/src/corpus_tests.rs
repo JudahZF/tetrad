@@ -1,5 +1,5 @@
 //! Read-only checks against copies of a device's `/media/p4` and `/opt/neuraldsp` in
-//! `$QC_CORPUS_DIR/rootfs` (README, "Corpus tests"). Run with `QC_CORPUS_DIR=<dir>
+//! `$QC_CORPUS_DIR/rootfs` (docs/development.md, "Corpus tests"). Run with `QC_CORPUS_DIR=<dir>
 //! cargo test -p tetrad-library -- --ignored`. Only read methods are called.
 
 use tetrad_storage::media::{Collection, MediaRoot};

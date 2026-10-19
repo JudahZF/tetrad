@@ -962,6 +962,7 @@ dependencies = [
 name = "tetrad-ui"
 version = "0.1.0-alpha.2"
 dependencies = [
+ "flate2",
  "tetrad-assets",
  "thiserror",
 ]

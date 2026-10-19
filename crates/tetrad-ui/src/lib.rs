@@ -10,6 +10,7 @@ mod control;
 mod damage;
 mod draw;
 mod layout;
+mod png;
 mod render;
 mod screens;
 mod settings;
@@ -21,6 +22,7 @@ mod widgets;
 pub use boot_select::{BootChoice, BootMenu};
 pub use control::*;
 pub use damage::Renderer;
+pub use png::{PngColour, png};
 pub use render::{Frame, HEIGHT, PRESET_GRID_HEIGHT, PRESET_GRID_WIDTH, WIDTH};
 pub use settings::{
     DeviceAction, InputJack, IoTab, LoopJack, OutputJack, SettingId, SettingKind, SettingValue,

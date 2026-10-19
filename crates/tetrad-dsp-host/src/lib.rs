@@ -7,8 +7,8 @@
 
 pub mod blob;
 
-/// `$QC_CORPUS_DIR/<path>` for the corpus tests (README, "Corpus tests"), or `None` with a
-/// note when the variable is not set.
+/// `$QC_CORPUS_DIR/<path>` for the corpus tests (docs/development.md, "Corpus tests"), or `None`
+/// with a note when the variable is not set.
 #[cfg(test)]
 pub(crate) fn corpus(path: &str) -> Option<std::path::PathBuf> {
     let Some(dir) = std::env::var_os("QC_CORPUS_DIR") else {

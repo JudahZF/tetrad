@@ -1,5 +1,5 @@
 //! Local stock corpus checks for per-model setup. Run with `--ignored` and `QC_CORPUS_DIR`
-//! (README, "Corpus tests"); they copy no bytes into the repository.
+//! (docs/development.md, "Corpus tests"); they copy no bytes into the repository.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

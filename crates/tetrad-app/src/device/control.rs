@@ -1218,10 +1218,10 @@ impl Control {
         state: &mut State,
         now: Duration,
     ) -> Result<Vec<Effect>, ControlError> {
-        let Some(png) = screen::png(
+        let Some(png) = tetrad_ui::png(
             tetrad_ui::WIDTH,
             tetrad_ui::HEIGHT,
-            screen::Colour::Rgb,
+            tetrad_ui::PngColour::Rgb,
             rgb,
         ) else {
             let notice = format!(

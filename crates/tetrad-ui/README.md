@@ -14,6 +14,7 @@ ui.handle_input(InputEvent::Activate(Control::Navigate(Screen::Gig)));
 ui.handle_input(InputEvent::Tick { now_ms: 16 });
 ```
 
-`examples/render_owned.rs` renders a synthetic state to a PPM image on stdout.
+`examples/render_owned.rs` renders a synthetic state to a PPM image on stdout, and writes the
+README images (see [docs/development.md](../../docs/development.md#readme-images)).
 
 Part of [Tetrad](../../README.md).

@@ -297,7 +297,8 @@ fn pinned_firmware_check_needs_the_coros_4_1_0_images() {
         fake.linux().check_pinned_firmware(),
         Err(LinuxError::WrongImage("ZenUI"))
     ));
-    // With a copy of the CorOS root file system (README, "Corpus tests"): the stock pins hold.
+    // With a copy of the CorOS root file system (docs/development.md, "Corpus tests"): the stock
+    // pins hold.
     if let Some(dir) = std::env::var_os("QC_CORPUS_DIR") {
         LinuxRoot::new(Path::new(&dir).join("rootfs"))
             .check_pinned_firmware()

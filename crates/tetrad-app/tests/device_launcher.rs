@@ -482,9 +482,9 @@ fn the_hook_refuses_an_unknown_init_script() {
     assert!(!fake.at("etc/.S80drvinit.tetrad-new").exists());
 }
 
-/// With the CorOS 4.1.0 S80drvinit in `$QC_CORPUS_DIR/rootfs` (README, "Corpus tests"):
-/// install and remove reach the pinned md5s, and remove gives back the stock bytes. Skipped
-/// without it.
+/// With the CorOS 4.1.0 S80drvinit in `$QC_CORPUS_DIR/rootfs`
+/// (docs/development.md, "Corpus tests"): install and remove reach the pinned md5s, and
+/// remove gives back the stock bytes. Skipped without it.
 #[test]
 fn the_hook_round_trips_the_coros_4_1_0_init_script() {
     let Some(dir) = std::env::var_os("QC_CORPUS_DIR") else {

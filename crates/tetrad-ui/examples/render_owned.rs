@@ -1,6 +1,9 @@
-//! Render a caller-owned synthetic state to binary PPM on stdout. All names
-//! and values are synthetic; nothing comes from stock firmware or presets.
+//! Render a caller-owned synthetic state to binary PPM on stdout, or write the README
+//! images (`readme <dir>`) as PNG. All names and values are synthetic; nothing comes from
+//! stock firmware or presets.
+use std::error::Error;
 use std::io::{self, Write};
+use std::path::Path;
 
 use tetrad_ui::*;
 
@@ -9,7 +12,7 @@ const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|par
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
         preset_id: Some(42),
-        preset_title: "OWNED RUST SESSION".into(),
+        preset_title: "STUDIO CRUNCH".into(),
         preset_slot: Some(BankSlot { bank: 0, slot: 1 }),
         selected_scene: SceneIndex::new(1)?,
         footswitch_mode: Some(FootswitchMode::Scene),
@@ -17,7 +20,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
         dirty: true,
         can_undo: true,
         preset_file: true,
-        favorite_presets: ["Deep Clean", "Owned Lead", "Studio Crunch"]
+        favorite_presets: ["Deep Clean", "Lead Boost", "Studio Crunch"]
             .into_iter()
             .enumerate()
             .map(|(id, title)| PresetItem {
@@ -25,12 +28,27 @@ fn fixture() -> Result<UiSnapshot, UiError> {
                 title: title.into(),
             })
             .collect(),
-        presets: (0..20)
-            .map(|id| PresetItem {
-                id,
-                title: format!("Synthetic Preset {id}"),
-            })
-            .collect(),
+        presets: [
+            "Deep Clean",
+            "Studio Crunch",
+            "Glass Chorus",
+            "Lead Boost",
+            "Ambient Swell",
+            "Fuzz Wall",
+            "Dry Funk",
+            "Bass DI",
+            "Slapback",
+            "Shimmer",
+        ]
+        .into_iter()
+        .cycle()
+        .take(20)
+        .zip(0..)
+        .map(|(title, id)| PresetItem {
+            id,
+            title: title.into(),
+        })
+        .collect(),
         setlists: ["My Presets", "Live Set", "Studio"]
             .into_iter()
             .enumerate()
@@ -51,7 +69,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
     let blocks = [
         (0, 0, "Gate", ModelCategory::Compressor, false),
         (0, 1, "Green Drive", ModelCategory::GuitarOverdrive, false),
-        (0, 2, "Owned Amp", ModelCategory::GuitarAmp, false),
+        (0, 2, "Crunch Amp", ModelCategory::GuitarAmp, false),
         (0, 3, "Cab 4x12", ModelCategory::GuitarCabMono, false),
         (0, 5, "Tape Echo", ModelCategory::Delay, true),
         (0, 6, "Plate Verb", ModelCategory::Reverb, false),
@@ -445,13 +463,28 @@ fn menu_item(ui: &mut UiState, action: MenuAction) {
     ui.handle_input(InputEvent::Activate(control));
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1);
-    let view = args.next().unwrap_or_else(|| "grid".into());
-    if args.next().is_some() {
-        return Err(format!("usage: render_owned [{VIEWS}]").into());
-    }
-    let mut snapshot = fixture()?;
+/// The README images: file name in `docs/images/` and view. `boot-selector` is added.
+const README: [(&str, &str); 5] = [
+    ("grid", "grid"),
+    ("block-editor", "params"),
+    ("gig", "gig"),
+    ("presets", "presets"),
+    ("looper", "looper"),
+];
+
+fn usage() -> Box<dyn Error> {
+    format!("usage: render_owned [{VIEWS}] | render_owned readme <dir>").into()
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let view = match args.as_slice() {
+        [] => "grid",
+        [view] => view.as_str(),
+        [mode, dir] if mode == "readme" => return readme(Path::new(dir)),
+        _ => return Err(usage()),
+    };
+    let snapshot = fixture()?;
     // Control Screenshot (25): the RGBA grid over a 16 px checkerboard, 800 × 384.
     if view == "preset-grid" {
         let rgba = UiState::preset_grid(snapshot)?;
@@ -473,13 +506,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
+    render(view, snapshot)?.write_ppm(io::stdout().lock())?;
+    Ok(())
+}
+
+/// Writes the README images to `dir` as PNG: the boot selector, and the [`README`] views
+/// without the unsaved-changes mark.
+fn readme(dir: &Path) -> Result<(), Box<dyn Error>> {
+    let mut frames = vec![(
+        "boot-selector",
+        BootMenu {
+            default: BootChoice::Tetrad,
+            seconds_left: 4,
+            version: concat!("Tetrad ", env!("CARGO_PKG_VERSION")),
+        }
+        .render(),
+    )];
+    for (name, view) in README {
+        let snapshot = UiSnapshot {
+            dirty: false,
+            ..fixture()?
+        };
+        frames.push((name, render(view, snapshot)?));
+    }
+    for (name, frame) in frames {
+        let image = png(WIDTH, HEIGHT, PngColour::Rgb, frame.rgb()).ok_or("bad frame size")?;
+        std::fs::write(dir.join(format!("{name}.png")), image)?;
+    }
+    Ok(())
+}
+
+fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>> {
     if matches!(
-        view.as_str(),
+        view,
         "params" | "assign" | "stomp-bar" | "numeric" | "params-tabs" | "params-bypassed"
     ) {
         snapshot.selected_block = Some(GridPosition::new(0, 2)?);
     }
-    match view.as_str() {
+    match view {
         "numeric" => {
             snapshot.parameters[0].entry = Some(NumericRange {
                 value: 2.0,
@@ -549,7 +613,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {}
     }
-    if matches!(view.as_str(), "assign" | "edit-stomp" | "stomp-bar") {
+    if matches!(view, "assign" | "edit-stomp" | "stomp-bar") {
         snapshot.footswitch_mode = Some(FootswitchMode::Stomp);
         snapshot.selected_stomp = (view == "assign").then_some(0);
         snapshot.stomps[0].blocks = vec![GridPosition::new(0, 2)?];
@@ -564,7 +628,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     // Directory upload result dialogs (tetrad-app `Ui::upload_end`).
-    let upload_end = match view.as_str() {
+    let upload_end = match view {
         "upload-failed" => Some((
             "Failed to upload Preset",
             "This Preset could not be uploaded as one or more Neural Captures are missing.",
@@ -590,7 +654,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .iter()
     .any(|prefix| view.starts_with(prefix))
     {
-        model_editor(&mut snapshot, &view)?;
+        model_editor(&mut snapshot, view)?;
     }
     // Mic B's IR is not in the media list: the missing note (`0x821408`).
     if view == "cab-missing" {
@@ -690,10 +754,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .into();
     }
     // Global EQ (4004) and I/O (31000) presets: "Bright" matches the Global EQ page.
-    if matches!(
-        view.as_str(),
-        "eq-presets" | "eq-preset-menu" | "io-presets"
-    ) {
+    if matches!(view, "eq-presets" | "eq-preset-menu" | "io-presets") {
         let rows = [
             (4004, "Flat", true),
             (4004, "Bright", true),
@@ -720,7 +781,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     }
     if matches!(
-        view.as_str(),
+        view,
         "vd-presets" | "vd-menu" | "vd-overwrite" | "vd-delete" | "expression" | "exp-range"
     ) {
         snapshot.selected_block = Some(GridPosition::new(0, 2)?);
@@ -814,7 +875,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if view.starts_with("dir-media")
         || matches!(
-            view.as_str(),
+            view,
             "dir-link" | "dir-filter" | "dir-folder-menu" | "dir-gain"
         )
     {
@@ -862,7 +923,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         activate(ui, Control::Library(LibraryControl::Category));
         activate(ui, Control::Choose(index));
     };
-    match view.as_str() {
+    match view {
         "grid" | "params" | "params-tabs" | "params-bypassed" => {}
         "numeric" => {
             activate(
@@ -898,7 +959,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "diagnostics" | "diag-dsp" | "diag-fs" | "diag-usb" => {
             ui.show(Screen::Settings(SettingsPage::Diagnostics));
-            let page = match view.as_str() {
+            let page = match view {
                 "diag-dsp" => Some(DiagnosticsPage::Dsp),
                 "diag-fs" => Some(DiagnosticsPage::Footswitch),
                 "diag-usb" => Some(DiagnosticsPage::Usb),
@@ -919,15 +980,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "scenes" => {
             activate(&mut ui, Control::SceneMenu);
         }
+        // The scene editor opens from Gig View (EDIT SCENE on the playing scene).
         "draft" => {
-            activate(&mut ui, Control::SceneMenu);
+            ui.show(Screen::Gig);
             activate(&mut ui, Control::EditScenes);
         }
         "gig" => {
             let mut snapshot = ui.snapshot().clone();
             gig_colours(&mut snapshot);
             ui.set_snapshot(snapshot)?;
-            activate(&mut ui, Control::Navigate(Screen::Gig));
+            ui.show(Screen::Gig);
         }
         "presets" => {
             activate(&mut ui, Control::Navigate(Screen::Presets));
@@ -952,7 +1014,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .iter_mut()
                 .for_each(|n| n.connected &= online);
             snapshot.account.username = online.then(|| "player@example.com".into());
-            let rows = match view.as_str() {
+            let rows = match view {
                 "dir-cloud" => (1..=9)
                     .map(|n| CloudItem {
                         id: format!("synthetic-{n}"),
@@ -1312,10 +1374,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             snapshot.preset_id = Some(0);
             snapshot.preset_slot = Some(BankSlot { bank: 0, slot: 0 });
             ui.set_snapshot(snapshot)?;
-            activate(&mut ui, Control::Navigate(Screen::Gig));
+            ui.show(Screen::Gig);
         }
         "picker" => {
-            activate(&mut ui, Control::SelectCell(GridPosition::new(2, 3)?));
+            activate(&mut ui, Control::SelectCell(GridPosition::new(1, 3)?));
             activate(
                 &mut ui,
                 Control::Picker(PickerControl::Category(ModelCategory::GuitarAmp)),
@@ -1458,10 +1520,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             activate(&mut ui, Control::Param(ParamControl::Page(1)));
         }
         "account" => {
-            activate(
-                &mut ui,
-                Control::Navigate(Screen::Settings(SettingsPage::MyAccount)),
-            );
+            ui.show(Screen::Settings(SettingsPage::MyAccount));
         }
         "media-capture" => {
             activate(
@@ -1502,7 +1561,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         | "storage" | "storage-quarantine" | "groups" | "backup-name" | "backup-menu"
         | "backup-update" => {
             let mut snapshot = ui.snapshot().clone();
-            match view.as_str() {
+            match view {
                 "update-ready" | "update-install" => {
                     snapshot.updater.state = UpdaterState::Idle;
                     snapshot.updater.status = UpdaterStatus::NewVersionDownloaded;
@@ -1530,7 +1589,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_snapshot(snapshot)?;
             activate(&mut ui, Control::OpenMainMenu);
             menu_item(&mut ui, MenuAction::Settings);
-            let page = match view.as_str() {
+            let page = match view {
                 "wifi" => SettingsPage::Connection,
                 "backups" | "groups" | "backup-name" | "backup-menu" | "backup-update" => {
                     SettingsPage::Backups
@@ -1543,7 +1602,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 activate(&mut ui, Control::Choose(1));
             }
             activate(&mut ui, Control::Setting(SettingControl::Page(page)));
-            match view.as_str() {
+            match view {
                 "update-confirm" => {
                     activate(&mut ui, Control::Updater(UpdaterCommand::CheckAndDownload));
                 }
@@ -1620,7 +1679,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_snapshot(snapshot)?;
             activate(&mut ui, Control::OpenMainMenu);
             menu_item(&mut ui, MenuAction::NewNeuralCapture);
-            match view.as_str() {
+            match view {
                 "capture-tab2" => {
                     activate(
                         &mut ui,
@@ -1657,7 +1716,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )));
             let (x, y) = (357, 147);
             ui.handle_input(InputEvent::PointerDown { x, y });
-            ui.handle_input(InputEvent::Tick { now_ms: 600 });
+            ui.handle_input(InputEvent::Tick { now_ms: 800 });
             ui.handle_input(InputEvent::PointerUp { x, y });
         }
         "routing" => {
@@ -1692,11 +1751,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
             snapshot.tuner.cents = -12.0;
             ui.set_snapshot(snapshot)?;
-            activate(&mut ui, Control::Navigate(Screen::Gig));
+            ui.show(Screen::Gig);
         }
         "diagram" | "process" | "ab" => {
             let mut snapshot = ui.snapshot().clone();
-            snapshot.capture.step = match view.as_str() {
+            snapshot.capture.step = match view {
                 "diagram" => CaptureStep::ConnectionDiagram,
                 "process" => CaptureStep::Training,
                 _ => CaptureStep::Audition,
@@ -1714,7 +1773,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // The NC2 dialog over the Grid: in progress, lost connection, A/B test.
         "nc2" | "nc2-lost" | "nc2-ab" | "nc2-saved" => {
             let mut snapshot = ui.snapshot().clone();
-            snapshot.capture.nc2 = Some(match view.as_str() {
+            snapshot.capture.nc2 = Some(match view {
                 "nc2" => Nc2Dialog::InProgress,
                 "nc2-lost" => Nc2Dialog::LostConnection,
                 "nc2-saved" => Nc2Dialog::Saved,
@@ -1747,7 +1806,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "modes" | "modes-hybrid" | "modes-add" => {
             let mut snapshot = ui.snapshot().clone();
-            snapshot.allowed_modes = match view.as_str() {
+            snapshot.allowed_modes = match view {
                 "modes" => vec![
                     FootswitchMode::Preset,
                     FootswitchMode::Scene,
@@ -1768,7 +1827,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         "brightness" | "bypass" | "scene-bypass" | "factory" | "about" => {
-            let page = match view.as_str() {
+            let page = match view {
                 "brightness" => SettingsPage::Brightness,
                 "bypass" => SettingsPage::GlobalBypass,
                 "scene-bypass" => SettingsPage::SceneBypass,
@@ -1785,7 +1844,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         "io-out" | "io-usb" | "io-ret" => {
-            ui.show(Screen::Io(match view.as_str() {
+            ui.show(Screen::Io(match view {
                 "io-out" => IoTab::Out12,
                 "io-usb" => IoTab::Usb,
                 _ => IoTab::Return,
@@ -1850,10 +1909,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
         }
-        _ => return Err(format!("usage: render_owned [{VIEWS}]").into()),
+        _ => return Err(usage()),
     }
-    ui.render().write_ppm(io::stdout().lock())?;
-    Ok(())
+    Ok(ui.render())
 }
 
 /// Pattern Tremolo (7040) and a mono cab at row 1, column 3, with their parameter lists.

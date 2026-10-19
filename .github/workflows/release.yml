@@ -42,11 +42,12 @@ jobs:
         env:
           NAME: tetrad-${{ github.ref_name }}-armv7
         run: |
-          mkdir -p "pkg/$NAME/bin" "pkg/$NAME/launcher" "pkg/$NAME/scripts" "pkg/$NAME/docs"
+          mkdir -p "pkg/$NAME/bin" "pkg/$NAME/launcher" "pkg/$NAME/scripts" "pkg/$NAME/docs/images"
           install -m 755 dist/tetrad "pkg/$NAME/bin/tetrad"
           install -m 755 scripts/launcher/*.sh "pkg/$NAME/launcher/"
           install -m 755 scripts/install.sh scripts/qc-ssh-proxy.py "pkg/$NAME/scripts/"
           install -m 644 docs/install.md docs/launcher.md docs/updates.md "pkg/$NAME/docs/"
+          install -m 644 docs/images/*.png "pkg/$NAME/docs/images/"
           install -m 644 README.md CHANGELOG.md LICENSE "pkg/$NAME/"
           tar -C pkg --owner=0 --group=0 --numeric-owner -czf "dist/$NAME.tar.gz" "$NAME"
           (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
