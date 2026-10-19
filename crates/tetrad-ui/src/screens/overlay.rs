@@ -108,6 +108,8 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             Overlay::SettingsPresets { page, menu } => {
                 super::settings_presets::layout(ui, l, *page, *menu);
             }
+            Overlay::ExtensionConfirm(confirm) => super::extensions::confirm(l, confirm),
+            Overlay::ExtensionTrust(pending) => super::extensions::trust(l, pending),
         }
     }
     if let Some(keyboard) = &ui.keyboard {
@@ -147,6 +149,9 @@ fn trigger(overlay: &Overlay) -> Option<Control> {
             output: true,
         },
         Overlay::Choice(ChoicePurpose::SettingsGroup) => Control::Setting(SettingControl::Groups),
+        Overlay::Choice(ChoicePurpose::Extension(setting)) => {
+            Control::Extension(ExtensionControl::Setting(*setting))
+        }
         Overlay::Menu(MenuKind::Main) => Control::OpenMainMenu,
         Overlay::Confirm(Confirm::AbortCapture) => Control::Capture(CaptureRequest::Abort),
         Overlay::Menu(MenuKind::Block(position)) => Control::SelectCell(*position),
@@ -573,7 +578,13 @@ fn internet_check(ui: &UiState, l: &mut Layout) {
 
 /// The cancel button (`cancel`: "CANCEL", or "SKIP" in a batch) and the primary button of a
 /// MessageDialog card.
-fn confirm_buttons(l: &mut Layout, panel: Rect, cancel: &str, primary: &str, danger: bool) {
+pub(super) fn confirm_buttons(
+    l: &mut Layout,
+    panel: Rect,
+    cancel: &str,
+    primary: &str,
+    danger: bool,
+) {
     l.button(
         Rect::new(panel.x + 24, panel.bottom() - 68, 200, 48),
         Control::Dialog(DialogButton::Cancel),
@@ -770,7 +781,7 @@ fn download_overwrite(ui: &UiState, l: &mut Layout) {
 /// The MessageDialog card: title, wrapped text and room for one button row. 480 × 240 with a
 /// 90 px body; a longer body (the stock Factory Reset WARNING! text, `0xa3d1bc`, wraps to 5
 /// lines) grows the panel around the screen centre.
-fn message_panel(l: &mut Layout, title: &str, body: &str) -> Rect {
+pub(super) fn message_panel(l: &mut Layout, title: &str, body: &str) -> Rect {
     let lines = wrap(body, MEDIUM, 432.0).len() as u32;
     let body_height = (lines * MEDIUM.size.line_px()).max(90);
     let height = 150 + body_height;
@@ -1152,6 +1163,10 @@ fn choice(ui: &UiState, l: &mut Layout, purpose: ChoicePurpose, anchor: Option<R
             s.active_setlist
                 .and_then(|id| s.setlists.iter().position(|setlist| setlist.id == id)),
         ),
+        ChoicePurpose::Extension(setting) => match super::extensions::choice(ui, setting) {
+            Some((label, options, selected)) => (label, options, Some(selected)),
+            None => return,
+        },
         ChoicePurpose::SettingsGroup => {
             if let Screen::Settings(page) = ui.screen() {
                 super::settings::group_menu(ui, l, page.group());

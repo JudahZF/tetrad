@@ -31,6 +31,8 @@ const MAX_LICENCE_BYTES: usize = 256 * 1024;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SettingsViews {
     pub wifi: WifiView,
+    /// Extensions pages (`extensions::Extensions::view`).
+    pub extensions: tetrad_ui::ExtensionsView,
     /// `Control::cloud_route` is set: the cloud is usable without Wi-Fi (re-r44 §3).
     pub control_online: bool,
     /// Cortex Control's link for the cloud dialog (whatever the cloud route).
@@ -90,6 +92,7 @@ fn cycle_captures(rows: &[DownloadsRow]) -> Vec<CycleCapture> {
 pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
     let current_version = std::mem::take(&mut snapshot.updater.current_version);
     snapshot.wifi = views.wifi.clone();
+    snapshot.extensions = views.extensions.clone();
     snapshot.control_online = views.control_online;
     snapshot.control_link = views.control_link;
     snapshot.updater = UpdaterView {
@@ -306,6 +309,7 @@ impl<P: Platform> Device<P> {
         let control = &self.bridges.control;
         let mut views = SettingsViews {
             wifi: services.wifi_view(),
+            extensions: self.bridges.extensions.view(),
             control_online: control.cloud_route().is_some(),
             control_link: match (control.connected(), control.online()) {
                 (_, true) => tetrad_ui::ControlLinkState::Online,

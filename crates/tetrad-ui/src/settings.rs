@@ -576,6 +576,8 @@ pub enum SettingsPage {
     MasterVolume,
     DeviceStorage,
     FactoryReset,
+    /// Owned (Tetrad): installed extensions, the catalog and its repositories.
+    Extensions,
     GlobalBypass,
     SceneBypass,
     StompModeBypass,
@@ -612,7 +614,7 @@ impl SettingsGroup {
         }
     }
 
-    /// Pages in stock menu order (`0x791ac`).
+    /// Pages in stock menu order (`0x791ac`); Extensions is owned and ends System.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -626,6 +628,7 @@ impl SettingsGroup {
                 MasterVolume,
                 DeviceStorage,
                 FactoryReset,
+                Extensions,
             ],
             Self::Device => &[
                 GlobalBypass,
@@ -698,6 +701,7 @@ impl SettingsPage {
             Self::MasterVolume => "Master Volume Knob",
             Self::DeviceStorage => "Device Storage",
             Self::FactoryReset => "Factory Reset",
+            Self::Extensions => "Extensions",
             Self::GlobalBypass => "Global Bypass",
             Self::SceneBypass => "Scene Bypass Behavior",
             Self::StompModeBypass => "Stomp Mode Bypass",
@@ -716,7 +720,7 @@ impl SettingsPage {
 
     /// Rows for pages that are plain setting lists. Pages with their own layout (account,
     /// backups, Wi-Fi, updates, storage, information, brightness, global bypass, factory
-    /// reset, about) return an empty list.
+    /// reset, extensions, about) return an empty list.
     pub(crate) fn rows(self) -> &'static [PageRow] {
         use PageRow::*;
         use SettingId as S;
@@ -828,6 +832,7 @@ impl SettingsPage {
             | Self::Brightness
             | Self::DeviceStorage
             | Self::FactoryReset
+            | Self::Extensions
             | Self::GlobalBypass
             | Self::AboutContact
             | Self::DeviceInformation

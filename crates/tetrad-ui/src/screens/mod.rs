@@ -7,6 +7,7 @@ mod directory_glyph;
 mod directory_lists;
 mod eq_editor;
 mod expression;
+pub(crate) mod extensions;
 mod fx_editor;
 mod gig;
 mod global_eq;

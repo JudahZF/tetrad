@@ -2259,6 +2259,7 @@ fn notice_title(subsystem: Subsystem) -> &'static str {
         Subsystem::Services => "Network",
         Subsystem::Capture => "Neural Capture",
         Subsystem::Power => "Power",
+        Subsystem::Extensions => "Extensions",
     }
 }
 

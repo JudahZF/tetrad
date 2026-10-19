@@ -65,9 +65,16 @@ pub struct ExtensionSetting {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExtensionSettingValue {
     /// Pick one of `options` (labels); `selected` indexes them.
-    Choice { options: Vec<String>, selected: usize },
+    Choice {
+        options: Vec<String>,
+        selected: usize,
+    },
     Toggle(bool),
-    Number { value: i64, min: i64, max: i64 },
+    Number {
+        value: i64,
+        min: i64,
+        max: i64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,25 +111,50 @@ pub struct PendingTrust {
 pub enum ExtensionCommand {
     /// Fetch every enabled source's catalog.
     Refresh,
-    Install { source: String, id: String },
-    Update { key: String },
-    SetEnabled { key: String, enabled: bool },
+    Install {
+        source: String,
+        id: String,
+    },
+    Update {
+        key: String,
+    },
+    SetEnabled {
+        key: String,
+        enabled: bool,
+    },
     /// Remove the installation; its settings and storage stay.
-    Remove { key: String },
+    Remove {
+        key: String,
+    },
     /// Start a faulted extension again.
-    Retry { key: String },
-    Run { key: String, command: String },
+    Retry {
+        key: String,
+    },
+    Run {
+        key: String,
+        command: String,
+    },
     SetSetting {
         key: String,
         setting: String,
         value: ExtensionSettingInput,
     },
     /// `owner/repo` or its GitHub HTTPS URL; the host fetches its key and asks for trust.
-    AddSource { repository: String },
+    AddSource {
+        repository: String,
+    },
     /// The answer to [`ExtensionsView::pending_trust`].
-    TrustSource { repository: String, trust: bool },
-    SetSourceEnabled { repository: String, enabled: bool },
-    RemoveSource { repository: String },
+    TrustSource {
+        repository: String,
+        trust: bool,
+    },
+    SetSourceEnabled {
+        repository: String,
+        enabled: bool,
+    },
+    RemoveSource {
+        repository: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

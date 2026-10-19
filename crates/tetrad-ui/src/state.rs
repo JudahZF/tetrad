@@ -83,6 +83,8 @@ pub(crate) enum TextTarget {
         page: SettingsPresetPage,
         preset: Option<u64>,
     },
+    /// Repositories ADD REPOSITORY: `owner/repo` or its GitHub URL.
+    ExtensionSource,
 }
 
 impl TextTarget {
@@ -105,6 +107,7 @@ impl TextTarget {
             Self::BackupName(_) => "Backup name",
             Self::SettingsPresetName { preset: None, .. } => "Name your Preset",
             Self::SettingsPresetName { .. } => "Edit Name",
+            Self::ExtensionSource => "owner/repo",
         }
     }
 
@@ -163,6 +166,8 @@ impl TextTarget {
             Self::DeviceName => (0, 30),
             // `0x54a550(edit, 30)` (`0x3f41f8`). O: an empty name is not sent.
             Self::BackupName(_) => (1, 30),
+            // Owned: `owner/repo` (3) up to a long GitHub HTTPS URL.
+            Self::ExtensionSource => (3, 140),
         }
     }
 
@@ -299,6 +304,8 @@ pub(crate) enum ChoicePurpose {
     SaveAsSetlist,
     /// EQ filter type of a band's TYPE parameter (`EQFilterTypeSelector` `0x6426d8`).
     FilterType(u16),
+    /// A choice setting (index) of the open extension.
+    Extension(u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -371,6 +378,28 @@ pub(crate) enum Overlay {
         page: SettingsPresetPage,
         menu: Option<u64>,
     },
+    /// Owned: REMOVE of an extension or a repository.
+    ExtensionConfirm(ExtensionConfirm),
+    /// Owned: the host asks to trust this repository's key
+    /// ([`crate::ExtensionsView::pending_trust`]); every close answers no.
+    ExtensionTrust(crate::PendingTrust),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExtensionConfirm {
+    Remove { key: String, name: String },
+    RemoveSource(String),
+}
+
+/// What the Extensions settings page shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum ExtensionsPage {
+    #[default]
+    List,
+    /// The detail page of the installation with this key.
+    Detail(String),
+    /// Repositories.
+    Sources,
 }
 
 /// Looper X swap dialog (`zenUI::LooperSwapActionsDialog`, `0x37c7ac`): pick a tile, then
@@ -612,6 +641,10 @@ pub struct UiState {
     pub(crate) support: SupportView,
     /// Connection › Domain Settings is shown in place of the page (`0x5d3b38`).
     pub(crate) wifi_domains: bool,
+    /// Extensions list, detail or Repositories.
+    pub(crate) extensions: ExtensionsPage,
+    /// The trust question this UI answered, until the host stops asking.
+    pub(crate) trust_answered: Option<crate::PendingTrust>,
     /// Footswitch Statistics rows in stock order `A B C D DOWN E F G H TEMPO UP`.
     pub(crate) switch_stats: [SwitchStats; 11],
     /// Numeric keyboard of a parameter value (`ParameterValueDialog` `0x64b518`).
@@ -683,6 +716,8 @@ impl Default for UiState {
             looper_swap: None,
             support: SupportView::List,
             wifi_domains: false,
+            extensions: ExtensionsPage::List,
+            trust_answered: None,
             switch_stats: [SwitchStats::default(); 11],
             numeric: None,
             capture_download_failed: None,
@@ -851,6 +886,7 @@ impl UiState {
             self.overlay = None;
         }
         self.follow_rows(&old);
+        self.follow_extensions();
         self.page = self.page.min(self.last_page());
         self.param_page = self.param_page.min(self.last_param_page());
         let stale = match self.gesture {
@@ -862,6 +898,13 @@ impl UiState {
                 control: Some(Control::Wifi(WifiControl::Network(_))),
                 ..
             } => networks_changed,
+            Gesture::Press {
+                control: Some(Control::Extension(_)),
+                ..
+            } => !crate::screens::extensions::same_targets(
+                &old.extensions,
+                &self.snapshot.extensions,
+            ),
             _ => false,
         };
         if stale {
@@ -995,6 +1038,7 @@ impl UiState {
                 self.scene_source = None;
                 vec![UiCommand::EndSceneCopy]
             }
+            Some(Overlay::ExtensionTrust(shown)) => self.answer_trust(shown, false),
             _ => Vec::new(),
         }
     }
@@ -1257,6 +1301,7 @@ impl UiState {
     /// It never replaces an open dialog; one question shows at a time (O order: preset upload,
     /// capture upload, capture download).
     fn show_questions(&mut self) {
+        self.show_extension_trust();
         let s = &self.snapshot;
         if s.upload_overwrite.is_none() {
             self.upload_answered = None;
@@ -1430,7 +1475,7 @@ impl UiState {
         }
     }
 
-    fn modal(&self) -> bool {
+    pub(crate) fn modal(&self) -> bool {
         self.draft.is_some()
             || self.overlay.is_some()
             || self.keyboard.is_some()
@@ -2196,8 +2241,15 @@ impl UiState {
                     self.scene_source = None;
                     vec![UiCommand::EndSceneCopy]
                 }
+                Overlay::ExtensionTrust(shown) => self.answer_trust(shown, false),
                 _ => Vec::new(),
             };
+        }
+        // An extension's detail page and Repositories go back to the Extensions list.
+        if self.screen() == Screen::Settings(SettingsPage::Extensions)
+            && std::mem::take(&mut self.extensions) != ExtensionsPage::List
+        {
+            return Vec::new();
         }
         if self.screen() == Screen::Presets && self.capture.edit.take().is_some() {
             return Vec::new();

@@ -910,6 +910,8 @@ pub struct Sim {
     pub drill_core0: bool,
     /// [`Platform::disk_space`]; `None` (default) is no reading.
     pub disk_space: Option<tetrad_sys::fs::FsSpace>,
+    /// Extension runners and store worker; `None` (default): extensions do not run.
+    pub extensions: Option<tetrad_app::device::extensions::LocalBackend>,
 }
 
 impl Sim {
@@ -1000,6 +1002,7 @@ impl Sim {
             random: 0,
             drill_core0: false,
             disk_space: None,
+            extensions: None,
         }
     }
 
@@ -1135,7 +1138,13 @@ impl Platform for Sim {
     }
     fn poll_input(&mut self, out: &mut Vec<Input>) -> std::io::Result<()> {
         out.append(&mut self.inputs.borrow_mut());
+        if let Some(extensions) = &mut self.extensions {
+            extensions.drain(out);
+        }
         Ok(())
+    }
+    fn extensions(&mut self) -> Option<&mut dyn tetrad_app::device::extensions::ExtensionBackend> {
+        self.extensions.as_mut().map(|backend| backend as _)
     }
     fn midi_write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         self.clock.log.borrow_mut().midi.push(bytes.to_vec());
@@ -1344,6 +1353,23 @@ pub fn boot_with(
         sim.services.files.put(marker, "");
     }
     let device = Device::start_with(sim, options).unwrap();
+    (device, log, media)
+}
+
+/// [`boot`] with extension runners on threads and the store under the media root.
+#[allow(dead_code)]
+pub fn boot_extensions(
+    media: Media,
+    backend: tetrad_app::device::extensions::LocalBackend,
+) -> (Device<Sim>, Rc<RefCell<Log>>, Media) {
+    use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
+    let log = Rc::new(RefCell::new(Log::default()));
+    let mut sim = Sim::new(STOCK, &media, &log);
+    for marker in [CAPTURE_CORRUPTION_CHECKED, CAPTURE_CONVERSION_FINISHED] {
+        sim.services.files.put(marker, "");
+    }
+    sim.extensions = Some(backend);
+    let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
     (device, log, media)
 }
 

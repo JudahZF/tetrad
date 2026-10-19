@@ -158,6 +158,7 @@ impl UiState {
             Control::CaptureUi(control) => return self.capture_control(control),
             Control::PresetMetadata(control) => return self.preset_metadata(control),
             Control::Wifi(WifiControl::Scan) => return vec![UiCommand::WifiScan],
+            Control::Extension(control) => return self.extension_control(control),
             Control::Wifi(WifiControl::DomainSettings) => {
                 self.wifi_domains = true;
                 return Vec::new();
@@ -569,6 +570,7 @@ impl UiState {
                 self.reset_scroll(ListId::SettingsPage);
                 self.support = SupportView::List;
                 self.wifi_domains = false;
+                self.extensions = crate::state::ExtensionsPage::List;
                 return self.navigate(Screen::Settings(page));
             }
             SettingControl::IoTab(tab) => {
@@ -653,6 +655,7 @@ impl UiState {
                 }
             }
             ChoicePurpose::FilterType(parameter) => self.choose_filter_type(parameter, index),
+            ChoicePurpose::Extension(setting) => self.choose_extension_setting(setting, index),
             ChoicePurpose::SettingsGroup => match SettingsGroup::ALL.get(index) {
                 Some(group) => {
                     self.reset_scroll(ListId::SettingsMenu);
@@ -863,6 +866,15 @@ impl UiState {
                 _ => self.inhibit_status = None,
             }
             return Vec::new();
+        }
+        if let Overlay::ExtensionTrust(shown) = overlay {
+            return self.answer_trust(shown, button == DialogButton::Primary);
+        }
+        if let Overlay::ExtensionConfirm(confirm) = overlay {
+            return match button {
+                DialogButton::Primary => crate::screens::extensions::confirmed(confirm),
+                _ => Vec::new(),
+            };
         }
         let Overlay::Confirm(confirm) = overlay else {
             return Vec::new();
@@ -1350,6 +1362,11 @@ impl UiState {
             }],
             TextTarget::BackupName(None) => vec![UiCommand::CreateBackup { name: text }],
             TextTarget::BackupName(Some(id)) => vec![UiCommand::RenameBackup { id, name: text }],
+            TextTarget::ExtensionSource => {
+                vec![UiCommand::Extension(crate::ExtensionCommand::AddSource {
+                    repository: text,
+                })]
+            }
             TextTarget::LoginPassword(email) => vec![UiCommand::CloudLogin {
                 email,
                 password: text,

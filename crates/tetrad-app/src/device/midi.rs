@@ -86,6 +86,8 @@ pub struct Midi {
     controller: Option<MidiController>,
     preset_ready: bool,
     din_clocks: u8,
+    /// Extension channel reservations, kept across controller rebuilds.
+    reserved: u16,
 }
 
 impl Midi {
@@ -105,6 +107,7 @@ impl Midi {
             MidiController::new(from_stored(&state.settings.settings().midi)?).with_port(port);
         controller.set_preset_ready(self.preset_ready);
         controller.set_tempo_context(tempo_context(state));
+        controller.set_reserved_channels(self.reserved);
         let routed = route(controller.boot(), state);
         self.controller = Some(controller);
         routed.read_only()
@@ -268,6 +271,30 @@ impl Midi {
         })
     }
 
+    /// Channels whose voice messages go to extensions (bit `n` = channel index `n`).
+    pub fn set_reserved_channels(&mut self, channels: u16) {
+        self.reserved = channels;
+        if let Some(controller) = self.controller.as_mut() {
+            controller.set_reserved_channels(channels);
+        }
+    }
+
+    /// The fixed native receive channel (1..=16); `None` for OMNI or before boot.
+    pub fn native_channel(&self) -> Option<u8> {
+        match self.controller.as_ref()?.settings().channel {
+            ChannelSetting::Channel(channel) => Some(channel.number()),
+            _ => None,
+        }
+    }
+
+    /// One message an extension sends, as the controller sends any message.
+    pub fn transmit(&self, message: &MidiMessage, state: &State) -> Result<Vec<Effect>, MidiError> {
+        let Some(controller) = self.controller.as_ref() else {
+            return Ok(Vec::new());
+        };
+        route(controller.transmit(message), state).read_only()
+    }
+
     /// Runs one controller step, routes its outputs and re-arms the clock timer.
     fn drive(
         &mut self,
@@ -372,6 +399,7 @@ fn route(outputs: Vec<MidiOutput>, state: &State) -> Routed {
                 .effects
                 .push(Effect::Dsp(DspCommand::Control(control_request(command)))),
             MidiOutput::Action(action) => route_action(action, state, &mut routed),
+            MidiOutput::Reserved(message) => routed.effects.push(Effect::ExtensionMidi(message)),
         }
     }
     routed

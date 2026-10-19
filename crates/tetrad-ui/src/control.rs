@@ -766,6 +766,36 @@ pub enum WifiControl {
     Forget(u16),
 }
 
+/// Controls of the Extensions pages. Indices address the current
+/// [`crate::ExtensionsView`] lists; detail controls act on the extension whose page is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionControl {
+    Refresh,
+    /// REPOSITORIES: the source list.
+    Sources,
+    /// An installed row: its detail page.
+    Open(u16),
+    /// INSTALL of an available row.
+    Install(u16),
+    /// The detail page's enable switch.
+    Enable,
+    Retry,
+    Update,
+    /// REMOVE, after a confirmation.
+    Remove,
+    /// A command button of the open extension.
+    Run(u16),
+    /// A setting row: a toggle flips, a choice opens its list.
+    Setting(u16),
+    /// A number setting stepped by one.
+    Step(u16, i8),
+    /// ADD REPOSITORY: the keyboard for `owner/repo`.
+    AddSource,
+    SourceEnabled(u16),
+    /// REMOVE of a source row, after a confirmation.
+    RemoveSource(u16),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupControl {
     Create,
@@ -867,6 +897,8 @@ pub enum Control {
     CaptureUi(CaptureControl),
     PresetMetadata(PresetMetadataControl),
     Wifi(WifiControl),
+    /// Extensions and Repositories pages (`screens::extensions`).
+    Extension(ExtensionControl),
     Updater(UpdaterCommand),
     ShowChangelog,
     Backup(BackupControl),

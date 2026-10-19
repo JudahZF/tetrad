@@ -284,6 +284,32 @@ fn every_screen_has_disjoint_in_frame_touch_targets() {
     states.push(open(&|ui| {
         activate(ui, Control::OpenMainMenu);
     }));
+    // Extensions list, an extension's page, Repositories and the trust question.
+    let extensions = |ui: &mut UiState, control: Option<ExtensionControl>, trust: bool| {
+        let mut extensions = crate::screens::extensions::tests::sample();
+        extensions.status = Some("Refreshing".into());
+        extensions.busy = true;
+        extensions.pending_trust = trust.then(|| PendingTrust {
+            repository: "night-owl/tools".into(),
+            fingerprint: "3f2a 9c01".into(),
+        });
+        ui.navigate(Screen::Settings(SettingsPage::Extensions));
+        let snapshot = UiSnapshot {
+            extensions,
+            ..ui.snapshot().clone()
+        };
+        ui.set_snapshot(snapshot).expect("valid snapshot");
+        if let Some(control) = control {
+            activate(ui, Control::Extension(control));
+        }
+    };
+    states.push(open(&|ui| extensions(ui, None, false)));
+    states.push(open(&|ui| {
+        extensions(ui, Some(ExtensionControl::Open(0)), false)
+    }));
+    states.push(open(&|ui| {
+        extensions(ui, Some(ExtensionControl::Sources), true)
+    }));
     states.push(open(&|ui| {
         activate(ui, Control::SceneMenu);
     }));

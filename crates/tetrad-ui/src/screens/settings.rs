@@ -47,6 +47,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         AboutContact => Icon::Pulse,
         DeviceInformation => Icon::InfoFilled,
         Diagnostics => Icon::PlusBold,
+        Extensions => Icon::Plugin,
     }
 }
 
@@ -204,6 +205,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
     l.panel(MENU, PANEL, 8.0, None);
     let pages = menu_pages(ui, group);
     let update = ui.snapshot.updater.available_version.is_some();
+    let extension_update = (ui.snapshot.extensions.installed.iter()).any(|e| e.update.is_some());
     l.scroll(
         ListId::SettingsMenu,
         MENU,
@@ -228,7 +230,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
                     None,
                 );
                 // Stock marks Updates with an 8 px green dot while an update is available.
-                if *entry == SettingsPage::Updates && update {
+                // Owned: Extensions carries the same dot while an extension has an update.
+                if (*entry == SettingsPage::Updates && update)
+                    || (*entry == SettingsPage::Extensions && extension_update)
+                {
                     l.push(
                         Rect::new(row.right() - 22, row.y + 26, 8, 8),
                         "",
@@ -250,6 +255,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         // Linked, stock puts "Device linked to [user]" in the title place (QC, 2026-10-16).
         SettingsPage::MyAccount => ui.snapshot.account.username.is_some(),
         SettingsPage::Diagnostics => ui.support != crate::state::SupportView::List,
+        SettingsPage::Extensions => super::extensions::own_title(ui),
         _ => false,
     };
     if !own_title {
@@ -275,6 +281,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::GlobalBypass => global_bypass(ui, l, body),
         SettingsPage::FactoryReset => super::recovery::options(l, body, false),
         SettingsPage::AboutContact => about(l, body),
+        SettingsPage::Extensions => super::extensions::layout(ui, l, pane),
         // Stock 091 rows (dividers, dropdowns) run 8 px past the text inset, to x 784.
         _ => {
             let area = Rect::new(body.x, body.y, body.width + 8, body.height);

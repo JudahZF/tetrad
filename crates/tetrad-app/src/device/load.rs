@@ -883,6 +883,15 @@ impl<P: Platform> Device<P> {
         }
         let midi = self.bridges.midi.preset_loaded(&self.state);
         self.apply(midi);
+        // The first loaded preset is also the point to load the extension store: start-up
+        // never waits for extension work.
+        let extensions = self.extensions(|extensions, backend, _| {
+            let mut outcome = extensions.boot(backend);
+            let loaded = extensions.preset_loaded(backend);
+            outcome.effects.extend(loaded.effects);
+            outcome
+        });
+        self.apply(Ok::<_, super::DeviceError>(extensions));
     }
 }
 

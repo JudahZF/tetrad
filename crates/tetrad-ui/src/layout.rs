@@ -43,6 +43,8 @@ pub(crate) enum ListId {
     PresetResults,
     SettingsMenu,
     SettingsPage,
+    /// The Extensions list (kept while a detail page or Repositories shows).
+    Extensions,
     IoPage,
     Wifi,
     Backups,

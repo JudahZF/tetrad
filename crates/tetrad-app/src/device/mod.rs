@@ -13,6 +13,8 @@ pub mod bringup;
 pub mod capture;
 pub mod control;
 pub mod dsp;
+pub mod extension_jobs;
+pub mod extensions;
 pub mod features;
 pub mod global_eq;
 pub mod info;
@@ -139,6 +141,10 @@ pub enum Event {
     /// A device action from any source; platforms and tests may inject one directly.
     Action(Action),
     Service(services::ServiceNotice),
+    /// Runner output for the extensions bridge.
+    Extension(extensions::ExtensionInput),
+    /// An Extensions page request (also from tests and developer tools).
+    Extensions(tetrad_ui::ExtensionCommand),
     Shutdown(PowerAction),
 }
 
@@ -299,6 +305,13 @@ pub enum Effect {
     },
     /// Runs through the action reducer ([`actions::reduce`]).
     Action(Action),
+    /// An edit an extension made: [`Self::Action`] without the native-edit event to
+    /// extensions, so an extension never hears its own writes.
+    ExtensionAction(Action),
+    /// A voice message on a channel an extension reserved (`extensions::Extensions::on_midi`).
+    ExtensionMidi(tetrad_midi::MidiMessage),
+    /// MIDI output an extension sent, through the controller's transmit path.
+    ExtensionMidiOut(tetrad_midi::MidiMessage),
     /// Input for the UI bridge: screens, knob steps, footswitch edges, the power button.
     UiInput(ui::UiInput),
     /// A settings group changed; the device tells consumers outside `State` (MIDI).
@@ -470,6 +483,7 @@ pub enum Subsystem {
     Services,
     Capture,
     Power,
+    Extensions,
 }
 
 /// A degraded step or an unsupported request, kept for the UI and the log.
@@ -917,6 +931,7 @@ pub struct Bridges {
     pub midi: midi::Midi,
     pub services: services::Services,
     pub capture: capture::Capture,
+    pub extensions: extensions::Extensions,
 }
 
 pub struct Device<P: Platform> {
@@ -995,6 +1010,7 @@ impl<P: Platform> Device<P> {
                 midi: midi::Midi::new(),
                 services: services::Services::new(),
                 capture,
+                extensions: extensions::Extensions::new(),
             },
             state: State::new(product, hal_platform, settings),
             platform,
@@ -1494,6 +1510,7 @@ impl<P: Platform> Device<P> {
                 Input::MidiByte { byte, at } => Event::Midi { byte, at },
                 Input::Touch(sample) => Event::UiInput(ui::UiInput::Touch(sample)),
                 Input::Service(notice) => Event::Service(notice),
+                Input::Extension(input) => Event::Extension(input),
                 Input::Power(_) if held => return None,
                 Input::Power(action) => Event::Shutdown(action),
             })
@@ -1572,6 +1589,15 @@ impl<P: Platform> Device<P> {
                 effects
             }
             Event::Midi { byte, at } => self.bridges.midi.on_din_byte(byte, at, state)?,
+            Event::Extensions(command) => {
+                self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
+            }
+            Event::Extension(input) => {
+                let native = self.bridges.midi.native_channel();
+                self.extensions(|extensions, backend, state| {
+                    extensions.on_input(input, state, native, backend)
+                })
+            }
             Event::Dsp(core, event) => self.on_dsp(core, event)?,
             Event::Control(report) => {
                 // A File (4) IR import dates its metadata (`0x24dae0`).
@@ -2054,8 +2080,8 @@ impl<P: Platform> Device<P> {
             return Err(DeviceError::Unavailable(refused));
         }
         let effects = match handoff {
-            ui::Handoff::Extensions(_) => {
-                return Err(DeviceError::Unavailable("extensions"));
+            ui::Handoff::Extensions(command) => {
+                self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,
             // r16-capture MR 2: through `nc2_input`, so saves and the meter timer sync run.
@@ -2295,10 +2321,37 @@ impl<P: Platform> Device<P> {
                 instrument,
             } => self.save_preset(Some(name), Some((setlist, Some(slot))), instrument),
             Effect::Action(action) => {
+                let change = extensions::native_change(&action, &self.state);
                 self.bridges.control.record_drop(&action, &self.state);
                 let push = control::action_push(&action);
                 let effects = actions::reduce(action, &mut self.state)
-                    .map(|effects| effects.into_iter().chain(push).collect());
+                    .map(|effects| effects.into_iter().chain(push).collect::<Vec<_>>());
+                let applied = effects.is_ok();
+                self.apply(effects);
+                if let Some(change) = change.filter(|_| applied) {
+                    let effects = self.extensions(|extensions, backend, _| {
+                        extensions.control_changed(change, backend)
+                    });
+                    self.apply(Ok::<_, DeviceError>(effects));
+                }
+                Ok(())
+            }
+            Effect::ExtensionAction(action) => {
+                self.bridges.control.record_drop(&action, &self.state);
+                let push = control::action_push(&action);
+                let effects = actions::reduce(action, &mut self.state)
+                    .map(|effects| effects.into_iter().chain(push).collect::<Vec<_>>());
+                self.apply(effects);
+                Ok(())
+            }
+            Effect::ExtensionMidi(message) => {
+                let effects =
+                    self.extensions(|extensions, backend, _| extensions.on_midi(&message, backend));
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
+            Effect::ExtensionMidiOut(message) => {
+                let effects = self.bridges.midi.transmit(&message, &self.state);
                 self.apply(effects);
                 Ok(())
             }
@@ -2774,6 +2827,31 @@ impl<P: Platform> Device<P> {
                 self.notice(error.subsystem(), error.to_string());
             })
             .ok()
+    }
+
+    /// Runs one extensions bridge step with the platform's runner backend, then applies its
+    /// reservation change. Without a backend (tests, bring-up) extensions do not run.
+    fn extensions(
+        &mut self,
+        step: impl FnOnce(
+            &mut extensions::Extensions,
+            &mut dyn extensions::ExtensionBackend,
+            &State,
+        ) -> extensions::Outcome,
+    ) -> Vec<Effect> {
+        let Some(backend) = self.platform.extensions() else {
+            return Vec::new();
+        };
+        let extensions = &mut self.bridges.extensions;
+        let outcome = step(extensions, backend, &self.state);
+        for key in &outcome.storage_changed {
+            extensions.save_storage(key, backend);
+        }
+        if outcome.reservations_changed {
+            let mask = extensions.reserved_channels();
+            self.bridges.midi.set_reserved_channels(mask);
+        }
+        outcome.effects
     }
 
     fn notice(&mut self, subsystem: Subsystem, detail: String) {

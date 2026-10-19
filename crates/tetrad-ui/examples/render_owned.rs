@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -473,7 +473,7 @@ const README: [(&str, &str); 5] = [
 ];
 
 fn usage() -> Box<dyn Error> {
-    format!("usage: render_owned [{VIEWS}] | render_owned readme <dir>").into()
+    format!("usage: render_owned [{VIEWS}] [out.png] | render_owned readme <dir>").into()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -482,6 +482,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         [] => "grid",
         [view] => view.as_str(),
         [mode, dir] if mode == "readme" => return readme(Path::new(dir)),
+        // One view as PNG, for looking at a page.
+        [view, file] if file.ends_with(".png") => {
+            let frame = render(view, fixture()?)?;
+            let image = png(WIDTH, HEIGHT, PngColour::Rgb, frame.rgb()).ok_or("bad frame size")?;
+            std::fs::write(file, image)?;
+            return Ok(());
+        }
         _ => return Err(usage()),
     };
     let snapshot = fixture()?;
@@ -604,6 +611,17 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 heap: [42.5, 18.75, 2.25],
             };
             snapshot.dsp_diagnostics = [Some(core), None, Some(core), None];
+        }
+        view if view.starts_with("ext") => {
+            if view != "ext-empty" {
+                snapshot.extensions = extensions_fixture();
+            }
+            if view == "ext-trust" {
+                snapshot.extensions.pending_trust = Some(PendingTrust {
+                    repository: "night-owl/footswitch-tools".into(),
+                    fingerprint: "3f2a 9c01 77be 04d2 e1a9 5b6c 0d83 f4e7".into(),
+                });
+            }
         }
         "licence" => {
             snapshot.licence = Some(LicenceView {
@@ -925,6 +943,38 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
     };
     match view {
         "grid" | "params" | "params-tabs" | "params-bypassed" => {}
+        view if view.starts_with("ext") => {
+            ui.show(Screen::Settings(SettingsPage::Extensions));
+            let open = |ui: &mut UiState, index| {
+                activate(ui, Control::Extension(ExtensionControl::Open(index)));
+            };
+            match view {
+                "ext-detail" => open(&mut ui, 0),
+                "ext-detail-mid" => {
+                    open(&mut ui, 0);
+                    ui.handle_input(InputEvent::PointerDown { x: 500, y: 440 });
+                    ui.handle_input(InputEvent::PointerMove { x: 500, y: 200 });
+                    ui.handle_input(InputEvent::PointerUp { x: 500, y: 200 });
+                }
+                "ext-fault" => open(&mut ui, 2),
+                "ext-detail-end" | "ext-remove" => {
+                    open(&mut ui, 0);
+                    // REMOVE is at the end of the page: scroll it into view.
+                    for _ in 0..3 {
+                        ui.handle_input(InputEvent::PointerDown { x: 500, y: 440 });
+                        ui.handle_input(InputEvent::PointerMove { x: 500, y: 130 });
+                        ui.handle_input(InputEvent::PointerUp { x: 500, y: 130 });
+                    }
+                    if view == "ext-remove" {
+                        activate(&mut ui, Control::Extension(ExtensionControl::Remove));
+                    }
+                }
+                "ext-sources" | "ext-trust" => {
+                    activate(&mut ui, Control::Extension(ExtensionControl::Sources));
+                }
+                _ => {}
+            }
+        }
         "numeric" => {
             activate(
                 &mut ui,
@@ -2283,4 +2333,142 @@ fn model_editor(snapshot: &mut UiSnapshot, view: &str) -> Result<(), UiError> {
     }
     snapshot.selected_block = Some(position);
     Ok(())
+}
+
+/// Synthetic Extensions page data: a running, a starting and a faulted extension, two
+/// catalog entries and two repositories.
+fn extensions_fixture() -> ExtensionsView {
+    let default = "tetrad-dev/extensions";
+    let installed = |key: &str, name: &str, state: ExtensionState| InstalledExtension {
+        key: format!("{default}:{key}"),
+        name: name.into(),
+        version: "1.2.0".into(),
+        description: String::new(),
+        source: default.into(),
+        enabled: state != ExtensionState::Disabled,
+        state,
+        update: None,
+        commands: Vec::new(),
+        settings: Vec::new(),
+        status_lines: Vec::new(),
+        log: Vec::new(),
+    };
+    let setting = |key: &str, label: &str, value| ExtensionSetting {
+        key: key.into(),
+        label: label.into(),
+        value,
+    };
+    let mapper = InstalledExtension {
+        description: "Maps incoming MIDI notes and CCs to scenes, presets and stomps, \
+            with one mapping table per setlist."
+            .into(),
+        update: Some("1.3.0".into()),
+        commands: ["Learn next message", "Clear mappings", "Send test note"]
+            .into_iter()
+            .enumerate()
+            .map(|(n, label)| ExtensionButton {
+                id: format!("cmd{n}"),
+                label: label.into(),
+            })
+            .collect(),
+        settings: vec![
+            setting(
+                "channel",
+                "Input channel",
+                ExtensionSettingValue::Choice {
+                    options: (1..=16)
+                        .map(|n| n.to_string())
+                        .chain(["Omni".into()])
+                        .collect(),
+                    selected: 16,
+                },
+            ),
+            setting(
+                "thru",
+                "Pass unmapped messages",
+                ExtensionSettingValue::Toggle(true),
+            ),
+            setting(
+                "velocity",
+                "Minimum velocity",
+                ExtensionSettingValue::Number {
+                    value: 12,
+                    min: 0,
+                    max: 127,
+                },
+            ),
+        ],
+        status_lines: vec![
+            "14 mappings loaded".into(),
+            "Last message: CC 64 = 127".into(),
+        ],
+        log: (0..14)
+            .map(|n| {
+                format!(
+                    "12:0{}:{:02} mapped CC {} to scene {}",
+                    n % 10,
+                    n * 4,
+                    60 + n,
+                    n % 8 + 1
+                )
+            })
+            .collect(),
+        ..installed("midi-mapper", "MIDI Mapper", ExtensionState::Running)
+    };
+    let mut looper = installed(
+        "looper-sync",
+        "Looper Sync with an extremely long extension name that cannot fit",
+        ExtensionState::Starting,
+    );
+    looper.source = "night-owl/footswitch-tools".into();
+    let mut faulted = installed("setlist-clock", "Setlist Clock", ExtensionState::Faulted(
+        "TypeError: cannot read properties of undefined (reading 'tempo') at onScene (main.js:42)"
+            .into(),
+    ));
+    faulted.log = vec!["started".into(), "uncaught TypeError in onScene".into()];
+    ExtensionsView {
+        installed: vec![
+            mapper,
+            looper,
+            faulted,
+            installed("tap-lights", "Tap Lights", ExtensionState::Disabled),
+        ],
+        available: vec![
+            AvailableExtension {
+                source: default.into(),
+                id: "tuner-strobe".into(),
+                name: "Strobe Tuner".into(),
+                version: "0.4.1".into(),
+                description: "A strobe view for the tuner screen with cents history.".into(),
+            },
+            AvailableExtension {
+                source: "night-owl/footswitch-tools".into(),
+                id: "double-tap".into(),
+                name: "Double Tap Actions".into(),
+                version: "2.0.0".into(),
+                description: "Assign a second action to a double tap on any footswitch, \
+                    with per-preset overrides."
+                    .into(),
+            },
+        ],
+        sources: vec![
+            ExtensionSource {
+                repository: default.into(),
+                default: true,
+                enabled: true,
+                fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90".into(),
+                status: "Up to date".into(),
+            },
+            ExtensionSource {
+                repository: "night-owl/footswitch-tools".into(),
+                default: false,
+                enabled: true,
+                fingerprint: "3f2a 9c01 77be 04d2 e1a9 5b6c 0d83 f4e7".into(),
+                status: "Refresh failed: HTTP 404 from api.github.com".into(),
+            },
+        ],
+        pending_trust: None,
+        status: Some("Installed MIDI Mapper 1.2.0".into()),
+        busy: false,
+    }
 }
