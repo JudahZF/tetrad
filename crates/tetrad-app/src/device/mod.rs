@@ -2054,6 +2054,9 @@ impl<P: Platform> Device<P> {
             return Err(DeviceError::Unavailable(refused));
         }
         let effects = match handoff {
+            ui::Handoff::Extensions(_) => {
+                return Err(DeviceError::Unavailable("extensions"));
+            }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,
             // r16-capture MR 2: through `nc2_input`, so saves and the meter timer sync run.
             ui::Handoff::Nc2DialogShown => {

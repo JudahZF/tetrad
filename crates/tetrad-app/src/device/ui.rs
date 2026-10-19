@@ -122,6 +122,8 @@ pub enum Request {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Handoff {
+    /// Extensions page requests → extensions bridge.
+    Extensions(tetrad_ui::ExtensionCommand),
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -771,6 +773,7 @@ impl Ui {
         let layout = |edit| vec![Request::Action(Action::EditLayout(edit))];
         let slot = project::slot_of;
         match command {
+            C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],

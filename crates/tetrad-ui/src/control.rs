@@ -1126,6 +1126,8 @@ pub const POSITION_SCALE: u16 = 10_000;
 pub enum UiCommand {
     /// Persisted Directory edit or explicit audition request.
     Directory(DirectoryRequest),
+    /// An Extensions page request (`crate::extensions`).
+    Extension(crate::ExtensionCommand),
     SelectScene {
         scene: SceneIndex,
     },
@@ -1704,6 +1706,7 @@ impl fmt::Debug for UiCommand {
         }
         use UiCommand as C;
         match self {
+            C::Extension(command) => f.debug_tuple("Extension").field(command).finish(),
             C::WifiConnect { ssid, password } => f
                 .debug_struct("WifiConnect")
                 .field("ssid", ssid)
