@@ -11,7 +11,7 @@ repository.workspace = true
 rquickjs = { version = "=0.14.0", default-features = false, features = ["std"] }
 base64.workspace = true
 ed25519-dalek.workspace = true
-semver.workspace = true
+semver = { workspace = true, features = ["serde"] }
 sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true

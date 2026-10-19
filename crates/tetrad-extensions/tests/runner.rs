@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use serde_json::json;
 use tetrad_extensions::protocol::{
-    self, CallResult, ErrorCode, Event, ExtensionInfo, HostMessage, MidiEvent,
-    PROTOCOL_VERSION, RunnerMessage,
+    self, CallResult, ErrorCode, Event, ExtensionInfo, HostMessage, MidiEvent, PROTOCOL_VERSION,
+    RunnerMessage,
 };
 use tetrad_extensions::runner::{self, Limits, RunnerError};
 
@@ -117,7 +117,13 @@ fn midi_event_becomes_a_scoped_host_call() {
             },
         },
     });
-    let RunnerMessage::Request { id, scope, method, params } = h.next() else {
+    let RunnerMessage::Request {
+        id,
+        scope,
+        method,
+        params,
+    } = h.next()
+    else {
         panic!("no request")
     };
     assert_eq!((scope, method.as_str()), (Some(9), "controls.set"));
@@ -132,7 +138,13 @@ fn midi_event_becomes_a_scoped_host_call() {
         panic!("no log")
     };
     assert_eq!(text, r#"applied {"applied":true}"#);
-    assert_eq!(h.next(), RunnerMessage::Done { scope: 9, error: None });
+    assert_eq!(
+        h.next(),
+        RunnerMessage::Done {
+            scope: 9,
+            error: None
+        }
+    );
 
     h.send(&HostMessage::Stop);
     assert!(h.thread.join().unwrap().is_ok());
@@ -165,7 +177,11 @@ fn a_rejected_call_rejects_with_its_code_and_the_handler_reports_it() {
         panic!("no log")
     };
     assert_eq!(text, "staleContext");
-    let RunnerMessage::Done { scope: 1, error: Some(error) } = h.next() else {
+    let RunnerMessage::Done {
+        scope: 1,
+        error: Some(error),
+    } = h.next()
+    else {
         panic!("handler error not reported")
     };
     assert!(error.contains("preset changed"), "{error}");
@@ -187,14 +203,23 @@ fn events_run_one_at_a_time() {
             event: Event::Command { id: id.into() },
         });
     }
-    let RunnerMessage::Request { id, scope: Some(1), .. } = h.next() else {
+    let RunnerMessage::Request {
+        id, scope: Some(1), ..
+    } = h.next()
+    else {
         panic!("first handler did not start")
     };
     h.send(&HostMessage::Response {
         id,
         result: CallResult::Ok(json!(null)),
     });
-    assert_eq!(h.next(), RunnerMessage::Done { scope: 1, error: None });
+    assert_eq!(
+        h.next(),
+        RunnerMessage::Done {
+            scope: 1,
+            error: None
+        }
+    );
     let RunnerMessage::Request { scope: Some(2), .. } = h.next() else {
         panic!("second handler did not start after the first")
     };
@@ -271,7 +296,10 @@ fn registration_after_activation_is_refused() {
         scope: 1,
         event: Event::Command { id: "late".into() },
     });
-    let RunnerMessage::Done { error: Some(error), .. } = h.next() else {
+    let RunnerMessage::Done {
+        error: Some(error), ..
+    } = h.next()
+    else {
         panic!("late registration was accepted")
     };
     assert!(error.contains("only allowed during activate"), "{error}");
@@ -279,7 +307,10 @@ fn registration_after_activation_is_refused() {
 
 #[test]
 fn bundles_cannot_import_at_run_time() {
-    let h = Harness::start(r#"import fs from "fs"; export default { activate() {} };"#, quick());
+    let h = Harness::start(
+        r#"import fs from "fs"; export default { activate() {} };"#,
+        quick(),
+    );
     let fault = h.fault();
     assert!(fault.contains("fs"), "{fault}");
 }

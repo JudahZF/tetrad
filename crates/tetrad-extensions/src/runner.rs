@@ -23,8 +23,8 @@ use rquickjs::{
 use serde_json::Value as Json;
 
 use crate::protocol::{
-    self, CallResult, Event, ExtensionInfo, HostMessage, LogLevel, PROTOCOL_VERSION,
-    Registrations, RunnerMessage,
+    self, CallResult, Event, ExtensionInfo, HostMessage, LogLevel, PROTOCOL_VERSION, Registrations,
+    RunnerMessage,
 };
 
 const PRELUDE: &str = include_str!("prelude.js");
@@ -94,11 +94,10 @@ pub fn run(
 }
 
 /// Host frames, decoded on their own thread so the engine thread can wait with a deadline.
-fn spawn_reader(
-    mut input: impl BufRead + Send + 'static,
-) -> Receiver<Result<HostMessage, String>> {
+fn spawn_reader(mut input: impl BufRead + Send + 'static) -> Receiver<Result<HostMessage, String>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let reader = std::thread::Builder::new().stack_size(64 * 1024);
+    let spawned = reader.spawn(move || {
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -122,6 +121,8 @@ fn spawn_reader(
             }
         }
     });
+    // Without a reader the channel closes at once and the runner sees a disconnected host.
+    drop(spawned);
     rx
 }
 
@@ -157,8 +158,10 @@ impl Deadline {
     fn arm(&self, slice: Duration) {
         let at = self.base.elapsed() + slice;
         self.hit.store(false, Ordering::Relaxed);
-        self.at
-            .store(u64::try_from(at.as_nanos()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        self.at.store(
+            u64::try_from(at.as_nanos()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
     }
 
     fn disarm(&self) {
@@ -253,9 +256,7 @@ impl<'w, W: Write> Runner<'w, W> {
             };
             let message = match wait {
                 None => frames.recv().map_err(|_| RecvTimeoutError::Disconnected),
-                Some(until) => {
-                    frames.recv_timeout(until.saturating_duration_since(Instant::now()))
-                }
+                Some(until) => frames.recv_timeout(until.saturating_duration_since(Instant::now())),
             };
             match message {
                 Ok(Ok(message)) => {
@@ -343,7 +344,9 @@ impl<'w, W: Write> Runner<'w, W> {
 
     fn respond(&mut self, id: u64, result: CallResult) -> Result<(), RunnerError> {
         let Some((resolve, reject)) = self.shared.borrow_mut().pending.remove(&id) else {
-            return Err(RunnerError::Protocol(format!("response to unknown request {id}")));
+            return Err(RunnerError::Protocol(format!(
+                "response to unknown request {id}"
+            )));
         };
         self.enter(|ctx| {
             match result {
@@ -382,7 +385,9 @@ impl<'w, W: Write> Runner<'w, W> {
             })?;
             match settled {
                 None if now >= until => {
-                    return Err(RunnerError::Fault("activation did not finish in time".into()));
+                    return Err(RunnerError::Fault(
+                        "activation did not finish in time".into(),
+                    ));
                 }
                 None => return Ok(()),
                 Some(Err(error)) => {
@@ -462,11 +467,9 @@ impl<'w, W: Write> Runner<'w, W> {
         f: impl for<'js> FnOnce(Ctx<'js>) -> rquickjs::Result<T>,
     ) -> Result<T, RunnerError> {
         self.deadline.arm(self.limits.slice);
-        let result = self.context.with(|ctx| {
-            f(ctx.clone())
-                .catch(&ctx)
-                .map_err(|error| describe(&error))
-        });
+        let result = self
+            .context
+            .with(|ctx| f(ctx.clone()).catch(&ctx).map_err(|error| describe(&error)));
         let hit = self.deadline.was_hit();
         self.deadline.disarm();
         result.map_err(|error| {
@@ -522,7 +525,10 @@ fn install_natives<'js>(
                 let id = shared.next_id;
                 shared.pending.insert(
                     id,
-                    (Persistent::save(&ctx, resolve), Persistent::save(&ctx, reject)),
+                    (
+                        Persistent::save(&ctx, resolve),
+                        Persistent::save(&ctx, reject),
+                    ),
                 );
                 shared.outbox.push(RunnerMessage::Request {
                     id,

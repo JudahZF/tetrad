@@ -44,7 +44,9 @@ pub struct ExtensionInfo {
 pub enum RunnerMessage {
     /// Activation resolved; the host commits these registrations and then sends
     /// [`Event::Running`].
-    Activated { registrations: Registrations },
+    Activated {
+        registrations: Registrations,
+    },
     /// A host call. `scope` is `None` for read-only activation-context calls.
     Request {
         id: u64,
@@ -59,9 +61,14 @@ pub enum RunnerMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    Log { level: LogLevel, text: String },
+    Log {
+        level: LogLevel,
+        text: String,
+    },
     /// The runner cannot continue (activation failure, timeout, memory). It exits next.
-    Fault { message: String },
+    Fault {
+        message: String,
+    },
 }
 
 /// What an extension declared during activation.
@@ -92,10 +99,17 @@ pub enum LogLevel {
 pub enum Event {
     /// Activation committed: initialization writes are allowed in this scope.
     Running,
-    Midi { message: MidiEvent },
-    Command { id: String },
-    /// A native edit of a block (touch, footswitch, Cortex Control, another extension).
-    ControlChanged { change: ControlChange },
+    Midi {
+        message: MidiEvent,
+    },
+    Command {
+        id: String,
+    },
+    /// A native edit of a block (touch, footswitch, Cortex Control). An extension never hears
+    /// edits that an extension made.
+    ControlChanged {
+        change: ControlChange,
+    },
     /// A different preset is loaded; every target handle from before is stale.
     PresetLoaded,
 }
@@ -105,11 +119,26 @@ pub enum Event {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum MidiEvent {
     #[serde(rename = "cc")]
-    ControlChange { channel: u8, controller: u8, value: u8 },
+    ControlChange {
+        channel: u8,
+        controller: u8,
+        value: u8,
+    },
     #[serde(rename = "pc")]
-    ProgramChange { channel: u8, program: u8 },
-    NoteOn { channel: u8, key: u8, velocity: u8 },
-    NoteOff { channel: u8, key: u8, velocity: u8 },
+    ProgramChange {
+        channel: u8,
+        program: u8,
+    },
+    NoteOn {
+        channel: u8,
+        key: u8,
+        velocity: u8,
+    },
+    NoteOff {
+        channel: u8,
+        key: u8,
+        velocity: u8,
+    },
 }
 
 /// Where a control lives: one block site of the loaded preset.
@@ -117,11 +146,22 @@ pub enum MidiEvent {
 #[serde(tag = "site", rename_all = "camelCase")]
 pub enum Site {
     /// Grid slot; row 0..=3, column 0..=7.
-    Slot { row: u8, column: u8 },
-    Input { row: u8 },
-    Output { row: u8 },
-    Splitter { pair: Pair },
-    Mixer { pair: Pair },
+    Slot {
+        row: u8,
+        column: u8,
+    },
+    Input {
+        row: u8,
+    },
+    Output {
+        row: u8,
+    },
+    Splitter {
+        pair: Pair,
+    },
+    Mixer {
+        pair: Pair,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
