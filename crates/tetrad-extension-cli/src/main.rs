@@ -80,6 +80,19 @@ enum Cmd {
     },
     /// Validate a package and print its manifest.
     Check { file: PathBuf },
+    /// Development: build an on-device store at `--store` (copy it to
+    /// `/media/p4/tetrad/extensions`) with `--source` trusted, its signed catalog cached and
+    /// the newest version of every extension in `<repo-dir>` installed, through the same
+    /// verified install path the device uses.
+    Stage {
+        #[arg(long)]
+        repo_dir: PathBuf,
+        /// `owner/repo` the repository is published as.
+        #[arg(long, default_value = tetrad_extensions::repository::DEFAULT_SOURCE)]
+        source: String,
+        #[arg(long)]
+        store: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -91,6 +104,11 @@ fn main() -> ExitCode {
         Cmd::Package { dir, out } => package(&dir, &out),
         Cmd::Catalog { repo_dir, key, tag } => catalog(&repo_dir, &key, &tag),
         Cmd::Check { file } => check(&file),
+        Cmd::Stage {
+            repo_dir,
+            source,
+            store,
+        } => stage(&repo_dir, &source, &store),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -378,5 +396,46 @@ fn check(file: &Path) -> Result {
         bytes.len(),
         sha256_hex(&bytes)
     );
+    Ok(())
+}
+
+fn stage(repo: &Path, source: &str, store_dir: &Path) -> Result {
+    use tetrad_extensions::repository::SourceId;
+    use tetrad_extensions::store::{Source, Store};
+
+    let source: SourceId = source.parse()?;
+    let key_text = String::from_utf8(read(&repo.join(KEY_FILE))?)?;
+    let key = PublicKey::from_base64(&key_text)?;
+    let json = read(&repo.join(CATALOG_FILE))?;
+    let signature = read(&repo.join(SIGNATURE_FILE))?;
+    let catalog = Catalog::verify(&json, &signature, &key)?;
+    let default = Source::default_source();
+    let mut sources = vec![default.clone()];
+    if source == default.source {
+        if default.key != key {
+            return Err("the repository key is not the pinned default key".into());
+        }
+    } else {
+        sources.push(Source {
+            source: source.clone(),
+            key,
+            default: false,
+            enabled: true,
+        });
+    }
+    let store = Store::open(store_dir)?;
+    store.save_sources(&sources)?;
+    store.save_catalog(&source, &json, &signature)?;
+    let mut ids: Vec<&str> = catalog.extensions.iter().map(|e| e.id.as_str()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids {
+        let Some(entry) = catalog.latest(id) else {
+            continue;
+        };
+        let bytes = read(&repo.join("packages").join(&entry.asset.name))?;
+        let installed = store.install(&source, &key, entry, &bytes)?;
+        println!("installed {} {}", installed.key, installed.current.version);
+    }
     Ok(())
 }

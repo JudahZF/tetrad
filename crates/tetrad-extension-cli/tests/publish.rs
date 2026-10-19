@@ -108,4 +108,25 @@ fn package_catalog_verify_round_trip() {
         read("repo/tetrad-extensions.pub"),
         read("keys/tetrad-extensions.pub")
     );
+
+    // A development store of that repository loads on the device path with the newest
+    // version installed and the catalog still verified against the pinned key.
+    tetrad_ext(&[
+        "stage",
+        "--repo-dir",
+        &path("repo"),
+        "--source",
+        "tester/exts",
+        "--store",
+        &path("store"),
+    ]);
+    let state = tetrad_extensions::store::Store::open(tmp.0.join("store"))
+        .unwrap()
+        .load();
+    assert!(state.problems.is_empty(), "{:?}", state.problems);
+    let installed: Vec<String> = (state.installed.iter())
+        .map(|i| format!("{} {}", i.key, i.current.version))
+        .collect();
+    assert_eq!(installed, ["tester/exts:test.ext 1.1.0"]);
+    assert_eq!(state.catalogs.len(), 1);
 }
