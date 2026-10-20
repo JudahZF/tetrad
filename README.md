@@ -44,6 +44,12 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Play live.** Footswitches, stomp and scene modes, scene copy, bank changes, expression
   pedals, tempo and tap tempo, the tuner, the metronome and the Looper.
 - **MIDI.** DIN and USB MIDI in and out, program changes, MIDI clock and Preset MIDI Out.
+- **Mappings.** One page (⋮ → Mappings) for what footswitches, pedals, MIDI messages and
+  extensions do: scenes, presets, tuner, tap tempo, Looper, block bypass and parameters, and
+  Send MIDI. See [docs/mappings.md](docs/mappings.md).
+- **Extensions.** Install small TypeScript programs from signed GitHub repositories
+  (Settings → System → Extensions), such as MIDI Mapper for a second MIDI channel. See
+  [docs/extensions.md](docs/extensions.md).
 - **Cortex Control.** Connect the desktop app over USB to change settings and the Global EQ,
   browse files, make backups and update CorOS.
 - **Wi-Fi and cloud.** Sign in, download and upload presets, and back up to the cloud or to the
@@ -130,6 +136,8 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
 - Cortex Control gain calibration is refused, because stock writes the U-Boot environment there.
 - Tetrad writes only the stock library database schema of CorOS 4.1.x (410.1).
 - The boot selector has no settings page. Use `tetrad-launcher.sh chooser on|off`.
+- Mappings cannot yet load a chosen preset, set a tempo value, send MIDI from a MIDI trigger
+  or a global mapping, or run system actions from an expression pedal.
 
 The changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 
