@@ -279,6 +279,10 @@ impl<P: Platform> Device<P> {
         // read of the stored DOWNLOADS rows lands; else the old rows move over, with no copy
         // or compare (review r29 B3, A3).
         let landed = self.poll_stored_downloads();
+        // The extensions view is built only after a step reached that bridge (each build
+        // cost ~250 µs a pass on the QC); else the old view moves over.
+        let extensions =
+            take(&mut self.bridges.extensions.view_stale).then(|| self.bridges.extensions.view());
         let changes = self.bridges.services.cloud_changes();
         let generation = self.state.views.cloud_changes != Some(changes);
         let rebuilt = (landed || generation).then(|| self.downloads_folders(&self.cloud_views()));
@@ -309,7 +313,7 @@ impl<P: Platform> Device<P> {
         let control = &self.bridges.control;
         let mut views = SettingsViews {
             wifi: services.wifi_view(),
-            extensions: self.bridges.extensions.view(),
+            extensions: Default::default(),
             control_online: control.cloud_route().is_some(),
             control_link: match (control.connected(), control.online()) {
                 (_, true) => tetrad_ui::ControlLinkState::Online,
@@ -348,6 +352,13 @@ impl<P: Platform> Device<P> {
             Some((cloud, cycle)) => (Arc::new(cloud), cycle),
             None => (take(&mut old.cloud), take(&mut old.downloads_cycle)),
         };
+        let extensions = match extensions {
+            Some(view) => {
+                changed |= view != old.extensions;
+                view
+            }
+            None => take(&mut old.extensions),
+        };
         // Rows read again are compared; unchanged rows move over with no copy.
         let quarantine = match quarantine {
             Some(rows) => {
@@ -375,11 +386,13 @@ impl<P: Platform> Device<P> {
         old.downloads_cycle.clear();
         old.quarantine.clear();
         old.usb_statistics = None;
+        old.extensions = Default::default();
         changed |= views != *old;
         views.cloud = cloud;
         views.downloads_cycle = downloads_cycle;
         views.quarantine = quarantine;
         views.usb_statistics = usb_statistics;
+        views.extensions = extensions;
         *old = views;
         self.present |= changed;
     }

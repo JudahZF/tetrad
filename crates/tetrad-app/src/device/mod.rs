@@ -2843,6 +2843,7 @@ impl<P: Platform> Device<P> {
             return Vec::new();
         };
         let extensions = &mut self.bridges.extensions;
+        extensions.view_stale = true;
         let outcome = step(extensions, backend, &self.state);
         for key in &outcome.storage_changed {
             extensions.save_storage(key, backend);

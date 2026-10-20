@@ -219,6 +219,8 @@ fn install_from_a_trusted_repository_then_map_midi_to_a_block() {
     pump(&mut device, "the status line", |d| {
         view(d).installed[0].status_lines == ["CC 20 = 127"]
     });
+    // The pages draw from the synced copy, which is rebuilt only after extension steps.
+    assert_eq!(device.state().views.extensions, view(&device));
     let storage = media.0.join("tetrad/extensions/kv");
     pump(&mut device, "the saved storage", |_| {
         std::fs::read_dir(&storage).is_ok_and(|mut files| {

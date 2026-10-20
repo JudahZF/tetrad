@@ -283,6 +283,9 @@ pub struct Extensions {
     generation: u64,
     next_scope: u64,
     repositories: Repositories,
+    /// Set by every device step that reaches this bridge; [`Self::view`] is built again only
+    /// then, not on every pass.
+    pub(in crate::device) view_stale: bool,
 }
 
 /// The store and repository model behind the Extensions pages.
