@@ -6,7 +6,7 @@
 # gaps: what is missing or not tested. README.md, "Known gaps", has the full list.
 
 schema_version = 2
-release = "0.1.0-alpha.2"
+release = "0.1.0-alpha.3"
 coros = ["4.1.0", "4.1.1"]
 
 [[capability]]
