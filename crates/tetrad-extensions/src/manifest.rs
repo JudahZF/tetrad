@@ -46,6 +46,8 @@ pub enum Capability {
     ControlsRead,
     ControlsEdit,
     Storage,
+    /// Declare triggers and fire them into Mappings.
+    Triggers,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -125,8 +127,6 @@ pub enum ManifestError {
 pub enum ConfigError {
     #[error("config must be a JSON object")]
     NotObject,
-    #[error("unknown setting {0:?}")]
-    Unknown(String),
     #[error("setting {0:?} has a wrong type or an out-of-range value")]
     Invalid(String),
 }
@@ -191,16 +191,11 @@ impl Manifest {
         )
     }
 
-    /// Checks a stored or user-edited config against the settings and fills missing keys
-    /// with their defaults.
+    /// Checks a stored or user-edited config against the settings, fills missing keys with
+    /// their defaults and drops keys of settings the manifest no longer has (an update can
+    /// remove a setting).
     pub fn validate_config(&self, config: &Value) -> Result<Value, ConfigError> {
         let object = config.as_object().ok_or(ConfigError::NotObject)?;
-        if let Some(key) = object
-            .keys()
-            .find(|k| !self.settings.iter().any(|s| &s.key == *k))
-        {
-            return Err(ConfigError::Unknown(key.clone()));
-        }
         let mut out = Map::new();
         for setting in &self.settings {
             let value = match object.get(&setting.key) {
@@ -361,8 +356,9 @@ mod tests {
             ));
         }
         assert_eq!(
-            m.validate_config(&json!({"other": 1})),
-            Err(ConfigError::Unknown("other".into()))
+            m.validate_config(&json!({"other": 1, "depth": 7})).unwrap(),
+            json!({"channel": 2, "armed": true, "depth": 7}),
+            "a setting removed by an update is dropped"
         );
     }
 

@@ -1,10 +1,10 @@
 {
   "id": "tetrad.midi-mapper",
   "name": "MIDI Mapper",
-  "version": "0.1.0",
-  "description": "Map MIDI CCs and notes on one channel to block parameters and bypass. To learn a mapping, send a CC or note, then touch a control on the device.",
+  "version": "0.2.0",
+  "description": "Sends MIDI CCs, notes and program changes on one channel to Mappings as triggers. Choose what each one does on the Mappings page.",
   "api": 1,
-  "capabilities": ["midiReceive", "controlsRead", "controlsEdit", "storage"],
+  "capabilities": ["midiReceive", "triggers"],
   "settings": [
     {
       "key": "channel",
@@ -29,13 +29,6 @@
         { "value": 15, "label": "Channel 15" },
         { "value": 16, "label": "Channel 16" }
       ]
-    },
-    { "key": "armed", "label": "Armed", "kind": "toggle", "default": true }
-  ],
-  "commands": [
-    { "id": "learn", "label": "Learn mapping" },
-    { "id": "cancel", "label": "Cancel learn" },
-    { "id": "undo", "label": "Remove last mapping" },
-    { "id": "clear", "label": "Clear all mappings" }
+    }
   ]
 }

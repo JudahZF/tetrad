@@ -82,6 +82,28 @@ export type MidiMessage =
 
 export type ExtensionInfo = { readonly id: string; readonly version: string };
 
+/** A trigger the extension offers to Mappings. Mappings show it as "<extension name> · <label>". */
+export type TriggerSpec = {
+  /** 1..32 characters of [a-z0-9-], unique in the extension. */
+  readonly id: string;
+  /** 1..48 characters, such as "Ch 3". */
+  readonly label: string;
+};
+
+/** One firing of a declared trigger. Mappings match on `trigger` and `source`. */
+export type TriggerFiring = {
+  /** The ID of a declared trigger. */
+  readonly trigger: string;
+  /** What fired inside the trigger, 1..64 characters, such as "cc:20". */
+  readonly source: string;
+  /** Display text of the source, at most 48 characters, such as "CC 20". */
+  readonly label: string;
+  /** 0..1; the host clamps other finite values. */
+  readonly value: number;
+  /** `true` for a continuous source (a CC); `false` for a press (a note, a PC). */
+  readonly continuous: boolean;
+};
+
 /** Settings values by key, as declared in the manifest. */
 export type Config = { readonly [key: string]: JsonValue };
 
@@ -117,6 +139,10 @@ export interface Scope {
     /** Replaces the status lines on the extension's settings page. */
     setStatus(lines: readonly string[]): Promise<void>;
   };
+  readonly triggers: {
+    /** Sends one firing to Mappings. Needs the `triggers` capability. */
+    fire(firing: TriggerFiring): Promise<void>;
+  };
 }
 
 /**
@@ -150,6 +176,10 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
   };
   readonly storage: {
     get(key: string): Promise<JsonValue>;
+  };
+  readonly triggers: {
+    /** Offers a trigger to Mappings; at most 8. Needs the `triggers` capability. */
+    declare(trigger: TriggerSpec): void;
   };
 }
 

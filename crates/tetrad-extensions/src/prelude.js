@@ -13,7 +13,7 @@
     controlChanged: [],
     presetLoaded: [],
   };
-  const registrations = { midiChannels: [], commands: [], controlChanges: false };
+  const registrations = { midiChannels: [], commands: [], controlChanges: false, triggers: [] };
   let activating = true;
   let disposer;
 
@@ -50,6 +50,7 @@
         delete: (key) => c("storage.delete", { key }),
       }),
       ui: Object.freeze({ setStatus: (lines) => c("ui.setStatus", { lines }) }),
+      triggers: Object.freeze({ fire: (firing) => c("triggers.fire", firing) }),
     });
   };
 
@@ -103,6 +104,24 @@
         },
       }),
       storage: Object.freeze({ get: (key) => call("storage.get", null, { key }) }),
+      // The host checks the same rules again (`TriggerSpec::is_valid`).
+      triggers: Object.freeze({
+        declare(trigger) {
+          duringActivation("triggers.declare");
+          const { id, label } = trigger ?? {};
+          if (typeof id !== "string" || !/^[a-z0-9-]{1,32}$/.test(id)) {
+            throw new TypeError("trigger id must be 1 to 32 characters of [a-z0-9-]");
+          }
+          if (typeof label !== "string" || label.length === 0 || label.length > 48) {
+            throw new TypeError("trigger label must be 1 to 48 characters");
+          }
+          if (registrations.triggers.some((t) => t.id === id)) {
+            throw new Error(`trigger ${id} is already declared`);
+          }
+          if (registrations.triggers.length >= 8) throw new RangeError("at most 8 triggers");
+          registrations.triggers.push({ id, label });
+        },
+      }),
     });
 
   globalThis.__tetrad_activate = async (definition, extensionJson, configJson) => {

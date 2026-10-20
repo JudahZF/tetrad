@@ -84,6 +84,36 @@ pub struct Registrations {
     /// The extension wants [`Event::ControlChanged`] for native edits.
     #[serde(default)]
     pub control_changes: bool,
+    /// Triggers the extension offers to Mappings, in declaration order.
+    #[serde(default)]
+    pub triggers: Vec<TriggerSpec>,
+}
+
+/// Most triggers one extension may declare.
+pub const MAX_TRIGGERS: usize = 8;
+/// Longest trigger ID.
+pub const MAX_TRIGGER_ID: usize = 32;
+/// Longest trigger label, declared or fired.
+pub const MAX_TRIGGER_LABEL: usize = 48;
+
+/// One trigger from `ctx.triggers.declare`. Mappings show it as "<extension name> · <label>".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TriggerSpec {
+    pub id: String,
+    pub label: String,
+}
+
+impl TriggerSpec {
+    /// The ID is 1..=[`MAX_TRIGGER_ID`] characters of `[a-z0-9-]`; the label is
+    /// 1..=[`MAX_TRIGGER_LABEL`] characters without control characters.
+    pub fn is_valid(&self) -> bool {
+        let id_ok = (1..=MAX_TRIGGER_ID).contains(&self.id.len())
+            && (self.id.bytes()).all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let label = self.label.chars().count();
+        id_ok
+            && (1..=MAX_TRIGGER_LABEL).contains(&label)
+            && !self.label.chars().any(char::is_control)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -41,7 +41,7 @@ From the Tetrad workspace root, with `T=target/debug/tetrad-ext` (`cargo build -
    published `<id>-<version>` must never change.
 
    ```sh
-   $T package extensions/midi-mapper --out extensions/repository/packages/tetrad.midi-mapper-0.1.0.tetradext
+   $T package extensions/midi-mapper --out extensions/repository/packages/tetrad.midi-mapper-0.2.0.tetradext
    ```
 
 3. Write and sign the catalog with a new release tag. Packages already in the catalog with
@@ -50,16 +50,15 @@ From the Tetrad workspace root, with `T=target/debug/tetrad-ext` (`cargo build -
    ```sh
    $T catalog --repo-dir extensions/repository \
      --key /home/judahf/Projects/QC/tetrad-dev/.local/extension-signing/signing.key \
-     --tag extensions-2026-10-19
+     --tag extensions-2026-10-20
    ```
 
 4. In `JudahZF/tetrad-extensions`, create the release for the new tag and upload the new
    `.tetradext` files as its assets:
 
    ```sh
-   gh release create extensions-2026-10-19 --repo JudahZF/tetrad-extensions \
-     extensions/repository/packages/tetrad.midi-mapper-0.1.0.tetradext \
-     extensions/repository/packages/tetrad.control-macro-0.1.0.tetradext
+   gh release create extensions-2026-10-20 --repo JudahZF/tetrad-extensions \
+     extensions/repository/packages/tetrad.midi-mapper-0.2.0.tetradext
    ```
 
 5. Then commit `tetrad-extensions.json`, `tetrad-extensions.sig` and `tetrad-extensions.pub`
@@ -73,4 +72,5 @@ Check a package at any time with `$T check FILE.tetradext`.
 | Package | Tag |
 | --- | --- |
 | `tetrad.midi-mapper-0.1.0.tetradext` | `extensions-2026-10-19` |
+| `tetrad.midi-mapper-0.2.0.tetradext` (trigger provider for Mappings) | `extensions-2026-10-20` |
 | `tetrad.control-macro-0.1.0.tetradext` (test fixture) | `extensions-2026-10-19` |
