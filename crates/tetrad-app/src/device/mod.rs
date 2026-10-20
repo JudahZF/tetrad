@@ -2386,6 +2386,11 @@ impl<P: Platform> Device<P> {
             Effect::SettingsChanged(SettingsEvent::Midi(_)) => {
                 let effects = self.bridges.midi.settings_changed(&self.state);
                 self.apply(effects);
+                let native = self.bridges.midi.native_channel();
+                let effects = self.extensions(|extensions, backend, _| {
+                    extensions.native_channel_changed(native, backend)
+                });
+                self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }
             // A calibration confirm or a reset: the bridge keeps a copy of the ranges.

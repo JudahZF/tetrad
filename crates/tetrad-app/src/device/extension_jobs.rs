@@ -143,9 +143,11 @@ fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
     let manifest = &installed.current.manifest;
     Ok(Loaded {
         module: store.module_path(&installed),
+        // An update can make the saved settings invalid; the package is installed already, so
+        // the defaults take over, as when the store loads.
         config: store
             .config(&installed.key, manifest)
-            .map_err(|e| e.to_string())?,
+            .unwrap_or_else(|_| manifest.default_config()),
         storage: store.kv(&installed.key).map_err(|e| e.to_string())?,
         installed,
     })

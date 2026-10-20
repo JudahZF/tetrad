@@ -1018,8 +1018,14 @@ impl UiState {
                 page.detail.is_none()
                     || !view.blocks.iter().any(|block| block.position == *position)
             }
-            Some(Overlay::MappingActions(_) | Overlay::Choice(ChoicePurpose::Mapping(_))) => {
+            Some(Overlay::MappingActions(_)) => page.detail.is_none(),
+            // A dropdown whose options no longer fit the open row (its trigger kind changed,
+            // or the extension triggers behind the Type list did) would pick the wrong thing.
+            Some(Overlay::Choice(ChoicePurpose::Mapping(dropdown))) => {
                 page.detail.is_none()
+                    || choice(self, *dropdown).is_none()
+                    || (*dropdown == MappingChoice::Kind
+                        && view.extension_triggers != old.extension_triggers)
             }
             _ => false,
         };

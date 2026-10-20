@@ -1405,6 +1405,11 @@ fn stock_rows(state: &State, midi: &PresetMidiView) -> Vec<(StoredTrigger, Mappi
         target,
     };
     for assignment in &preset.stomp_mode_assignments {
+        // A secondary assignment drives the block's secondary stomp parameter, not its
+        // bypass; Mappings leaves those to the grid.
+        if !matches!(assignment.role, None | Some(StompRole::Primary)) {
+            continue;
+        }
         let (Ok(row), Ok(column), Ok(stomp)) = (
             u8::try_from(assignment.row),
             u8::try_from(assignment.column),

@@ -28,6 +28,8 @@ use crate::protocol::{
 };
 
 const PRELUDE: &str = include_str!("prelude.js");
+/// Log lines one JavaScript entry may send before the rest are dropped.
+const MAX_LOGS: usize = 32;
 
 /// Runner budgets. Trial values for the device; tune from ARM measurements.
 #[derive(Debug, Clone, Copy)]
@@ -134,6 +136,8 @@ fn spawn_reader(mut input: impl BufRead + Send + 'static) -> Receiver<Result<Hos
 #[derive(Default)]
 struct Shared {
     outbox: Vec<RunnerMessage>,
+    /// Log lines since the last flush; past [`MAX_LOGS`] they are dropped.
+    logged: usize,
     /// Resolve and reject functions of calls in flight, by request ID.
     pending: HashMap<u64, (Persistent<Function<'static>>, Persistent<Function<'static>>)>,
     next_id: u64,
@@ -244,7 +248,11 @@ impl<'w, W: Write> Runner<'w, W> {
     }
 
     fn flush(&mut self) -> Result<(), RunnerError> {
-        let outbox = std::mem::take(&mut self.shared.borrow_mut().outbox);
+        let outbox = {
+            let mut shared = self.shared.borrow_mut();
+            shared.logged = 0;
+            std::mem::take(&mut shared.outbox)
+        };
         for message in &outbox {
             self.send(message)?;
         }
@@ -559,10 +567,21 @@ fn install_natives<'js>(
                 "error" => LogLevel::Error,
                 _ => LogLevel::Info,
             };
-            let text: String = text.chars().take(1024).collect();
-            logs.borrow_mut()
-                .outbox
-                .push(RunnerMessage::Log { level, text });
+            let mut shared = logs.borrow_mut();
+            shared.logged += 1;
+            // A log call in a hot loop must not flood the host: one marker replaces the rest.
+            let message = match shared.logged {
+                n if n <= MAX_LOGS => RunnerMessage::Log {
+                    level,
+                    text: text.chars().take(1024).collect(),
+                },
+                n if n == MAX_LOGS + 1 => RunnerMessage::Log {
+                    level: LogLevel::Warn,
+                    text: "more log lines were dropped".into(),
+                },
+                _ => return,
+            };
+            shared.outbox.push(message);
         })?,
     )?;
     native.set(

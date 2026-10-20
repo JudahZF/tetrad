@@ -93,7 +93,9 @@ pub struct LocalBackend {
     runners: HashMap<String, Runner>,
     next_run: u64,
     jobs: Option<std::sync::mpsc::Sender<ExtensionJob>>,
-    sender: std::sync::mpsc::Sender<ExtensionInput>,
+    /// Bounded: a runner that floods output blocks its own reader thread (and so its own
+    /// stdout) instead of growing the device program's memory.
+    sender: std::sync::mpsc::SyncSender<ExtensionInput>,
     received: std::sync::mpsc::Receiver<ExtensionInput>,
 }
 
@@ -109,7 +111,7 @@ impl LocalBackend {
     }
 
     fn new(program: Option<PathBuf>) -> Self {
-        let (sender, received) = std::sync::mpsc::channel();
+        let (sender, received) = std::sync::mpsc::sync_channel(INPUT_QUEUE);
         Self {
             program,
             runners: HashMap::new(),
@@ -130,6 +132,10 @@ impl LocalBackend {
         std::thread::spawn(move || {
             let store = tetrad_extensions::store::Store::open(&root);
             while let Ok(first) = inbox.recv() {
+                // A burst of `storage.set` (one per CC of a pedal sweep) becomes one write.
+                if matches!(first, ExtensionJob::SaveStorage { .. }) {
+                    std::thread::sleep(STORAGE_HOLD);
+                }
                 let batch: Vec<ExtensionJob> =
                     std::iter::once(first).chain(inbox.try_iter()).collect();
                 // A later save of the same storage makes an earlier one pointless: it is
@@ -226,7 +232,8 @@ impl ExtensionBackend for LocalBackend {
             .is_some_and(|jobs| jobs.send(job).is_ok());
         if !sent {
             let refused = JobResult::Saved(Err("no extension worker".into()));
-            let _ = self.sender.send(ExtensionInput::Job(refused));
+            // The device thread is the only receiver: never block it on its own queue.
+            let _ = self.sender.try_send(ExtensionInput::Job(refused));
         }
     }
 }
@@ -287,6 +294,10 @@ struct Entry {
     log: VecDeque<String>,
 }
 
+/// Runner outputs and job results waiting for the device.
+const INPUT_QUEUE: usize = 1024;
+/// How long the store worker holds a storage save to collect later ones.
+const STORAGE_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
 /// Runner outputs and job results the device takes in one pass.
 const MAX_DRAIN: usize = 64;
 /// Command buttons one extension may register.
@@ -442,10 +453,38 @@ impl Extensions {
 
     /// Channels (bit `n` = channel index `n`) reserved by enabled installations.
     pub fn reserved_channels(&self) -> u16 {
+        // Only a running extension holds its channels; a stopped or faulted one gives them
+        // back to native MIDI.
         (self.slots.values())
-            .filter(|slot| slot.installation.enabled)
+            .filter(|slot| slot.installation.enabled && slot.state == RunState::Running)
             .flat_map(|slot| &slot.registrations.midi_channels)
             .fold(0, |mask, &channel| mask | 1 << (channel - 1))
+    }
+
+    /// The QC's own MIDI channel changed: an extension that holds the new channel faults, so
+    /// native MIDI gets it back.
+    pub fn native_channel_changed(
+        &mut self,
+        native: Option<u8>,
+        backend: &mut dyn ExtensionBackend,
+    ) -> Outcome {
+        let mut outcome = Outcome::default();
+        let Some(native) = native else {
+            return outcome;
+        };
+        let holders: Vec<String> = (self.slots.iter())
+            .filter(|(_, slot)| {
+                slot.state == RunState::Running
+                    && slot.registrations.midi_channels.contains(&native)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in holders {
+            let reason =
+                format!("MIDI channel {native} is now the QC's own MIDI channel; choose another");
+            self.fault(&key, reason, backend, &mut outcome);
+        }
+        outcome
     }
 
     /// Starts a new session for an enabled installation (also RETRY after a fault).
@@ -718,6 +757,9 @@ impl Extensions {
         }
         push_log(&mut slot.log, &format!("fault: {reason}"));
         slot.state = RunState::Faulted(reason.clone());
+        if !slot.registrations.midi_channels.is_empty() {
+            outcome.reservations_changed = true;
+        }
         outcome
             .effects
             .push(notice(format!("{key} stopped: {reason}")));
@@ -769,6 +811,11 @@ impl Extensions {
     ) {
         match message {
             RunnerMessage::Activated { registrations } => {
+                // Registration happens once, during activation; the runner is not trusted.
+                if self.slots[key].state != RunState::Starting {
+                    self.fault(key, "activated twice".into(), backend, outcome);
+                    return;
+                }
                 if let Err(reason) = self.check_registrations(key, &registrations, native_channel) {
                     self.fault(key, reason, backend, outcome);
                     return;

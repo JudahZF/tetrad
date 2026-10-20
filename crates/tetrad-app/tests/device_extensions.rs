@@ -504,3 +504,23 @@ fn an_extension_trigger_runs_a_mapping() {
     midi(&device, &[0xb2, 20, 0]);
     pump(&mut device, "the mapped edit", |d| gain(d) == 0.0);
 }
+
+/// Choosing an extension's channel as the QC's own MIDI channel faults the extension and gives
+/// the channel back to native MIDI.
+#[test]
+fn the_native_channel_takes_a_reserved_channel_back() {
+    use tetrad_app::device::Action;
+    use tetrad_ui::{SettingId, SettingValue};
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _media) = boot(media, repository());
+    install(&mut device);
+    assert_eq!(device.bridges().extensions.reserved_channels(), 1 << 1);
+    device.push(Event::Action(Action::ChangeSetting {
+        id: SettingId::MidiChannel,
+        value: SettingValue::Choice(1),
+    }));
+    pump(&mut device, "the fault", |d| {
+        matches!(state_of(d), Some(ExtensionState::Faulted(_)))
+            && d.bridges().extensions.reserved_channels() == 0
+    });
+}
