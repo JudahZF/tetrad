@@ -1185,18 +1185,17 @@ fn trigger_text(
             source,
             label,
         } => {
-            let detail = (extension_triggers.iter())
+            let declared = (extension_triggers.iter())
                 .find(|choice| &choice.key == key && &choice.trigger == trigger)
                 .map_or_else(
                     || format!("{key} (not running)"),
                     |choice| choice.label.clone(),
                 );
-            let label = if source.is_empty() {
-                "Waiting for LEARN".into()
+            if source.is_empty() {
+                (declared, "Not learned yet".into())
             } else {
-                label.clone()
-            };
-            (label, detail)
+                (label.clone(), declared)
+            }
         }
     }
 }
