@@ -159,6 +159,7 @@ impl UiState {
             Control::PresetMetadata(control) => return self.preset_metadata(control),
             Control::Wifi(WifiControl::Scan) => return vec![UiCommand::WifiScan],
             Control::Extension(control) => return self.extension_control(control),
+            Control::Mapping(control) => return self.mapping_control(control),
             Control::Wifi(WifiControl::DomainSettings) => {
                 self.wifi_domains = true;
                 return Vec::new();
@@ -656,6 +657,7 @@ impl UiState {
             }
             ChoicePurpose::FilterType(parameter) => self.choose_filter_type(parameter, index),
             ChoicePurpose::Extension(setting) => self.choose_extension_setting(setting, index),
+            ChoicePurpose::Mapping(choice) => self.choose_mapping(choice, index),
             ChoicePurpose::SettingsGroup => match SettingsGroup::ALL.get(index) {
                 Some(group) => {
                     self.reset_scroll(ListId::SettingsMenu);
@@ -1132,9 +1134,10 @@ impl UiState {
             (_, MenuAction::ModesConfiguration) => self.overlay = Some(Overlay::Modes),
             (_, MenuAction::CpuMonitor) => self.show_cpu = !self.show_cpu,
             (_, MenuAction::Looper) => return self.navigate(Screen::Looper),
-            (_, MenuAction::PresetMidiOut) => {
-                self.midi_edit = None;
-                return self.navigate(Screen::MidiOut);
+            (_, MenuAction::Mappings) => {
+                self.mappings.detail = None;
+                self.reset_scroll(ListId::Mappings);
+                return self.navigate(Screen::Mappings);
             }
             (_, MenuAction::Settings) => {
                 return self.navigate(Screen::Settings(SettingsPage::MyAccount));
@@ -1430,7 +1433,11 @@ impl UiState {
         {
             let index = parameter.index;
             self.focus = Some(knob);
-            self.numeric = Some(crate::screens::NumericEntry::new(target, index, range));
+            let purpose = crate::screens::NumericPurpose::Parameter {
+                target,
+                parameter: index,
+            };
+            self.numeric = Some(crate::screens::NumericEntry::new(purpose, range));
         }
     }
 }

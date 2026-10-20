@@ -45,6 +45,10 @@ pub(crate) enum ListId {
     SettingsPage,
     /// The Extensions list (kept while a detail page or Repositories shows).
     Extensions,
+    /// The Mappings list (kept while a detail page shows).
+    Mappings,
+    /// The Mappings action menu.
+    MappingActions,
     IoPage,
     Wifi,
     Backups,

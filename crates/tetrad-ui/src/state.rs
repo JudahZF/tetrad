@@ -306,6 +306,8 @@ pub(crate) enum ChoicePurpose {
     FilterType(u16),
     /// A choice setting (index) of the open extension.
     Extension(u16),
+    /// A Trigger dropdown of the open mapping.
+    Mapping(MappingChoice),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -383,6 +385,8 @@ pub(crate) enum Overlay {
     /// Owned: the host asks to trust this repository's key
     /// ([`crate::ExtensionsView::pending_trust`]); every close answers no.
     ExtensionTrust(crate::PendingTrust),
+    /// Owned: the action menu of the open mapping, at this level.
+    MappingActions(ActionMenu),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,6 +404,27 @@ pub(crate) enum ExtensionsPage {
     Detail(String),
     /// Repositories.
     Sources,
+}
+
+/// What the Mappings page shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct MappingsPage {
+    pub tab: MappingScope,
+    /// The row whose detail page is open, in `tab`.
+    pub detail: Option<MappingId>,
+}
+
+/// A level of the Mappings action menu: the root or one of its submenus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionMenu {
+    Root,
+    Preset,
+    Scene,
+    Tempo,
+    Mode,
+    Looper,
+    /// Bypass and the parameters of this block.
+    Block(GridPosition),
 }
 
 /// Looper X swap dialog (`zenUI::LooperSwapActionsDialog`, `0x37c7ac`): pick a tile, then
@@ -645,6 +670,8 @@ pub struct UiState {
     pub(crate) extensions: ExtensionsPage,
     /// The trust question this UI answered, until the host stops asking.
     pub(crate) trust_answered: Option<crate::PendingTrust>,
+    /// Mappings tab and detail page.
+    pub(crate) mappings: MappingsPage,
     /// Footswitch Statistics rows in stock order `A B C D DOWN E F G H TEMPO UP`.
     pub(crate) switch_stats: [SwitchStats; 11],
     /// Numeric keyboard of a parameter value (`ParameterValueDialog` `0x64b518`).
@@ -718,6 +745,7 @@ impl Default for UiState {
             wifi_domains: false,
             extensions: ExtensionsPage::List,
             trust_answered: None,
+            mappings: MappingsPage::default(),
             switch_stats: [SwitchStats::default(); 11],
             numeric: None,
             capture_download_failed: None,
@@ -887,6 +915,7 @@ impl UiState {
         }
         self.follow_rows(&old);
         self.follow_extensions();
+        self.follow_mappings(&old.mappings);
         self.page = self.page.min(self.last_page());
         self.param_page = self.param_page.min(self.last_param_page());
         let stale = match self.gesture {
@@ -905,6 +934,10 @@ impl UiState {
                 &old.extensions,
                 &self.snapshot.extensions,
             ),
+            Gesture::Press {
+                control: Some(Control::Mapping(_)),
+                ..
+            } => !crate::screens::mappings::same_targets(&old.mappings, &self.snapshot.mappings),
             _ => false,
         };
         if stale {
@@ -2251,6 +2284,10 @@ impl UiState {
         {
             return Vec::new();
         }
+        // A mapping's detail page goes back to the Mappings list.
+        if self.screen() == Screen::Mappings && self.mappings.detail.take().is_some() {
+            return Vec::new();
+        }
         if self.screen() == Screen::Presets && self.capture.edit.take().is_some() {
             return Vec::new();
         }
@@ -2272,7 +2309,11 @@ impl UiState {
         if self.editing_block().is_some() || self.editing_site().is_some() {
             return vec![UiCommand::ClearBlockSelection];
         }
-        if self.screen() == Screen::MidiOut && self.midi_edit.take().is_some() {
+        // The editor goes back to the matrix; opened from a mapping, it closes to the mapping.
+        if self.screen() == Screen::MidiOut
+            && self.midi_edit.take().is_some()
+            && self.stack.iter().rev().nth(1) != Some(&Screen::Mappings)
+        {
             return Vec::new();
         }
         self.pop()
