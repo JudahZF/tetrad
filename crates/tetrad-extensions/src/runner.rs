@@ -36,8 +36,11 @@ pub struct Limits {
     pub memory: usize,
     /// QuickJS stack limit in bytes.
     pub stack: usize,
-    /// Longest synchronous JavaScript run per entry.
+    /// Longest synchronous JavaScript run per entry, on [`Limits::slice_clock`].
     pub slice: Duration,
+    /// The clock of the slice. The device runner passes the thread's CPU time, so a runner
+    /// that waits for the CPU (low priority on a busy unit) is not faulted for the wait.
+    pub slice_clock: fn() -> Duration,
     /// Longest time from an event's dispatch to its handler settling.
     pub handler: Duration,
     /// Longest activation, including its awaited host calls.
@@ -54,6 +57,7 @@ impl Default for Limits {
             memory: 8 * 1024 * 1024,
             stack: 256 * 1024,
             slice: Duration::from_millis(50),
+            slice_clock: monotonic,
             handler: Duration::from_secs(1),
             activation: Duration::from_secs(3),
             pending_calls: 32,
@@ -137,26 +141,32 @@ struct Shared {
     done: Vec<(u64, Option<String>)>,
 }
 
+/// Wall-clock time since the first call: the default [`Limits::slice_clock`].
+fn monotonic() -> Duration {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
+}
+
 /// The slice deadline, read by the interrupt handler on every QuickJS poll.
 #[derive(Clone)]
 struct Deadline {
-    base: Instant,
-    /// Nanoseconds after `base`; `u64::MAX` means none.
+    clock: fn() -> Duration,
+    /// Nanoseconds on `clock`; `u64::MAX` means none.
     at: Arc<AtomicU64>,
     hit: Arc<AtomicBool>,
 }
 
 impl Deadline {
-    fn new() -> Self {
+    fn new(clock: fn() -> Duration) -> Self {
         Self {
-            base: Instant::now(),
+            clock,
             at: Arc::new(AtomicU64::new(u64::MAX)),
             hit: Arc::new(AtomicBool::new(false)),
         }
     }
 
     fn arm(&self, slice: Duration) {
-        let at = self.base.elapsed() + slice;
+        let at = (self.clock)() + slice;
         self.hit.store(false, Ordering::Relaxed);
         self.at.store(
             u64::try_from(at.as_nanos()).unwrap_or(u64::MAX),
@@ -170,8 +180,8 @@ impl Deadline {
 
     fn expired(&self) -> bool {
         let at = self.at.load(Ordering::Relaxed);
-        let expired = at != u64::MAX
-            && u64::try_from(self.base.elapsed().as_nanos()).unwrap_or(u64::MAX) >= at;
+        let expired =
+            at != u64::MAX && u64::try_from((self.clock)().as_nanos()).unwrap_or(u64::MAX) >= at;
         if expired {
             self.hit.store(true, Ordering::Relaxed);
         }
@@ -211,7 +221,7 @@ impl<'w, W: Write> Runner<'w, W> {
         let runtime = Runtime::new().map_err(fault)?;
         runtime.set_memory_limit(limits.memory);
         runtime.set_max_stack_size(limits.stack);
-        let deadline = Deadline::new();
+        let deadline = Deadline::new(limits.slice_clock);
         let interrupt = deadline.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || interrupt.expired())));
         let context = Context::full(&runtime).map_err(fault)?;

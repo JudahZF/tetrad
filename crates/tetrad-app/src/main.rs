@@ -927,7 +927,11 @@ fn extension_runner(module: &Path) -> ExitCode {
         Err(error) => return fail(error.to_string()),
     };
     let input = std::io::BufReader::new(std::io::stdin());
-    let limits = tetrad_extensions::runner::Limits::default();
+    let limits = tetrad_extensions::runner::Limits {
+        #[cfg(target_os = "linux")]
+        slice_clock: tetrad_sys::process::thread_cpu_time,
+        ..tetrad_extensions::runner::Limits::default()
+    };
     match tetrad_extensions::runner::run(&source, input, &mut std::io::stdout().lock(), limits) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => fail(error.to_string()),
