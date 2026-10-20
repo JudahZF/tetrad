@@ -19,9 +19,9 @@ whose size or SHA-256 differs from the signed catalog.
 
 ## Signing key
 
-The private key of the default repository is in
-`/home/judahf/Projects/QC/tetrad-dev/.local/extension-signing/signing.key` (mode 0600).
-Never copy it into a repository. Fingerprint: `c702 baa2 2830 5c13 b3e6 e9a1 bda9 277a`.
+The maintainer keeps the private key of the default repository outside every repository
+(mode 0600); the commands below call it `$KEY`. Never copy it into a repository.
+Fingerprint: `c702 baa2 2830 5c13 b3e6 e9a1 bda9 277a`.
 
 If the key is lost, devices cannot verify a new catalog until a firmware update changes
 `DEFAULT_KEY`. A custom repository makes its own key with `tetrad-ext keygen --out DIR`.
@@ -49,7 +49,7 @@ From the Tetrad workspace root, with `T=target/debug/tetrad-ext` (`cargo build -
 
    ```sh
    $T catalog --repo-dir extensions/repository \
-     --key /home/judahf/Projects/QC/tetrad-dev/.local/extension-signing/signing.key \
+     --key "$KEY" \
      --tag extensions-2026-10-20
    ```
 

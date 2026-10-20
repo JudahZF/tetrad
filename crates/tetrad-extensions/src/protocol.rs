@@ -96,7 +96,7 @@ pub const MAX_TRIGGER_ID: usize = 32;
 /// Longest trigger label, declared or fired.
 pub const MAX_TRIGGER_LABEL: usize = 48;
 
-/// One trigger from `ctx.triggers.declare`. Mappings show it as "<extension name> · <label>".
+/// One trigger from `ctx.triggers.declare`. Mappings show it as "`<extension name> · <label>`".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TriggerSpec {
     pub id: String,
