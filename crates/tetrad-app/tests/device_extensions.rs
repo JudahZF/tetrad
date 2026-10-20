@@ -1,6 +1,7 @@
 //! Extensions end to end on the simulated device: a signed GitHub-style repository served by a
 //! fake fetcher, the trust flow, install, a real QuickJS runner on a thread, MIDI on a reserved
-//! channel turning into a stored preset edit, persistence, and an offline restart.
+//! channel turning into a stored preset edit, persistence, and an offline restart. The bridge
+//! alone: declared triggers and the firings it hands to the device.
 
 mod common;
 
@@ -12,7 +13,9 @@ use base64::Engine;
 use common::{Media, STOCK, Sim, light_preset};
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
-use tetrad_app::device::extensions::LocalBackend;
+use tetrad_app::device::extensions::{
+    Capabilities, Extensions, FiredTrigger, Installation, LocalBackend, RunState,
+};
 use tetrad_app::device::platform::Input;
 use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Device, Event};
@@ -20,6 +23,7 @@ use tetrad_engine::{Column, Row, Site, Slot};
 use tetrad_extensions::catalog::sha256_hex;
 use tetrad_extensions::package::Package;
 use tetrad_extensions::repository::{Fetch, FetchError};
+use tetrad_midi::{Channel, MidiMessage, U7};
 use tetrad_ui::{
     Control, ExtensionCommand, ExtensionState, ExtensionsView, GridPosition, InputEvent,
     ParamControl,
@@ -275,8 +279,7 @@ fn a_new_setting_restarts_the_extension_on_the_new_channel() {
     });
 }
 
-/// MIDI Mapper learns from touch: an edit made on the screen (wrapped for undo) reaches the
-/// extension's control watcher.
+/// An edit made on the screen (wrapped for undo) reaches the extension's control watcher.
 #[test]
 fn a_touch_edit_reaches_control_watchers() {
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
@@ -293,4 +296,152 @@ fn a_touch_edit_reaches_control_watchers() {
     pump(&mut device, "the reported bypass", |d| {
         view(d).installed[0].status_lines == ["bypass = 1"]
     });
+}
+
+/// Declares one trigger on its reserved channel and fires it for each CC.
+const TRIGGERS: &str = r#"
+export default {
+  activate(ctx) {
+    ctx.midi.reserveChannel(3);
+    ctx.triggers.declare({ id: "midi", label: "Ch 3" });
+    ctx.midi.onMessage((message, scope) => scope.triggers.fire({ trigger: "midi",
+      source: `cc:${message.controller}`, label: `CC ${message.controller}`,
+      value: message.value / 127, continuous: true }));
+  },
+};
+"#;
+
+/// The extensions bridge on its own, with thread runners. The device only lends its state.
+struct Bridge {
+    device: Device<Sim>,
+    media: Media,
+    extensions: Extensions,
+    backend: LocalBackend,
+}
+
+impl Bridge {
+    fn new() -> Self {
+        let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+        let (device, _log, media) = common::boot(media);
+        Self {
+            device,
+            media,
+            extensions: Extensions::new(),
+            backend: LocalBackend::threads(),
+        }
+    }
+
+    /// Runs [`TRIGGERS`] as installation `tester/exts:<id>`.
+    fn install(&mut self, id: &str, name: &str, triggers: bool) -> String {
+        let module = self.media.0.join(format!("{id}.mjs"));
+        std::fs::write(&module, TRIGGERS).unwrap();
+        let installation = Installation {
+            key: format!("{SOURCE}:{id}"),
+            id: id.into(),
+            name: name.into(),
+            version: "1.0.0".into(),
+            description: String::new(),
+            source: SOURCE.into(),
+            module,
+            capabilities: Capabilities {
+                midi_receive: true,
+                triggers,
+                ..Capabilities::default()
+            },
+            config: json!({}),
+            storage: Default::default(),
+            enabled: true,
+        };
+        let key = installation.key.clone();
+        let mut installations: Vec<Installation> = (self.extensions.keys())
+            .filter_map(|k| self.extensions.installation(k).cloned())
+            .collect();
+        installations.push(installation);
+        self.extensions
+            .set_installations(installations, &mut self.backend);
+        key
+    }
+
+    /// Feeds runner output to the bridge until `done` holds; returns the firings on the way.
+    fn pump(
+        &mut self,
+        what: &str,
+        done: impl Fn(&Extensions, &[FiredTrigger]) -> bool,
+    ) -> Vec<FiredTrigger> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut fired = Vec::new();
+        while !done(&self.extensions, &fired) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            let mut inputs = Vec::new();
+            self.backend.drain(&mut inputs);
+            for input in inputs {
+                let Input::Extension(input) = input else {
+                    continue;
+                };
+                let state = self.device.state();
+                let outcome = self
+                    .extensions
+                    .on_input(input, state, None, &mut self.backend);
+                fired.extend(outcome.triggers);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        fired
+    }
+}
+
+#[test]
+fn running_extensions_offer_their_declared_triggers() {
+    let mut bridge = Bridge::new();
+    let key = bridge.install("test.pads", "Pads", true);
+    bridge.pump("the running extension", |e, _| {
+        e.state(&key) == Some(&RunState::Running)
+    });
+    assert_eq!(
+        bridge.extensions.declared_triggers(),
+        [tetrad_ui::ExtensionTriggerChoice {
+            key: key.clone(),
+            trigger: "midi".into(),
+            label: "Pads · Ch 3".into(),
+        }]
+    );
+
+    // Without the triggers capability the activation is refused and nothing is offered.
+    let other = bridge.install("test.other", "Other", false);
+    bridge.pump("the refused activation", |e, _| {
+        matches!(e.state(&other), Some(RunState::Faulted(_)))
+    });
+    let Some(RunState::Faulted(reason)) = bridge.extensions.state(&other) else {
+        unreachable!()
+    };
+    assert!(reason.contains("triggers capability"), "{reason}");
+    assert_eq!(bridge.extensions.declared_triggers().len(), 1);
+}
+
+#[test]
+fn midi_on_a_reserved_channel_fires_the_declared_trigger() {
+    let mut bridge = Bridge::new();
+    let key = bridge.install("test.pads", "Pads", true);
+    bridge.pump("the running extension", |e, _| {
+        e.state(&key) == Some(&RunState::Running)
+    });
+    let message = MidiMessage::ControlChange {
+        channel: Channel::from_number(3).unwrap(),
+        controller: U7::new(20).unwrap(),
+        value: U7::new(127).unwrap(),
+    };
+    let outcome = bridge.extensions.on_midi(&message, &mut bridge.backend);
+    assert!(outcome.triggers.is_empty(), "firings come from the runner");
+    let fired = bridge.pump("the firing", |_, fired| !fired.is_empty());
+    assert_eq!(
+        fired,
+        [FiredTrigger {
+            key,
+            trigger: "midi".into(),
+            source: "cc:20".into(),
+            label: "CC 20".into(),
+            value: 1.0,
+            continuous: true,
+        }]
+    );
 }

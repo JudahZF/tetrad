@@ -4,7 +4,9 @@
 //! session, scope, capability and preset context of each one, then turns accepted edits into
 //! ordinary device [`Action`]s through [`Effect::ExtensionAction`], so native scene, dirty and
 //! echo rules apply. Native edits come back to subscribed extensions as
-//! [`Event::ControlChanged`]; extension edits do not.
+//! [`Event::ControlChanged`]; extension edits do not. Extensions do not run mappings: they
+//! declare triggers, and each accepted firing goes to the device as a [`FiredTrigger`] in
+//! [`Outcome::triggers`].
 //!
 //! Lifecycle per installation: disabled → starting (read/register-only activation) → running →
 //! faulted or disabled. MIDI channel reservations come from a committed activation and stay
@@ -20,7 +22,8 @@ use tetrad_engine::{Column, Row, Site as EngineSite, Slot};
 use tetrad_extensions::host::RunnerOutput;
 use tetrad_extensions::protocol::{
     Binding, CallResult, ControlChange, ControlKind, ErrorCode, Event, ExtensionInfo, HostMessage,
-    LogLevel, MidiEvent, PROTOCOL_VERSION, Pair, Registrations, RunnerMessage, Site,
+    LogLevel, MAX_TRIGGER_LABEL, MAX_TRIGGERS, MidiEvent, PROTOCOL_VERSION, Pair, Registrations,
+    RunnerMessage, Site, TriggerSpec,
 };
 use tetrad_midi::{Channel, MidiMessage, U7};
 
@@ -51,6 +54,8 @@ const BACKLOG: usize = 256;
 pub const MAX_STORAGE: usize = 256 * 1024;
 /// Keys of one installation's key/value storage.
 const MAX_STORAGE_KEY: usize = 128;
+/// Longest source of a trigger firing, such as `cc:20`.
+const MAX_TRIGGER_SOURCE: usize = 64;
 
 /// Starts, feeds and stops runner processes. Runner output comes back through
 /// [`super::Platform::poll_input`] as [`super::platform::Input::Extension`].
@@ -219,6 +224,7 @@ pub struct Capabilities {
     pub controls_read: bool,
     pub controls_edit: bool,
     pub storage: bool,
+    pub triggers: bool,
 }
 
 /// One installed extension as the bridge runs it.
@@ -803,7 +809,8 @@ impl Extensions {
     }
 
     /// Channel claims must be in range, requested in the manifest, free of other enabled
-    /// installations' claims and not the fixed native channel.
+    /// installations' claims and not the fixed native channel. Triggers need their capability
+    /// and must follow the declaration rules.
     fn check_registrations(
         &self,
         key: &str,
@@ -816,6 +823,21 @@ impl Extensions {
         }
         if registrations.control_changes && !slot.installation.capabilities.controls_read {
             return Err("watches controls without the controlsRead capability".into());
+        }
+        let triggers = &registrations.triggers;
+        if !triggers.is_empty() && !slot.installation.capabilities.triggers {
+            return Err("declares triggers without the triggers capability".into());
+        }
+        if triggers.len() > MAX_TRIGGERS {
+            return Err(format!("declares more than {MAX_TRIGGERS} triggers"));
+        }
+        for (i, trigger) in triggers.iter().enumerate() {
+            if !trigger.is_valid() || triggers[..i].iter().any(|t| t.id == trigger.id) {
+                return Err(format!(
+                    "trigger {:?} is not valid or not unique",
+                    trigger.id
+                ));
+            }
         }
         for &channel in &registrations.midi_channels {
             if !(1..=16).contains(&channel) {
@@ -996,9 +1018,55 @@ impl Extensions {
                     .collect();
                 CallResult::Ok(Json::Null)
             }
+            "triggers.fire" => {
+                if !capabilities.triggers {
+                    return deny("triggers");
+                }
+                if let Err(refused) = write() {
+                    return refused;
+                }
+                match fired_trigger(key, &slot.registrations.triggers, &params) {
+                    Ok(fired) => {
+                        outcome.triggers.push(fired);
+                        CallResult::Ok(Json::Null)
+                    }
+                    Err(why) => CallResult::error(ErrorCode::InvalidParams, why),
+                }
+            }
             _ => CallResult::error(ErrorCode::UnknownMethod, format!("no host method {method}")),
         }
     }
+}
+
+/// Checks the params of one `triggers.fire` call from installation `key`.
+fn fired_trigger(
+    key: &str,
+    declared: &[TriggerSpec],
+    params: &Json,
+) -> Result<FiredTrigger, &'static str> {
+    let text = |name| params.get(name).and_then(Json::as_str);
+    let trigger = text("trigger").ok_or("trigger must be a string")?;
+    if !declared.iter().any(|t| t.id == trigger) {
+        return Err("the trigger is not declared");
+    }
+    let source = text("source")
+        .filter(|s| (1..=MAX_TRIGGER_SOURCE).contains(&s.chars().count()))
+        .ok_or("source must be 1..=64 characters")?;
+    let label = text("label")
+        .filter(|l| l.chars().count() <= MAX_TRIGGER_LABEL)
+        .ok_or("label must be at most 48 characters")?;
+    // JSON numbers are finite; a value too large for f32 clamps to 1.
+    let value = (params.get("value").and_then(Json::as_f64)).ok_or("value must be a number")?;
+    let continuous =
+        (params.get("continuous").and_then(Json::as_bool)).ok_or("continuous must be a boolean")?;
+    Ok(FiredTrigger {
+        key: key.to_owned(),
+        trigger: trigger.to_owned(),
+        source: source.to_owned(),
+        label: label.to_owned(),
+        value: (value as f32).clamp(0.0, 1.0),
+        continuous,
+    })
 }
 
 fn notice(text: String) -> Effect {
@@ -1621,12 +1689,24 @@ impl Extensions {
         self.set_config(key, config, backend)
     }
 
-    /// Everything the Extensions pages show.
-    /// The triggers running extensions declared, for the Mappings page's Trigger list.
+    /// The triggers of running installations, for the Mappings page's Trigger list: by
+    /// installation key, then in declaration order.
     pub fn declared_triggers(&self) -> Vec<tetrad_ui::ExtensionTriggerChoice> {
-        Vec::new()
+        (self.slots.iter())
+            .filter(|(_, slot)| slot.state == RunState::Running)
+            .flat_map(|(key, slot)| {
+                (slot.registrations.triggers.iter()).map(|trigger| {
+                    tetrad_ui::ExtensionTriggerChoice {
+                        key: key.clone(),
+                        trigger: trigger.id.clone(),
+                        label: format!("{} · {}", slot.installation.name, trigger.label),
+                    }
+                })
+            })
+            .collect()
     }
 
+    /// Everything the Extensions pages show.
     pub fn view(&self) -> ExtensionsView {
         let repositories = &self.repositories;
         let installed = (repositories.records.iter())
@@ -1769,6 +1849,7 @@ fn installation(loaded: &Loaded) -> Installation {
             controls_read: manifest.has(Capability::ControlsRead),
             controls_edit: manifest.has(Capability::ControlsEdit),
             storage: manifest.has(Capability::Storage),
+            triggers: manifest.has(Capability::Triggers),
         },
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),

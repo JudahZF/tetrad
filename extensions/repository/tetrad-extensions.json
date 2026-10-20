@@ -26,6 +26,19 @@
         "size": 9520,
         "sha256": "cd5ff7e25ea93868967ee904f89fdb2307095cc4bf8d113a26da5b184786de95"
       }
+    },
+    {
+      "id": "tetrad.midi-mapper",
+      "name": "MIDI Mapper",
+      "version": "0.2.0",
+      "description": "Sends MIDI CCs, notes and program changes on one channel to Mappings as triggers. Choose what each one does on the Mappings page.",
+      "api": 1,
+      "asset": {
+        "tag": "extensions-2026-10-20",
+        "name": "tetrad.midi-mapper-0.2.0.tetradext",
+        "size": 2249,
+        "sha256": "b0763a03cc0c0f402522361be74805679dfc153c449d82e281ffd3c530fb5466"
+      }
     }
   ]
 }

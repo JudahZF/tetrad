@@ -1,5 +1,5 @@
-//! The runner over real pipes, as the host drives it: activation, scoped calls and every
-//! fault the supervisor relies on.
+//! The runner over real pipes, as the host drives it: activation, scoped calls, triggers and
+//! every fault the supervisor relies on.
 
 use std::io::{BufRead, BufReader, Write};
 use std::thread::JoinHandle;
@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde_json::json;
 use tetrad_extensions::protocol::{
     self, CallResult, ErrorCode, Event, ExtensionInfo, HostMessage, MidiEvent, PROTOCOL_VERSION,
-    RunnerMessage,
+    RunnerMessage, TriggerSpec,
 };
 use tetrad_extensions::runner::{self, Limits, RunnerError};
 
@@ -148,6 +148,75 @@ fn midi_event_becomes_a_scoped_host_call() {
 
     h.send(&HostMessage::Stop);
     assert!(h.thread.join().unwrap().is_ok());
+}
+
+#[test]
+fn declared_triggers_register_and_fire_as_scoped_calls() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.triggers.declare({ id: "pad", label: "Pad 1" });
+            ctx.commands.register("hit", (scope) => scope.triggers.fire(
+              { trigger: "pad", source: "hit:1", label: "Hit 1", value: 0.5, continuous: false }));
+        } };"#,
+        Limits::default(),
+    );
+    let RunnerMessage::Activated { registrations } = h.next() else {
+        panic!("not activated")
+    };
+    assert_eq!(
+        registrations.triggers,
+        [TriggerSpec {
+            id: "pad".into(),
+            label: "Pad 1".into()
+        }]
+    );
+
+    h.send(&HostMessage::Event {
+        scope: 4,
+        event: Event::Command { id: "hit".into() },
+    });
+    let RunnerMessage::Request {
+        id,
+        scope,
+        method,
+        params,
+    } = h.next()
+    else {
+        panic!("no request")
+    };
+    assert_eq!((scope, method.as_str()), (Some(4), "triggers.fire"));
+    assert_eq!(
+        params,
+        json!({"trigger": "pad", "source": "hit:1", "label": "Hit 1", "value": 0.5, "continuous": false})
+    );
+    h.send(&HostMessage::Response {
+        id,
+        result: CallResult::Ok(json!(null)),
+    });
+    assert_eq!(
+        h.next(),
+        RunnerMessage::Done {
+            scope: 4,
+            error: None
+        }
+    );
+}
+
+#[test]
+fn bad_trigger_declarations_fail_activation() {
+    for declare in [
+        r#"ctx.triggers.declare({ id: "Pad", label: "Pad" });"#,
+        r#"ctx.triggers.declare({ id: "pad", label: "" });"#,
+        r#"ctx.triggers.declare({ id: "pad", label: "A" }); ctx.triggers.declare({ id: "pad", label: "B" });"#,
+        r#"for (let i = 0; i < 9; i++) ctx.triggers.declare({ id: `t${i}`, label: "T" });"#,
+    ] {
+        let h = Harness::start(
+            &format!("export default {{ activate(ctx) {{ {declare} }} }};"),
+            quick(),
+        );
+        let fault = h.fault();
+        assert!(fault.contains("activation failed"), "{declare}: {fault}");
+    }
 }
 
 #[test]
