@@ -2,32 +2,6 @@
   "format": 1,
   "extensions": [
     {
-      "id": "tetrad.control-macro",
-      "name": "Control Macro",
-      "version": "0.1.0",
-      "description": "Test fixture without MIDI: one command sets the first parameter of the first block to 50%.",
-      "api": 1,
-      "asset": {
-        "tag": "extensions-2026-10-19",
-        "name": "tetrad.control-macro-0.1.0.tetradext",
-        "size": 1495,
-        "sha256": "d1fac640a66cf9768edbd65efb318e0dbfdf79ccaf38cbbe393877ef3e91a16d"
-      }
-    },
-    {
-      "id": "tetrad.midi-mapper",
-      "name": "MIDI Mapper",
-      "version": "0.1.0",
-      "description": "Map MIDI CCs and notes on one channel to block parameters and bypass. To learn a mapping, send a CC or note, then touch a control on the device.",
-      "api": 1,
-      "asset": {
-        "tag": "extensions-2026-10-19",
-        "name": "tetrad.midi-mapper-0.1.0.tetradext",
-        "size": 9520,
-        "sha256": "cd5ff7e25ea93868967ee904f89fdb2307095cc4bf8d113a26da5b184786de95"
-      }
-    },
-    {
       "id": "tetrad.midi-mapper",
       "name": "MIDI Mapper",
       "version": "0.2.0",

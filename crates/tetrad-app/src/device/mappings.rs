@@ -35,6 +35,9 @@ use super::{Action, Effect, PresetRef, State};
 pub const GLOBAL_FILE: &str = "/media/p4/tetrad/mappings.json";
 /// Stored mappings per list; the file and the preset field are refused above it.
 const MAX_MAPPINGS: usize = 128;
+/// Mappings one trigger runs at most, so a crafted list cannot make one MIDI message cost
+/// hundreds of preset edits.
+const MAX_RUN: usize = 8;
 const FORMAT: u32 = 1;
 
 /// One Tetrad mapping as stored (JSON, [`StoredList`]).
@@ -148,14 +151,22 @@ fn encode(mappings: &[Stored]) -> Vec<u8> {
     serde_json::to_vec(&list).expect("mappings serialize")
 }
 
-fn decode(bytes: &[u8]) -> Result<Vec<Stored>, String> {
-    let list: StoredList = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+/// A stored list of `scope`. Presets and the global file can come from anywhere (shared
+/// presets, backups), so rows that the page could not make are dropped.
+fn decode(bytes: &[u8], scope: MappingScope) -> Result<Vec<Stored>, String> {
+    let mut list: StoredList = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if list.format != FORMAT {
         return Err(format!("format {} is not supported", list.format));
     }
     if list.mappings.len() > MAX_MAPPINGS {
         return Err(format!("more than {MAX_MAPPINGS} mappings"));
     }
+    list.mappings.retain(|stored| {
+        trigger_allowed(scope, &stored.trigger).is_ok()
+            && (stored.action.as_ref())
+                .is_none_or(|action| action_allowed(scope, &stored.trigger, action).is_ok())
+            && stored.value.is_none_or(|value| value <= 100)
+    });
     Ok(list.mappings)
 }
 
@@ -204,7 +215,7 @@ impl Mappings {
     pub fn load_global(&mut self, bytes: Option<&[u8]>) -> Option<String> {
         self.loaded = true;
         self.view_stale = true;
-        match bytes.map(decode) {
+        match bytes.map(|bytes| decode(bytes, MappingScope::Global)) {
             None => None,
             Some(Ok(mappings)) => {
                 self.global = mappings;
@@ -223,7 +234,7 @@ impl Mappings {
         self.preset_revision = Some(revision);
         self.preset = (state.current.as_ref())
             .and_then(|current| current.preset.unknown.bytes_field(TETRAD_MAPPINGS_FIELD))
-            .and_then(|bytes| decode(&bytes).ok())
+            .and_then(|bytes| decode(&bytes, MappingScope::Preset).ok())
             .unwrap_or_default();
     }
 
@@ -355,6 +366,7 @@ impl Mappings {
         now: Duration,
     ) -> Vec<Effect> {
         (self.matching(scope, trigger).iter())
+            .take(MAX_RUN)
             .flat_map(|stored| self.run(stored, input, state, now))
             .collect()
     }
@@ -905,6 +917,12 @@ fn action_allowed(
         StoredAction::System { .. } if matches!(trigger, StoredTrigger::Expression { .. }) => {
             Err("An expression pedal drives block parameters, bypass or Send MIDI".into())
         }
+        // Two presets that load each other on load would never stop.
+        StoredAction::System {
+            action: SystemAction::NextPreset | SystemAction::PreviousPreset,
+        } if *trigger == StoredTrigger::PresetLoaded => {
+            Err("A preset load cannot load another preset".into())
+        }
         StoredAction::System { .. } => Ok(()),
     }
 }
@@ -975,9 +993,10 @@ fn source_label(source: &str) -> String {
     match source.split_once(':') {
         Some(("cc", n)) => format!("CC {n}"),
         Some(("note", n)) => format!("Note {n}"),
-        Some(("pc", n)) => n
-            .parse::<u16>()
-            .map_or_else(|_| source.to_owned(), |n| format!("PC {}", n + 1)),
+        Some(("pc", n)) => n.parse::<u16>().map_or_else(
+            |_| source.to_owned(),
+            |n| format!("PC {}", n.saturating_add(1)),
+        ),
         _ => source.to_owned(),
     }
 }
@@ -1111,6 +1130,13 @@ fn block_action(
     if instance.model.0 != model {
         return None;
     }
+    if let StoredTarget::Parameter { index } = target {
+        // Only parameters the page offers: no text or disabled parameters.
+        let spec = state.specs.as_ref()?.model(model)?.parameter(index)?;
+        if spec.kind == tetrad_catalog::ParameterType::String || spec.scale.disabled {
+            return None;
+        }
+    }
     Some(match target {
         StoredTarget::Bypass => Action::SetBypass {
             site,
@@ -1126,8 +1152,9 @@ fn block_action(
             value: if input.continuous {
                 input.value
             } else {
-                f32::from(value.unwrap_or(100)) / 100.0
-            },
+                f32::from(value.unwrap_or(100).min(100)) / 100.0
+            }
+            .clamp(0.0, 1.0),
         },
     })
 }
@@ -1152,7 +1179,7 @@ fn target_name(state: &State, position: GridPosition, target: BlockTarget) -> St
         BlockTarget::Parameter(index) => (model_at(state, position))
             .and_then(|model| state.specs.as_ref()?.model(model)?.parameter(index))
             .map_or_else(
-                || format!("Parameter {}", index + 1),
+                || format!("Parameter {}", index.saturating_add(1)),
                 |spec| spec.name.clone(),
             ),
     }
@@ -1495,4 +1522,36 @@ fn blocks(state: &State) -> Vec<MappingBlock> {
         }
     }
     blocks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rows that the page could not make are dropped when a list is read: a preset can come
+    /// from anyone.
+    #[test]
+    fn decode_drops_rows_the_page_could_not_make() {
+        let json = br#"{"format":1,"mappings":[
+            {"trigger":{"kind":"cc","controller":20},"action":{"kind":"system","action":"tuner"}},
+            {"trigger":{"kind":"cc","controller":43},"action":{"kind":"system","action":"tuner"}},
+            {"trigger":{"kind":"presetLoaded"},"action":{"kind":"system","action":"nextPreset"}},
+            {"trigger":{"kind":"stomp","stomp":0},"action":{"kind":"block","row":0,"column":2,
+                "model":1,"target":{"kind":"parameter","index":0}},"value":255},
+            {"trigger":{"kind":"stomp","stomp":1},"action":{"kind":"block","row":0,"column":2,
+                "model":1,"target":{"kind":"bypass"}}}
+        ]}"#;
+        let preset = decode(json, MappingScope::Preset).unwrap();
+        let triggers: Vec<_> = preset.iter().map(|stored| stored.trigger.clone()).collect();
+        assert_eq!(
+            triggers,
+            [
+                StoredTrigger::Cc { controller: 20 },
+                StoredTrigger::Stomp { stomp: 1 }
+            ]
+        );
+        // Global lists take only MIDI triggers and no block actions.
+        let global = decode(json, MappingScope::Global).unwrap();
+        assert_eq!(global.len(), 1);
+    }
 }

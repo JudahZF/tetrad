@@ -71,6 +71,4 @@ Check a package at any time with `$T check FILE.tetradext`.
 
 | Package | Tag |
 | --- | --- |
-| `tetrad.midi-mapper-0.1.0.tetradext` | `extensions-2026-10-19` |
 | `tetrad.midi-mapper-0.2.0.tetradext` (trigger provider for Mappings) | `extensions-2026-10-20` |
-| `tetrad.control-macro-0.1.0.tetradext` (test fixture) | `extensions-2026-10-19` |

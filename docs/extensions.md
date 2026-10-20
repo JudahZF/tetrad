@@ -143,7 +143,8 @@ The full API, with comments, is in `tetrad.d.ts` (`tetrad-ext sdk` writes it):
 | `ctx.lifecycle.onRunning`, `onPresetLoaded` | `scope.ui.setStatus` |
 | `ctx.storage.get`, `ctx.triggers.declare`, `ctx.log/warn/error` | `scope.triggers.fire` |
 
-A scope closes when its handler settles. After a preset change, calls with an older scope fail
+`ctx.controls.list` and `ctx.storage.get` work only during `activate`; handlers use their
+scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail
 with `staleContext`. There is no module loader: bundle everything into one file (`tetrad-ext
 build` does this).
 

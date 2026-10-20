@@ -146,6 +146,11 @@ pub enum StoreError {
     NotInstalled(InstallKey),
     #[error("{0} has no previous version")]
     NoPrevious(InstallKey),
+    #[error("{installed} is installed; {offered} is older (use rollback to go back)")]
+    Downgrade {
+        installed: Version,
+        offered: Version,
+    },
     #[error("storage is over its limit: {0}")]
     Limit(&'static str),
 }
@@ -433,6 +438,15 @@ impl Store {
             source: source.clone(),
             id: entry.id.clone(),
         };
+        // An older catalog (replayed, or changed between view and tap) never downgrades.
+        if let Some(old) = self.installed(&key)?
+            && entry.version < old.current.version
+        {
+            return Err(StoreError::Downgrade {
+                installed: old.current.version,
+                offered: entry.version.clone(),
+            });
+        }
 
         let path = self.package_path(&key, &entry.version);
         match read_bounded(&path, crate::package::MAX_PACKAGE)? {
@@ -797,6 +811,11 @@ mod tests {
         let rolled = store.rollback(&installed.key).unwrap();
         assert_eq!(rolled.current.version, v2.version);
         assert_eq!(rolled.previous.unwrap().version, v3.version);
+        let older = store.install(&source(), &key(), &v1, &b1);
+        assert!(
+            matches!(older, Err(StoreError::Downgrade { .. })),
+            "only rollback goes back"
+        );
 
         let key = installed.key.clone();
         store.save_config(&key, &json!({"on": false})).unwrap();

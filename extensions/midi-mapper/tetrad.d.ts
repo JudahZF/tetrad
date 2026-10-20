@@ -147,7 +147,8 @@ export interface Scope {
 
 /**
  * The read and register API of `activate`. Registration methods throw after `activate`
- * returns. Nothing here can change the device.
+ * returns, and the host refuses `controls.list` and `storage.get` from here once activation
+ * has finished: handlers use their scope. Nothing here can change the device.
  */
 export interface ActivationContext<C extends ConfigOf<C> = Config> {
   readonly extension: ExtensionInfo;

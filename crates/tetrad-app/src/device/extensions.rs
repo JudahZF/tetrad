@@ -129,13 +129,28 @@ impl LocalBackend {
         let results = self.sender.clone();
         std::thread::spawn(move || {
             let store = tetrad_extensions::store::Store::open(&root);
-            while let Ok(job) = inbox.recv() {
-                let result = match &store {
-                    Ok(store) => super::extension_jobs::run(store, &mut fetch, job),
-                    Err(error) => JobResult::Saved(Err(format!("extension store: {error}"))),
-                };
-                if results.send(ExtensionInput::Job(result)).is_err() {
-                    return;
+            while let Ok(first) = inbox.recv() {
+                let batch: Vec<ExtensionJob> =
+                    std::iter::once(first).chain(inbox.try_iter()).collect();
+                // A later save of the same storage makes an earlier one pointless: it is
+                // answered without a write, so a flood of `storage.set` costs one write.
+                let superseded: Vec<bool> = (0..batch.len())
+                    .map(|i| match &batch[i] {
+                        ExtensionJob::SaveStorage { key, .. } => batch[i + 1..].iter().any(
+                            |later| matches!(later, ExtensionJob::SaveStorage { key: k, .. } if k == key),
+                        ),
+                        _ => false,
+                    })
+                    .collect();
+                for (job, superseded) in batch.into_iter().zip(superseded) {
+                    let result = match &store {
+                        _ if superseded => JobResult::Saved(Ok(())),
+                        Ok(store) => super::extension_jobs::run(store, &mut fetch, job),
+                        Err(error) => JobResult::Saved(Err(format!("extension store: {error}"))),
+                    };
+                    if results.send(ExtensionInput::Job(result)).is_err() {
+                        return;
+                    }
                 }
             }
         });
@@ -145,9 +160,9 @@ impl LocalBackend {
 
     /// Moves runner output to `out`.
     pub fn drain(&mut self, out: &mut Vec<super::platform::Input>) {
-        while let Ok(input) = self.received.try_recv() {
-            out.push(super::platform::Input::Extension(input));
-        }
+        // A bounded share per device pass: a flooding runner delays only itself.
+        let inputs = self.received.try_iter().take(MAX_DRAIN);
+        out.extend(inputs.map(super::platform::Input::Extension));
     }
 }
 
@@ -272,6 +287,11 @@ struct Entry {
     log: VecDeque<String>,
 }
 
+/// Runner outputs and job results the device takes in one pass.
+const MAX_DRAIN: usize = 64;
+/// Command buttons one extension may register.
+const MAX_COMMANDS: usize = 16;
+
 /// Work the device does for the bridge after a call.
 #[derive(Debug, Default)]
 pub struct Outcome {
@@ -356,7 +376,11 @@ impl Extensions {
             .collect();
         for key in stale {
             self.stop(&key, backend, &mut outcome);
-            self.slots.remove(&key);
+            // A removed slot's channels go back to native MIDI even when it was running.
+            let slot = self.slots.remove(&key);
+            if slot.is_some_and(|slot| !slot.registrations.midi_channels.is_empty()) {
+                outcome.reservations_changed = true;
+            }
         }
         for (key, installation) in incoming {
             match self.slots.get_mut(&key) {
@@ -818,6 +842,9 @@ impl Extensions {
         native_channel: Option<u8>,
     ) -> Result<(), String> {
         let slot = &self.slots[key];
+        if registrations.commands.len() > MAX_COMMANDS {
+            return Err(format!("registers more than {MAX_COMMANDS} commands"));
+        }
         if !registrations.midi_channels.is_empty() && !slot.installation.capabilities.midi_receive {
             return Err("reserves MIDI channels without the midiReceive capability".into());
         }
@@ -873,6 +900,14 @@ impl Extensions {
     ) -> CallResult {
         let generation = self.generation;
         let slot = self.slots.get_mut(key).expect("checked");
+        if scope.is_none() && slot.state == RunState::Running {
+            // Unscoped calls outside activation have no handler deadline, so a detached chain
+            // of them could keep the device loop busy without end.
+            return CallResult::error(
+                ErrorCode::NotRunning,
+                "after activation, calls need a handler scope",
+            );
+        }
         let capabilities = slot.installation.capabilities;
         let scope_generation = match scope {
             None => None,

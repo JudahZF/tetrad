@@ -917,15 +917,16 @@ fn extension_runner(module: &Path) -> ExitCode {
         );
         ExitCode::FAILURE
     };
-    #[cfg(target_os = "linux")]
-    if let Err(error) = tetrad_sys::process::confine_extension_runner(RUNNER_ADDRESS_SPACE) {
-        return fail(format!("confine: {error}"));
-    }
+    // The module is read first: the confined runner (user `nobody`) cannot read the store.
     let source = match read_limited(module, MAX_MODULE_BYTES).map(String::from_utf8) {
         Ok(Ok(source)) => source,
         Ok(Err(_)) => return fail("module is not UTF-8".into()),
         Err(error) => return fail(error.to_string()),
     };
+    #[cfg(target_os = "linux")]
+    if let Err(error) = tetrad_sys::process::confine_extension_runner(RUNNER_ADDRESS_SPACE) {
+        return fail(format!("confine: {error}"));
+    }
     let input = std::io::BufReader::new(std::io::stdin());
     let limits = tetrad_extensions::runner::Limits {
         #[cfg(target_os = "linux")]

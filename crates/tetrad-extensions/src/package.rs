@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::manifest::{Manifest, ManifestError};
 
 pub const PACKAGE_FORMAT: u32 = 1;
-/// Largest package in bytes.
-pub const MAX_PACKAGE: usize = 1024 * 1024;
+/// Largest package in bytes: 64 KiB under the device HTTP client's 1 MiB output limit, which
+/// also holds the status line.
+pub const MAX_PACKAGE: usize = 960 * 1024;
 pub const PACKAGE_SUFFIX: &str = ".tetradext";
 
 #[derive(Debug, Clone, PartialEq)]
