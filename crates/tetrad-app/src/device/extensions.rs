@@ -1237,6 +1237,8 @@ pub fn native_change(action: &Action, state: &State) -> Option<ControlChange> {
         Action::SetBypass { site, bypassed } => {
             (site, ControlKind::Bypass, f32::from(u8::from(bypassed)))
         }
+        // Touch edits arrive wrapped for undo.
+        Action::Undoable(_, ref action) => return native_change(action, state),
         _ => return None,
     };
     let instance = current.deployment.layout().instance(site)?;

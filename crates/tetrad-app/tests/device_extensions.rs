@@ -14,18 +14,22 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 use tetrad_app::device::extensions::LocalBackend;
 use tetrad_app::device::platform::Input;
+use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Device, Event};
 use tetrad_engine::{Column, Row, Site, Slot};
 use tetrad_extensions::catalog::sha256_hex;
 use tetrad_extensions::package::Package;
 use tetrad_extensions::repository::{Fetch, FetchError};
-use tetrad_ui::{ExtensionCommand, ExtensionState, ExtensionsView};
+use tetrad_ui::{
+    Control, ExtensionCommand, ExtensionState, ExtensionsView, GridPosition, InputEvent,
+    ParamControl,
+};
 
 const SOURCE: &str = "tester/exts";
 const KEY: &str = "tester/exts:test.mapper";
 
 /// Maps CC on its configured channel to GAIN of the Light block in row 1, column 3, and
-/// remembers the last value in its storage.
+/// remembers the last value in its storage. Reports native control changes on its status line.
 const MODULE: &str = r#"
 export default {
   activate(ctx) {
@@ -36,6 +40,9 @@ export default {
       await scope.controls.set(gain, message.value / 127);
       await scope.storage.set("last", message.value);
       await scope.ui.setStatus([`CC ${message.controller} = ${message.value}`]);
+    });
+    ctx.controls.onChange(async (change, scope) => {
+      await scope.ui.setStatus([`${change.binding.control.kind} = ${change.value}`]);
     });
   },
 };
@@ -263,5 +270,25 @@ fn a_new_setting_restarts_the_extension_on_the_new_channel() {
     pump(&mut device, "the disabled extension", |d| {
         state_of(d) == Some(ExtensionState::Disabled)
             && d.bridges().extensions.reserved_channels() == 0
+    });
+}
+
+/// MIDI Mapper learns from touch: an edit made on the screen (wrapped for undo) reaches the
+/// extension's control watcher.
+#[test]
+fn a_touch_edit_reaches_control_watchers() {
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _media) = boot(media, repository());
+    install(&mut device);
+
+    for control in [
+        Control::SelectCell(GridPosition::new(0, 2).unwrap()),
+        Control::Param(ParamControl::Bypass),
+    ] {
+        device.push(Event::UiInput(UiInput::View(InputEvent::Activate(control))));
+        assert!(device.step().is_none());
+    }
+    pump(&mut device, "the reported bypass", |d| {
+        view(d).installed[0].status_lines == ["bypass = 1"]
     });
 }
