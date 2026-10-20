@@ -11,6 +11,7 @@ mod damage;
 mod draw;
 mod extensions;
 mod layout;
+mod mappings;
 mod png;
 mod render;
 mod screens;
@@ -24,6 +25,7 @@ pub use boot_select::{BootChoice, BootMenu};
 pub use control::*;
 pub use damage::Renderer;
 pub use extensions::*;
+pub use mappings::*;
 pub use png::{PngColour, png};
 pub use render::{Frame, HEIGHT, PRESET_GRID_HEIGHT, PRESET_GRID_WIDTH, WIDTH};
 pub use settings::{

@@ -274,6 +274,25 @@ pub struct Outcome {
     pub storage_changed: Vec<String>,
     /// Reservations changed: the MIDI controller needs [`Extensions::reserved_channels`].
     pub reservations_changed: bool,
+    /// Triggers the extensions fired (`scope.triggers.fire`), for the mappings bridge.
+    pub triggers: Vec<FiredTrigger>,
+}
+
+/// One firing of an extension trigger.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FiredTrigger {
+    /// Installation key, `owner/repo:extension.id`.
+    pub key: String,
+    /// The trigger id the extension declared.
+    pub trigger: String,
+    /// What fired inside the trigger, such as `cc:20`.
+    pub source: String,
+    /// Display text of the source, such as "CC 20".
+    pub label: String,
+    /// 0..=1.
+    pub value: f32,
+    /// A continuous source (a CC); otherwise a press (a note, a PC).
+    pub continuous: bool,
 }
 
 #[derive(Default)]
@@ -1603,6 +1622,11 @@ impl Extensions {
     }
 
     /// Everything the Extensions pages show.
+    /// The triggers running extensions declared, for the Mappings page's Trigger list.
+    pub fn declared_triggers(&self) -> Vec<tetrad_ui::ExtensionTriggerChoice> {
+        Vec::new()
+    }
+
     pub fn view(&self) -> ExtensionsView {
         let repositories = &self.repositories;
         let installed = (repositories.records.iter())

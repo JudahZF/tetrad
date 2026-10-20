@@ -24,6 +24,7 @@ pub mod leds;
 #[cfg(target_os = "linux")]
 pub mod linux;
 mod load;
+pub mod mappings;
 pub mod media;
 pub mod meters;
 pub mod midi;
@@ -2083,6 +2084,7 @@ impl<P: Platform> Device<P> {
             ui::Handoff::Extensions(command) => {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
+            ui::Handoff::Mappings(command) => self.mapping_command(command),
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,
             // r16-capture MR 2: through `nc2_input`, so saves and the meter timer sync run.
             ui::Handoff::Nc2DialogShown => {
@@ -2853,6 +2855,11 @@ impl<P: Platform> Device<P> {
             self.bridges.midi.set_reserved_channels(mask);
         }
         outcome.effects
+    }
+
+    fn mapping_command(&mut self, command: tetrad_ui::MappingCommand) -> Vec<Effect> {
+        let _ = command;
+        Vec::new()
     }
 
     fn notice(&mut self, subsystem: Subsystem, detail: String) {

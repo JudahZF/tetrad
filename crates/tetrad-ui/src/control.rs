@@ -34,6 +34,8 @@ pub enum Screen {
     Expression,
     /// Preset MIDI Out settings (`MidiMatrixDialog`, shot 016) and its message editor.
     MidiOut,
+    /// Owned (Tetrad): the Mappings page of the grid ⋮ menu (`crate::mappings`).
+    Mappings,
     /// Boot recovery menu (A + H held at startup, manual §12): "Choose a Recovery option".
     Recovery,
     /// I/O Settings → GLOBAL EQ (shot 009) on one band tab or OUT.
@@ -57,6 +59,8 @@ pub enum MenuAction {
     CopyScene,
     SwapScene,
     PresetMidiOut,
+    /// Owned (Tetrad): opens [`Screen::Mappings`]; replaces Preset MIDI Out in the ⋮ menu.
+    Mappings,
     ToggleFavorite,
     DeletePreset,
     NewNeuralCapture,
@@ -1160,6 +1164,8 @@ pub enum UiCommand {
     Directory(DirectoryRequest),
     /// An Extensions page request (`crate::extensions`).
     Extension(crate::ExtensionCommand),
+    /// A Mappings page request (`crate::mappings`).
+    Mapping(crate::MappingCommand),
     SelectScene {
         scene: SceneIndex,
     },
@@ -1739,6 +1745,7 @@ impl fmt::Debug for UiCommand {
         use UiCommand as C;
         match self {
             C::Extension(command) => f.debug_tuple("Extension").field(command).finish(),
+            C::Mapping(command) => f.debug_tuple("Mapping").field(command).finish(),
             C::WifiConnect { ssid, password } => f
                 .debug_struct("WifiConnect")
                 .field("ssid", ssid)

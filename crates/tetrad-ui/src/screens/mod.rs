@@ -13,6 +13,7 @@ mod gig;
 mod global_eq;
 pub(crate) mod grid;
 mod io;
+mod mappings;
 mod media;
 mod media_editor;
 mod midi_out;
@@ -83,6 +84,7 @@ pub(crate) fn layout(ui: &UiState) -> Layout {
         Screen::Capture => capture::layout(ui, &mut l),
         Screen::Expression => expression::layout(ui, &mut l),
         Screen::MidiOut => midi_out::layout(ui, &mut l),
+        Screen::Mappings => mappings::layout(ui, &mut l),
         Screen::Recovery => recovery::layout(ui, &mut l),
         Screen::GlobalEq(tab) => global_eq::layout(ui, &mut l, tab),
     }
