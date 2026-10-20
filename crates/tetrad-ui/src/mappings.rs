@@ -73,7 +73,7 @@ pub enum MidiInput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockTarget {
     Bypass,
-    /// Parameter index in the block's catalog order ([`MappingBlock::parameters`]).
+    /// Catalog parameter index ([`MappingParameter::index`]).
     Parameter(u32),
 }
 
@@ -161,8 +161,18 @@ pub struct MappingBlock {
     pub name: String,
     /// "Row 1 slot 2".
     pub location: String,
-    /// Parameter names in catalog order; [`BlockTarget::Parameter`] indexes this list.
-    pub parameters: Vec<String>,
+    /// The parameters a mapping can drive, in catalog order (text and disabled parameters are
+    /// left out).
+    pub parameters: Vec<MappingParameter>,
+}
+
+/// One parameter of a [`MappingBlock`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappingParameter {
+    /// Catalog index, as [`BlockTarget::Parameter`] holds it.
+    pub index: u32,
+    /// "Band 1 Gain".
+    pub name: String,
 }
 
 /// A trigger an extension declared, offered in the Trigger dropdown.
