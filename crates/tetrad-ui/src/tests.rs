@@ -310,6 +310,31 @@ fn every_screen_has_disjoint_in_frame_touch_targets() {
     states.push(open(&|ui| {
         extensions(ui, Some(ExtensionControl::Sources), true)
     }));
+    // Mappings list, a detail page with its stepper and LEARN, and the action menu levels.
+    let mappings = |ui: &mut UiState, controls: &[MappingControl]| {
+        let snapshot = UiSnapshot {
+            mappings: crate::screens::mappings::tests::sample(),
+            ..ui.snapshot().clone()
+        };
+        ui.set_snapshot(snapshot).expect("valid snapshot");
+        ui.navigate(Screen::Mappings);
+        for control in controls {
+            activate(ui, Control::Mapping(*control));
+        }
+    };
+    states.push(open(&|ui| mappings(ui, &[])));
+    states.push(open(&|ui| mappings(ui, &[MappingControl::Open(2)])));
+    states.push(open(&|ui| mappings(ui, &[MappingControl::Open(3)])));
+    states.push(open(&|ui| {
+        mappings(ui, &[MappingControl::Open(1), MappingControl::Actions])
+    }));
+    states.push(open(&|ui| {
+        let preset = MappingControl::Pick(1);
+        mappings(
+            ui,
+            &[MappingControl::Open(1), MappingControl::Actions, preset],
+        )
+    }));
     states.push(open(&|ui| {
         activate(ui, Control::SceneMenu);
     }));
@@ -396,7 +421,8 @@ fn menus_use_stock_labels_in_stock_order() {
         }
         drag(&mut ui, (600, 400), (600, 160));
     }
-    // Stock 4.1.0 has no I/O Settings or Looper X row (seen on the QC, 2026-10-15).
+    // Stock 4.1.0 has no I/O Settings or Looper X row (seen on the QC, 2026-10-15). Tetrad
+    // shows Mappings in place of Preset MIDI Out.
     assert_eq!(
         labels,
         [
@@ -405,7 +431,7 @@ fn menus_use_stock_labels_in_stock_order() {
             "Edit Details",
             "Copy Scene A",
             "Swap Scene A",
-            "Preset MIDI Out",
+            "Mappings",
             // The runtime label (`0x003bb9a0`, `0xa35818`), not the populate default.
             "Add to favorites",
             "Delete Preset",
@@ -459,12 +485,18 @@ fn a_looper_block_tap_opens_looper_x() {
     assert_eq!(ui.screen(), Screen::Looper);
 }
 
+/// Tetrad: Mappings takes the place of stock Preset MIDI Out in the ⋮ menu.
 #[test]
-fn main_menu_preset_midi_out_opens_the_midi_out_screen() {
+fn main_menu_mappings_opens_the_mappings_page() {
     let mut ui = ui_with(rich());
     activate(&mut ui, Control::OpenMainMenu);
-    activate(&mut ui, Control::Menu(MenuAction::PresetMidiOut));
-    assert_eq!(ui.screen(), Screen::MidiOut);
+    let regions = ui.hit_regions();
+    let item =
+        (regions.iter()).find(|region| region.control == Control::Menu(MenuAction::Mappings));
+    assert_eq!(item.map(|region| region.label.as_str()), Some("Mappings"));
+    activate(&mut ui, Control::Menu(MenuAction::Mappings));
+    assert_eq!(ui.screen(), Screen::Mappings);
+    assert!(!ui.overlay_open());
 }
 
 #[test]

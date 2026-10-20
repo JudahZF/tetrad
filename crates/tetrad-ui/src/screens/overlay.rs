@@ -110,6 +110,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             }
             Overlay::ExtensionConfirm(confirm) => super::extensions::confirm(l, confirm),
             Overlay::ExtensionTrust(pending) => super::extensions::trust(l, pending),
+            Overlay::MappingActions(menu) => super::mappings::action_menu(ui, l, *menu),
         }
     }
     if let Some(keyboard) = &ui.keyboard {
@@ -152,6 +153,11 @@ fn trigger(overlay: &Overlay) -> Option<Control> {
         Overlay::Choice(ChoicePurpose::Extension(setting)) => {
             Control::Extension(ExtensionControl::Setting(*setting))
         }
+        Overlay::Choice(ChoicePurpose::Mapping(choice)) => {
+            Control::Mapping(MappingControl::Choice(*choice))
+        }
+        // The ⋮ menu's grey veil instead of the scrim.
+        Overlay::MappingActions(_) => Control::Mapping(MappingControl::Actions),
         Overlay::Menu(MenuKind::Main) => Control::OpenMainMenu,
         Overlay::Confirm(Confirm::AbortCapture) => Control::Capture(CaptureRequest::Abort),
         Overlay::Menu(MenuKind::Block(position)) => Control::SelectCell(*position),
@@ -281,12 +287,8 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
             Icon::Swap,
             idle,
         ),
-        item(
-            MenuAction::PresetMidiOut,
-            "Preset MIDI Out".into(),
-            Icon::Midi,
-            true,
-        ),
+        // Owned (Tetrad): Mappings in place of stock Preset MIDI Out.
+        item(MenuAction::Mappings, "Mappings".into(), Icon::Midi, true),
         item(
             MenuAction::ToggleFavorite,
             if s.favorite {
@@ -1165,6 +1167,10 @@ fn choice(ui: &UiState, l: &mut Layout, purpose: ChoicePurpose, anchor: Option<R
         ),
         ChoicePurpose::Extension(setting) => match super::extensions::choice(ui, setting) {
             Some((label, options, selected)) => (label, options, Some(selected)),
+            None => return,
+        },
+        ChoicePurpose::Mapping(choice) => match super::mappings::choice(ui, choice) {
+            Some((options, selected)) => ("", options, selected),
             None => return,
         },
         ChoicePurpose::SettingsGroup => {

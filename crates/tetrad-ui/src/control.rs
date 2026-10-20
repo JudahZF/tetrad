@@ -1,6 +1,6 @@
 //! Screens, interactive controls, input events and application requests.
 
-use crate::MediaKind;
+use crate::{MappingScope, MediaKind};
 
 use std::fmt;
 
@@ -32,7 +32,8 @@ pub enum Screen {
     Capture,
     /// Full-screen expression pedal assignment for the selected block (shot 068).
     Expression,
-    /// Preset MIDI Out settings (`MidiMatrixDialog`, shot 016) and its message editor.
+    /// Preset MIDI Out settings (`MidiMatrixDialog`, shot 016) and its message editor. Tetrad
+    /// opens only the editor, from a Send MIDI mapping ([`Screen::Mappings`]).
     MidiOut,
     /// Owned (Tetrad): the Mappings page of the grid ⋮ menu (`crate::mappings`).
     Mappings,
@@ -58,7 +59,6 @@ pub enum MenuAction {
     EditDetails,
     CopyScene,
     SwapScene,
-    PresetMidiOut,
     /// Owned (Tetrad): opens [`Screen::Mappings`]; replaces Preset MIDI Out in the ⋮ menu.
     Mappings,
     ToggleFavorite,
@@ -800,6 +800,47 @@ pub enum ExtensionControl {
     RemoveSource(u16),
 }
 
+/// Controls of the Mappings page (`screens::mappings`). Indices address the rows of the shown
+/// tab; detail controls act on the row whose detail page is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappingControl {
+    /// THIS PRESET or GLOBAL.
+    Tab(MappingScope),
+    /// +: a new row in the shown tab.
+    Add,
+    /// A list row: its detail page.
+    Open(u16),
+    /// The detail page's trash button.
+    Remove,
+    /// A dropdown of the Trigger panel.
+    Choice(MappingChoice),
+    /// The MIDI number field: the numeric keyboard.
+    Number,
+    /// LEARN, or CANCEL while the row waits for its message.
+    Learn,
+    /// The Action row: the action menu.
+    Actions,
+    /// Row `n` of the open action menu.
+    Pick(u16),
+    /// The value stepper, in 5 % steps.
+    Value(i8),
+    /// Edit messages of a Send MIDI row: the Preset MIDI Out message editor.
+    EditMessages,
+}
+
+/// The dropdowns of the Mappings Trigger panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappingChoice {
+    /// Type: Preset loaded, Footswitch, Expression pedal, MIDI or an extension trigger.
+    Kind,
+    /// Stomp A–H.
+    Stomp,
+    /// EXP 1 or 2.
+    Pedal,
+    /// CC or Note.
+    Midi,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupControl {
     Create,
@@ -903,6 +944,8 @@ pub enum Control {
     Wifi(WifiControl),
     /// Extensions and Repositories pages (`screens::extensions`).
     Extension(ExtensionControl),
+    /// The Mappings page (`screens::mappings`).
+    Mapping(MappingControl),
     Updater(UpdaterCommand),
     ShowChangelog,
     Backup(BackupControl),

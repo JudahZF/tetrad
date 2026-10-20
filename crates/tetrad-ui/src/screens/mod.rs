@@ -13,7 +13,7 @@ mod gig;
 mod global_eq;
 pub(crate) mod grid;
 mod io;
-mod mappings;
+pub(crate) mod mappings;
 mod media;
 mod media_editor;
 mod midi_out;
@@ -48,7 +48,7 @@ pub(crate) use directory::{Category, CloudGate, Directory};
 use grid::header as main_bar;
 
 pub(crate) use capture::{CaptureEdit, CaptureUi};
-pub(crate) use numeric::NumericEntry;
+pub(crate) use numeric::{NumericEntry, NumericPurpose};
 pub(crate) use support::{default_device_name, licence_file, product_name};
 pub(crate) use tools::{PanelKnob, panel_knob};
 

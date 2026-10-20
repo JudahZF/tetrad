@@ -154,11 +154,11 @@ const STEPS: [Step; 14] = [
 
 /// Frame hashes of [`STEPS`] from the renderer before the speed work, with the Grid mode glyph
 /// redrawn and moved to the stock box, the stock block tile corners, the stock Grid header, the
-/// block glyphs fitted to the stock images, the stock row pads and the "Tetrad 0.1.0-alpha.2"
-/// version line under the grid.
+/// block glyphs fitted to the stock images, the stock row pads, the "Tetrad 0.1.0-alpha.2"
+/// version line under the grid and the ⋮ menu's Mappings row.
 const GOLDEN: [u64; 14] = [
     0xc74283404dcb9938,
-    0x94bc2fc0a83aae29,
+    0x184f5b13d2857980,
     0xc74283404dcb9938,
     0x5962cb401c8355e5,
     0x2e5a5be15edbadeb,
