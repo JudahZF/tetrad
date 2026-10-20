@@ -16,6 +16,7 @@ pub mod lifecycle;
 pub mod loader;
 pub mod mem;
 pub mod paths;
+pub mod process;
 pub mod serial;
 pub mod supplicant;
 pub mod thread;

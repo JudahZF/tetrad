@@ -163,6 +163,11 @@ pub trait Platform {
 
     /// Another program drew on the display: the next [`Self::present`] writes every row.
     fn forget_display(&mut self) {}
+
+    /// Extension runner processes; `None` where extensions do not run.
+    fn extensions(&mut self) -> Option<&mut dyn crate::device::extensions::ExtensionBackend> {
+        None
+    }
 }
 
 /// tetrad-services backends, borrowed together by `services.rs`.
@@ -296,6 +301,8 @@ pub enum Input {
     Touch(TouchSample),
     /// A service worker finished or changed state.
     Service(ServiceNotice),
+    /// Extension runner output.
+    Extension(crate::device::extensions::ExtensionInput),
     /// The user or the system asked for a power action.
     Power(crate::device::PowerAction),
 }

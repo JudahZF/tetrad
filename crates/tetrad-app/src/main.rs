@@ -153,6 +153,13 @@ enum Command {
     /// 0, exit; ZenWatchdog restarts stock). Every risky option is off unless given.
     #[cfg(target_os = "linux")]
     Bringup(BringupArgs),
+    /// Internal: one extension's JavaScript runner, started by the device program with a
+    /// module file. Speaks the extension protocol on stdin and stdout.
+    #[command(hide = true)]
+    ExtensionRunner {
+        #[arg(long)]
+        module: PathBuf,
+    },
     /// Record raw LE-f32 stereo, optionally overdub once, export one tape cycle.
     Loop {
         #[arg(long)]
@@ -607,6 +614,7 @@ fn run(command: Command) -> Result<ExitCode, Error> {
         }
         #[cfg(target_os = "linux")]
         Command::Bringup(args) => return bringup(args),
+        Command::ExtensionRunner { module } => return Ok(extension_runner(&module)),
         Command::Loop {
             record,
             overdub,
@@ -707,7 +715,8 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
     }
     // Prints nothing from here: after the power teardown stderr may have no reader. The
     // device logs through `Platform::log`, which ignores write errors.
-    let platform = LinuxPlatform::open()?;
+    let mut platform = LinuxPlatform::open()?;
+    platform.enable_extensions()?;
     let device = tetrad_app::device::Device::start_with(platform, RunOptions::STOCK)?;
     if let Some(started) = args.started
         && device.dsp().is_some()
@@ -889,6 +898,45 @@ fn print_json(value: serde_json::Value) -> Result<(), Error> {
     serde_json::to_writer(&mut stdout, &value)?;
     writeln!(stdout)?;
     Ok(())
+}
+
+/// Largest extension module the runner loads.
+const MAX_MODULE_BYTES: usize = 1024 * 1024;
+/// Runner address-space limit: the mapped `tetrad` image, its libraries, two thread stacks and
+/// the QuickJS heap. Trial value; measured on the unit in gate A.
+#[cfg(target_os = "linux")]
+const RUNNER_ADDRESS_SPACE: usize = 128 * 1024 * 1024;
+
+/// The child process of one extension (`tetrad_extensions::runner`). Errors go to stderr,
+/// which the device program inherits into its log; the host sees the exit.
+fn extension_runner(module: &Path) -> ExitCode {
+    let fail = |message: String| {
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "tetrad extension-runner: {message}"
+        );
+        ExitCode::FAILURE
+    };
+    // The module is read first: the confined runner (user `nobody`) cannot read the store.
+    let source = match read_limited(module, MAX_MODULE_BYTES).map(String::from_utf8) {
+        Ok(Ok(source)) => source,
+        Ok(Err(_)) => return fail("module is not UTF-8".into()),
+        Err(error) => return fail(error.to_string()),
+    };
+    #[cfg(target_os = "linux")]
+    if let Err(error) = tetrad_sys::process::confine_extension_runner(RUNNER_ADDRESS_SPACE) {
+        return fail(format!("confine: {error}"));
+    }
+    let input = std::io::BufReader::new(std::io::stdin());
+    let limits = tetrad_extensions::runner::Limits {
+        #[cfg(target_os = "linux")]
+        slice_clock: tetrad_sys::process::thread_cpu_time,
+        ..tetrad_extensions::runner::Limits::default()
+    };
+    match tetrad_extensions::runner::run(&source, input, &mut std::io::stdout().lock(), limits) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => fail(error.to_string()),
+    }
 }
 
 fn main() -> ExitCode {

@@ -13,6 +13,8 @@ pub mod bringup;
 pub mod capture;
 pub mod control;
 pub mod dsp;
+pub mod extension_jobs;
+pub mod extensions;
 pub mod features;
 pub mod global_eq;
 pub mod info;
@@ -22,6 +24,7 @@ pub mod leds;
 #[cfg(target_os = "linux")]
 pub mod linux;
 mod load;
+pub mod mappings;
 pub mod media;
 pub mod meters;
 pub mod midi;
@@ -139,6 +142,12 @@ pub enum Event {
     /// A device action from any source; platforms and tests may inject one directly.
     Action(Action),
     Service(services::ServiceNotice),
+    /// Runner output for the extensions bridge.
+    Extension(extensions::ExtensionInput),
+    /// An Extensions page request (also from tests and developer tools).
+    Extensions(tetrad_ui::ExtensionCommand),
+    /// A Mappings page request from outside the UI (tests, automation).
+    Mappings(tetrad_ui::MappingCommand),
     Shutdown(PowerAction),
 }
 
@@ -299,6 +308,18 @@ pub enum Effect {
     },
     /// Runs through the action reducer ([`actions::reduce`]).
     Action(Action),
+    /// An edit an extension made: [`Self::Action`] without the native-edit event to
+    /// extensions, so an extension never hears its own writes.
+    ExtensionAction(Action),
+    /// A voice message on a channel an extension reserved (`extensions::Extensions::on_midi`).
+    ExtensionMidi(tetrad_midi::MidiMessage),
+    /// A native-channel message the stock MIDI map gives no job (`mappings::Mappings::on_midi`).
+    MappingMidi(tetrad_midi::MidiMessage),
+    /// A Stomp-mode footswitch press, 0..=7, for the preset's mappings
+    /// (`mappings::Mappings::on_stomp`).
+    MappingStomp(u8),
+    /// MIDI output an extension sent, through the controller's transmit path.
+    ExtensionMidiOut(tetrad_midi::MidiMessage),
     /// Input for the UI bridge: screens, knob steps, footswitch edges, the power button.
     UiInput(ui::UiInput),
     /// A settings group changed; the device tells consumers outside `State` (MIDI).
@@ -470,6 +491,7 @@ pub enum Subsystem {
     Services,
     Capture,
     Power,
+    Extensions,
 }
 
 /// A degraded step or an unsupported request, kept for the UI and the log.
@@ -917,6 +939,8 @@ pub struct Bridges {
     pub midi: midi::Midi,
     pub services: services::Services,
     pub capture: capture::Capture,
+    pub extensions: extensions::Extensions,
+    pub mappings: mappings::Mappings,
 }
 
 pub struct Device<P: Platform> {
@@ -995,6 +1019,8 @@ impl<P: Platform> Device<P> {
                 midi: midi::Midi::new(),
                 services: services::Services::new(),
                 capture,
+                extensions: extensions::Extensions::new(),
+                mappings: mappings::Mappings::default(),
             },
             state: State::new(product, hal_platform, settings),
             platform,
@@ -1494,6 +1520,7 @@ impl<P: Platform> Device<P> {
                 Input::MidiByte { byte, at } => Event::Midi { byte, at },
                 Input::Touch(sample) => Event::UiInput(ui::UiInput::Touch(sample)),
                 Input::Service(notice) => Event::Service(notice),
+                Input::Extension(input) => Event::Extension(input),
                 Input::Power(_) if held => return None,
                 Input::Power(action) => Event::Shutdown(action),
             })
@@ -1572,6 +1599,16 @@ impl<P: Platform> Device<P> {
                 effects
             }
             Event::Midi { byte, at } => self.bridges.midi.on_din_byte(byte, at, state)?,
+            Event::Extensions(command) => {
+                self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
+            }
+            Event::Mappings(command) => self.mapping_command(command),
+            Event::Extension(input) => {
+                let native = self.bridges.midi.native_channel();
+                self.extensions(|extensions, backend, state| {
+                    extensions.on_input(input, state, native, backend)
+                })
+            }
             Event::Dsp(core, event) => self.on_dsp(core, event)?,
             Event::Control(report) => {
                 // A File (4) IR import dates its metadata (`0x24dae0`).
@@ -2054,6 +2091,10 @@ impl<P: Platform> Device<P> {
             return Err(DeviceError::Unavailable(refused));
         }
         let effects = match handoff {
+            ui::Handoff::Extensions(command) => {
+                self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
+            }
+            ui::Handoff::Mappings(command) => self.mapping_command(command),
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,
             // r16-capture MR 2: through `nc2_input`, so saves and the meter timer sync run.
             ui::Handoff::Nc2DialogShown => {
@@ -2292,10 +2333,49 @@ impl<P: Platform> Device<P> {
                 instrument,
             } => self.save_preset(Some(name), Some((setlist, Some(slot))), instrument),
             Effect::Action(action) => {
+                let change = extensions::native_change(&action, &self.state);
                 self.bridges.control.record_drop(&action, &self.state);
                 let push = control::action_push(&action);
                 let effects = actions::reduce(action, &mut self.state)
-                    .map(|effects| effects.into_iter().chain(push).collect());
+                    .map(|effects| effects.into_iter().chain(push).collect::<Vec<_>>());
+                let applied = effects.is_ok();
+                self.apply(effects);
+                if let Some(change) = change.filter(|_| applied) {
+                    let effects = self.extensions(|extensions, backend, _| {
+                        extensions.control_changed(change, backend)
+                    });
+                    self.apply(Ok::<_, DeviceError>(effects));
+                }
+                Ok(())
+            }
+            Effect::ExtensionAction(action) => {
+                self.bridges.control.record_drop(&action, &self.state);
+                let push = control::action_push(&action);
+                let effects = actions::reduce(action, &mut self.state)
+                    .map(|effects| effects.into_iter().chain(push).collect::<Vec<_>>());
+                self.apply(effects);
+                Ok(())
+            }
+            Effect::ExtensionMidi(message) => {
+                let effects =
+                    self.extensions(|extensions, backend, _| extensions.on_midi(&message, backend));
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
+            Effect::MappingMidi(message) => {
+                let step = (self.bridges.mappings).on_midi(&message, &self.state, self.clock.now());
+                let effects = self.mapping_step(step);
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
+            Effect::MappingStomp(stomp) => {
+                let effects =
+                    (self.bridges.mappings).on_stomp(stomp, &self.state, self.clock.now());
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
+            Effect::ExtensionMidiOut(message) => {
+                let effects = self.bridges.midi.transmit(&message, &self.state);
                 self.apply(effects);
                 Ok(())
             }
@@ -2306,6 +2386,11 @@ impl<P: Platform> Device<P> {
             Effect::SettingsChanged(SettingsEvent::Midi(_)) => {
                 let effects = self.bridges.midi.settings_changed(&self.state);
                 self.apply(effects);
+                let native = self.bridges.midi.native_channel();
+                let effects = self.extensions(|extensions, backend, _| {
+                    extensions.native_channel_changed(native, backend)
+                });
+                self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }
             // A calibration confirm or a reset: the bridge keeps a copy of the ranges.
@@ -2771,6 +2856,63 @@ impl<P: Platform> Device<P> {
                 self.notice(error.subsystem(), error.to_string());
             })
             .ok()
+    }
+
+    /// Runs one extensions bridge step with the platform's runner backend, then applies its
+    /// reservation change. Without a backend (tests, bring-up) extensions do not run.
+    fn extensions(
+        &mut self,
+        step: impl FnOnce(
+            &mut extensions::Extensions,
+            &mut dyn extensions::ExtensionBackend,
+            &State,
+        ) -> extensions::Outcome,
+    ) -> Vec<Effect> {
+        let Some(backend) = self.platform.extensions() else {
+            return Vec::new();
+        };
+        let extensions = &mut self.bridges.extensions;
+        extensions.view_stale = true;
+        let outcome = step(extensions, backend, &self.state);
+        for key in &outcome.storage_changed {
+            extensions.save_storage(key, backend);
+        }
+        if outcome.reservations_changed {
+            let mask = extensions.reserved_channels();
+            self.bridges.midi.set_reserved_channels(mask);
+        }
+        // Declared triggers can change with any extension step.
+        self.bridges.mappings.view_stale = true;
+        let mut effects = outcome.effects;
+        for fired in &outcome.triggers {
+            let step = (self.bridges.mappings).on_extension(fired, &self.state, self.clock.now());
+            effects.extend(self.mapping_step(step));
+        }
+        effects
+    }
+
+    fn mapping_command(&mut self, command: tetrad_ui::MappingCommand) -> Vec<Effect> {
+        let step = self.bridges.mappings.command(command, &self.state);
+        self.mapping_step(step)
+    }
+
+    /// Saves the global mappings a step changed and hands back its effects.
+    fn mapping_step(&mut self, step: mappings::Step) -> Vec<Effect> {
+        if let Some(bytes) = step.save_global {
+            use tetrad_services::exec::Files;
+            let files = self.platform.services().files();
+            let path = std::path::Path::new(mappings::GLOBAL_FILE);
+            let saved = (path.parent())
+                .map_or(Ok(()), |dir| files.create_dirs(dir))
+                .and_then(|()| files.write_atomic(path, &bytes));
+            if let Err(error) = saved {
+                self.notice(
+                    Subsystem::Extensions,
+                    format!("Mappings not saved: {error}"),
+                );
+            }
+        }
+        step.effects
     }
 
     fn notice(&mut self, subsystem: Subsystem, detail: String) {

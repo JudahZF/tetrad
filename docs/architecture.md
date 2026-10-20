@@ -51,6 +51,8 @@ the stock SHARC DSP firmware that is on the unit.
 | `tetrad-dsp-protocol` | DSP message codecs |
 | `tetrad-control` | Cortex Control link: report framing, payload codecs, the dispatcher |
 | `tetrad-midi` | MIDI receive and transmit, assignments, clock, program changes |
+| `tetrad-extensions` | Extension runner (QuickJS), host protocol, manifests, packages, signed catalogs, the on-device store, the TypeScript SDK |
+| `tetrad-extension-cli` | `tetrad-ext`: scaffold, build, package, sign and stage extensions |
 | `tetrad-services` | Wi-Fi, DHCP, time, internet checks, updater and cloud clients |
 | `tetrad-settings` | Global settings in the stock Qt INI format |
 | `tetrad-watchdog` | Start-up, supervision and power-action rules |

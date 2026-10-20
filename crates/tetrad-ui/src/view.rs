@@ -2006,6 +2006,10 @@ pub struct UiSnapshot {
     pub looper: LooperView,
     pub capture: CaptureView,
     pub wifi: WifiView,
+    /// Extensions pages (`crate::extensions`).
+    pub extensions: crate::ExtensionsView,
+    /// Mappings page (`crate::mappings`).
+    pub mappings: crate::MappingsView,
     pub updater: UpdaterView,
     pub backups: BackupView,
     /// A backup restore owns the user data: the stock loading overlay covers every view and
@@ -2191,6 +2195,8 @@ impl Default for UiSnapshot {
             looper: LooperView::default(),
             capture: CaptureView::default(),
             wifi: WifiView::default(),
+            extensions: crate::ExtensionsView::default(),
+            mappings: crate::MappingsView::default(),
             updater: UpdaterView::default(),
             backups: BackupView::default(),
             restoring: false,

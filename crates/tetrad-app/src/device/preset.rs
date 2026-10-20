@@ -1602,6 +1602,9 @@ pub enum PresetEdit {
         min: f32,
         max: f32,
     },
+    /// Owned (Tetrad): the per-preset mappings as stored JSON
+    /// (`tetrad_preset::model::TETRAD_MAPPINGS_FIELD`), or none.
+    Mappings(Option<Vec<u8>>),
     /// A model update notification on a grid block (`0x514fd8` → `0x2e1e70`, slot `+0xe4`).
     /// Inferred: stored as `model_update_notifications`.
     Notify(Slot),
@@ -1654,6 +1657,9 @@ pub fn apply_edit(
     let preset = &mut current.preset;
     match edit {
         PresetEdit::Tags(tags) => preset.tags = tags,
+        PresetEdit::Mappings(json) => preset
+            .unknown
+            .set_bytes_field(tetrad_preset::model::TETRAD_MAPPINGS_FIELD, json)?,
         PresetEdit::Stomp { slot, assignment } => match assignment {
             Some((stomp, role)) => preset.assign_stomp(stored_slot(slot), stomp, role)?,
             None => drop(preset.unassign_stomp(stored_slot(slot))),

@@ -1,0 +1,9 @@
+{
+  "id": "tetrad.control-macro",
+  "name": "Control Macro",
+  "version": "0.1.0",
+  "description": "Test fixture without MIDI: one command sets the first parameter of the first block to 50%.",
+  "api": 1,
+  "capabilities": ["controlsRead", "controlsEdit"],
+  "commands": [{ "id": "set-first", "label": "Set first block to 50%" }]
+}

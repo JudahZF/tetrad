@@ -5,6 +5,22 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ## Unreleased
 
+### Added
+
+- Mappings (Grid ⋮ → Mappings, replacing Preset MIDI Out): one page for what footswitches,
+  expression pedals, MIDI CCs and notes, preset loads and extensions do. Actions: preset and
+  scene steps, tuner, tap tempo, footswitch modes, Gig View, Looper buttons, block bypass and
+  parameters, and Send MIDI. THIS PRESET mappings are saved in the preset; GLOBAL mappings in
+  `/media/p4/tetrad/mappings.json`. Stomp assignments, expression links and Preset MIDI Out
+  lists show as rows and stay stock data. LEARN takes the next free MIDI message
+  (docs/mappings.md).
+- Extensions (Settings → System → Extensions): TypeScript extensions in a confined runner
+  process, installed from Ed25519-signed GitHub repositories with trust on first use. The
+  default repository is JudahZF/tetrad-extensions. An SDK (`tetrad.d.ts`) and the `tetrad-ext`
+  command build, package, sign and stage extensions (docs/extensions.md).
+- MIDI Mapper 0.2.0, the first extension: reserves a second MIDI channel and offers its CCs,
+  notes and program changes as Mappings triggers.
+
 ### Changed
 
 - README: written for players, with images of the UI. The build, test, corpus and project

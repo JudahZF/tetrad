@@ -31,6 +31,10 @@ const MAX_LICENCE_BYTES: usize = 256 * 1024;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SettingsViews {
     pub wifi: WifiView,
+    /// Extensions pages (`extensions::Extensions::view`).
+    pub extensions: tetrad_ui::ExtensionsView,
+    /// Mappings page (`mappings::Mappings::view`).
+    pub mappings: tetrad_ui::MappingsView,
     /// `Control::cloud_route` is set: the cloud is usable without Wi-Fi (re-r44 §3).
     pub control_online: bool,
     /// Cortex Control's link for the cloud dialog (whatever the cloud route).
@@ -90,6 +94,8 @@ fn cycle_captures(rows: &[DownloadsRow]) -> Vec<CycleCapture> {
 pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
     let current_version = std::mem::take(&mut snapshot.updater.current_version);
     snapshot.wifi = views.wifi.clone();
+    snapshot.extensions = views.extensions.clone();
+    snapshot.mappings = views.mappings.clone();
     snapshot.control_online = views.control_online;
     snapshot.control_link = views.control_link;
     snapshot.updater = UpdaterView {
@@ -276,6 +282,13 @@ impl<P: Platform> Device<P> {
         // read of the stored DOWNLOADS rows lands; else the old rows move over, with no copy
         // or compare (review r29 B3, A3).
         let landed = self.poll_stored_downloads();
+        // The extensions view is built only after a step reached that bridge (each build
+        // cost ~250 µs a pass on the QC); else the old view moves over.
+        let extensions =
+            take(&mut self.bridges.extensions.view_stale).then(|| self.bridges.extensions.view());
+        let declared = &self.bridges.extensions;
+        let mappings =
+            (self.bridges.mappings).view_if_changed(&self.state, || declared.declared_triggers());
         let changes = self.bridges.services.cloud_changes();
         let generation = self.state.views.cloud_changes != Some(changes);
         let rebuilt = (landed || generation).then(|| self.downloads_folders(&self.cloud_views()));
@@ -306,6 +319,8 @@ impl<P: Platform> Device<P> {
         let control = &self.bridges.control;
         let mut views = SettingsViews {
             wifi: services.wifi_view(),
+            extensions: Default::default(),
+            mappings: Default::default(),
             control_online: control.cloud_route().is_some(),
             control_link: match (control.connected(), control.online()) {
                 (_, true) => tetrad_ui::ControlLinkState::Online,
@@ -344,6 +359,20 @@ impl<P: Platform> Device<P> {
             Some((cloud, cycle)) => (Arc::new(cloud), cycle),
             None => (take(&mut old.cloud), take(&mut old.downloads_cycle)),
         };
+        let extensions = match extensions {
+            Some(view) => {
+                changed |= view != old.extensions;
+                view
+            }
+            None => take(&mut old.extensions),
+        };
+        let mappings = match mappings {
+            Some(view) => {
+                changed |= view != old.mappings;
+                view
+            }
+            None => take(&mut old.mappings),
+        };
         // Rows read again are compared; unchanged rows move over with no copy.
         let quarantine = match quarantine {
             Some(rows) => {
@@ -371,11 +400,15 @@ impl<P: Platform> Device<P> {
         old.downloads_cycle.clear();
         old.quarantine.clear();
         old.usb_statistics = None;
+        old.extensions = Default::default();
+        old.mappings = Default::default();
         changed |= views != *old;
         views.cloud = cloud;
         views.downloads_cycle = downloads_cycle;
         views.quarantine = quarantine;
         views.usb_statistics = usb_statistics;
+        views.extensions = extensions;
+        views.mappings = mappings;
         *old = views;
         self.present |= changed;
     }

@@ -1,6 +1,6 @@
 //! Screens, interactive controls, input events and application requests.
 
-use crate::MediaKind;
+use crate::{MappingScope, MediaKind};
 
 use std::fmt;
 
@@ -32,8 +32,11 @@ pub enum Screen {
     Capture,
     /// Full-screen expression pedal assignment for the selected block (shot 068).
     Expression,
-    /// Preset MIDI Out settings (`MidiMatrixDialog`, shot 016) and its message editor.
+    /// Preset MIDI Out settings (`MidiMatrixDialog`, shot 016) and its message editor. Tetrad
+    /// opens only the editor, from a Send MIDI mapping ([`Screen::Mappings`]).
     MidiOut,
+    /// Owned (Tetrad): the Mappings page of the grid ⋮ menu (`crate::mappings`).
+    Mappings,
     /// Boot recovery menu (A + H held at startup, manual §12): "Choose a Recovery option".
     Recovery,
     /// I/O Settings → GLOBAL EQ (shot 009) on one band tab or OUT.
@@ -56,7 +59,8 @@ pub enum MenuAction {
     EditDetails,
     CopyScene,
     SwapScene,
-    PresetMidiOut,
+    /// Owned (Tetrad): opens [`Screen::Mappings`]; replaces Preset MIDI Out in the ⋮ menu.
+    Mappings,
     ToggleFavorite,
     DeletePreset,
     NewNeuralCapture,
@@ -766,6 +770,77 @@ pub enum WifiControl {
     Forget(u16),
 }
 
+/// Controls of the Extensions pages. Indices address the current
+/// [`crate::ExtensionsView`] lists; detail controls act on the extension whose page is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionControl {
+    Refresh,
+    /// REPOSITORIES: the source list.
+    Sources,
+    /// An installed row: its detail page.
+    Open(u16),
+    /// INSTALL of an available row.
+    Install(u16),
+    /// The detail page's enable switch.
+    Enable,
+    Retry,
+    Update,
+    /// REMOVE, after a confirmation.
+    Remove,
+    /// A command button of the open extension.
+    Run(u16),
+    /// A setting row: a toggle flips, a choice opens its list.
+    Setting(u16),
+    /// A number setting stepped by one.
+    Step(u16, i8),
+    /// ADD REPOSITORY: the keyboard for `owner/repo`.
+    AddSource,
+    SourceEnabled(u16),
+    /// REMOVE of a source row, after a confirmation.
+    RemoveSource(u16),
+}
+
+/// Controls of the Mappings page (`screens::mappings`). Indices address the rows of the shown
+/// tab; detail controls act on the row whose detail page is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappingControl {
+    /// THIS PRESET or GLOBAL.
+    Tab(MappingScope),
+    /// +: a new row in the shown tab.
+    Add,
+    /// A list row: its detail page.
+    Open(u16),
+    /// The detail page's trash button.
+    Remove,
+    /// A dropdown of the Trigger panel.
+    Choice(MappingChoice),
+    /// The MIDI number field: the numeric keyboard.
+    Number,
+    /// LEARN, or CANCEL while the row waits for its message.
+    Learn,
+    /// The Action row: the action menu.
+    Actions,
+    /// Row `n` of the open action menu.
+    Pick(u16),
+    /// The value stepper, in 5 % steps.
+    Value(i8),
+    /// Edit messages of a Send MIDI row: the Preset MIDI Out message editor.
+    EditMessages,
+}
+
+/// The dropdowns of the Mappings Trigger panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappingChoice {
+    /// Type: Preset loaded, Footswitch, Expression pedal, MIDI or an extension trigger.
+    Kind,
+    /// Stomp A–H.
+    Stomp,
+    /// EXP 1 or 2.
+    Pedal,
+    /// CC or Note.
+    Midi,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupControl {
     Create,
@@ -867,6 +942,10 @@ pub enum Control {
     CaptureUi(CaptureControl),
     PresetMetadata(PresetMetadataControl),
     Wifi(WifiControl),
+    /// Extensions and Repositories pages (`screens::extensions`).
+    Extension(ExtensionControl),
+    /// The Mappings page (`screens::mappings`).
+    Mapping(MappingControl),
     Updater(UpdaterCommand),
     ShowChangelog,
     Backup(BackupControl),
@@ -1126,6 +1205,10 @@ pub const POSITION_SCALE: u16 = 10_000;
 pub enum UiCommand {
     /// Persisted Directory edit or explicit audition request.
     Directory(DirectoryRequest),
+    /// An Extensions page request (`crate::extensions`).
+    Extension(crate::ExtensionCommand),
+    /// A Mappings page request (`crate::mappings`).
+    Mapping(crate::MappingCommand),
     SelectScene {
         scene: SceneIndex,
     },
@@ -1704,6 +1787,8 @@ impl fmt::Debug for UiCommand {
         }
         use UiCommand as C;
         match self {
+            C::Extension(command) => f.debug_tuple("Extension").field(command).finish(),
+            C::Mapping(command) => f.debug_tuple("Mapping").field(command).finish(),
             C::WifiConnect { ssid, password } => f
                 .debug_struct("WifiConnect")
                 .field("ssid", ssid)

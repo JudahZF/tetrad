@@ -47,7 +47,7 @@ use project::{LibraryView, Local};
 /// Owned: pointer moves present at most every 33 ms (about 30 frames per second).
 const MOVE_FRAME: Duration = Duration::from_millis(33);
 /// Owned on-screen TAP: intervals outside 250..=1500 ms (240..=40 BPM) restart the count.
-const TAP_INTERVAL_MS: std::ops::RangeInclusive<u128> = 250..=1500;
+pub(super) const TAP_INTERVAL_MS: std::ops::RangeInclusive<u128> = 250..=1500;
 /// Owned: a UI, preset, library or settings notice raised within 1 s after a user input
 /// answers that input and shows in the stock MessageDialog. Older notices and those of the
 /// background subsystems (DSP, inputs, Control, …) stay in the log; services and capture
@@ -122,6 +122,10 @@ pub enum Request {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Handoff {
+    /// Extensions page requests → extensions bridge.
+    Extensions(tetrad_ui::ExtensionCommand),
+    /// Mappings page requests → mappings bridge.
+    Mappings(tetrad_ui::MappingCommand),
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -771,6 +775,8 @@ impl Ui {
         let layout = |edit| vec![Request::Action(Action::EditLayout(edit))];
         let slot = project::slot_of;
         match command {
+            C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
+            C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],
@@ -2256,6 +2262,7 @@ fn notice_title(subsystem: Subsystem) -> &'static str {
         Subsystem::Services => "Network",
         Subsystem::Capture => "Neural Capture",
         Subsystem::Power => "Power",
+        Subsystem::Extensions => "Extensions",
     }
 }
 

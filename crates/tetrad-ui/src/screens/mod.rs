@@ -7,11 +7,13 @@ mod directory_glyph;
 mod directory_lists;
 mod eq_editor;
 mod expression;
+pub(crate) mod extensions;
 mod fx_editor;
 mod gig;
 mod global_eq;
 pub(crate) mod grid;
 mod io;
+pub(crate) mod mappings;
 mod media;
 mod media_editor;
 mod midi_out;
@@ -46,7 +48,7 @@ pub(crate) use directory::{Category, CloudGate, Directory};
 use grid::header as main_bar;
 
 pub(crate) use capture::{CaptureEdit, CaptureUi};
-pub(crate) use numeric::NumericEntry;
+pub(crate) use numeric::{NumericEntry, NumericPurpose};
 pub(crate) use support::{default_device_name, licence_file, product_name};
 pub(crate) use tools::{PanelKnob, panel_knob};
 
@@ -82,6 +84,7 @@ pub(crate) fn layout(ui: &UiState) -> Layout {
         Screen::Capture => capture::layout(ui, &mut l),
         Screen::Expression => expression::layout(ui, &mut l),
         Screen::MidiOut => midi_out::layout(ui, &mut l),
+        Screen::Mappings => mappings::layout(ui, &mut l),
         Screen::Recovery => recovery::layout(ui, &mut l),
         Screen::GlobalEq(tab) => global_eq::layout(ui, &mut l, tab),
     }

@@ -1299,7 +1299,7 @@ fn io_settings(
 /// The loaded preset's Preset MIDI Out tables (`ProtoBufPreset::doLoad` rules through
 /// tetrad-midi, legacy field 17 included). Empty and unknown slots are left out; a slot
 /// with an out-of-range channel or value is skipped (tetrad-ui refuses it).
-fn preset_midi(preset: &tetrad_preset::Preset) -> tetrad_ui::PresetMidiView {
+pub(in crate::device) fn preset_midi(preset: &tetrad_preset::Preset) -> tetrad_ui::PresetMidiView {
     use tetrad_midi::{MidiMessageInfo, MidiOutKind, PresetMidiFields, PresetMidiOut};
     use tetrad_ui::{MidiMessageKind, MidiOutMessage};
     let infos = |messages: &[tetrad_preset::MidiMessage]| -> Vec<MidiMessageInfo> {

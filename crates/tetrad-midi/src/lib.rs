@@ -16,7 +16,7 @@ pub use clock::{TempoContext, TempoMode, TempoTracker};
 pub use controller::{MidiController, MidiPort};
 pub use dispatch::{
     BlockMidi, ExpressionPedal, JackMidiMode, LooperButton, LooperControl, MidiAction,
-    SetlistSelect,
+    SetlistSelect, is_stock_controller,
 };
 pub use message::{Channel, MidiMessage, Realtime, U7};
 pub use output::{DspCommand, MidiOutput, SettingReport};

@@ -61,6 +61,8 @@ pub struct MidiController {
     tempo: TempoContext,
     preset_ready: bool,
     receive_enabled: bool,
+    /// Bit `n`: channel index `n` is reserved by an extension.
+    reserved: u16,
 }
 
 impl MidiController {
@@ -76,6 +78,7 @@ impl MidiController {
             tempo: TempoContext::default(),
             preset_ready: false,
             receive_enabled: true,
+            reserved: 0,
         }
     }
 
@@ -124,6 +127,17 @@ impl MidiController {
             self.parser = MidiParser::default();
         }
         self.receive_enabled = enabled;
+    }
+
+    /// Channels (bit `n` = channel index `n`) whose voice messages go to extensions as
+    /// [`MidiOutput::Reserved`] instead of native dispatch. Realtime and system messages are
+    /// never reserved.
+    pub fn set_reserved_channels(&mut self, channels: u16) {
+        self.reserved = channels;
+    }
+
+    pub fn reserved_channels(&self) -> u16 {
+        self.reserved
     }
 
     /// The application refused the last `LoadPreset` (null or auditioned setlist).
@@ -256,6 +270,14 @@ impl MidiController {
         if !self.receive_enabled {
             return;
         }
+        // Owned: an extension's reserved channel is consumed here, after admission and before
+        // the native channel filter, so OMNI or a matching native channel never acts on it.
+        if let Some(channel) = message.channel()
+            && self.reserved & (1 << channel.index()) != 0
+        {
+            out.push(MidiOutput::Reserved(message));
+            return;
+        }
         let action = |out: &mut Vec<MidiOutput>, action| out.push(MidiOutput::Action(action));
         match message {
             MidiMessage::ControlChange {
@@ -294,6 +316,9 @@ impl MidiController {
                 ) {
                     action(out, next);
                 }
+                if !crate::dispatch::is_stock_controller(controller.get()) {
+                    out.push(MidiOutput::Unclaimed(message));
+                }
             }
             MidiMessage::ProgramChange { channel, program } => {
                 if !self.settings.channel.accepts(channel) {
@@ -319,6 +344,9 @@ impl MidiController {
                 velocity,
             } => {
                 let on = matches!(message, MidiMessage::NoteOn { .. });
+                if on && velocity.get() > 0 && self.settings.channel.accepts(channel) {
+                    out.push(MidiOutput::Unclaimed(message));
+                }
                 action(
                     out,
                     MidiAction::Block(BlockMidi::Note {
@@ -605,6 +633,57 @@ mod tests {
                 &MidiAction::SelectScene(2)
             ]
         );
+    }
+
+    /// A reserved channel's voice messages reach only the extension, even under OMNI and for
+    /// the native expression, bank and note paths; clock stays native.
+    #[test]
+    fn reserved_channel_bypasses_native_dispatch() {
+        let mut midi = controller();
+        midi.set_channel(ChannelSetting::Omni);
+        midi.set_reserved_channels(1 << 1);
+        let t = Duration::ZERO;
+        let out = midi.receive_din(&[0xb1, 1, 127, 0xb1, 0, 3, 0x91, 60, 100, 0xc1, 4], t);
+        assert!(actions(&out).is_empty(), "{out:?}");
+        assert_eq!(
+            out.iter()
+                .filter(|o| matches!(o, MidiOutput::Reserved(_)))
+                .count(),
+            4
+        );
+        let other = midi.receive_din(&[0xb0, 1, 127], t);
+        assert_eq!(actions(&other).len(), 1);
+        let realtime = midi.receive_din(&[0xfa, 0xf8, 0xfc], t);
+        assert!(
+            !realtime
+                .iter()
+                .any(|o| matches!(o, MidiOutput::Reserved(_)))
+        );
+    }
+
+    /// Owned mappings get the native channel's free CCs and note-ons; the stock map keeps its
+    /// own CCs, and other channels give nothing.
+    #[test]
+    fn free_messages_are_unclaimed() {
+        let mut midi = controller();
+        midi.set_channel(ChannelSetting::Channel(
+            crate::Channel::from_number(1).unwrap(),
+        ));
+        let unclaimed = |out: &[MidiOutput]| {
+            out.iter()
+                .filter_map(|o| match o {
+                    MidiOutput::Unclaimed(message) => Some(message.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let t = Duration::ZERO;
+        let free = midi.receive_din(&[0xb0, 20, 64, 0x90, 60, 100, 0x80, 60, 0], t);
+        assert_eq!(unclaimed(&free).len(), 2, "{free:?}");
+        let stock = midi.receive_din(&[0xb0, 43, 1], t);
+        assert!(unclaimed(&stock).is_empty());
+        assert_eq!(actions(&stock), [&MidiAction::SelectScene(1)]);
+        assert!(unclaimed(&midi.receive_din(&[0xb5, 20, 64], t)).is_empty());
     }
 
     /// First CC#44 applies the boot value 40; the next uses 60000 / Δms.

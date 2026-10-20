@@ -85,6 +85,13 @@ attaches `tetrad`, `tetrad.sha256`, the release archive `tetrad-<tag>-armv7.tar.
 update guides in `docs/`, the README images in `docs/images/`, `README.md`, `CHANGELOG.md` and
 `LICENSE`.
 
+### Extensions
+
+The host tests need no Node.js: they use the packaged extensions in
+`extensions/repository/packages/`. To change an extension's TypeScript, install Node.js and npm,
+then use `tetrad-ext build`; [extensions.md](extensions.md#write-an-extension) has the steps, and
+`extensions/repository/README.md` the release steps of the default repository.
+
 ## README images
 
 The images in `docs/images/` come from the owned UI with synthetic data. No stock file is used.

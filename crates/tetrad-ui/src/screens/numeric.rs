@@ -1,7 +1,8 @@
 //! Numeric value entry (manual "PARAMETER EDITOR LAYOUT": tap the numeric display):
 //! `ParameterValueDialog` (`0x64b518`) with `KeyboardNumeric` (`0x2d7f1c`). A full page with
 //! ✕ and ✓, the typed value, the range line and the 4 × 3 keypad. ✓ stays disabled while the
-//! text is not a number inside the range (`0x64b774`); the dialog never clamps.
+//! text is not a number inside the range (`0x64b774`); the dialog never clamps. Tetrad also
+//! types the MIDI number of a mapping trigger with it.
 
 use tetrad_assets::{ACCENT, BACKGROUND, FAINT, Icon, PANEL, SURFACE, TEXT};
 
@@ -9,11 +10,26 @@ use crate::layout::{CAPTION, Layout, Look, XLARGE_BOLD};
 use crate::render::{Align, HEIGHT, WIDTH};
 use crate::*;
 
-/// The open numeric keyboard of one parameter.
+/// What ✓ of the numeric keyboard sets.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum NumericPurpose {
+    /// A parameter value ([`UiCommand::EnterParameter`]).
+    Parameter {
+        target: ParameterTarget,
+        parameter: u16,
+    },
+    /// Owned (Tetrad): the CC or note number of a MIDI mapping trigger.
+    MappingMidi {
+        scope: MappingScope,
+        id: MappingId,
+        note: bool,
+    },
+}
+
+/// The open numeric keyboard of one value.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct NumericEntry {
-    pub target: ParameterTarget,
-    pub parameter: u16,
+    pub purpose: NumericPurpose,
     pub range: NumericRange,
     pub text: String,
     /// The start text is selected: the first key replaces it (I).
@@ -22,15 +38,14 @@ pub(crate) struct NumericEntry {
 
 impl NumericEntry {
     /// Start text `0x64b2e0`: two decimals, or the rounded integer.
-    pub fn new(target: ParameterTarget, parameter: u16, range: NumericRange) -> Self {
+    pub fn new(purpose: NumericPurpose, range: NumericRange) -> Self {
         let text = if range.integer {
             format!("{}", range.value.round() as i64)
         } else {
             format!("{:.2}", range.value)
         };
         Self {
-            target,
-            parameter,
+            purpose,
             range,
             text,
             fresh: true,
@@ -72,7 +87,7 @@ impl NumericEntry {
         }
     }
 
-    /// Applies a key; returns the parameter request for ✓.
+    /// Applies a key; returns the request of ✓.
     pub fn press(&mut self, key: NumericKey) -> Option<UiCommand> {
         if !self.enabled(key) {
             return None;
@@ -80,10 +95,25 @@ impl NumericEntry {
         let fresh = std::mem::take(&mut self.fresh);
         match key {
             NumericKey::Done => {
-                return Some(UiCommand::EnterParameter {
-                    target: self.target,
-                    parameter: self.parameter,
-                    text: self.text.clone(),
+                return Some(match &self.purpose {
+                    NumericPurpose::Parameter { target, parameter } => UiCommand::EnterParameter {
+                        target: *target,
+                        parameter: *parameter,
+                        text: self.text.clone(),
+                    },
+                    // ✓ is enabled only inside 0..=127.
+                    NumericPurpose::MappingMidi { scope, id, note } => {
+                        let number = self.value()? as u8;
+                        let input = match note {
+                            true => MidiInput::Note(number),
+                            false => MidiInput::Cc(number),
+                        };
+                        UiCommand::Mapping(MappingCommand::SetTrigger {
+                            scope: *scope,
+                            id: id.clone(),
+                            trigger: Trigger::Midi(input),
+                        })
+                    }
                 });
             }
             NumericKey::Cancel => {}

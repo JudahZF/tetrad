@@ -1116,6 +1116,9 @@ impl Workers {
     }
 }
 
+/// The extensions worker's curl body scratch, apart from the services worker's.
+const EXTENSION_HTTP_SCRATCH: &str = "/tmp/tetrad-extension-http";
+
 pub struct LinuxServices {
     runner: SystemRunner,
     files: SystemFiles,
@@ -1248,6 +1251,9 @@ pub struct LinuxPlatform {
     /// `poll_input` opens and attaches the supplicant monitor (off for bring-up without
     /// `--services`).
     supplicant_monitor: bool,
+    /// Extension runner processes (`tetrad extension-runner`); `None` until
+    /// [`Self::enable_extensions`].
+    extensions: Option<crate::device::extensions::LocalBackend>,
 }
 
 impl LinuxPlatform {
@@ -1255,6 +1261,25 @@ impl LinuxPlatform {
     /// no `ATTACH` is sent and no Wi-Fi event reaches the device.
     pub fn skip_supplicant_monitor(&mut self) {
         self.supplicant_monitor = false;
+    }
+
+    /// Runs extensions as child processes of this binary. Only the `run` program does this;
+    /// bring-up never starts extension code.
+    pub fn enable_extensions(&mut self) -> Result<(), LinuxError> {
+        let program = std::env::current_exe()?;
+        let root = self
+            .root
+            .path("/media/p4")
+            .join(crate::device::extension_jobs::STORE_DIR);
+        let fetch = crate::device::extension_jobs::HttpFetch(CurlHttp {
+            runner: SystemRunner::default(),
+            files: SystemFiles,
+            scratch: PathBuf::from(EXTENSION_HTTP_SCRATCH),
+        });
+        self.extensions = Some(
+            crate::device::extensions::LocalBackend::processes(program).with_worker(root, fetch),
+        );
+        Ok(())
     }
 
     /// Explicit hardware opt-in. Sets the comm name `ZenUI`, then opens the HAL, MIDI UART,
@@ -1303,6 +1328,7 @@ impl LinuxPlatform {
             framebuffer,
             clock_out: None,
             supplicant_monitor: true,
+            extensions: None,
         };
         for detail in failures {
             platform.note(detail);
@@ -1433,6 +1459,9 @@ impl Platform for LinuxPlatform {
             first.get_or_insert(error);
         }
         self.services.workers.drain(out);
+        if let Some(extensions) = &mut self.extensions {
+            extensions.drain(out);
+        }
         if self.supplicant_monitor {
             self.services.supplicant.poll_events();
         }
@@ -1516,6 +1545,12 @@ impl Platform for LinuxPlatform {
     fn disk_space(&mut self) -> Option<tetrad_sys::fs::FsSpace> {
         tetrad_sys::fs::statvfs(&self.root.path("/media/p4")).ok()
     }
+    fn extensions(&mut self) -> Option<&mut dyn crate::device::extensions::ExtensionBackend> {
+        self.extensions
+            .as_mut()
+            .map(|backend| backend as &mut dyn crate::device::extensions::ExtensionBackend)
+    }
+
     fn forget_display(&mut self) {
         if let Some(framebuffer) = &mut self.framebuffer {
             framebuffer.forget_shown();

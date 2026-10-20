@@ -1,0 +1,34 @@
+{
+  "id": "tetrad.midi-mapper",
+  "name": "MIDI Mapper",
+  "version": "0.2.0",
+  "description": "Sends MIDI CCs, notes and program changes on one channel to Mappings as triggers. Choose what each one does on the Mappings page.",
+  "api": 1,
+  "capabilities": ["midiReceive", "triggers"],
+  "settings": [
+    {
+      "key": "channel",
+      "label": "MIDI channel",
+      "kind": "choice",
+      "default": 1,
+      "options": [
+        { "value": 1, "label": "Channel 1" },
+        { "value": 2, "label": "Channel 2" },
+        { "value": 3, "label": "Channel 3" },
+        { "value": 4, "label": "Channel 4" },
+        { "value": 5, "label": "Channel 5" },
+        { "value": 6, "label": "Channel 6" },
+        { "value": 7, "label": "Channel 7" },
+        { "value": 8, "label": "Channel 8" },
+        { "value": 9, "label": "Channel 9" },
+        { "value": 10, "label": "Channel 10" },
+        { "value": 11, "label": "Channel 11" },
+        { "value": 12, "label": "Channel 12" },
+        { "value": 13, "label": "Channel 13" },
+        { "value": 14, "label": "Channel 14" },
+        { "value": 15, "label": "Channel 15" },
+        { "value": 16, "label": "Channel 16" }
+      ]
+    }
+  ]
+}

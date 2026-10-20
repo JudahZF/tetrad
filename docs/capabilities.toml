@@ -84,6 +84,18 @@ tested = "host"
 gaps = "The release scripts and the zen-rs move are tested on a fake unit only."
 
 [[capability]]
+id = "mappings"
+what = "One Mappings page for footswitch, pedal, MIDI, preset-load and extension triggers to system, block and Send MIDI actions, per preset and global."
+tested = "unit"
+gaps = "USB MIDI only on the unit (no DIN). No load-a-chosen-preset or set-tempo action."
+
+[[capability]]
+id = "extensions"
+what = "TypeScript extensions in a confined runner process, installed from Ed25519-signed GitHub repositories; MIDI Mapper offers a second MIDI channel to Mappings."
+tested = "unit"
+gaps = "Install from the published default repository not yet tested on the unit (staged store only)."
+
+[[capability]]
 id = "owned_dsp_blocks"
 what = "Five SHARC blocks with no stock code (Volume, Gain, Low-High Cut, Simple Gate, Graphic-9), experimental."
 tested = "unit"

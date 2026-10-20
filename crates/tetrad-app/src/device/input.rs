@@ -665,6 +665,7 @@ impl Input {
             }
             FootswitchAction::StompPress(stomp) => {
                 let mut effects = act(Action::ToggleStomp(stomp));
+                effects.push(Effect::MappingStomp(stomp.get()));
                 // Driver hooks `+0x40`/`+0x44` of the stomp's blocks (`0x5239d0`, `0x523f80`).
                 effects.push(Effect::Dsp(DspCommand::Footswitch {
                     stomp,

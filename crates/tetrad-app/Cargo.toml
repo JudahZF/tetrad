@@ -37,6 +37,7 @@ tetrad-midi.workspace = true
 tetrad-capture.workspace = true
 tetrad-media.workspace = true
 tetrad-firmware.workspace = true
+tetrad-extensions.workspace = true
 # Cortex Control compression (device/control.rs); its cipher comes from qc-format.
 flate2.workspace = true
 # Device Information Zenwireless row (`md5sum` of the WILC3000 firmware, device/info.rs).
@@ -48,6 +49,9 @@ zeroize.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
+# Signs a test extension repository catalog (tests/device_extensions.rs).
+base64.workspace = true
+ed25519-dalek.workspace = true
 # Builds a synthetic zenui.db for the device boot test; tetrad-storage already links it.
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
 

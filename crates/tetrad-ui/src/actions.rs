@@ -158,6 +158,8 @@ impl UiState {
             Control::CaptureUi(control) => return self.capture_control(control),
             Control::PresetMetadata(control) => return self.preset_metadata(control),
             Control::Wifi(WifiControl::Scan) => return vec![UiCommand::WifiScan],
+            Control::Extension(control) => return self.extension_control(control),
+            Control::Mapping(control) => return self.mapping_control(control),
             Control::Wifi(WifiControl::DomainSettings) => {
                 self.wifi_domains = true;
                 return Vec::new();
@@ -569,6 +571,7 @@ impl UiState {
                 self.reset_scroll(ListId::SettingsPage);
                 self.support = SupportView::List;
                 self.wifi_domains = false;
+                self.extensions = crate::state::ExtensionsPage::List;
                 return self.navigate(Screen::Settings(page));
             }
             SettingControl::IoTab(tab) => {
@@ -653,6 +656,8 @@ impl UiState {
                 }
             }
             ChoicePurpose::FilterType(parameter) => self.choose_filter_type(parameter, index),
+            ChoicePurpose::Extension(setting) => self.choose_extension_setting(setting, index),
+            ChoicePurpose::Mapping(choice) => self.choose_mapping(choice, index),
             ChoicePurpose::SettingsGroup => match SettingsGroup::ALL.get(index) {
                 Some(group) => {
                     self.reset_scroll(ListId::SettingsMenu);
@@ -863,6 +868,15 @@ impl UiState {
                 _ => self.inhibit_status = None,
             }
             return Vec::new();
+        }
+        if let Overlay::ExtensionTrust(shown) = overlay {
+            return self.answer_trust(shown, button == DialogButton::Primary);
+        }
+        if let Overlay::ExtensionConfirm(confirm) = overlay {
+            return match button {
+                DialogButton::Primary => crate::screens::extensions::confirmed(confirm),
+                _ => Vec::new(),
+            };
         }
         let Overlay::Confirm(confirm) = overlay else {
             return Vec::new();
@@ -1120,9 +1134,10 @@ impl UiState {
             (_, MenuAction::ModesConfiguration) => self.overlay = Some(Overlay::Modes),
             (_, MenuAction::CpuMonitor) => self.show_cpu = !self.show_cpu,
             (_, MenuAction::Looper) => return self.navigate(Screen::Looper),
-            (_, MenuAction::PresetMidiOut) => {
-                self.midi_edit = None;
-                return self.navigate(Screen::MidiOut);
+            (_, MenuAction::Mappings) => {
+                self.mappings.detail = None;
+                self.reset_scroll(ListId::Mappings);
+                return self.navigate(Screen::Mappings);
             }
             (_, MenuAction::Settings) => {
                 return self.navigate(Screen::Settings(SettingsPage::MyAccount));
@@ -1350,6 +1365,11 @@ impl UiState {
             }],
             TextTarget::BackupName(None) => vec![UiCommand::CreateBackup { name: text }],
             TextTarget::BackupName(Some(id)) => vec![UiCommand::RenameBackup { id, name: text }],
+            TextTarget::ExtensionSource => {
+                vec![UiCommand::Extension(crate::ExtensionCommand::AddSource {
+                    repository: text,
+                })]
+            }
             TextTarget::LoginPassword(email) => vec![UiCommand::CloudLogin {
                 email,
                 password: text,
@@ -1413,7 +1433,11 @@ impl UiState {
         {
             let index = parameter.index;
             self.focus = Some(knob);
-            self.numeric = Some(crate::screens::NumericEntry::new(target, index, range));
+            let purpose = crate::screens::NumericPurpose::Parameter {
+                target,
+                parameter: index,
+            };
+            self.numeric = Some(crate::screens::NumericEntry::new(purpose, range));
         }
     }
 }
