@@ -66,15 +66,23 @@ impl Fetch for Web {
     }
 }
 
-/// A signed repository at `SOURCE` with one release of `test.mapper`.
+/// A signed repository at `SOURCE` with one release of `test.mapper` ([`MODULE`]).
 fn repository() -> Web {
+    repository_with(
+        MODULE,
+        &["midiReceive", "controlsRead", "controlsEdit", "storage"],
+    )
+}
+
+/// [`repository`] with another module and capabilities.
+fn repository_with(module: &str, capabilities: &[&str]) -> Web {
     let manifest = json!({
         "id": "test.mapper",
         "name": "Test Mapper",
         "version": "1.0.0",
         "description": "Maps CC to gain.",
         "api": 1,
-        "capabilities": ["midiReceive", "controlsRead", "controlsEdit", "storage"],
+        "capabilities": capabilities,
         "settings": [{
             "key": "channel",
             "label": "MIDI channel",
@@ -85,7 +93,7 @@ fn repository() -> Web {
     });
     let package = Package {
         manifest: serde_json::from_value(manifest).unwrap(),
-        module: MODULE.into(),
+        module: module.into(),
     }
     .encode()
     .unwrap();
@@ -444,4 +452,55 @@ fn midi_on_a_reserved_channel_fires_the_declared_trigger() {
             continuous: true,
         }]
     );
+}
+
+/// The whole chain on the device: MIDI on the extension's channel fires its trigger, LEARN puts
+/// the firing on a preset mapping, and the next firing edits the block.
+#[test]
+fn an_extension_trigger_runs_a_mapping() {
+    use tetrad_ui::{BlockTarget, GridPosition, MappingAction, MappingCommand, MappingScope};
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _media) = boot(
+        media,
+        repository_with(TRIGGERS, &["midiReceive", "triggers"]),
+    );
+    install(&mut device);
+    let scope = MappingScope::Preset;
+    let focus = |d: &Device<Sim>| d.state().views.mappings.focus.clone();
+    device.push(Event::Mappings(MappingCommand::Add(scope)));
+    pump(&mut device, "the new mapping", |d| focus(d).is_some());
+    let (_, id) = focus(&device).unwrap();
+    device.push(Event::Mappings(MappingCommand::Learn {
+        scope,
+        id,
+        on: true,
+    }));
+    pump(&mut device, "LEARN", |d| {
+        d.state().views.mappings.learning.is_some()
+    });
+    midi(&device, &[0xb2, 20, 127]);
+    pump(&mut device, "the learned trigger", |d| {
+        d.state()
+            .views
+            .mappings
+            .preset
+            .iter()
+            .any(|row| row.trigger_label == "CC 20")
+    });
+    let row = (device.state().views.mappings.preset.iter())
+        .find(|row| row.trigger_label == "CC 20")
+        .cloned()
+        .unwrap();
+    assert_eq!(row.trigger_detail, "Test Mapper · Ch 3");
+    let action = MappingAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Parameter(0),
+    };
+    device.push(Event::Mappings(MappingCommand::SetAction {
+        scope,
+        id: row.id,
+        action,
+    }));
+    midi(&device, &[0xb2, 20, 0]);
+    pump(&mut device, "the mapped edit", |d| gain(d) == 0.0);
 }
