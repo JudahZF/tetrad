@@ -146,6 +146,8 @@ pub enum Event {
     Extension(extensions::ExtensionInput),
     /// An Extensions page request (also from tests and developer tools).
     Extensions(tetrad_ui::ExtensionCommand),
+    /// A Mappings page request from outside the UI (tests, automation).
+    Mappings(tetrad_ui::MappingCommand),
     Shutdown(PowerAction),
 }
 
@@ -311,6 +313,11 @@ pub enum Effect {
     ExtensionAction(Action),
     /// A voice message on a channel an extension reserved (`extensions::Extensions::on_midi`).
     ExtensionMidi(tetrad_midi::MidiMessage),
+    /// A native-channel message the stock MIDI map gives no job (`mappings::Mappings::on_midi`).
+    MappingMidi(tetrad_midi::MidiMessage),
+    /// A Stomp-mode footswitch press, 0..=7, for the preset's mappings
+    /// (`mappings::Mappings::on_stomp`).
+    MappingStomp(u8),
     /// MIDI output an extension sent, through the controller's transmit path.
     ExtensionMidiOut(tetrad_midi::MidiMessage),
     /// Input for the UI bridge: screens, knob steps, footswitch edges, the power button.
@@ -933,6 +940,7 @@ pub struct Bridges {
     pub services: services::Services,
     pub capture: capture::Capture,
     pub extensions: extensions::Extensions,
+    pub mappings: mappings::Mappings,
 }
 
 pub struct Device<P: Platform> {
@@ -1012,6 +1020,7 @@ impl<P: Platform> Device<P> {
                 services: services::Services::new(),
                 capture,
                 extensions: extensions::Extensions::new(),
+                mappings: mappings::Mappings::default(),
             },
             state: State::new(product, hal_platform, settings),
             platform,
@@ -1593,6 +1602,7 @@ impl<P: Platform> Device<P> {
             Event::Extensions(command) => {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
+            Event::Mappings(command) => self.mapping_command(command),
             Event::Extension(input) => {
                 let native = self.bridges.midi.native_channel();
                 self.extensions(|extensions, backend, state| {
@@ -2352,6 +2362,18 @@ impl<P: Platform> Device<P> {
                 self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }
+            Effect::MappingMidi(message) => {
+                let step = (self.bridges.mappings).on_midi(&message, &self.state, self.clock.now());
+                let effects = self.mapping_step(step);
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
+            Effect::MappingStomp(stomp) => {
+                let effects =
+                    (self.bridges.mappings).on_stomp(stomp, &self.state, self.clock.now());
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
             Effect::ExtensionMidiOut(message) => {
                 let effects = self.bridges.midi.transmit(&message, &self.state);
                 self.apply(effects);
@@ -2854,12 +2876,38 @@ impl<P: Platform> Device<P> {
             let mask = extensions.reserved_channels();
             self.bridges.midi.set_reserved_channels(mask);
         }
-        outcome.effects
+        // Declared triggers can change with any extension step.
+        self.bridges.mappings.view_stale = true;
+        let mut effects = outcome.effects;
+        for fired in &outcome.triggers {
+            let step = (self.bridges.mappings).on_extension(fired, &self.state, self.clock.now());
+            effects.extend(self.mapping_step(step));
+        }
+        effects
     }
 
     fn mapping_command(&mut self, command: tetrad_ui::MappingCommand) -> Vec<Effect> {
-        let _ = command;
-        Vec::new()
+        let step = self.bridges.mappings.command(command, &self.state);
+        self.mapping_step(step)
+    }
+
+    /// Saves the global mappings a step changed and hands back its effects.
+    fn mapping_step(&mut self, step: mappings::Step) -> Vec<Effect> {
+        if let Some(bytes) = step.save_global {
+            use tetrad_services::exec::Files;
+            let files = self.platform.services().files();
+            let path = std::path::Path::new(mappings::GLOBAL_FILE);
+            let saved = (path.parent())
+                .map_or(Ok(()), |dir| files.create_dirs(dir))
+                .and_then(|()| files.write_atomic(path, &bytes));
+            if let Err(error) = saved {
+                self.notice(
+                    Subsystem::Extensions,
+                    format!("Mappings not saved: {error}"),
+                );
+            }
+        }
+        step.effects
     }
 
     fn notice(&mut self, subsystem: Subsystem, detail: String) {

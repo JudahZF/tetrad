@@ -252,6 +252,14 @@ impl DispatchState {
     }
 }
 
+/// The controllers the stock MIDI map uses on the native channel: bank and setlist select,
+/// expression, stomps, scenes, tempo, tuner, Gig View, modes, Looper X, the ignore-duplicate-PC
+/// switch, the mini's footswitch page and the block all-notes-off pair. Owned mappings use only
+/// the others.
+pub fn is_stock_controller(controller: u8) -> bool {
+    matches!(controller, 0..=2 | 32 | 35..=62 | 64 | 120 | 123)
+}
+
 fn looper_parameter(index: u32, value: f32) -> MidiAction {
     MidiAction::Looper(LooperControl::Parameter { index, value })
 }

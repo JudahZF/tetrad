@@ -316,6 +316,9 @@ impl MidiController {
                 ) {
                     action(out, next);
                 }
+                if !crate::dispatch::is_stock_controller(controller.get()) {
+                    out.push(MidiOutput::Unclaimed(message));
+                }
             }
             MidiMessage::ProgramChange { channel, program } => {
                 if !self.settings.channel.accepts(channel) {
@@ -341,6 +344,9 @@ impl MidiController {
                 velocity,
             } => {
                 let on = matches!(message, MidiMessage::NoteOn { .. });
+                if on && velocity.get() > 0 && self.settings.channel.accepts(channel) {
+                    out.push(MidiOutput::Unclaimed(message));
+                }
                 action(
                     out,
                     MidiAction::Block(BlockMidi::Note {
@@ -653,6 +659,31 @@ mod tests {
                 .iter()
                 .any(|o| matches!(o, MidiOutput::Reserved(_)))
         );
+    }
+
+    /// Owned mappings get the native channel's free CCs and note-ons; the stock map keeps its
+    /// own CCs, and other channels give nothing.
+    #[test]
+    fn free_messages_are_unclaimed() {
+        let mut midi = controller();
+        midi.set_channel(ChannelSetting::Channel(
+            crate::Channel::from_number(1).unwrap(),
+        ));
+        let unclaimed = |out: &[MidiOutput]| {
+            out.iter()
+                .filter_map(|o| match o {
+                    MidiOutput::Unclaimed(message) => Some(message.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let t = Duration::ZERO;
+        let free = midi.receive_din(&[0xb0, 20, 64, 0x90, 60, 100, 0x80, 60, 0], t);
+        assert_eq!(unclaimed(&free).len(), 2, "{free:?}");
+        let stock = midi.receive_din(&[0xb0, 43, 1], t);
+        assert!(unclaimed(&stock).is_empty());
+        assert_eq!(actions(&stock), [&MidiAction::SelectScene(1)]);
+        assert!(unclaimed(&midi.receive_din(&[0xb5, 20, 64], t)).is_empty());
     }
 
     /// First CC#44 applies the boot value 40; the next uses 60000 / Δms.

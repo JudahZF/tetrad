@@ -47,7 +47,7 @@ use project::{LibraryView, Local};
 /// Owned: pointer moves present at most every 33 ms (about 30 frames per second).
 const MOVE_FRAME: Duration = Duration::from_millis(33);
 /// Owned on-screen TAP: intervals outside 250..=1500 ms (240..=40 BPM) restart the count.
-const TAP_INTERVAL_MS: std::ops::RangeInclusive<u128> = 250..=1500;
+pub(super) const TAP_INTERVAL_MS: std::ops::RangeInclusive<u128> = 250..=1500;
 /// Owned: a UI, preset, library or settings notice raised within 1 s after a user input
 /// answers that input and shows in the stock MessageDialog. Older notices and those of the
 /// background subsystems (DSP, inputs, Control, …) stay in the log; services and capture

@@ -400,6 +400,7 @@ fn route(outputs: Vec<MidiOutput>, state: &State) -> Routed {
                 .push(Effect::Dsp(DspCommand::Control(control_request(command)))),
             MidiOutput::Action(action) => route_action(action, state, &mut routed),
             MidiOutput::Reserved(message) => routed.effects.push(Effect::ExtensionMidi(message)),
+            MidiOutput::Unclaimed(message) => routed.effects.push(Effect::MappingMidi(message)),
         }
     }
     routed

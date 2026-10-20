@@ -892,6 +892,26 @@ impl<P: Platform> Device<P> {
             outcome
         });
         self.apply(Ok::<_, super::DeviceError>(extensions));
+        if !self.bridges.mappings.loaded {
+            use super::platform::ServiceBackends;
+            use tetrad_services::exec::Files;
+            let path = std::path::Path::new(super::mappings::GLOBAL_FILE);
+            let stored = self
+                .platform
+                .services()
+                .files()
+                .read_bounded(path, 256 * 1024);
+            let problem = match stored {
+                Ok(bytes) => self.bridges.mappings.load_global(bytes.as_deref()),
+                Err(error) => Some(error.to_string()),
+            };
+            if let Some(problem) = problem {
+                self.notice(Subsystem::Extensions, format!("Global mappings: {problem}"));
+            }
+        }
+        let now = tetrad_dsp_host::session::Clock::now(&self.clock);
+        let mappings = (self.bridges.mappings).on_preset_loaded(&self.state, now);
+        self.apply(Ok::<_, super::DeviceError>(mappings));
     }
 }
 

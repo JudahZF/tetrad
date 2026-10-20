@@ -847,3 +847,26 @@ fn routing_summary_allocations_follow_field_budgets_not_coordinate_values() {
     assert_eq!(summary.chains[0].mix_bypass.len(), 1);
     assert_eq!(summary.scene_count, 1);
 }
+
+/// Tetrad's per-preset mappings live in one unknown field: they survive a decode and save
+/// with the other unknown fields untouched, and clearing them removes only that field.
+#[test]
+fn tetrad_mappings_field_round_trips() {
+    use tetrad_preset::model::{Preset, TETRAD_MAPPINGS_FIELD};
+    let other = bytes(6001, b"keep");
+    let mut preset = Preset::decode(&other, Limits::default()).unwrap();
+    assert_eq!(preset.unknown.bytes_field(TETRAD_MAPPINGS_FIELD), None);
+    let json = br#"{"version":1,"mappings":[]}"#.to_vec();
+    preset
+        .unknown
+        .set_bytes_field(TETRAD_MAPPINGS_FIELD, Some(json.clone()))
+        .unwrap();
+    let mut saved = Preset::decode(&preset.to_bytes(), Limits::default()).unwrap();
+    assert_eq!(saved.unknown.bytes_field(TETRAD_MAPPINGS_FIELD), Some(json));
+    assert_eq!(saved.unknown.bytes_field(6001), Some(b"keep".to_vec()));
+    saved
+        .unknown
+        .set_bytes_field(TETRAD_MAPPINGS_FIELD, None)
+        .unwrap();
+    assert_eq!(saved.to_bytes(), other);
+}

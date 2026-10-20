@@ -37,7 +37,40 @@ impl Unknown {
         self.0.extend_from_slice(&field.tag);
         field.value.write(&mut self.0);
     }
+
+    /// The payload of the last length-delimited field `number`, as a protobuf reader keeps the
+    /// last occurrence.
+    pub fn bytes_field(&self, number: u32) -> Option<Vec<u8>> {
+        let message = wire::parse(&self.0, Limits::default()).ok()?;
+        let field = message.fields.iter().rev().find(|f| f.number == number)?;
+        match &field.value {
+            Value::Bytes { data, .. } => Some(data.clone()),
+            Value::Message { body, .. } => {
+                let mut out = Vec::new();
+                body.write(&mut out);
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+
+    /// Replaces every field `number` with one bytes field at the end, or removes it. The other
+    /// unknown fields keep their bytes and order.
+    pub fn set_bytes_field(&mut self, number: u32, bytes: Option<Vec<u8>>) -> Result<()> {
+        let mut message = wire::parse(&self.0, Limits::default())?;
+        message.fields.retain(|f| f.number != number);
+        message
+            .fields
+            .extend(bytes.map(|bytes| wire::bytes_field(number, bytes)));
+        self.0.clear();
+        message.write(&mut self.0);
+        Ok(())
+    }
 }
+
+/// Owned (Tetrad): the preset field that holds the per-preset mappings (UTF-8 JSON). Stock
+/// does not know it and keeps it as an unknown field when it saves.
+pub const TETRAD_MAPPINGS_FIELD: u32 = 7001;
 
 /// A protobuf map that keeps stored entry order. A repeated key keeps its
 /// first position and its last value, as the stock map parser keeps one entry.

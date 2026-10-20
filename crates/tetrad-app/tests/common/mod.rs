@@ -1356,6 +1356,21 @@ pub fn boot_with(
     (device, log, media)
 }
 
+/// [`boot`] over the service files `files` (kept across restarts by the caller: clones share
+/// their contents).
+#[allow(dead_code)]
+pub fn boot_with_files(media: Media, files: MemFiles) -> (Device<Sim>, Rc<RefCell<Log>>, Media) {
+    use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
+    let log = Rc::new(RefCell::new(Log::default()));
+    let mut sim = Sim::new(STOCK, &media, &log);
+    sim.services.files = files;
+    for marker in [CAPTURE_CORRUPTION_CHECKED, CAPTURE_CONVERSION_FINISHED] {
+        sim.services.files.put(marker, "");
+    }
+    let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
+    (device, log, media)
+}
+
 /// [`boot`] with extension runners on threads and the store under the media root.
 #[allow(dead_code)]
 pub fn boot_extensions(
