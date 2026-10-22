@@ -205,8 +205,13 @@ impl<P: Platform> Device<P> {
     }
 
     /// Sends up to `limit` queued reports; a failed send keeps its report first for the next
-    /// pass. Without a DSP the queue waits.
+    /// pass. Without a DSP the queue waits. (O) Only while no Cortex Control report waits: the
+    /// Control queue then holds no half-sent message, so a Tetrad report never lands inside a
+    /// stock message on the wire, whatever the desktop receiver does with one.
     pub(super) fn send_usb_reports(&mut self, limit: usize) {
+        if self.bridges.control.transmitting() {
+            return;
+        }
         let Some(dsp) = self.dsp.as_mut() else {
             return;
         };
