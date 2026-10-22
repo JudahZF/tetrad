@@ -152,6 +152,7 @@ mod tests {
             code_bytes: 4096,
             state_bytes: layout.bytes(),
             cycles_per_call: generated.cycles_per_call,
+            network_cycles_per_call: generated.network_cycles_per_call,
         };
         let report =
             qcdsp::device::module_element(&block, "qcdsp_tx_test", 812, "Saturator", &resources)

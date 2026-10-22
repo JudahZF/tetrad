@@ -564,6 +564,67 @@ fn a_block_provider_builds_the_ir_qcdsp_builds() {
 }
 
 #[test]
+fn a_block_provider_builds_the_network_qcdsp_builds() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const b = ctx.blocks.builder();
+              const level = b.parameter("Input", 0, 4, 1);
+              const net = b.network();
+              const x = net.input();
+              net.gain(x, level);
+              const z = net.buffer(2);
+              net.conv(x, z, { kernel: 2, dilation: 3, weights: [0.5, -0.25, 1, 0.125], bias: [0.1, 0] });
+              net.activation(z, "tanh");
+              const y = net.buffer(1);
+              net.conv(z, y, { weights: [0.75, -1.5] });
+              net.add(x, y);
+              return b.finish(b.mul(net.output(y), b.constant(0.5)));
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(3, ""));
+    let BuildOutcome::Ir(ir) = published(&mut h, 3).outcome else {
+        panic!("provider failed")
+    };
+    let block = qcdsp::Block::from_json(&ir.to_string()).unwrap();
+    assert_eq!(block.version(), 3, "a network needs IR 3");
+
+    let expected = (|| -> qcdsp::Result<qcdsp::Block> {
+        let mut b = qcdsp::BlockBuilder::new("block", "Block", qcdsp::Category::Utility);
+        b.parameter(qcdsp::Parameter::new("Input", 0.0, 4.0, 1.0)?)?;
+        let mut net = qcdsp::NetworkBuilder::new();
+        let x = net.input();
+        net.gain(x, 0);
+        let z = net.buffer(2);
+        net.conv(
+            x,
+            z,
+            2,
+            3,
+            vec![0.5, -0.25, 1.0, 0.125],
+            Some(vec![0.1, 0.0]),
+            false,
+        );
+        net.activation(z, qcdsp::Activation::Tanh);
+        let y = net.buffer(1);
+        net.conv(z, y, 1, 1, vec![0.75, -1.5], None, false);
+        net.add(x, y);
+        let output = b.network(net.finish(y))?;
+        let half = b.constant(0.5)?;
+        let out = b.mul(output, half)?;
+        b.finish(out)
+    })()
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&block).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
+}
+
+#[test]
 fn a_failing_provider_publishes_its_error() {
     let mut h = Harness::start(
         r#"export default { activate(ctx) {

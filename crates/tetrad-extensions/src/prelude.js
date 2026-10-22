@@ -72,11 +72,20 @@
   const MAX_MEMORIES = 4096;
   const MAX_DELAY_SAMPLES = 16 * 1024 * 1024;
   const NODE_SPAN = 2 * MAX_NODES;
-  // Op codes index OPS: 0 input, 1 constant, 2..4 indexed reads, 5..10 binary, 11..15 unary.
+  // Op codes index OPS: 0 input, 1 constant, 2..4 indexed reads, 5..10 binary, 11..15 unary,
+  // 16 the network output.
   const OPS = ["input", "constant", "parameter", "state", "delay", "add", "sub", "mul", "min",
-    "max", "div", "neg", "abs", "recip", "tanh", "sigmoid"];
+    "max", "div", "neg", "abs", "recip", "tanh", "sigmoid", "network"];
   const OP_DIV = 10;
   const OP_RECIP = 13;
+  const OP_NETWORK = 16;
+  // qcdsp network.rs limits.
+  const MAX_BUFFERS = 1024;
+  const MAX_CHANNELS = 64;
+  const MAX_NETWORK_OPS = 4096;
+  const MAX_KERNEL = 16;
+  const MAX_DILATION = 1 << 16;
+  const ACTIVATIONS = ["tanh", "hardtanh", "relu"];
   let nextGraph = 1;
   // qcdsp reads every value as an f32; JSON keeps the shorter f64 text.
   const f32 = (what, value) => {
@@ -96,6 +105,7 @@
     const delays = [];
     let isMono = false;
     let finished = false;
+    let network = null;
     let delaySamples = 0;
     const live = () => {
       if (finished) throw new Error("the block builder is finished");
@@ -128,6 +138,7 @@
     const emit = (i) => {
       const op = ops[i];
       if (op === 0) return { op: "input" };
+      if (op === OP_NETWORK) return { op: "network" };
       if (op === 1) return { op: "constant", value: as[i] };
       if (op <= 4) return { op: OPS[op], index: as[i] };
       if (op <= OP_DIV) return { op: "binary", kind: OPS[op], lhs: as[i], rhs: bs[i] };
@@ -197,21 +208,108 @@
         live();
         isMono = true;
       },
+      // IR 3: a network of vector operations that runs before the graph (qcdsp network.rs).
+      // Buffer handles are numbers; buffer 0 is the block input. `output` ends the network and
+      // returns the signal of its output for each sample. A block has one network and is mono.
+      network: () => {
+        live();
+        if (network !== null) throw new Error("a block has at most one network");
+        const buffers = [1];
+        const netOps = [];
+        let ended = false;
+        network = { buffers, ops: netOps, output: 0 };
+        const open = () => {
+          if (ended) throw new Error("the network is finished");
+          if (netOps.length >= MAX_NETWORK_OPS) {
+            throw new RangeError(`a network has at most ${MAX_NETWORK_OPS} operations`);
+          }
+        };
+        const buffer = (handle) => {
+          if (!Number.isInteger(handle) || handle < 0 || handle >= buffers.length) {
+            throw new TypeError("not a buffer of this network");
+          }
+          return handle;
+        };
+        const floats = (what, values) => {
+          if (!Array.isArray(values)) throw new TypeError(`${what} must be an array of numbers`);
+          return values.map((value) => f32(what, value));
+        };
+        return Object.freeze({
+          input: () => 0,
+          buffer: (channels) => {
+            open();
+            if (!Number.isInteger(channels) || channels < 1 || channels > MAX_CHANNELS) {
+              throw new RangeError(`a buffer has 1 to ${MAX_CHANNELS} channels`);
+            }
+            if (buffers.length >= MAX_BUFFERS) throw new RangeError(`at most ${MAX_BUFFERS} buffers`);
+            buffers.push(channels);
+            return buffers.length - 1;
+          },
+          gain: (target, parameter) => {
+            open();
+            const index = node(parameter);
+            if (ops[index] !== 2) throw new TypeError("gain takes a parameter of this block builder");
+            netOps.push({ op: "gain", buffer: buffer(target), parameter: as[index] });
+          },
+          conv: (input, output, options) => {
+            open();
+            const { kernel = 1, dilation = 1, weights, bias, accumulate = false } = options ?? {};
+            if (!Number.isInteger(kernel) || kernel < 1 || kernel > MAX_KERNEL ||
+              !Number.isInteger(dilation) || dilation < 1 || dilation > MAX_DILATION) {
+              throw new RangeError(`kernel 1 to ${MAX_KERNEL}, dilation 1 to ${MAX_DILATION}`);
+            }
+            const [from, to] = [buffer(input), buffer(output)];
+            const w = floats("weights", weights);
+            if (w.length !== buffers[from] * buffers[to] * kernel) {
+              throw new RangeError("weights need output channels × input channels × kernel values");
+            }
+            const op = { op: "conv", input: from, output: to, kernel, dilation, weights: w };
+            if (bias !== undefined) {
+              op.bias = floats("bias", bias);
+              if (op.bias.length !== buffers[to]) throw new RangeError("bias needs one value per output channel");
+            }
+            if (accumulate) op.accumulate = true;
+            netOps.push(op);
+          },
+          activation: (target, fn) => {
+            open();
+            if (!ACTIVATIONS.includes(fn)) throw new TypeError(`activation is one of ${ACTIVATIONS.join(", ")}`);
+            netOps.push({ op: "activation", buffer: buffer(target), function: fn });
+          },
+          add: (input, output) => {
+            open();
+            netOps.push({ op: "add", input: buffer(input), output: buffer(output) });
+          },
+          copy: (input, output) => {
+            open();
+            netOps.push({ op: "copy", input: buffer(input), output: buffer(output) });
+          },
+          output: (target) => {
+            open();
+            network.output = buffer(target);
+            ended = true;
+            isMono = true;
+            return push(OP_NETWORK, 0, 0);
+          },
+        });
+      },
       finish: (output) => {
         live();
         const out = node(output);
         finished = true;
         // The oldest IR version that holds the block, as qcdsp's `finish` writes.
-        let version = isMono ? 2 : 1;
+        let version = network !== null ? 3 : isMono ? 2 : 1;
         const nodes = new Array(ops.length);
         for (let i = 0; i < ops.length; i++) {
-          if (ops[i] === OP_DIV || ops[i] >= OP_RECIP) version = 2;
+          if (version < 2 && (ops[i] === OP_DIV || ops[i] >= OP_RECIP)) version = 2;
           nodes[i] = emit(i);
         }
         // Placeholders: Tetrad replaces blob name, name and category from the manifest.
         const ir = { version, blob_name: "block", name: "Block", category: "utility" };
         if (isMono) ir.channels = "mono";
-        return Object.assign(ir, { parameters, states, delays, nodes, output: out });
+        Object.assign(ir, { parameters, states, delays, nodes, output: out });
+        if (network !== null) ir.network = network;
+        return ir;
       },
     });
   };

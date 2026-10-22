@@ -20,7 +20,7 @@
 // [C]; then head_rechannel [H][C] and its bias [H] when head_bias. Last, head_scale: NAM reads
 // it from the weights, not from the config.
 
-import type { BlockBuilder, BlockIr, Delay, Signal, State } from "@tetrad/extensions";
+import type { BlockBuilder, BlockIr, Delay, NetBuffer, NetworkBuilder, Signal, State } from "@tetrad/extensions";
 
 import { at0, count, type NamFile, record } from "./nam";
 
@@ -247,11 +247,14 @@ export function weightCount(arrays: readonly LayerArray[]): number {
 }
 
 /**
- * The block graph, if it fits: input gain, the layer arrays, head_scale and output gain. Mono:
- * the model runs once and both channels get its output. Throws, naming the model's size, when
- * it needs more nodes or state than a DSP block holds.
+ * The block: input gain, the layer arrays, head_scale and output gain. Mono: the model runs once
+ * and both channels get its output. Ungated models (all the NAM trainer makes) become a network
+ * (IR 3), which Tetrad compiles to frame kernels; Tetrad refuses a model whose CPU or memory does
+ * not fit one DSP core. Gated models use the scalar graph and throw, naming the model's size,
+ * when they need more nodes or state than a scalar block holds.
  */
 export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
+  if (!model.arrays.some((array) => array.gated)) return network(dsp, model);
   const size = new Size();
   graph(size, model);
   if (size.nodes > MAX_COMPILED_NODES || size.stateBytes > MAX_STATE_BYTES) {
@@ -265,6 +268,56 @@ export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   }
   return graph(dsp, model);
 }
+
+/** The model as network operations, in the order of the formula at the top of this file. */
+function network(dsp: BlockBuilder, model: WavenetModel): BlockIr {
+  let at = 0;
+  const take = (n: number) => {
+    const values = model.weights.slice(at, at + n);
+    at += n;
+    return values;
+  };
+  const inputGain = dsp.parameter("Input", 0, 4, 1);
+  const outputGain = dsp.parameter("Output", 0, 4, 1);
+  const net = dsp.network();
+  const x = net.input();
+  net.gain(x, inputGain);
+  let input = x;
+  let head: NetBuffer | undefined;
+  for (const array of model.arrays) {
+    const { channels: c, kernelSize: k, activation } = array;
+    let v = net.buffer(c);
+    net.conv(input, v, { weights: take(c * array.inputSize) });
+    let sum = head;
+    for (const dilation of array.dilations) {
+      const z = net.buffer(c);
+      net.conv(v, z, { kernel: k, dilation, weights: take(c * c * k), bias: take(c) });
+      net.conv(x, z, { weights: take(c), accumulate: true });
+      net.activation(z, ACTIVATIONS[activation]);
+      if (sum === undefined) {
+        sum = net.buffer(c);
+        net.copy(z, sum);
+      } else {
+        net.add(z, sum);
+      }
+      const next = net.buffer(c);
+      net.conv(z, next, { weights: take(c * c), bias: take(c) });
+      net.add(v, next);
+      v = next;
+    }
+    if (sum === undefined) throw new Error("a layer array has no layers");
+    const out = net.buffer(array.headSize);
+    const weights = take(array.headSize * c);
+    net.conv(sum, out, { weights, ...(array.headBias ? { bias: take(array.headSize) } : {}) });
+    head = out;
+    input = v;
+  }
+  if (head === undefined) throw new Error("the model has no layer arrays");
+  const [scale = 0] = take(1);
+  return dsp.finish(dsp.mul(dsp.mul(net.output(head), dsp.constant(scale)), outputGain));
+}
+
+const ACTIVATIONS = { Tanh: "tanh", Hardtanh: "hardtanh", ReLU: "relu" } as const;
 
 function graph(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   let at = 0;
@@ -457,6 +510,9 @@ class Size implements BlockBuilder {
   updateState(): void {}
   updateDelay(): void {}
   mono(): void {}
+  network(): NetworkBuilder {
+    throw new Error("gated models use the scalar graph");
+  }
   finish(): BlockIr {
     return {};
   }
