@@ -9,12 +9,14 @@ use tetrad_dsp_host::transport::ControlPacket;
 use tetrad_dsp_protocol::hid::HidReportFrame;
 use tetrad_services::exec::Files;
 use tetrad_services::updater::tetrad::{self, Manifest, RELEASE_KEY};
+use tetrad_ui::{Screen, SettingsPage};
 use tetrad_usb::{
     Answer, FileSize, MAX_CHUNK_BYTES, Op, PROTOCOL, Reassembler, Reply, Report, Request,
 };
 
 use super::platform::{Platform, ServiceBackends};
-use super::{Device, SendPolicy, Subsystem};
+use super::ui::UiInput;
+use super::{Device, DeviceError, Effect, SendPolicy, Subsystem};
 
 /// One install chunk and its header.
 const MAX_REQUEST_BYTES: usize = MAX_CHUNK_BYTES + (8 << 10);
@@ -191,8 +193,12 @@ impl<P: Platform> Device<P> {
                     }
                 }
                 let version = staging.manifest.version.to_string();
-                let effects = self.bridges.services.offer_usb_update(staging.manifest);
-                self.apply(effects);
+                let mut effects = (self.bridges.services.offer_usb_update(staging.manifest))
+                    .map_err(|e| e.to_string())?;
+                // The user starts the install on the unit: show them where.
+                let page = Screen::Settings(SettingsPage::TetradUpdates);
+                effects.push(Effect::UiInput(UiInput::Show(page)));
+                self.apply(Ok::<_, DeviceError>(effects));
                 (Answer::InstallReady { version }, Vec::new())
             }
         })
