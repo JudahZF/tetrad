@@ -186,6 +186,11 @@ impl Services {
         &mut self,
         via_control: Option<ControlTransport>,
     ) -> Result<Vec<Effect>, ServiceError> {
+        // A Tetrad install restarts the unit when it ends; a download queued behind it on
+        // the bulk worker would be cut off.
+        if self.tetrad_installing() {
+            return Err(ServiceError::NotReady("a Tetrad update is installing"));
+        }
         let offer = self
             .updater
             .offer

@@ -6816,6 +6816,10 @@ fn a_tetrad_update_installs_arms_and_restarts() {
         services.install().is_err(),
         "no CorOS install during a Tetrad install"
     );
+    assert_eq!(
+        services.download().unwrap_err().to_string(),
+        "a Tetrad update is installing"
+    );
 
     for body in ["elf", "sh", "sh", "sh"] {
         b.http.respond(200, body);

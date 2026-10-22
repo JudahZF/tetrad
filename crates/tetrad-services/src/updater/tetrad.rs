@@ -297,7 +297,9 @@ pub fn install(
         return staged;
     }
     // The commit: from here the new files are in place. A failed arm leaves `select` with the
-    // old md5, so the launcher starts stock CorOS until `tetrad-launcher.sh arm` runs.
+    // old md5, so the launcher starts stock CorOS until `tetrad-launcher.sh arm` runs. The
+    // downloads are synced first, so a power cut never leaves a renamed file half written.
+    files.sync()?;
     for path in FILES {
         files.rename(&part(path), &home(path))?;
     }
