@@ -28,8 +28,8 @@ type Message = (Call, Sender<Reply>);
 /// The connection being served, so that a stop can end it.
 type Open = Arc<Mutex<Option<TcpStream>>>;
 
-/// A running server. Drop stops it and waits for the thread (at most about [`ACCEPT_POLL`]),
-/// so the port is free again when drop returns.
+/// A running server. Drop stops it and waits for the thread (at most about the 100 ms accept
+/// poll), so the port is free again when drop returns.
 pub struct Server {
     calls: Receiver<Message>,
     pending: HashMap<u64, Sender<Reply>>,
