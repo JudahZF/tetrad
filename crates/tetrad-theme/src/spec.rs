@@ -21,11 +21,14 @@ const ON_ACCENT: Role = ("onAccent", |p| p.on_accent);
 
 /// The minimum contrasts of the pairs the screens draw, as (foreground, background, ratio):
 /// text and the accent (selected text) at 4.5:1 or more, the accent as a bare mark (knob
-/// arcs, switch rings on the canvas) at 3:1.
-const CONTRASTS: [(Role, Role, f32); 10] = [
+/// arcs, switch rings on the canvas) at 3:1. Text and white icons sit on every fill role.
+const CONTRASTS: [(Role, Role, f32); 14] = [
     (TEXT, ("background", |p| p.background), 7.0),
     (TEXT, ("panel", |p| p.panel), 7.0),
     (TEXT, ("canvas", |p| p.canvas), 7.0),
+    (TEXT, ("surface", |p| p.surface), 4.5),
+    (TEXT, ("rowSelected", |p| p.row_selected), 4.5),
+    (TEXT, ("section", |p| p.section), 4.5),
     (TEXT, ("action", |p| p.action), 4.5),
     (
         ("muted", |p| p.muted),
@@ -34,6 +37,7 @@ const CONTRASTS: [(Role, Role, f32); 10] = [
     ),
     (ON_ACCENT, ACCENT, 4.5),
     (ON_ACCENT, ("warning", |p| p.warning), 4.5),
+    (ON_ACCENT, ("muted", |p| p.muted), 4.5),
     (ACCENT, ("panel", |p| p.panel), 4.5),
     (ACCENT, ("canvas", |p| p.canvas), 3.0),
     (
@@ -327,6 +331,14 @@ mod tests {
             (
                 json!({ "id": "x", "name": "X", "colors": { "action": "#ffffff" } }),
                 "text on action",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "section": "#ffffff" } }),
+                "text on section",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "surface": "#ffffff" } }),
+                "text on surface",
             ),
             (
                 json!({ "id": "x", "name": "X", "colors": { "accent": "#000000" } }),

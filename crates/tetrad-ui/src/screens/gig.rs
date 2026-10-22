@@ -8,7 +8,7 @@
 //! copy, mode marks, block glyphs). The scene watermark is the largest face (96 px) instead of
 //! ~190 px.
 
-use tetrad_assets::{Icon, IconSize, Rgb, SWATCHES, TUNER_IN, TextSize, Weight};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb, SWATCHES, TUNER_IN, TextSize, Weight};
 
 use super::grid::{capture_badge, preset_title, scene_title};
 use crate::layout::{Layout, Look, SMALL_BOLD, XLARGE_BOLD};
@@ -142,7 +142,11 @@ fn scene_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
     let view = &s.scenes[tile];
     let active = s.selected_scene == scene;
     let enabled = !s.bank_preview_active;
-    let hue = scene_hue(view.raw_color).unwrap_or(p.accent);
+    // A scene colour is data: on it, the ink is stock's, so it reads as stock draws it.
+    let (hue, on_hue) = match scene_hue(view.raw_color) {
+        Some(hue) => (hue, Palette::STOCK.on_accent),
+        None => (p.accent, p.on_accent),
+    };
     let fill = if active { hue } else { hue.mix(p.canvas, 214) };
     l.panel(bounds, fill, 8.0, None);
     // The tool row sits above the scene's own touch area.
@@ -164,13 +168,9 @@ fn scene_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
         },
         Align::Center,
     );
-    let ink = if active { p.on_accent } else { p.text };
+    let ink = if active { on_hue } else { p.text };
     centred_name(l, bounds, &view.label, ink);
-    let marks = if active {
-        p.on_accent.mix(hue, 60)
-    } else {
-        p.muted
-    };
+    let marks = if active { on_hue.mix(hue, 60) } else { p.muted };
     let tools = [
         (SceneTool::Edit, Icon::Edit, "EDIT SCENE"),
         (SceneTool::Swap, Icon::Swap, "SWAP SCENE"),
@@ -230,7 +230,11 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
     let s = &ui.snapshot;
     let stomp = &s.stomps[tile];
     let assigned = !stomp.label.is_empty() || stomp.category.is_some();
-    let hue = stomp_hue(s, stomp).unwrap_or(p.muted);
+    // A block colour is data: on it, the ink is stock's, so it reads as stock draws it.
+    let (hue, on_hue) = match stomp_hue(s, stomp) {
+        Some(hue) => (hue, Palette::STOCK.on_accent),
+        None => (p.muted, p.on_accent),
+    };
     let engaged = assigned && stomp.engaged;
     let fill = match (assigned, engaged) {
         (true, true) => hue,
@@ -245,9 +249,9 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
         stomp.label.clone(),
         Look::Area,
     );
-    let ink = if engaged { p.on_accent } else { p.text };
+    let ink = if engaged { on_hue } else { p.text };
     let marks = if engaged {
-        p.on_accent.mix(hue, 60)
+        on_hue.mix(hue, 60)
     } else {
         p.muted
     };

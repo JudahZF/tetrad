@@ -28,7 +28,7 @@ You can add more themes in two ways: as a theme file, or with an extension.
 A theme changes only the colours of the UI itself. These colours stay the same in every theme:
 
 - block colours
-- scene colours
+- scene colours, and the ink on them (Gig View tiles)
 - footswitch LEDs
 - the tuner's in-tune green
 
@@ -78,9 +78,9 @@ with the reason, but you cannot choose it.
   block icons are made for a dark background.
 - **Readable.** Tetrad measures contrast as the screen shows the colours (16-bit colour):
   - `text` on `background`, `panel` and `canvas`: at least 7:1
-  - `text` on `action` (button labels): at least 4.5:1
+  - `text` on `surface`, `rowSelected`, `section` and `action` (rows and buttons): at least 4.5:1
   - `muted` on `background`: at least 4.5:1
-  - `onAccent` on `accent` and on `warning` (badges): at least 4.5:1
+  - `onAccent` on `accent`, `warning` (badges) and `muted`: at least 4.5:1
   - `accent` on `panel` (selected text): at least 4.5:1
   - `accent` on `canvas` (knob arcs, switch rings): at least 3:1
   - `danger` on `background` (error text): at least 4.5:1
