@@ -104,8 +104,13 @@ fn accept(listener: &TcpListener, calls: &Sender<Message>, stop: &AtomicBool, op
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _)) => {
+                // A connection a stop cannot end is closed unserved: the stop would wait out
+                // its deadline (no descriptor left for the clone).
+                let Ok(handle) = stream.try_clone() else {
+                    continue;
+                };
                 // Published before the stop check: a stop either sees it or is seen here.
-                *open.lock().unwrap_or_else(PoisonError::into_inner) = stream.try_clone().ok();
+                *open.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
                 if !stop.load(Ordering::SeqCst) {
                     let _ = connection(stream, calls, stop, &mut next_id);
                 }
