@@ -3,10 +3,7 @@
 //! instrument goes with `presetSaveSignal` or `modifyPresetMetadataSignal`). The header
 //! follows the capture save page (shot 030); the picker values are from `0x7e2460`.
 
-use tetrad_assets::{
-    ACCENT, ACCENT_FILL, ACTION, CANVAS, Icon, IconSize, MUTED, PANEL, SECTION, SURFACE, TEXT,
-    TextSize, Weight,
-};
+use tetrad_assets::{Icon, IconSize, TextSize, Weight};
 
 use crate::layout::{BODY, Layout, Look};
 use crate::render::{Align, Font, HEIGHT, WIDTH};
@@ -61,6 +58,7 @@ impl UiState {
 /// INSTRUMENT page. The active page's button (name or metadata) is `#17291a` under a
 /// `#45f862` outline (`0x7e2af8(.., 1)`); the other is `#1e1e1e` and opens its page.
 pub(super) fn header(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
+    let p = l.palette;
     let target = &keyboard.target;
     let (min, max) = target.limits();
     let (close, label) = match keyboard.metadata_page {
@@ -68,12 +66,12 @@ pub(super) fn header(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
         true => (Control::PresetMetadata(PresetMetadataControl::Back), "BACK"),
     };
     let flat = match keyboard.metadata_page {
-        false => tetrad_assets::BACKGROUND,
-        true => PAGE,
+        false => p.background,
+        true => p.tone(PAGE),
     };
     let look = |icon, fill| Look::IconButton { icon, fill };
     l.control(CLOSE, close, true, label, look(Icon::Close, flat));
-    l.panel(DIVIDER, PANEL, 0.0, None);
+    l.panel(DIVIDER, p.panel, 0.0, None);
     // I: the folder shows the destination setlist; Tetrad picks it after the save. A Virtual
     // Device preset has no folder (O).
     if !matches!(target, TextTarget::DevicePresetSaveAs(_)) {
@@ -81,21 +79,21 @@ pub(super) fn header(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
         let setlist = (snapshot.active_setlist)
             .and_then(|id| snapshot.setlists.iter().find(|setlist| setlist.id == id))
             .map_or("Setlist", |setlist| setlist.title.as_str());
-        l.panel(FOLDER, flat, 8.0, Some(PANEL));
+        l.panel(FOLDER, flat, 8.0, Some(p.panel));
         l.push(
             Rect::new(FOLDER.x + 10, FOLDER.y + 10, 24, 24),
             "",
             Look::Glyph {
                 icon: Icon::FolderFilled,
                 size: IconSize::Medium,
-                color: TEXT,
+                color: p.text,
             },
         );
         l.text(
             Rect::new(FOLDER.x + 42, FOLDER.y, FOLDER.width - 50, FOLDER.height),
             setlist,
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
     }
@@ -108,30 +106,30 @@ pub(super) fn header(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
     let width = (BODY.width(shown).ceil() as u32 + 26).clamp(76, 280);
     let name = Rect::new(NAME_X, 8, width, 44);
     let active = |page: bool| match page {
-        true => (ACCENT_FILL, Some(ACCENT)),
-        false => (SURFACE, None),
+        true => (p.accent_fill, Some(p.accent)),
+        false => (p.surface, None),
     };
     let (fill, border) = active(!keyboard.metadata_page);
     l.panel(name, fill, 8.0, border);
     // The name page shows the keys (on that page already: no change).
     let back = Control::PresetMetadata(PresetMetadataControl::Back);
     l.control(name, back, true, "NAME", Look::Area);
-    l.text(name, shown, BODY, TEXT, Align::Center);
+    l.text(name, shown, BODY, p.text, Align::Center);
     if target.has_metadata() {
         let meta = Rect::new(name.right() + GAP, 8, 66, 44);
         let (fill, border) = active(keyboard.metadata_page);
         l.panel(meta, fill, 8.0, border);
-        glyph(l, meta, border.unwrap_or(MUTED));
+        glyph(l, meta, border.unwrap_or(p.muted));
         let open = Control::PresetMetadata(PresetMetadataControl::Open);
         l.control(meta, open, !keyboard.metadata_page, "METADATA", Look::Area);
     }
     if keyboard.metadata_page {
         let save = Control::PresetMetadata(PresetMetadataControl::Save);
-        l.control(FORWARD, save, true, "SAVE", look(Icon::Save, ACTION));
+        l.control(FORWARD, save, true, "SAVE", look(Icon::Save, p.action));
     } else {
         // `0x590c34`: a name that is not min..max characters greys and disables forward.
         let ok = (min..=max).contains(&keyboard.text.chars().count());
-        let fill = if ok { ACTION } else { SURFACE };
+        let fill = if ok { p.action } else { p.surface };
         let done = Control::Key(Key::Done);
         l.control(FORWARD, done, ok, "FORWARD", look(Icon::Forward, fill));
     }
@@ -140,16 +138,17 @@ pub(super) fn header(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
 /// The "KeyboardTextfield" of the preset save keyboard: no title and no counter (the
 /// "Characters left:" paint `0x2d93f0` is only in the KeyboardRename* panels, C).
 pub(super) fn field(l: &mut Layout, keyboard: &Keyboard) {
-    l.panel(FIELD, tetrad_assets::BACKGROUND, 0.0, None);
+    let p = l.palette;
+    l.panel(FIELD, p.background, 0.0, None);
     let text = keyboard.text.as_str();
     let font = (FIELD_FONTS.into_iter())
         .find(|font| font.width(text) <= FIELD.width as f32)
         .unwrap_or(FIELD_FONTS[FIELD_FONTS.len() - 1]);
     if text.is_empty() {
         // "PlaceholderItem": `#404040` text on no fill.
-        l.text(FIELD, keyboard.target.title(), font, SECTION, Align::Left);
+        l.text(FIELD, keyboard.target.title(), font, p.section, Align::Left);
     } else {
-        l.text(FIELD, text, font, TEXT, Align::Left);
+        l.text(FIELD, text, font, p.text, Align::Left);
     }
     // I: the first text item colour `#45f862` is the caret.
     let size = font.size.px() as i32;
@@ -162,12 +161,13 @@ pub(super) fn field(l: &mut Layout, keyboard: &Keyboard) {
             size as u32,
         ),
         "",
-        Look::Fill(ACCENT),
+        Look::Fill(p.accent),
     );
 }
 
 pub(super) fn page(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(PAGE));
+    let p = l.palette;
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     header(ui, l, keyboard);
     let (x, y) = PICKER;
     // The label is white at opacity 0.5.
@@ -175,7 +175,7 @@ pub(super) fn page(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
         Rect::new(x, y, 200, 21),
         "PREFERRED INSTRUMENT",
         BODY,
-        TEXT.mix(PAGE, 128),
+        p.text.mix(p.tone(PAGE), 128),
         Align::Left,
     );
     for (index, instrument) in PreferredInstrument::CHOICES.into_iter().enumerate() {
@@ -183,9 +183,9 @@ pub(super) fn page(ui: &UiState, l: &mut Layout, keyboard: &Keyboard) {
         let button = Rect::new(x + index % 3 * 165, y + 37 + index / 3 * 52, 157, 44);
         let selected = instrument == keyboard.instrument;
         let (fill, ink) = if selected {
-            (TEXT, CANVAS)
+            (p.text, p.canvas)
         } else {
-            (SURFACE, MUTED)
+            (p.surface, p.muted)
         };
         l.panel(button, fill, 8.0, None);
         l.control(

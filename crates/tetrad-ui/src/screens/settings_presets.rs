@@ -17,9 +17,7 @@
 //! Inferred: the table position under the button, the menu row aligned with its preset row,
 //! factory rows before user rows, the "Default" caption, and a load closing the popup.
 
-use tetrad_assets::{
-    ACCENT, BACKGROUND, FAINT, Icon, IconSize, MUTED, Rgb, SCROLLBAR, TEXT, block,
-};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb, block};
 
 use crate::layout::{CAPTION, GREY_VEIL, Layout, ListId, Look, MEDIUM};
 use crate::render::{Align, HEIGHT};
@@ -36,10 +34,10 @@ const MENU_X: i32 = 312;
 const MENU_WIDTH: u32 = 240;
 
 /// The tint of a matched page (`0x227790`).
-fn tint(page: SettingsPresetPage) -> Rgb {
+fn tint(p: &Palette, page: SettingsPresetPage) -> Rgb {
     match page {
         SettingsPresetPage::GlobalEq => block::EQ,
-        SettingsPresetPage::Io => ACCENT,
+        SettingsPresetPage::Io => p.accent,
     }
 }
 
@@ -53,7 +51,8 @@ fn bundle(l: &mut Layout, at: (i32, i32), color: Rgb, fill: Rgb) {
 
 /// The 44 × 44 preset button at (8, 8) of the Global EQ and I/O pages.
 pub(super) fn button(ui: &UiState, l: &mut Layout, page: SettingsPresetPage) {
-    l.panel(BUTTON, SCROLLBAR, 8.0, None);
+    let p = l.palette;
+    l.panel(BUTTON, p.scrollbar, 8.0, None);
     l.control(
         BUTTON,
         Control::SettingsPreset(SettingsPresetControl::Open(page)),
@@ -62,8 +61,8 @@ pub(super) fn button(ui: &UiState, l: &mut Layout, page: SettingsPresetPage) {
         Look::Area,
     );
     let matched = ui.snapshot.settings_preset_match.get(page).is_some();
-    let color = if matched { tint(page) } else { MUTED };
-    bundle(l, (BUTTON.x + 14, BUTTON.y + 14), color, SCROLLBAR);
+    let color = if matched { tint(&p, page) } else { p.muted };
+    bundle(l, (BUTTON.x + 14, BUTTON.y + 14), color, p.scrollbar);
 }
 
 /// Presets of the page in list order: factory rows, then user rows (I).
@@ -77,16 +76,17 @@ fn presets(ui: &UiState, page: SettingsPresetPage) -> Vec<&DevicePresetItem> {
 }
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPresetPage, menu: Option<u64>) {
-    l.veil(GREY_VEIL);
+    let p = l.palette;
+    l.veil((p.tone(GREY_VEIL.0), GREY_VEIL.1));
     let presets = presets(ui, page);
     let matched = ui.snapshot.settings_preset_match.get(page);
     let height = ((presets.len() as u32 + 1) * ROW).min(HEIGHT - TABLE_Y as u32 - 8);
     let table = Rect::new(TABLE_X, TABLE_Y, TABLE_WIDTH, height);
     // A press outside the table hides the popup (`onMousePressOutside` → `hideDialog`).
     l.popover(table);
-    l.panel(BUTTON, TEXT, 8.0, None);
-    bundle(l, (BUTTON.x + 14, BUTTON.y + 14), BACKGROUND, TEXT);
-    l.panel(table, BACKGROUND, 10.0, None);
+    l.panel(BUTTON, p.text, 8.0, None);
+    bundle(l, (BUTTON.x + 14, BUTTON.y + 14), p.background, p.text);
+    l.panel(table, p.background, 10.0, None);
     let control = Control::SettingsPreset;
     l.scroll(
         ListId::SettingsPresets,
@@ -103,7 +103,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPresetPage, men
                 "Save Current Parameters as...",
                 Look::Area,
             );
-            let color = if can_save { TEXT } else { FAINT };
+            let color = if can_save { p.text } else { p.faint };
             l.push(
                 Rect::new(save.x + 16, save.y + 18, 24, 24),
                 "",
@@ -143,6 +143,7 @@ fn preset_row(
     matched: bool,
     menu: Option<u64>,
 ) {
+    let p = l.palette;
     let (body, dots) = row.take_right(ROW, 0);
     let control = Control::SettingsPreset;
     l.control(
@@ -159,7 +160,7 @@ fn preset_row(
         "MORE",
         Look::Area,
     );
-    let color = if matched { ACCENT } else { TEXT };
+    let color = if matched { p.accent } else { p.text };
     let text = Rect::new(row.x + 16, row.y, body.width - 16, ROW);
     if preset.default {
         l.text(
@@ -173,13 +174,17 @@ fn preset_row(
             Rect::new(text.x, row.y + 33, text.width, 18),
             "Default",
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     } else {
         l.text(text, preset.name.clone(), MEDIUM, color, Align::Left);
     }
-    let dot = if menu == Some(preset.id) { TEXT } else { FAINT };
+    let dot = if menu == Some(preset.id) {
+        p.text
+    } else {
+        p.faint
+    };
     let (x, y) = dots.center();
     for dy in [-7, 0, 7] {
         l.push(
@@ -197,6 +202,7 @@ fn context_menu(
     row_y: i32,
     matched: bool,
 ) {
+    let p = l.palette;
     let user = !preset.factory;
     let mut items = Vec::new();
     if page == SettingsPresetPage::GlobalEq {
@@ -216,7 +222,7 @@ fn context_menu(
     let y = row_y.min(HEIGHT as i32 - 8 - height as i32).max(8);
     let panel = Rect::new(MENU_X, y, MENU_WIDTH, height);
     l.popover(panel);
-    l.panel(panel, BACKGROUND, 6.0, None);
+    l.panel(panel, p.background, 6.0, None);
     for (index, (item, label, enabled)) in items.into_iter().enumerate() {
         let row = Rect::new(panel.x, y + (index as u32 * ROW) as i32, MENU_WIDTH, ROW);
         l.control(
@@ -226,7 +232,7 @@ fn context_menu(
             label,
             Look::Area,
         );
-        let color = if enabled { TEXT } else { FAINT };
+        let color = if enabled { p.text } else { p.faint };
         l.text(row.inset(16, 0), label, MEDIUM, color, Align::Left);
     }
 }

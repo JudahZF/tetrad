@@ -2,9 +2,7 @@
 //! and Account › Backups (manual §10 screenshot: "Cloud Backups n/5" header, UTC note, one
 //! row per backup with a ⋮ menu, NEW CLOUD BACKUP under the list).
 
-use tetrad_assets::{
-    ACCENT, BACKGROUND, DIVIDER, FAINT, Icon, IconSize, MUTED, TEXT, WARNING, block,
-};
+use tetrad_assets::{Icon, IconSize, block};
 
 use crate::layout::{BODY, ButtonStyle, CAPTION, LARGE, Layout, ListId, Look, MEDIUM};
 use crate::render::Align;
@@ -43,6 +41,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, area: Rect) {
 }
 
 fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
+    let p = l.palette;
     let storage = &ui.snapshot.storage;
     // Stock bar colours per row (`0x65a8bc`).
     for (index, (label, usage, color)) in [
@@ -72,7 +71,7 @@ fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
             Rect::new(row.x, row.y, row.width - 140, 24),
             label,
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Left,
         );
         l.text(
@@ -84,7 +83,7 @@ fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
                 format!("{} / {}", usage.current, usage.maximum)
             },
             BODY,
-            MUTED,
+            p.muted,
             Align::Right,
         );
         let full = nearly_full(usage);
@@ -93,7 +92,7 @@ fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
             "",
             Look::Progress {
                 fraction,
-                color: if full { WARNING } else { color },
+                color: if full { p.warning } else { color },
             },
         );
         if full {
@@ -101,7 +100,7 @@ fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
                 Rect::new(row.x, row.y + 54, row.width, 20),
                 "Storage usage for this item category is nearing its limit.",
                 CAPTION,
-                WARNING,
+                p.warning,
                 Align::Left,
             );
         }
@@ -109,7 +108,7 @@ fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
             l.push(
                 Rect::new(row.x, row.bottom() - 9, row.width, 1),
                 "",
-                Look::Fill(DIVIDER),
+                Look::Fill(p.divider),
             );
         }
     }
@@ -118,12 +117,13 @@ fn usage(ui: &UiState, l: &mut Layout, area: Rect) {
 /// O (stock deletes corrupt captures; review r23 K5): under the bars, the captures the
 /// corruption check moved to the quarantine, each with RESTORE.
 fn quarantine(l: &mut Layout, area: Rect, rows: &[QuarantineRow]) {
+    let p = l.palette;
     let top = area.y + 3 * STORAGE_ROW as i32;
     l.text(
         Rect::new(area.x, top, area.width, 24),
         "Quarantined Captures",
         MEDIUM,
-        TEXT,
+        p.text,
         Align::Left,
     );
     for (index, item) in rows.iter().enumerate() {
@@ -138,7 +138,7 @@ fn quarantine(l: &mut Layout, area: Rect, rows: &[QuarantineRow]) {
             Rect::new(row.x, row.y + 2, text, 22),
             item.id.clone(),
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
         let store = if item.downloads {
@@ -150,7 +150,7 @@ fn quarantine(l: &mut Layout, area: Rect, rows: &[QuarantineRow]) {
             Rect::new(row.x, row.y + 24, text, 18),
             format!("{store} · {}", item.reason),
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
         l.button(
@@ -165,6 +165,7 @@ fn quarantine(l: &mut Layout, area: Rect, rows: &[QuarantineRow]) {
 
 /// The whole page panel: the header replaces the page name, as in the manual screenshot.
 pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let linked = s.account.username.is_some();
     let items = &s.backups.items;
@@ -175,21 +176,21 @@ pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
         Rect::new(pane.x, pane.y, title_width as u32 + 4, 32),
         title,
         LARGE,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.text(
         Rect::new(pane.x + title_width + 8, pane.y, 60, 32),
         format!("{}/{BACKUP_LIMIT}", items.len()),
         LARGE,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(pane.right() - 220, pane.y, 220, 32),
         "All timestamps are UTC",
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Right,
     );
     let mut top = pane.y + 47;
@@ -198,7 +199,7 @@ pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
             Rect::new(pane.x, top, pane.width, 40),
             "You are not logged in to Cortex Cloud",
             MEDIUM,
-            MUTED,
+            p.muted,
         );
         return;
     }
@@ -207,7 +208,7 @@ pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
             Rect::new(pane.x, top, pane.width, 20),
             text.clone(),
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
         if let Some(fraction) = progress {
@@ -216,7 +217,7 @@ pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
                 "",
                 Look::Progress {
                     fraction: *fraction,
-                    color: ACCENT,
+                    color: p.accent,
                 },
             );
         }
@@ -252,14 +253,14 @@ pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
             Rect::new(pane.x, top + 8, pane.width, 24),
             "No Cloud Backups",
             BODY,
-            FAINT,
+            p.faint,
             Align::Left,
         );
     }
     // Stock 117 labels this 44 px button in 16 px (the shared button uses 18 px).
     let create = Rect::new(pane.x, viewport.bottom().max(top + 40) + 22, 219, 45);
     let can_create = enabled && items.len() < BACKUP_LIMIT;
-    l.panel(create, BACKGROUND, 8.0, None);
+    l.panel(create, p.background, 8.0, None);
     l.control(
         create,
         Control::Backup(BackupControl::Create),
@@ -271,7 +272,7 @@ pub(super) fn backups(ui: &UiState, l: &mut Layout, pane: Rect) {
         create,
         "NEW CLOUD BACKUP",
         BODY,
-        if can_create { TEXT } else { FAINT },
+        if can_create { p.text } else { p.faint },
         Align::Center,
     );
 }
@@ -317,6 +318,7 @@ fn ordinal(day: u32) -> &'static str {
 
 /// Shot 117 row: name, grey timestamp line, grey ⋮ dots, divider.
 fn backup_row(l: &mut Layout, row: Rect, item: &BackupItem, enabled: bool) {
+    let p = l.palette;
     l.control(
         row,
         Control::Backup(BackupControl::Item(item.id)),
@@ -328,7 +330,7 @@ fn backup_row(l: &mut Layout, row: Rect, item: &BackupItem, enabled: bool) {
         Rect::new(row.x, row.y + 6, row.width - 48, 24),
         item.title.clone(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     // Stock 117 marks are about 16 px wide.
@@ -339,7 +341,7 @@ fn backup_row(l: &mut Layout, row: Rect, item: &BackupItem, enabled: bool) {
             Look::Glyph {
                 icon,
                 size: IconSize::Compact,
-                color: MUTED,
+                color: p.muted,
             },
         );
     };
@@ -348,7 +350,7 @@ fn backup_row(l: &mut Layout, row: Rect, item: &BackupItem, enabled: bool) {
         Rect::new(row.x + 22, row.y + 31, 200, 20),
         stock_timestamp(&item.detail),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     if let Some(downloaded) = &item.downloaded {
@@ -357,7 +359,7 @@ fn backup_row(l: &mut Layout, row: Rect, item: &BackupItem, enabled: bool) {
             Rect::new(row.x + 251, row.y + 31, 200, 20),
             stock_timestamp(downloaded),
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     }
@@ -365,13 +367,13 @@ fn backup_row(l: &mut Layout, row: Rect, item: &BackupItem, enabled: bool) {
         l.push(
             Rect::new(row.right() - 14, row.y + y, 4, 4),
             "",
-            Look::Dot { color: FAINT },
+            Look::Dot { color: p.faint },
         );
     }
     l.push(
         Rect::new(row.x, row.bottom() - 1, row.width, 1),
         "",
-        Look::Fill(DIVIDER),
+        Look::Fill(p.divider),
     );
 }
 
