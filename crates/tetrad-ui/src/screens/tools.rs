@@ -396,10 +396,12 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
     );
     // Both chevrons always show. Out of tune, the one on the ball's side changes pixmap
     // (`+0x150`/`+0x168`); the other keeps its in-tune pixmap. I: the changed one is red.
+    // The in-tune green is fixed (stock accent), as the ball's is: it means in tune.
+    let tuned = Palette::STOCK.accent;
     let (left, right) = match () {
-        _ if in_tune => (p.accent, p.accent),
-        _ if shown > 0.0 => (p.accent, p.danger),
-        _ => (p.danger, p.accent),
+        _ if in_tune => (tuned, tuned),
+        _ if shown > 0.0 => (tuned, p.danger),
+        _ => (p.danger, tuned),
     };
     for (x, chevron, color) in [(195, ">", left), (573, "<", right)] {
         l.text(

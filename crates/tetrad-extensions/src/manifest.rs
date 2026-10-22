@@ -201,7 +201,8 @@ impl Manifest {
     }
 
     /// A data-only manifest adds themes and nothing else: no capabilities, settings or
-    /// commands. Its package needs no module, and the host runs nothing for it.
+    /// commands. Its package may leave out the module; the host runs nothing for a package
+    /// without one (a package with a module still runs it).
     pub fn data_only(&self) -> bool {
         !self.themes.is_empty()
             && self.capabilities.is_empty()

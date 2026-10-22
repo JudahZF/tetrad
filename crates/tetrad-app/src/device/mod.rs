@@ -2911,6 +2911,8 @@ impl<P: Platform> Device<P> {
             self.notice(Subsystem::Ui, format!("Appearance: {problem}"));
         }
         self.read_theme_files();
+        // Into the views now: the start-up frames are presented before the first view sync.
+        self.state.views.appearance = self.bridges.appearance.view();
     }
 
     /// Reads the theme files again (at boot and when Settings → Appearance opens, so files

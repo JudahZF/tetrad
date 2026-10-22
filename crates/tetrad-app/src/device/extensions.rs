@@ -264,7 +264,7 @@ pub struct Installation {
     pub config: Json,
     pub storage: BTreeMap<String, Json>,
     pub enabled: bool,
-    /// Adds themes and nothing else (`Manifest::data_only`): no runner starts for it.
+    /// A theme-only package: it has no module, so no runner starts for it.
     pub data_only: bool,
 }
 
@@ -1966,6 +1966,6 @@ fn installation(loaded: &Loaded) -> Installation {
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),
         enabled: loaded.installed.enabled,
-        data_only: manifest.data_only(),
+        data_only: !loaded.has_module,
     }
 }

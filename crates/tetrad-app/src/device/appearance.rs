@@ -117,7 +117,8 @@ impl Appearance {
                     }
                 }
                 Err(reason) => Candidate {
-                    id: ThemeId::File(file.trim_end_matches(".json").to_owned()),
+                    // The whole file name: theme IDs have no `.`, so it never takes a real ID.
+                    id: ThemeId::File(file.clone()),
                     name: file.clone(),
                     source: "Theme file".into(),
                     palette: Err(reason),
@@ -313,6 +314,18 @@ mod tests {
         let mut bytes = json.to_vec();
         bytes.resize(MAX_FILE as usize + 1, b' ');
         bytes
+    }
+
+    /// A file that does not parse holds no theme ID: a later file may use its name.
+    #[test]
+    fn a_broken_file_does_not_take_its_name_as_an_id() {
+        let mut appearance = Appearance::default();
+        let good = br##"{"version":1,"id":"midnight","name":"Midnight","colors":{}}"##;
+        appearance.set_files(vec![
+            ("midnight.json".into(), Err("bad JSON".into())),
+            ("z.json".into(), Ok(good.to_vec())),
+        ]);
+        assert!(appearance.select(ThemeId::File("midnight".into())).is_ok());
     }
 
     #[test]

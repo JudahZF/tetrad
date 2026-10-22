@@ -1100,7 +1100,8 @@ fn plugin_tag(
         let fill = hue.mix(p.canvas, 204);
         (
             fill,
-            if ink == p.canvas {
+            // `tag_ink` is fixed: black ink stays black on the dimmed tag.
+            if ink == Palette::STOCK.canvas {
                 ink
             } else {
                 ink.mix(fill, 204)

@@ -62,8 +62,10 @@ pub(crate) const STRIP_HEIGHT: u32 = 44;
 
 pub(crate) fn layout(ui: &UiState) -> Layout {
     let screen = ui.screen();
-    // Recovery stays stock, so a bad theme cannot make it unreadable.
+    // Recovery and the factory-reset screen stay stock, so a bad theme cannot make them
+    // unreadable.
     let palette = match screen {
+        _ if ui.resetting => Palette::STOCK,
         Screen::Recovery => Palette::STOCK,
         _ => ui.snapshot.appearance.palette,
     };
