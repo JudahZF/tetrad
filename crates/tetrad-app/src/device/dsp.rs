@@ -1410,29 +1410,51 @@ impl<P: Platform> Dsp<P> {
     }
 
     /// (O) The stock Volume blob of this unit and its records for transport cores 1..=3: the
-    /// framework of every community block (`qcdsp::device::VolumeTemplate`). qcdsp refuses a
-    /// blob that is not the Volume blob of a supported CorOS build.
+    /// framework of every community block (`qcdsp::device::VolumeTemplate`), with the kernel
+    /// heap call addresses of each core, read from a stock blob that calls the heap
+    /// (`qcdsp::device::template::KERNEL_CALL_SOURCE`). qcdsp refuses a blob that is not the
+    /// Volume blob of a supported CorOS build.
     pub(super) fn volume_template(
         &mut self,
         platform: &mut P,
     ) -> Result<&VolumeTemplate, DspError> {
         const VOLUME: &str = "volume";
         if self.template.is_none() {
-            self.core_blob(platform, DspCore::Core0, VOLUME)?;
-            let plain = self.blobs.base[VOLUME].to_bytes()?;
-            let mut diffs = Vec::with_capacity(3);
-            for core in [DspCore::Core1, DspCore::Core2, DspCore::Core3] {
-                self.core_blob(platform, core, VOLUME)?;
-                let file = self.blobs.diffs[core as usize].as_ref();
-                let diff = file.and_then(|file| file.get(VOLUME)).cloned();
-                diffs.push(diff.ok_or(tetrad_dsp_host::blob::BlobError::MissingDiff(core))?);
-            }
-            let diffs: [_; 3] = diffs.try_into().expect("three transport cores");
-            let template = VolumeTemplate::new(&plain, diffs)
-                .map_err(|error| DspError::Feature(format!("community blocks: {error}")))?;
+            let community =
+                |error: qcdsp::Error| DspError::Feature(format!("community blocks: {error}"));
+            let (volume, volume_diffs) = self.blob_and_records(platform, VOLUME)?;
+            let calls = qcdsp::device::template::KERNEL_CALL_SOURCE;
+            let (calls, call_diffs) = self.blob_and_records(platform, calls)?;
+            let mut kernel = qcdsp::device::KernelMap::default();
+            kernel
+                .add_stock_calls(&calls, &call_diffs)
+                .map_err(|error| {
+                    DspError::Feature(format!("community blocks: kernel map: {error}"))
+                })?;
+            let template = VolumeTemplate::new(&volume.to_bytes()?, volume_diffs)
+                .map_err(community)?
+                .with_kernel(kernel);
             self.template = Some(template);
         }
         Ok(self.template.as_ref().expect("set above"))
+    }
+
+    /// The decrypted core 1 blob `name` and its records for transport cores 1..=3.
+    fn blob_and_records(
+        &mut self,
+        platform: &mut P,
+        name: &str,
+    ) -> Result<(ModuleBlob, [qc_format::diff::DiffRecord; 3]), DspError> {
+        self.core_blob(platform, DspCore::Core0, name)?;
+        let mut diffs = Vec::with_capacity(3);
+        for core in [DspCore::Core1, DspCore::Core2, DspCore::Core3] {
+            self.core_blob(platform, core, name)?;
+            let file = self.blobs.diffs[core as usize].as_ref();
+            let diff = file.and_then(|file| file.get(name)).cloned();
+            diffs.push(diff.ok_or(tetrad_dsp_host::blob::BlobError::MissingDiff(core))?);
+        }
+        let diffs = diffs.try_into().expect("three transport cores");
+        Ok((self.blobs.base[name].clone(), diffs))
     }
 
     fn core_loads(&mut self, platform: &mut P, push: Push) -> Result<Vec<CoreLoad>, DspError> {

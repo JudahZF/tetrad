@@ -341,8 +341,13 @@ impl<P: super::platform::Platform> super::Device<P> {
                 .is_some()
         });
         if let Some(preset) = records {
+            // A clean preset stays clean: the blocks arrived, the user changed nothing.
+            let was_clean = !self.state.preset_dirty();
             let recalled = self.recall_preset(preset);
-            self.report(recalled);
+            if self.report(recalled).is_some() && was_clean {
+                *self.state.clean.get_mut() =
+                    self.state.current.as_ref().map(super::preset::Snapshot::of);
+            }
         }
     }
 }
@@ -351,33 +356,46 @@ impl<P: super::platform::Platform> super::Device<P> {
 mod tests {
     use std::path::PathBuf;
 
-    use qc_format::diff::DiffFile;
+    use qc_format::diff::{DiffFile, DiffRecord};
 
     use super::*;
 
-    /// The stock Volume framework from `QC_CORPUS_DIR` (docs/development.md, "Corpus tests").
-    /// `None` without it.
+    /// The stock Volume framework from `QC_CORPUS_DIR` (docs/development.md, "Corpus tests"),
+    /// with the kernel map that arena blocks need. `None` without it.
     fn template() -> Option<VolumeTemplate> {
         let root = PathBuf::from(std::env::var_os("QC_CORPUS_DIR")?);
         let plain = root.join("plain");
-        let raw = std::fs::read(plain.join("blobs/core1/volume.raw")).ok()?;
+        let read = |name: &str| -> (Vec<u8>, [DiffRecord; 3]) {
+            let raw = std::fs::read(plain.join(format!("blobs/core1/{name}.raw"))).unwrap();
+            let diffs = [2, 3, 4].map(|core| {
+                let path = format!("blobs/core{core}/diffs.blob");
+                let path = [
+                    plain.join(&path),
+                    root.join("rootfs/opt/neuraldsp").join(&path),
+                ]
+                .into_iter()
+                .find(|path| path.is_file())
+                .expect("diffs.blob in plain/ or rootfs/");
+                let file = DiffFile::parse(&std::fs::read(path).unwrap()).unwrap();
+                file.get(name).unwrap().clone()
+            });
+            (raw, diffs)
+        };
+        let (raw, diffs) = read("volume");
         // As `Dsp::volume_template`: the decrypted blob is parsed, then written again; the
         // stock hash must survive that.
         let core1 = ModuleBlob::parse(&raw).unwrap().to_bytes().unwrap();
         assert_eq!(core1, raw);
-        let diffs = [2, 3, 4].map(|core| {
-            let path = format!("blobs/core{core}/diffs.blob");
-            let path = [
-                plain.join(&path),
-                root.join("rootfs/opt/neuraldsp").join(&path),
-            ]
-            .into_iter()
-            .find(|path| path.is_file())
-            .expect("diffs.blob in plain/ or rootfs/");
-            let file = DiffFile::parse(&std::fs::read(path).unwrap()).unwrap();
-            file.get("volume").unwrap().clone()
-        });
-        Some(VolumeTemplate::new(&core1, diffs).unwrap())
+        let (calls, call_diffs) = read(qcdsp::device::template::KERNEL_CALL_SOURCE);
+        let mut kernel = qcdsp::device::KernelMap::default();
+        kernel
+            .add_stock_calls(&ModuleBlob::parse(&calls).unwrap(), &call_diffs)
+            .unwrap();
+        Some(
+            VolumeTemplate::new(&core1, diffs)
+                .unwrap()
+                .with_kernel(kernel),
+        )
     }
 
     fn source(key: &str, ir: qcdsp::Block) -> Source {
@@ -414,9 +432,12 @@ mod tests {
         let line = big.delay(40_000).unwrap();
         big.update_delay(line, big.input()).unwrap();
         let big = big.finish(line.signal()).unwrap();
+        // 9000 samples of stereo delay (72 KB) need a kernel-heap arena.
+        let arena = qcdsp::examples::delay(9000).unwrap();
         let sources = [
             source("a/b:c/sat", qcdsp::examples::saturator().unwrap()),
             source("a/b:c/big", big),
+            source("a/b:c/arena", arena),
         ];
         let mut specs = Specs::default();
         let mut cache = BTreeMap::new();
@@ -426,7 +447,29 @@ mod tests {
         assert_eq!(id / 1000, 0, "Guitar Overdrive band");
         assert!(sat.cpu.is_some_and(|cpu| cpu > 0));
         let big = statuses.iter().find(|s| s.key == "a/b:c/big").unwrap();
-        assert!(big.model.is_none() && big.error.as_deref().is_some_and(|e| e.contains("0x7fff")));
+        assert!(big.model.is_none() && big.error.is_some(), "{big:?}");
+        let arena = statuses.iter().find(|s| s.key == "a/b:c/arena").unwrap();
+        let arena_id = arena.model.expect("an arena block builds");
+        let arena_stats = specs.model(arena_id).unwrap().stats.unwrap();
+        assert!(
+            arena_stats.dm_heap > 72_000,
+            "the arena is charged: {arena_stats:?}"
+        );
+        for core in [
+            DspCore::Core0,
+            DspCore::Core1,
+            DspCore::Core2,
+            DspCore::Core3,
+        ] {
+            blobs
+                .load(core, arena_id)
+                .unwrap()
+                .unwrap()
+                .blob
+                .unwrap()
+                .validate()
+                .unwrap();
+        }
         let spec = specs.model(id).unwrap();
         let community = spec.community.as_ref().unwrap();
         assert_eq!(community.placeholder, DEFAULT_PLACEHOLDER);
@@ -443,11 +486,8 @@ mod tests {
         assert!(blobs.load(DspCore::Core0, id + 1).is_none());
         // Unchanged: no compile (no template needed), the same ID.
         let (_, again) = install(&sources, None, &mut specs, &mut cache);
-        assert_eq!(
-            again[1].model,
-            Some(id),
-            "the cached block needs no compile"
-        );
+        let sat = again.iter().find(|s| s.key == "a/b:c/sat").unwrap();
+        assert_eq!(sat.model, Some(id), "the cached block needs no compile");
         // A new key whose hash takes the saturator's ID probes past it: the old key keeps it.
         let mut more = sources.to_vec();
         let thief = (0..10_000)

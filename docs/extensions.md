@@ -7,7 +7,8 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 
 - **MIDI Mapper** reserves a second MIDI channel and offers it as a trigger on the
   [Mappings](mappings.md) page.
-- **Neural Amp Modeler** plays Neural Amp Modeler (NAM) LSTM models as amp blocks.
+- **Neural Amp Modeler** plays Neural Amp Modeler (NAM) LSTM models and small WaveNet models
+  as amp blocks.
 
 - [Use extensions](#use-extensions)
 - [DSP blocks](#dsp-blocks)
@@ -72,8 +73,8 @@ Tetrad stops an extension that goes past a limit.
 ## DSP blocks
 
 > [!WARNING]
-> DSP blocks are experimental. They pass Tetrad's SHARC machine tests, but their audio is not
-> yet tested on a unit. Try a new block at a low volume.
+> DSP blocks are experimental. On the test unit, the example and NAM blocks play exactly as
+> their host references, but each new block is new code on the DSP. Try it at a low volume.
 
 A package can bring DSP blocks. When the extension is installed and **Enabled**, Tetrad
 compiles its blocks for the DSP, and each block shows in the block list of its category, like a
@@ -97,7 +98,8 @@ and [Mappings](mappings.md).
 
 ### Neural Amp Modeler
 
-Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the LSTM type.
+Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the LSTM type, and
+WaveNet models that are smaller than the NAM trainer's sizes.
 
 1. Install **Neural Amp Modeler** (Settings → System → Extensions).
 2. Copy your `.nam` files to `/media/p4/tetrad/assets/tetrad.nam/` on the unit, for example
@@ -108,8 +110,10 @@ Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the 
 
 Each block has an **Input** and an **Output** level (0 to 4, 1 is unchanged). The model runs in
 mono: both channels get its output. The page of the extension says why a file did not load.
-This version plays LSTM models at 48 kHz only. WaveNet models (the NAM default) need more DSP
-memory than a block can have today.
+Models must be for 48 kHz. Each block runs on one DSP core, so a model must fit in one core's
+CPU: on the test unit a 2-layer LSTM with 6 units uses about 60% of a core. The WaveNet sizes of
+the NAM trainer (nano, feather, lite, standard) need more CPU than one core has, so the
+extension refuses them with their size. Smaller custom WaveNets play.
 
 ## Write an extension
 
@@ -240,8 +244,11 @@ The builder has the operations above, plus `state(initial)`, `delay(samples)`,
 `updateState`, `updateDelay` and `mono()` (compute one channel and copy it: half the CPU).
 Tetrad validates every graph and replaces its name and category from the manifest.
 
-Limits of one block: 65 536 nodes, 256 parameters, 4096 states and delay lines, and 32 KB of
-state and delay memory per channel (about 4000 samples of delay per channel). `tetrad-ext
+Limits of one block: 65 536 nodes (24 576 after `tanh` and the other approximations expand),
+256 parameters, and 4096 states and delay lines. Up to 32 KB of state and delay memory lives in
+the block itself; a block that needs more gets it from the DSP core's heap when it starts (about
+150 KB per core, shared with the other blocks on that core). If the heap is full, the block
+plays dry. `tetrad-ext
 check <package>` shows each block's state size and CPU estimate. `tetrad-ext preview
 --package <file> --block <id> --input in.wav --output out.wav --set Gain=12` runs a static
 block on your computer.

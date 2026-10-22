@@ -7,8 +7,8 @@ use qc_format::{blob::Section, diff::DiffFile};
 use qcdsp::{
     Block, Channels, Processor,
     device::{
-        Generated, Layout, VolumeTemplate,
-        template::{STOCK_INIT, STOCK_PARCELS},
+        Generated, KernelMap, Layout, VolumeTemplate,
+        template::{STOCK_DESTROY, STOCK_INIT, STOCK_PARCELS},
     },
     examples,
 };
@@ -26,6 +26,10 @@ const STACK: u32 = 0x24_a7f0;
 const RETURN: u32 = 0x16_6072;
 const MODE: u32 = MODE1_CBUFEN | MODE1_IRPTEN | MODE1_NESTM | MODE1_RND32;
 const CANARY: u32 = 0x7fc0_dead;
+/// Core 1 kernel `heap_malloc(R4 heap, R8 bytes) -> R0` and `heap_free(R4 heap, R8 pointer)`
+/// (dsp-heap note §2.1). The harness answers calls to them; nothing else may be called.
+const HEAP_MALLOC: u32 = 0x16_adfa;
+const HEAP_FREE: u32 = 0x16_ad7e;
 
 struct Memory {
     map: MemoryMap,
@@ -46,6 +50,9 @@ impl Bus for Memory {
     }
 }
 
+/// One call into the kernel heap: (function, R4, R8).
+type HeapCall = (u32, u32, u32);
+
 struct Harness {
     cpu: Machine,
     program: ProgramMemory,
@@ -54,15 +61,30 @@ struct Harness {
     scale: u32,
     layout: Layout,
     generated: Generated,
+    /// The arena region and its address scale, mapped when the block has an arena.
+    arena: Option<(u32, u32)>,
+    /// What heap_malloc returns: the arena, or 0 (heap full).
+    allocation: u32,
+    heap_calls: Vec<HeapCall>,
 }
 
 impl Harness {
     fn new(block: &Block, byte_state: bool) -> Self {
         let (layout, generated) = qcdsp::device::generate(block).unwrap();
+        // The loader relocates each kind-7 return literal (Type 16a DATA32) to the load address.
+        let mut parcels = generated.parcels.clone();
+        for relocation in &generated.relocations {
+            assert_eq!(
+                (relocation.kind, relocation.target_base),
+                (7, Section::Code.base())
+            );
+            let at = (relocation.offset - STOCK_PARCELS) as usize;
+            assert_eq!(parcels[at], 0x9fc0, "DM(I7,M7) = imm32");
+            let value = CODE + relocation.target_offset;
+            (parcels[at + 1], parcels[at + 2]) = ((value >> 16) as u16, value as u16);
+        }
         let mut program = ProgramMemory::default();
-        program
-            .load_visa(CODE + STOCK_PARCELS, &generated.parcels)
-            .unwrap();
+        program.load_visa(CODE + STOCK_PARCELS, &parcels).unwrap();
         let (state, scale, unit) = if byte_state {
             (0x2e_1800, 4, AddressUnit::Byte)
         } else {
@@ -77,6 +99,19 @@ impl Harness {
         map.add(STACK - 2044, AddressUnit::Byte, 512).unwrap();
         map.write(IO, 0x24_1080).unwrap();
         map.write(IO + 4, 0xc_0000).unwrap();
+        // The arena takes the other address unit from the state, so neither depends on it.
+        let arena = layout.arena.map(|arena| {
+            let (base, scale, unit) = if byte_state {
+                (0xd_0000, 1, AddressUnit::Word)
+            } else {
+                (0x25_0000, 4, AddressUnit::Byte)
+            };
+            map.add(base, unit, arena.words as usize).unwrap();
+            for word in 0..arena.words {
+                map.write(base + scale * word, CANARY).unwrap();
+            }
+            (base, scale)
+        });
         Self {
             cpu: Machine::reset(),
             program,
@@ -88,10 +123,15 @@ impl Harness {
             scale,
             layout,
             generated,
+            allocation: arena.map_or(0, |(base, _)| base),
+            arena,
+            heap_calls: Vec::new(),
         }
     }
 
-    fn call(&mut self, entry: u32, index: u32, value: u32, construction: bool) {
+    /// Run a callback as the kernel calls it (stock C call, I6/I7 frame). `stock` is the stock
+    /// routine it must tail-jump to with R4 = state and the entry frame, or None for a C return.
+    fn call(&mut self, entry: u32, index: u32, value: u32, stock: Option<u32>) {
         let cpu = &mut self.cpu;
         cpu.arithmetic = Arithmetic::Prm;
         cpu.r = std::array::from_fn(|n| 0x5a5a_0000 | n as u32);
@@ -111,14 +151,15 @@ impl Harness {
         self.memory.map.write(STACK - 4, RETURN - 1).unwrap();
         (cpu.i[6], cpu.i[7]) = (STACK, STACK - 8);
         self.memory.writes.clear();
-        let target = if construction {
-            CODE + STOCK_INIT
-        } else {
-            RETURN
-        };
-        cpu.set_pc(CODE + entry);
-        let start = cpu.cycles();
+        let target = stock.map_or(RETURN, |stock| CODE + stock);
+        self.cpu.set_pc(CODE + entry);
+        let start = self.cpu.cycles();
         loop {
+            if [HEAP_MALLOC, HEAP_FREE].contains(&self.cpu.pc()) {
+                self.kernel();
+                continue;
+            }
+            let cpu = &mut self.cpu;
             match cpu.run(&self.program, &mut self.memory, Some(target), 1) {
                 Ok(Stop::Breakpoint(_)) => break,
                 Err(MachineError::StepBudget(_)) if cpu.cycles() - start < 2_000_000 => {}
@@ -129,14 +170,21 @@ impl Harness {
                 self.memory.map.write(cpu.i[7] - 4 * word, CANARY).unwrap();
             }
         }
+        let cpu = &self.cpu;
         for n in [3, 5, 6, 7, 9, 10, 11, 13, 14, 15] {
             assert_eq!(cpu.r[n], before.0[n], "R{n}");
         }
         for n in (0..16).filter(|n| ![4, 12, 13].contains(n)) {
-            if construction && [6, 7].contains(&n) {
-                continue;
-            }
-            assert_eq!(cpu.i[n], before.1[n], "I{n}");
+            let expected = match (stock, n) {
+                // Stock init and destroy start with the frame of the kernel's call.
+                (Some(_), 6) => STACK,
+                (Some(_), 7) => STACK - 8,
+                _ => before.1[n],
+            };
+            assert_eq!(cpu.i[n], expected, "I{n}");
+        }
+        if stock.is_some() {
+            assert_eq!(cpu.r[4], self.state, "stock code gets R4 = state");
         }
         for n in (0..16).filter(|n| ![4, 12].contains(n)) {
             assert_eq!(cpu.m[n], before.2[n], "M{n}");
@@ -153,8 +201,12 @@ impl Harness {
             cpu.pc_stack_depth() + cpu.loop_stack_depth() + cpu.status_stack_depth(),
             0
         );
-        let writable: [Range<u32>; 4] = [
+        let arena = self.arena.map_or(0..0, |(base, scale)| {
+            base..base + scale * self.layout.arena.unwrap().words
+        });
+        let writable: [Range<u32>; 5] = [
             self.state + 17 * self.scale..self.state + self.layout.total_words * self.scale,
+            arena,
             0x24_1080..0x24_1100,
             0xc_0000..0xc_0020,
             STACK - 2044..STACK - 4,
@@ -168,7 +220,75 @@ impl Harness {
             self.memory.writes
         );
     }
+
+    /// The kernel side of a stock C call to heap_malloc or heap_free: check the frame the
+    /// caller built, record the arguments, clobber the stack below SP and every scratch
+    /// register, then do the C return (`I12 = DM(M7, I6)`, jump to I12 + 1, RFRAME).
+    fn kernel(&mut self) {
+        let cpu = &mut self.cpu;
+        let function = cpu.pc();
+        assert_eq!(cpu.i[7], cpu.i[6] - 8, "CJUMP slots push R2 and the return");
+        let caller_frame = self.memory.map.peek(cpu.i[6]).unwrap();
+        let back = self.memory.map.peek(cpu.i[6] - 4).unwrap() + 1;
+        assert!(
+            caller_frame > cpu.i[6],
+            "the caller's frame is above the callee's"
+        );
+        self.heap_calls.push((function, cpu.r[4], cpu.r[8]));
+        for word in 0..64 {
+            self.memory.map.write(cpu.i[7] - 4 * word, CANARY).unwrap();
+        }
+        cpu.r[0] = if function == HEAP_MALLOC {
+            self.allocation
+        } else {
+            CANARY
+        };
+        for n in [1, 2, 4, 8, 12] {
+            cpu.r[n] = CANARY ^ n as u32;
+        }
+        (cpu.i[4], cpu.i[12], cpu.i[13]) = (CANARY, CANARY, CANARY);
+        (cpu.m[4], cpu.m[12]) = (CANARY as i32, CANARY as i32);
+        cpu.i[7] = cpu.i[6];
+        cpu.i[6] = caller_frame;
+        cpu.set_pc(back);
+    }
+
+    fn arena_word(&self, word: u32) -> u32 {
+        let (base, scale) = self.arena.unwrap();
+        self.memory.map.peek(base + scale * word).unwrap()
+    }
+
+    fn state_word(&self, word: u32) -> u32 {
+        self.memory
+            .map
+            .peek(self.state + self.scale * word)
+            .unwrap()
+    }
+
+    /// Fill both channels with frame `frame` of the test signal; returns the input.
+    fn write_input(&mut self, frame: usize) -> [[f32; 32]; 2] {
+        std::array::from_fn(|channel| {
+            std::array::from_fn(|sample| {
+                let input = ((frame * 32 + sample + 7 * channel) as f32 * 0.03125).sin()
+                    * if channel == 0 { 0.3 } else { -0.7 };
+                let (base, scale) = CHANNEL_BUFFERS[channel];
+                self.memory
+                    .map
+                    .write(base + scale * sample as u32, input.to_bits())
+                    .unwrap();
+                input
+            })
+        })
+    }
+
+    fn output(&self, channel: usize, sample: usize) -> f32 {
+        let (base, scale) = CHANNEL_BUFFERS[channel];
+        f32::from_bits(self.memory.map.peek(base + scale * sample as u32).unwrap())
+    }
 }
+
+/// Channel A (byte alias) and channel B (normal-word alias) buffers of `io`.
+const CHANNEL_BUFFERS: [(u32, u32); 2] = [(0x24_1080, 4), (0xc_0000, 1)];
 
 #[test]
 fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
@@ -187,7 +307,7 @@ fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
         let mono = block.channels() == Channels::Mono;
         for byte_state in [false, true] {
             let mut h = Harness::new(&block, byte_state);
-            h.call(h.generated.entries.init, 0, 0, true);
+            h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
             let mut twins = [
                 Processor::new(block.clone()).unwrap(),
                 Processor::new(block.clone()).unwrap(),
@@ -197,7 +317,7 @@ fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
                     h.generated.entries.set_parameter,
                     index as u32,
                     0.375_f32.to_bits(),
-                    false,
+                    None,
                 );
                 for twin in &mut twins {
                     twin.set_parameter(index, p.min + 0.375 * (p.max - p.min))
@@ -214,68 +334,174 @@ fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
                             .write(h.state + h.scale * word, CANARY)
                             .unwrap();
                     }
-                    h.call(
-                        h.generated.entries.recovery,
-                        0xdead_beef,
-                        0x7fc0_dead,
-                        false,
-                    );
+                    h.call(h.generated.entries.recovery, 0xdead_beef, 0x7fc0_dead, None);
                     for twin in &mut twins {
                         twin.reset();
                     }
                 }
+                let input = h.write_input(frame);
+                // A mono block computes channel A and writes it to both channels.
                 let expected: [[f32; 32]; 2] = std::array::from_fn(|channel| {
-                    std::array::from_fn(|sample| {
-                        let input = ((frame * 32 + sample + 7 * channel) as f32 * 0.03125).sin()
-                            * if channel == 0 { 0.3 } else { -0.7 };
-                        let (base, scale) = if channel == 0 {
-                            (0x24_1080, 4)
-                        } else {
-                            (0xc_0000, 1)
-                        };
-                        h.memory
-                            .map
-                            .write(base + scale * sample as u32, input.to_bits())
-                            .unwrap();
-                        // A mono block computes channel A and writes it to both channels.
-                        if mono && channel == 1 {
-                            return f32::NAN;
-                        }
-                        twins[channel].process_sample(input)
-                    })
+                    let source = if mono { 0 } else { channel };
+                    if mono && channel == 1 {
+                        return [f32::NAN; 32];
+                    }
+                    input[source].map(|x| twins[source].process_sample(x))
                 });
                 let expected = if mono {
                     [expected[0], expected[0]]
                 } else {
                     expected
                 };
-                h.call(h.generated.entries.process, IO, 0, false);
-                for (channel, samples) in expected.iter().enumerate() {
-                    let (base, scale) = if channel == 0 {
-                        (0x24_1080, 4)
-                    } else {
-                        (0xc_0000, 1)
-                    };
-                    for (sample, expected) in samples.iter().enumerate() {
-                        let actual = f32::from_bits(
-                            h.memory.map.peek(base + scale * sample as u32).unwrap(),
-                        );
-                        assert!(
-                            (actual - expected).abs() <= 2e-5 * expected.abs().max(1.0),
-                            "{}: frame {frame}, channel {channel}, sample {sample}: {actual} vs {expected}",
-                            block.name()
-                        );
-                    }
-                }
+                h.call(h.generated.entries.process, IO, 0, None);
+                check_output(&h, &expected, block.name(), frame);
             }
         }
+    }
+}
+
+fn check_output(h: &Harness, expected: &[[f32; 32]; 2], name: &str, frame: usize) {
+    for (channel, samples) in expected.iter().enumerate() {
+        for (sample, expected) in samples.iter().enumerate() {
+            let actual = h.output(channel, sample);
+            assert!(
+                (actual - expected).abs() <= 2e-5 * expected.abs().max(1.0),
+                "{name}: frame {frame}, channel {channel}, sample {sample}: {actual} vs {expected}",
+            );
+        }
+    }
+}
+
+/// A stereo delay of 9000 samples needs 72 KB of banks, more than Volume's 0x7fff-byte state:
+/// they go into a heap-0 arena.
+fn arena_block() -> Block {
+    examples::delay(9_000).unwrap()
+}
+
+/// The arena block on the raw machine, with the kernel heap answered by the harness: init
+/// allocates once with heap 0 and the arena size, zeroes the arena and sets the cursors; process
+/// matches the host reference across the whole delay line; fault recovery repairs the poisoned
+/// arena; destroy frees the same pointer from the same heap, then runs the stock destroy.
+#[test]
+fn arena_block_allocates_runs_recovers_and_frees_its_heap_memory() {
+    let block = arena_block();
+    for byte_state in [false, true] {
+        let mut h = Harness::new(&block, byte_state);
+        let arena = h.layout.arena.expect("banks larger than the state");
+        let (base, _) = h.arena.unwrap();
+        assert!(arena.bytes() > 0x7fff);
+        h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+        assert_eq!(h.heap_calls, [(HEAP_MALLOC, 0, arena.bytes())]);
+        assert_eq!(h.state_word(arena.pointer), base);
+        let cursors: Vec<u32> = h
+            .layout
+            .banks
+            .iter()
+            .map(|bank| bank + h.layout.cursors)
+            .collect();
+        for word in 0..arena.words {
+            let expected = if cursors.contains(&word) { 9_000 } else { 0 };
+            assert_eq!(h.arena_word(word), expected, "arena word {word}");
+        }
+
+        let mut twins = [
+            Processor::new(block.clone()).unwrap(),
+            Processor::new(block.clone()).unwrap(),
+        ];
+        for (index, p) in block.parameters().iter().enumerate() {
+            h.call(
+                h.generated.entries.set_parameter,
+                index as u32,
+                0.375_f32.to_bits(),
+                None,
+            );
+            for twin in &mut twins {
+                twin.set_parameter(index, p.min + 0.375 * (p.max - p.min))
+                    .unwrap();
+            }
+        }
+        // 290 frames pass the 9000-sample line (281.25 frames) and its wrap.
+        for frame in 0..310 {
+            if frame == 290 {
+                let (base, scale) = h.arena.unwrap();
+                for word in 0..arena.words {
+                    h.memory.map.write(base + scale * word, CANARY).unwrap();
+                }
+                h.call(h.generated.entries.recovery, 0, 0, None);
+                for twin in &mut twins {
+                    twin.reset();
+                }
+            }
+            let input = h.write_input(frame);
+            let expected: [[f32; 32]; 2] = std::array::from_fn(|channel| {
+                input[channel].map(|x| twins[channel].process_sample(x))
+            });
+            h.call(h.generated.entries.process, IO, 0, None);
+            check_output(&h, &expected, block.name(), frame);
+        }
+        assert_eq!(h.heap_calls.len(), 1, "only init allocates");
+
+        let destroy = h.generated.entries.destroy.expect("arena blocks free it");
+        h.call(destroy, 0, 0, Some(STOCK_DESTROY));
+        assert_eq!(h.heap_calls[1..], [(HEAP_FREE, 0, base)]);
+        assert!(
+            h.memory
+                .writes
+                .iter()
+                .all(|a| (STACK - 2044..STACK).contains(a))
+        );
+    }
+}
+
+/// heap_malloc returns 0 when heap 0 is full. Then nothing touches the arena: process leaves
+/// the buffers as they are (dry) and writes only its own frame, recovery writes nothing, and
+/// destroy goes straight to the stock destroy.
+#[test]
+fn failed_arena_allocation_plays_dry_and_writes_nothing() {
+    let block = arena_block();
+    let mut h = Harness::new(&block, true);
+    h.allocation = 0;
+    let arena = h.layout.arena.unwrap();
+    h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+    assert_eq!(h.heap_calls, [(HEAP_MALLOC, 0, arena.bytes())]);
+    assert_eq!(h.state_word(arena.pointer), 0);
+    let state = h.state..h.state + h.layout.bytes();
+    let frame = STACK - 2044..STACK;
+    assert!(
+        h.memory
+            .writes
+            .iter()
+            .all(|a| state.contains(a) || frame.contains(a))
+    );
+    for index in 0..3 {
+        let input = h.write_input(index);
+        h.call(h.generated.entries.process, IO, 0, None);
+        for (channel, samples) in input.iter().enumerate() {
+            for (sample, x) in samples.iter().enumerate() {
+                assert_eq!(h.output(channel, sample).to_bits(), x.to_bits());
+            }
+        }
+        assert!(h.memory.writes.iter().all(|a| frame.contains(a)));
+    }
+    h.call(h.generated.entries.recovery, 0, 0, None);
+    assert!(h.memory.writes.is_empty());
+    h.call(
+        h.generated.entries.destroy.unwrap(),
+        0,
+        0,
+        Some(STOCK_DESTROY),
+    );
+    assert!(h.memory.writes.is_empty());
+    assert_eq!(h.heap_calls.len(), 1, "no heap_free of a null arena");
+    for word in 0..arena.words {
+        assert_eq!(h.arena_word(word), CANARY);
     }
 }
 
 #[test]
 fn invalid_parameters_do_not_write_state_or_raise_float_faults() {
     let mut h = Harness::new(&examples::gain().unwrap(), true);
-    h.call(h.generated.entries.init, 0, 0, true);
+    h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
     let address = h.state + h.layout.parameters * h.scale;
     let original = h.memory.map.peek(address).unwrap();
     for bits in [
@@ -288,7 +514,7 @@ fn invalid_parameters_do_not_write_state_or_raise_float_faults() {
         (-0.1_f32).to_bits(),
         1.01_f32.to_bits(),
     ] {
-        h.call(h.generated.entries.set_parameter, 0, bits, false);
+        h.call(h.generated.entries.set_parameter, 0, bits, None);
         assert_eq!(h.memory.map.peek(address).unwrap(), original);
         assert!(h.memory.writes.is_empty());
     }
@@ -297,14 +523,14 @@ fn invalid_parameters_do_not_write_state_or_raise_float_faults() {
             h.generated.entries.set_parameter,
             index,
             0.5_f32.to_bits(),
-            false,
+            None,
         );
         assert!(h.memory.writes.is_empty());
     }
     // Gain maps normalized +0..=1 onto 0..=4. Positive denormals are
     // accepted by the integer guard and flushed to zero by PRM arithmetic.
     for (bits, expected) in [(0, 0.0_f32), (1, 0.0), (1.0_f32.to_bits(), 4.0)] {
-        h.call(h.generated.entries.set_parameter, 0, bits, false);
+        h.call(h.generated.entries.set_parameter, 0, bits, None);
         assert_eq!(h.memory.map.peek(address).unwrap(), expected.to_bits());
         assert_eq!(h.memory.writes, [address]);
     }
@@ -400,4 +626,120 @@ fn entry_installs_relocated_recovery_on_all_four_cores() {
             }
         }
     }
+}
+
+/// With the stock Volume and a kernel map harvested from the stock digital_delay records (as a
+/// build does): the arena block links, its records apply and validate on cores 2-4, each kernel
+/// call holds that core's heap_malloc or heap_free address (checked against the research map,
+/// `kernel_call_map.json`), each return literal has its kind-7 relocation, and ctx[8] points at
+/// the generated destroy.
+#[test]
+#[ignore = "set QC_CORPUS_DIR"]
+fn arena_block_links_with_each_cores_heap_calls() {
+    let Some(template) = template() else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(std::env::var_os("QC_CORPUS_DIR").unwrap());
+    let block = arena_block();
+    assert!(
+        qcdsp::device::build(&block, &template, 4_000_000_000, block.name()).is_err(),
+        "an arena block needs the kernel map"
+    );
+    let source = qcdsp::device::template::KERNEL_CALL_SOURCE;
+    let core1 = qc_format::blob::ModuleBlob::parse(
+        &std::fs::read(dir.join(format!("plain/blobs/core1/{source}.raw"))).unwrap(),
+    )
+    .unwrap();
+    let diffs = [2, 3, 4].map(|core| {
+        let path = dir.join(format!("rootfs/opt/neuraldsp/blobs/core{core}/diffs.blob"));
+        DiffFile::parse(&std::fs::read(path).unwrap())
+            .unwrap()
+            .get(source)
+            .unwrap()
+            .clone()
+    });
+    let mut kernel = KernelMap::default();
+    kernel.add_stock_calls(&core1, &diffs).unwrap();
+    let research = KernelMap::from_json(
+        &std::fs::read_to_string(dir.join("plain/kernel_call_map.json")).unwrap(),
+    )
+    .unwrap();
+    let template = template.with_kernel(kernel);
+    let built = qcdsp::device::build(&block, &template, 4_000_000_000, block.name()).unwrap();
+    let (_, generated) = qcdsp::device::generate(&block).unwrap();
+    assert_eq!(generated.kernel_refs.len(), 2);
+
+    let arena = built.layout.arena.unwrap();
+    let charge = |bytes: u32| (bytes + 11) & !7;
+    let dm_heap = 208 - charge(0x44) + charge(built.layout.bytes()) + charge(arena.bytes());
+    assert!(
+        built
+            .module_element
+            .contains(&format!("dm_heap=\"{dm_heap}\""))
+    );
+
+    let images = std::iter::once(built.core1.clone()).chain(built.diffs.iter().map(|diff| {
+        let image = diff.apply(&built.core1).unwrap();
+        image.validate().unwrap();
+        image
+    }));
+    for (core, image) in images.enumerate() {
+        let code: Vec<u16> = image
+            .content(Section::Code)
+            .unwrap()
+            .chunks_exact(2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        let relocations = image
+            .relocations
+            .iter()
+            .find(|group| group.section == Section::Code)
+            .unwrap()
+            .code_relocations()
+            .unwrap();
+        assert!(
+            relocations.is_sorted_by_key(|r| r.offset),
+            "stock record order"
+        );
+        let has = |kind, offset, target| {
+            relocations.iter().any(|r| {
+                (r.kind, r.offset, r.target_base, r.target_offset)
+                    == (kind, offset, Section::Code.base(), target)
+            })
+        };
+        for call in &generated.kernel_refs {
+            let at = call.parcel as usize;
+            let expected = match core {
+                0 => call.core1_address,
+                n => research.get(call.core1_address).unwrap()[n - 1],
+            };
+            assert_eq!(
+                code[at..at + 3],
+                [0x1804, (expected >> 16) as u16, expected as u16],
+                "core {} CJUMP at {at:#x}",
+                core + 1
+            );
+            // DM(I7,M7) = R2, then the return literal: next instruction - 1, relocated.
+            assert_eq!(code[at + 3], 0x9ff2);
+            let return_minus_one = call.parcel + 6;
+            assert_eq!(
+                code[at + 4..at + 7],
+                [
+                    0x9fc0,
+                    0x00f8,
+                    (Section::Code.base() + return_minus_one) as u16
+                ]
+            );
+            assert!(has(7, call.parcel + 4, return_minus_one));
+        }
+        let destroy = built.entries.destroy.unwrap();
+        assert!(has(8, 0x174, destroy));
+        assert_eq!(code[0x175..0x177], [0x00f8, destroy as u16]);
+    }
+    let addresses: Vec<u32> = generated
+        .kernel_refs
+        .iter()
+        .map(|call| call.core1_address)
+        .collect();
+    assert_eq!(addresses, [HEAP_MALLOC, HEAP_FREE]);
 }

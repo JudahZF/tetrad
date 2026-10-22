@@ -1,10 +1,19 @@
-// Reads a `.nam` model and builds its graph. NeuralAmpModelerCore (MIT, © Steven Atkinson),
-// `NAM/lstm.cpp`, defines the weight order and the per-sample computation.
+// Reads `.nam` files and builds LSTM graphs. NeuralAmpModelerCore (MIT, © Steven Atkinson),
+// `NAM/lstm.cpp`, defines the LSTM weight order and the per-sample computation. WaveNet models
+// are in `wavenet.ts`.
 
 import type { BlockBuilder, BlockIr, Signal } from "@tetrad/extensions";
 
 /** The QC's sample rate. A model trained for another rate sounds wrong. */
 const SAMPLE_RATE = 48_000;
+
+/** A `.nam` file: its architecture, its config and its flat weight list. */
+export type NamFile = {
+  readonly name: string;
+  readonly architecture: unknown;
+  readonly config: { readonly [key: string]: unknown };
+  readonly weights: readonly number[];
+};
 
 /** The parts of an LSTM model that the graph needs. */
 export type LstmModel = {
@@ -14,8 +23,8 @@ export type LstmModel = {
   readonly weights: readonly number[];
 };
 
-/** Reads and checks an LSTM `.nam` file. Throws with a reason the user can act on. */
-export function parse(name: string, text: string): LstmModel {
+/** Reads the parts that all architectures share. Throws with a reason the user can act on. */
+export function read(name: string, text: string): NamFile {
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -23,17 +32,20 @@ export function parse(name: string, text: string): LstmModel {
     throw new Error(`${name} is not a .nam file (it is not JSON)`);
   }
   const file = record(json, name);
-  const architecture = file["architecture"];
-  if (architecture !== "LSTM") {
-    throw new Error(
-      `${name} is a ${String(architecture)} model; this version plays LSTM models only`,
-    );
-  }
   const rate = file["sample_rate"];
   if (rate !== undefined && rate !== null && rate !== SAMPLE_RATE) {
     throw new Error(`${name} is for ${String(rate)} Hz; the QC runs at ${SAMPLE_RATE} Hz`);
   }
-  const config = record(file["config"], `${name} config`);
+  return {
+    name,
+    architecture: file["architecture"],
+    config: record(file["config"], `${name} config`),
+    weights: numbers(file["weights"], `${name} weights`),
+  };
+}
+
+/** Checks an LSTM file. Throws with a reason the user can act on. */
+export function parseLstm({ name, config, weights }: NamFile): LstmModel {
   const channels = (key: string) => {
     const value = config[key];
     return value === undefined ? 1 : count(value, `${name} ${key}`);
@@ -46,7 +58,7 @@ export function parse(name: string, text: string): LstmModel {
     inputSize,
     hiddenSize: count(config["hidden_size"], `${name} hidden_size`),
     numLayers: count(config["num_layers"], `${name} num_layers`),
-    weights: numbers(file["weights"], `${name} weights`),
+    weights,
   };
   if (model.inputSize !== 1) throw new Error(`${name} has input_size ${model.inputSize}; only 1 is supported`);
   const expected = weightCount(model);
@@ -124,27 +136,27 @@ function dot(dsp: BlockBuilder, weights: readonly number[], values: readonly Sig
   return sum;
 }
 
-function at0<T>(values: readonly T[], index: number): T {
+export function at0<T>(values: readonly T[], index: number): T {
   const value = values[index];
   if (value === undefined) throw new Error(`index ${index} is out of range`);
   return value;
 }
 
-function record(value: unknown, what: string): { readonly [key: string]: unknown } {
+export function record(value: unknown, what: string): { readonly [key: string]: unknown } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${what} is not an object`);
   }
   return value as { readonly [key: string]: unknown };
 }
 
-function count(value: unknown, what: string): number {
+export function count(value: unknown, what: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 64) {
     throw new Error(`${what} must be a whole number from 1 to 64`);
   }
   return value;
 }
 
-function numbers(value: unknown, what: string): number[] {
+export function numbers(value: unknown, what: string): number[] {
   if (!Array.isArray(value)) throw new Error(`${what} is not a list`);
   return value.map((item, index) => {
     if (typeof item !== "number" || !Number.isFinite(item)) {

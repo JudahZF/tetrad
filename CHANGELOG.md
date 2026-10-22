@@ -25,10 +25,17 @@ All notable changes to Tetrad are in this file. The version numbers follow
   `ctx.blocks.builder()` to build a block from an asset file, package format 2 (up to 4 MiB),
   a 32 MiB JavaScript heap. `tetrad-ext init --blocks`, `check` (block CPU and memory) and
   `preview` (run a block on a WAV file).
-- Neural Amp Modeler 0.1.0: plays NAM LSTM models from `/media/p4/tetrad/assets/tetrad.nam/`
-  as Guitar Amplifier blocks. Its graph matches NeuralAmpModelerCore within 2e-3.
-- DSP Examples 0.1.0: seven qcdsp example blocks (gain, two drives, tremolo, slapback,
-  envelope filter, micro synth) to try DSP blocks on a unit.
+- Neural Amp Modeler 0.2.0: plays NAM LSTM models and small WaveNet models from
+  `/media/p4/tetrad/assets/tetrad.nam/` as Guitar Amplifier blocks. Its graphs match
+  NeuralAmpModelerCore (LSTM within 2e-3, WaveNet within 2e-3 of the peak). The trainer's
+  WaveNet sizes are refused: they need more than one DSP core.
+- DSP Examples 0.2.0: eight qcdsp example blocks (gain, two drives, tremolo, slapback, a 187 ms
+  echo from the DSP heap, envelope filter, micro synth) to try DSP blocks on a unit.
+- DSP blocks larger than 32 KB get their memory from the DSP core's heap when they start
+  (qcdsp arenas); the catalogue charges the exact heap figure.
+- Tested on a unit over USB audio: the blocks match their host references, a preset with a DSP
+  block loads in stock CorOS with its placeholder and comes back in Tetrad, and 100 redeploys of
+  an arena block leave the heap unchanged.
 - qcdsp IR 2: `div`, `recip`, `tanh`, `sigmoid` and mono blocks.
 
 ### Changed

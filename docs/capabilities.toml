@@ -103,9 +103,9 @@ gaps = "Install from the published default repository not yet tested on the unit
 
 [[capability]]
 id = "dsp_extension_blocks"
-what = "qcdsp graphs from extension packages, compiled on the unit against the stock Volume framework and deployed like stock models; presets keep a stock placeholder and a record; Neural Amp Modeler builds NAM LSTM models."
-tested = "host"
-gaps = "No audio test on a unit. CPU figures are modelled (one cycle per instruction, doubled), not measured. WaveNet NAM models need the kernel heap (more than 32 KB of state per block). Cortex Control gets the placeholder in whole presets; its partial grid pushes still carry the local model ID. A new or changed block compiles on the device loop (cached; at most 24 576 nodes after expansion)."
+what = "qcdsp graphs from extension packages, compiled on the unit against the stock Volume framework and deployed like stock models, with kernel-heap arenas for state above 32 KB; presets keep a stock placeholder and a record; Neural Amp Modeler builds NAM LSTM and small WaveNet models."
+tested = "unit"
+gaps = "Tested on one unit over USB audio: gain, saturator, slapback, a 187 ms arena echo and NAM blocks match their host twins (within 2e-6), a preset round trip through stock CorOS keeps the placeholder playing and Tetrad restores the block, and 100 redeploys of an arena block leave the heap unchanged. CPU is measured only for one NAM model (about 1.4x the modelled instruction count; the catalogue charges 2x). The NAM trainer's WaveNet sizes need more than one core. Arenas use the L1 DM heap only (no SD heap). Cortex Control gets the placeholder in whole presets; its partial grid pushes still carry the local model ID. A new or changed block compiles on the device loop (cached; at most 24 576 nodes after expansion)."
 
 [[capability]]
 id = "remote"
