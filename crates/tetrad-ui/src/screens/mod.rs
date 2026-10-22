@@ -35,7 +35,7 @@ mod updater;
 mod vd_presets;
 mod wifi;
 
-use tetrad_assets::{FAINT, Icon, ON_ACCENT, Palette, SURFACE, TEXT, WARNING};
+use tetrad_assets::{Icon, Palette};
 
 use crate::layout::{BODY_BOLD, ButtonStyle, LARGE_BOLD, Layout, Look, MEDIUM_BOLD};
 use crate::render::{Align, WIDTH};
@@ -134,13 +134,14 @@ pub(crate) fn layout(ui: &UiState) -> Layout {
 
 /// Bank preview replaces the second header row on every main view.
 fn preview_banner(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let row = Rect::new(0, TOP_BAR + 1, WIDTH, (HEADER - TOP_BAR - 1) as u32);
-    l.push(row, "", Look::Fill(SURFACE));
+    l.push(row, "", Look::Fill(p.surface));
     l.text(
         Rect::new(16, row.y, 300, row.height),
         format!("BANK {} PREVIEW", ui.snapshot.bank.index + 1),
         LARGE_BOLD,
-        WARNING,
+        p.warning,
         Align::Left,
     );
     l.button(
@@ -168,6 +169,7 @@ pub(crate) fn stepper(
     value: String,
     enabled: bool,
 ) {
+    let p = l.palette;
     let (minus, rest) = bounds.take_left(44, 4);
     let (middle, plus) = rest.take_right(44, 4);
     let key = |icon| Look::Button {
@@ -180,7 +182,7 @@ pub(crate) fn stepper(
         middle,
         value,
         MEDIUM_BOLD,
-        if enabled { TEXT } else { FAINT },
+        if enabled { p.text } else { p.faint },
         Align::Center,
     );
     l.control(plus, up, enabled, "+", key(Icon::Plus));
@@ -190,6 +192,7 @@ pub(crate) fn stepper(
 /// the content overflows. The picker drawer uses 6 px, the ⋮ menu 2 px (seen on the QC).
 pub(crate) fn scrollbar(l: &mut Layout, viewport: Rect, content: u32, offset: i32, width: u32) {
     const INSET: i32 = 8;
+    let p = l.palette;
     let travel = content.saturating_sub(viewport.height);
     if travel == 0 {
         return;
@@ -204,7 +207,7 @@ pub(crate) fn scrollbar(l: &mut Layout, viewport: Rect, content: u32, offset: i3
             width,
             thumb as u32,
         ),
-        tetrad_assets::SCROLLBAR,
+        p.scrollbar,
         width as f32 / 2.0,
         None,
     );
@@ -214,6 +217,7 @@ pub(crate) fn scrollbar(l: &mut Layout, viewport: Rect, content: u32, offset: i3
 /// `badge_px` is the square letter badge, centred in the bar: 28 here, 24 in the block
 /// editor (`b4-stock1`).
 pub(crate) fn scene_stepper(ui: &UiState, l: &mut Layout, bounds: Rect, badge_px: u32) {
+    let p = l.palette;
     let scene = ui.snapshot.selected_scene;
     let step = |delta: u8| {
         let index = (scene.get() + delta) % SCENE_COUNT as u8;
@@ -240,12 +244,12 @@ pub(crate) fn scene_stepper(ui: &UiState, l: &mut Layout, bounds: Rect, badge_px
         badge_px,
         badge_px,
     );
-    l.panel(badge, WARNING, 5.0, None);
+    l.panel(badge, p.warning, 5.0, None);
     l.text(
         badge,
         scene.letter().to_string(),
         MEDIUM_BOLD,
-        ON_ACCENT,
+        p.on_accent,
         Align::Center,
     );
     l.control(next, step(1), true, "NEXT SCENE", key(Icon::StepForward));
