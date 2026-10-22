@@ -6,10 +6,7 @@
 //! starts at y 96, row height 86, 70×70 slots at the x positions below
 //! (`_INIT`, rodata `0x11dfde0`, `.data 0x153f728`) holding 64×64 tiles.
 
-use tetrad_assets::{
-    ACCENT, BACKGROUND, CABLE, CANVAS, DANGER, FAINT, Icon, IconSize, MUTED, ON_ACCENT, PANEL, Rgb,
-    SURFACE, TEXT, TextSize, WARNING, Weight,
-};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb, TextSize, Weight};
 
 use crate::draw::{PORT_LINE_PITCH, PORT_LINE_TOP, PORT_RADIUS, TAB_IDLE};
 use crate::layout::{BODY, BODY_BOLD, CAPTION, Layout, Look, MEDIUM, MEDIUM_BOLD};
@@ -30,6 +27,7 @@ use crate::*;
 /// x − 10, the pixel size becomes `int(size × 0.9)` ([`TITLE_STEPS`]). The item ends at
 /// `text_box.right()`.
 pub(super) fn preset_title(l: &mut Layout, s: &UiSnapshot, text_box: Rect, font: Font, grid: bool) {
+    let p = l.palette;
     let part_box = |x: i32| {
         Rect::new(
             x,
@@ -45,9 +43,9 @@ pub(super) fn preset_title(l: &mut Layout, s: &UiSnapshot, text_box: Rect, font:
         let letter_ink = if grid {
             super::gig::SLOT_COLOURS[usize::from(slot.slot % 8)]
         } else {
-            TEXT
+            p.text
         };
-        for (part, color) in [(number, TEXT), (letter, letter_ink)] {
+        for (part, color) in [(number, p.text), (letter, letter_ink)] {
             l.text(part_box(x), part, font, color, Align::Left);
             let width = font.width(part);
             x += if grid { width.round() } else { width.ceil() } as i32;
@@ -74,7 +72,7 @@ pub(super) fn preset_title(l: &mut Layout, s: &UiSnapshot, text_box: Rect, font:
             .unwrap_or(steps[steps.len() - 1]);
         let mut text = fit(name, font, room - font.width(star));
         text.push_str(star);
-        l.text(part_box(x), text, font, TEXT, Align::Left);
+        l.text(part_box(x), text, font, p.text, Align::Left);
         return;
     }
     let font = font.italic(s.dirty);
@@ -84,7 +82,7 @@ pub(super) fn preset_title(l: &mut Layout, s: &UiSnapshot, text_box: Rect, font:
         (text_box.right() - x - 4).max(0) as f32 - font.width(star),
     );
     text.push_str(star);
-    l.text(part_box(x), text, font, TEXT, Align::Left);
+    l.text(part_box(x), text, font, p.text, Align::Left);
 }
 
 /// Width from the first inked column to the last, as Qt's `QFontMetrics::boundingRect`.
@@ -154,9 +152,8 @@ const SCENE_MENU_RADIUS: f32 = 10.0;
 /// Dropdown scene letter: stock cap is 16 px (shots 025, `st5b`); Px23 gives 16 px.
 const SCENE_LETTER: Font = Font::new(TextSize::Px23, Weight::Medium);
 /// Row port clip light (`InputPortItem` paint `0x5a177c`, `0x5a1a8c`): the tile filled
-/// `#510909` with a 2 px `0xff2727` border on its edge.
+/// `#510909` with a 2 px `0xff2727` (danger) border on its edge.
 const CLIP_FILL: Rgb = Rgb(0x51, 0x09, 0x09);
-const CLIP_BORDER: Rgb = Rgb(0xff, 0x27, 0x27);
 /// Input Gate meter reduction (`0x5a43e8`: `QColor(0xff7000)`; reads `#ff7100` on the QC).
 const GATE_REDUCTION: Rgb = Rgb(0xff, 0x70, 0x00);
 /// The Add to Grid gray block (`icons/grid/gray_block.png`; I: its gray).
@@ -188,12 +185,13 @@ pub(crate) fn scene_title(scene: SceneIndex, view: &SceneView) -> String {
 /// The stock scene letter badge (shots 013, 025, 127): yellow, grey in the header while the
 /// scene dropdown is open.
 pub(crate) fn scene_badge(l: &mut Layout, bounds: Rect, scene: SceneIndex, font: Font, fill: Rgb) {
+    let p = l.palette;
     l.panel(bounds, fill, 4.0, None);
     l.text(
         bounds,
         scene.letter().to_string(),
         font,
-        ON_ACCENT,
+        p.on_accent,
         Align::Center,
     );
 }
@@ -233,15 +231,16 @@ pub(crate) fn row_has_input(s: &UiSnapshot, row: u8) -> bool {
 }
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
-    // The Grid sits on black (tokens `CANVAS`); the bank preview banner above
+    // The Grid sits on black (the canvas role); the bank preview banner above
     // the grid region stays visible.
     if ui.screen() == Screen::Grid {
         let top = if s.bank_preview_active { HEADER } else { 0 };
         l.push(
             Rect::new(0, top, WIDTH, (HEIGHT as i32 - top) as u32),
             "",
-            Look::Fill(CANVAS),
+            Look::Fill(p.canvas),
         );
         // Owned (O): marks the Tetrad UI apart from stock ZenUI, in the free strip under the
         // last grid row (y 467–479 on the QC). Overlays and the block editor cover it.
@@ -249,7 +248,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             Rect::new(0, 467, WIDTH, 13),
             concat!("Tetrad ", env!("CARGO_PKG_VERSION")),
             CAPTION,
-            FAINT,
+            p.faint,
             Align::Center,
         );
     }
@@ -286,7 +285,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             Rect::new(0, 0, WIDTH, PANEL_TOP as u32),
             "",
             Look::Veil {
-                color: CANVAS,
+                color: p.canvas,
                 alpha: EDITOR_VEIL,
             },
         );
@@ -299,7 +298,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         l.push(
             Rect::new(x - SLOT as i32 / 2, y - SLOT as i32 / 2, SLOT, SLOT),
             s.cell(from).label.clone(),
-            block_look(s, from, false, false, true),
+            block_look(&p, s, from, false, false, true),
         );
     }
     if ui.scene_menu {
@@ -324,14 +323,15 @@ fn slot_bounds(top: i32, position: GridPosition) -> Rect {
 /// A press in a cell selects it whatever its state; a press above row 0 or beside columns 0
 /// and 7 cancels; a press between or below the cells does nothing.
 fn add_to_grid(l: &mut Layout, top: i32, cells: &[[CellFit; GRID_COLUMNS]; GRID_ROWS]) {
-    l.veil((Rgb(0, 0, 0), 128));
+    let p = l.palette;
+    l.veil((p.tone(Rgb(0, 0, 0)), 128));
     for position in GridPosition::all() {
         let bounds = slot_bounds(top, position);
         let fit = cells[usize::from(position.row())][usize::from(position.column())];
         let (mark, size, label) = match fit {
             CellFit::Add => {
                 let block = Look::Panel {
-                    fill: GRAY_BLOCK,
+                    fill: p.tone(GRAY_BLOCK),
                     radius: 8.0,
                     border: None,
                 };
@@ -342,7 +342,7 @@ fn add_to_grid(l: &mut Layout, top: i32, cells: &[[CellFit; GRID_COLUMNS]; GRID_
             // the dimmed block.
             CellFit::Replace => {
                 let disc = Rect::new(bounds.x + 13, bounds.y + 13, 44, 44);
-                l.push(disc, "", Look::Dot { color: TEXT });
+                l.push(disc, "", Look::Dot { color: p.text });
                 (Some(Icon::Swap), IconSize::Large, "replace")
             }
             CellFit::NoFit => (None, IconSize::Medium, "no fit"),
@@ -356,9 +356,9 @@ fn add_to_grid(l: &mut Layout, top: i32, cells: &[[CellFit; GRID_COLUMNS]; GRID_
                 px,
             );
             let color = if fit == CellFit::Replace {
-                CANVAS
+                p.canvas
             } else {
-                TEXT
+                p.text
             };
             l.push(at, "", Look::Glyph { icon, size, color });
         }
@@ -385,6 +385,7 @@ fn add_to_grid(l: &mut Layout, top: i32, cells: &[[CellFit; GRID_COLUMNS]; GRID_
 /// Stock header (shot 013): "1A Brit 2203" title (tap → Directory), the
 /// icon cluster undo / scene badge / save / ⋮, and the mode label below it.
 pub(super) fn header(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let preview = s.bank_preview_active;
     let [menu, save, scenes, undo] = ICON_X.map(|x| Rect::new(x, ICON_Y, ICON, ICON));
@@ -395,7 +396,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         "MENU",
         Look::IconButton {
             icon: Icon::More,
-            fill: CANVAS,
+            fill: p.canvas,
         },
     );
     // An available update: a 10 px green dot at the ⋮ button's top-right (seen on the QC).
@@ -403,7 +404,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         l.push(
             Rect::new(menu.right() - 9, 0, 10, 10),
             "",
-            Look::Dot { color: ACCENT },
+            Look::Dot { color: p.accent },
         );
     }
     // Stock save button (`0x7e7de8`, `0x7e7e8c`): `saved.png` (025, a disk with a green
@@ -421,7 +422,10 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         Control::SavePreset,
         s.preset_id.is_some(),
         "SAVE",
-        Look::IconButton { icon, fill: CANVAS },
+        Look::IconButton {
+            icon,
+            fill: p.canvas,
+        },
     );
     if saved {
         l.push(
@@ -430,7 +434,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
             Look::Glyph {
                 icon: Icon::SaveBadge,
                 size: IconSize::Medium,
-                color: ACCENT,
+                color: p.accent,
             },
         );
     }
@@ -445,7 +449,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         Look::Area,
     );
     // While the dropdown is open stock greys the badge (`st5b.png`: `#636163`, black letter).
-    let fill = if ui.scene_menu { FAINT } else { WARNING };
+    let fill = if ui.scene_menu { p.faint } else { p.warning };
     let badge = Rect::new(scenes.x + 10, scenes.y + 10, 24, 24);
     scene_badge(l, badge, s.selected_scene, BADGE_LETTER, fill);
 
@@ -463,7 +467,10 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
                 control,
                 true,
                 label,
-                Look::IconButton { icon, fill: CANVAS },
+                Look::IconButton {
+                    icon,
+                    fill: p.canvas,
+                },
             );
             left -= ICON as i32 + 4;
         }
@@ -483,7 +490,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
             Rect::new(left, ICON_Y, width, ICON),
             cpu,
             BODY_BOLD,
-            MUTED,
+            p.muted,
             Align::Right,
         );
         left -= 8;
@@ -535,7 +542,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         text_width as u32,
         40,
     );
-    l.text(text, mode, MODE, TEXT, Align::Left);
+    l.text(text, mode, MODE, p.text, Align::Left);
     // The 24 px glyph box starts 36 px left of the text pen (`st-rb`, `st-mp1c`: box x 656).
     l.push(
         Rect::new(text.x - 36, area.y + 8, 24, 24),
@@ -543,7 +550,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         Look::Glyph {
             icon,
             size: IconSize::Medium,
-            color: TEXT,
+            color: p.text,
         },
     );
     inhibit_status(ui, l, undo.x);
@@ -557,6 +564,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
 /// stays on `EQ_disabled` (`0x7e8494`). Owned redraws (I): the EQ sliders, and an "In" tile
 /// with the gate bar; an off icon is grey with a red slash.
 fn inhibit_status(ui: &UiState, l: &mut Layout, x: i32) {
+    let p = l.palette;
     let Some(status) = ui.inhibit_status else {
         return;
     };
@@ -574,7 +582,7 @@ fn inhibit_status(ui: &UiState, l: &mut Layout, x: i32) {
         steps[step as usize % steps.len()]
     };
     let icon = Rect::new(bounds.x + 10, bounds.y + 10, 24, 24);
-    let color = if on { TEXT } else { MUTED };
+    let color = if on { p.text } else { p.muted };
     if eq {
         l.push(
             icon,
@@ -586,19 +594,19 @@ fn inhibit_status(ui: &UiState, l: &mut Layout, x: i32) {
             },
         );
     } else {
-        l.panel(icon, SURFACE, 4.0, None);
+        l.panel(icon, p.surface, 4.0, None);
         l.text(icon, "In", BODY_BOLD, color, Align::Center);
         if on {
             l.push(
                 Rect::new(icon.x + 4, icon.y + 2, 16, 2),
                 "",
-                Look::Fill(GATE_REDUCTION),
+                Look::Fill(p.tone(GATE_REDUCTION)),
             );
         }
     }
     if !on {
         let (x0, y0) = (icon.x as f32, icon.y as f32);
-        l.line((x0 + 22.0, y0 + 2.0), (x0 + 2.0, y0 + 22.0), 2.0, DANGER);
+        l.line((x0 + 22.0, y0 + 2.0), (x0 + 2.0, y0 + 22.0), 2.0, p.danger);
     }
     l.control(
         bounds,
@@ -660,6 +668,7 @@ fn output_text(port: OutputPort) -> &'static str {
 }
 
 fn block_look(
+    p: &Palette,
     s: &UiSnapshot,
     position: GridPosition,
     selected: bool,
@@ -671,7 +680,7 @@ fn block_look(
     Look::Block {
         hue: s
             .occupied(position)
-            .then(|| info.hue(capture).unwrap_or(MUTED)),
+            .then(|| info.hue(capture).unwrap_or(p.muted)),
         fill: info.fill(capture),
         icon: info.icon(capture),
         bypassed: s.cell(position).bypassed,
@@ -813,6 +822,7 @@ fn junction_path(
 /// A 2 px cable through `corners` (each leg horizontal or vertical), every inner corner
 /// rounded to a quarter circle of `radius`.
 fn rounded_cable(l: &mut Layout, corners: &[(f32, f32)], radius: f32) {
+    let p = l.palette;
     let unit = |(ax, ay): (f32, f32), (bx, by): (f32, f32)| {
         let length = (bx - ax).abs() + (by - ay).abs();
         ((bx - ax) / length, (by - ay) / length, length)
@@ -825,7 +835,7 @@ fn rounded_cable(l: &mut Layout, corners: &[(f32, f32)], radius: f32) {
         if length > head + tail {
             let from = (leg[0].0 + dx * head, leg[0].1 + dy * head);
             let to = (leg[1].0 - dx * tail, leg[1].1 - dy * tail);
-            l.line(from, to, 2.0, CABLE);
+            l.line(from, to, 2.0, p.cable);
         }
     }
     for turn in corners.windows(3) {
@@ -852,7 +862,7 @@ fn rounded_cable(l: &mut Layout, corners: &[(f32, f32)], radius: f32) {
             width: 2.0,
             start,
             sweep: 90.0,
-            color: CABLE,
+            color: p.cable,
         };
         l.push(at, "", look);
     }
@@ -896,6 +906,7 @@ pub(crate) fn offscreen(ui: &UiState) -> Layout {
 }
 
 fn grid(ui: &UiState, l: &mut Layout, top: i32) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let enabled = !s.bank_preview_active;
     let center = |row: usize| top + ROW_Y[row] + ROW_HEIGHT as i32 / 2;
@@ -904,7 +915,7 @@ fn grid(ui: &UiState, l: &mut Layout, top: i32) {
     for row in 0..GRID_ROWS {
         let y = center(row) as f32;
         for (start, end) in cable_runs(s, row) {
-            l.line((start, y), (end, y), 2.0, CABLE);
+            l.line((start, y), (end, y), 2.0, p.cable);
         }
     }
     for (index, pair) in s.pairs.iter().enumerate() {
@@ -979,6 +990,7 @@ fn grid(ui: &UiState, l: &mut Layout, top: i32) {
             enabled,
             label,
             block_look(
+                &p,
                 s,
                 position,
                 s.selected_block == Some(position),
@@ -992,7 +1004,7 @@ fn grid(ui: &UiState, l: &mut Layout, top: i32) {
             for (start, end) in cable_runs(s, row) {
                 let (start, end) = (start.max(at.x as f32), end.min(at.right() as f32));
                 if end > start {
-                    l.line((start, y), (end, y), 2.0, CABLE);
+                    l.line((start, y), (end, y), 2.0, p.cable);
                 }
             }
         }
@@ -1008,9 +1020,9 @@ fn grid(ui: &UiState, l: &mut Layout, top: i32) {
             let at = slot(position);
             let lock = Rect::new(at.x - 5, at.y + 45, 24, 24);
             let color = if s.cell(position).bypassed {
-                TEXT.mix(CANVAS, 204)
+                p.text.mix(p.canvas, 204)
             } else {
-                TEXT
+                p.text
             };
             l.push(
                 lock,
@@ -1031,7 +1043,11 @@ fn grid(ui: &UiState, l: &mut Layout, top: i32) {
         // disc, then the badge at opacity 0.2. The 565 shot reads white as 47 (`st-mp1a.png`):
         // I: Qt's RGB16 blend keeps 5 bits of alpha, so 0.2 acts as 6/32.
         if s.occupied(position) && s.blocks[index].capture_badge(s.captures[index]) {
-            let color = if dim { TEXT.mix(CANVAS, 208) } else { TEXT };
+            let color = if dim {
+                p.text.mix(p.canvas, 208)
+            } else {
+                p.text
+            };
             capture_badge(l, at, color);
         }
         // The sidechain marks sit at item (3, 31) and (60, 31): tile x − 6 and + 51.
@@ -1050,9 +1066,10 @@ fn grid(ui: &UiState, l: &mut Layout, top: i32) {
 /// (2, 2)–(21, 21). So Tetrad draws a 24 px black disc at (−2, +48), which hides the tile outline
 /// under it (`st-rb.png`), and the owned redraw [`Icon::CaptureType`] in the same box.
 pub(super) fn capture_badge(l: &mut Layout, at: Rect, color: Rgb) {
+    let p = l.palette;
     let size = IconSize::Medium;
     let badge = Rect::new(at.x - 2, at.y + 48, size.px(), size.px());
-    l.push(badge, "", Look::Dot { color: CANVAS });
+    l.push(badge, "", Look::Dot { color: p.canvas });
     let icon = Icon::CaptureType;
     l.push(badge, "", Look::Glyph { icon, size, color });
 }
@@ -1072,6 +1089,7 @@ fn plugin_tag(
     capture: Option<CaptureDevice>,
     dim: bool,
 ) {
+    let p = l.palette;
     let (Some(text), Some(hue), Some(category)) =
         (block.plugin_tag(), block.hue(capture), block.category)
     else {
@@ -1079,10 +1097,10 @@ fn plugin_tag(
     };
     let ink = category.tag_ink();
     let (fill, ink) = if dim {
-        let fill = hue.mix(CANVAS, 204);
+        let fill = hue.mix(p.canvas, 204);
         (
             fill,
-            if ink == CANVAS {
+            if ink == p.canvas {
                 ink
             } else {
                 ink.mix(fill, 204)
@@ -1101,25 +1119,31 @@ fn plugin_tag(
 /// glyph at `x` and the row `center`. The image's black backing shows as a 2 px rim that cuts
 /// the cable (`st5a.png`); at 20 % only the grey square shows, the cut-outs let the cable through.
 fn sidechain_mark(l: &mut Layout, x: i32, center: i32, icon: Icon, dim: bool) {
+    let p = l.palette;
     let size = IconSize::Small;
     let px = size.px();
     let glyph = Rect::new(x, center - px as i32 / 2, px, px);
     if !dim {
         let backing = Look::Panel {
-            fill: CANVAS,
+            fill: p.canvas,
             radius: 6.0,
             border: None,
         };
         let rim = Rect::new(glyph.x - 2, glyph.y - 2, px + 4, px + 4);
         l.push(rim, "", backing);
     }
-    let color = if dim { TEXT.mix(CANVAS, 204) } else { TEXT };
+    let color = if dim {
+        p.text.mix(p.canvas, 204)
+    } else {
+        p.text
+    };
     l.push(glyph, "", Look::Glyph { icon, size, color });
 }
 
 /// The clip light over a port tile; the port label is drawn again on top, as `Look::Port`
 /// lays it out (stock paints the text after the fill).
 fn clip_light(l: &mut Layout, bounds: Rect, text: &str) {
+    let p = l.palette;
     // `0x5a177c` strokes the tile path itself (item rect inset 3, radius 14) with a 2 px pen
     // on its centre line: the border runs 1 px out of the tile and 1 px into it.
     let panel = |fill, radius| Look::Panel {
@@ -1127,13 +1151,17 @@ fn clip_light(l: &mut Layout, bounds: Rect, text: &str) {
         radius,
         border: None,
     };
-    l.push(bounds.grow(1, 1), "", panel(CLIP_BORDER, PORT_RADIUS + 1.0));
-    l.push(bounds.inset(1, 1), "", panel(CLIP_FILL, PORT_RADIUS - 1.0));
+    l.push(bounds.grow(1, 1), "", panel(p.danger, PORT_RADIUS + 1.0));
+    l.push(
+        bounds.inset(1, 1),
+        "",
+        panel(p.tone(CLIP_FILL), PORT_RADIUS - 1.0),
+    );
     let (first, second) = text.split_once(' ').unwrap_or((text, ""));
     for (line, text) in [first, second].into_iter().enumerate() {
         let y = bounds.y + PORT_LINE_TOP + line as i32 * PORT_LINE_PITCH;
         let row = Rect::new(bounds.x, y, bounds.width, 22);
-        l.text(row, text, BODY, TEXT, Align::Center);
+        l.text(row, text, BODY, p.text, Align::Center);
     }
 }
 
@@ -1143,6 +1171,7 @@ fn clip_light(l: &mut Layout, bounds: Rect, text: &str) {
 /// radius 3; and a 1 px orange mark at the open edge while it is more than 1 px from either
 /// end (`0x5a163c`). Stock paints these child items over the port and its clip light.
 fn gate_meter(l: &mut Layout, port: Rect, meter: GateMeter) {
+    let p = l.palette;
     let (width, open) = (u32::from(GateMeter::WIDTH), u32::from(meter.open()));
     let bar = Rect::new(port.x + 10, port.y + 7, width, 4);
     let panel = |fill| Look::Panel {
@@ -1150,15 +1179,15 @@ fn gate_meter(l: &mut Layout, port: Rect, meter: GateMeter) {
         radius: 3.0,
         border: None,
     };
-    l.push(bar, "", panel(CANVAS));
+    l.push(bar, "", panel(p.canvas));
     let edge = bar.x + open as i32;
     if open < width {
         let reduction = Rect::new(edge, bar.y, width - open, bar.height);
-        l.push(reduction, "", panel(GATE_REDUCTION));
+        l.push(reduction, "", panel(p.tone(GATE_REDUCTION)));
     }
     if open > 1 && open + 2 < width {
         let mark = Rect::new(edge, bar.y, 1, bar.height);
-        l.push(mark, "", Look::Fill(GATE_REDUCTION));
+        l.push(mark, "", Look::Fill(p.tone(GATE_REDUCTION)));
     }
 }
 
@@ -1167,20 +1196,22 @@ fn gate_meter(l: &mut Layout, port: Rect, meter: GateMeter) {
 /// the row by the radius, and the overhang is painted back in the panel colour.
 /// Middle rows stay square.
 fn active_row(l: &mut Layout, row: Rect, scene: SceneIndex) {
-    let fill = CANVAS.mix(PANEL, 55);
+    let p = l.palette;
+    let fill = p.canvas.mix(p.panel, 55);
+    let scene_menu_fill = p.tone(SCENE_MENU_FILL);
     let radius = SCENE_MENU_RADIUS as u32;
     let index = usize::from(scene.get());
     if index == 0 {
         let body = Rect::new(row.x, row.y, row.width, row.height + radius);
         l.panel(body, fill, SCENE_MENU_RADIUS, None);
         let overhang = Rect::new(row.x, row.bottom(), row.width, radius);
-        l.push(overhang, "", Look::Fill(SCENE_MENU_FILL));
+        l.push(overhang, "", Look::Fill(scene_menu_fill));
     } else if index == SCENE_COUNT - 1 {
         let top = row.y - radius as i32;
         let body = Rect::new(row.x, top, row.width, row.height + radius);
         l.panel(body, fill, SCENE_MENU_RADIUS, None);
         let overhang = Rect::new(row.x, top, row.width, radius);
-        l.push(overhang, "", Look::Fill(SCENE_MENU_FILL));
+        l.push(overhang, "", Look::Fill(scene_menu_fill));
     } else {
         l.push(row, "", Look::Fill(fill));
     }
@@ -1190,9 +1221,10 @@ fn active_row(l: &mut Layout, row: Rect, scene: SceneIndex) {
 /// the active scene in green on a darker row. A pick or a tap outside closes it. No pencil:
 /// scene names are edited from Gig View (EDIT SCENE).
 fn scene_menu(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
     l.popover(SCENE_MENU);
-    l.panel(SCENE_MENU, SCENE_MENU_FILL, SCENE_MENU_RADIUS, None);
+    l.panel(SCENE_MENU, p.tone(SCENE_MENU_FILL), SCENE_MENU_RADIUS, None);
     let row_height = SCENE_MENU.height / SCENE_COUNT as u32;
     for scene in SceneIndex::all() {
         let row = Rect::new(
@@ -1214,11 +1246,11 @@ fn scene_menu(ui: &UiState, l: &mut Layout) {
             Look::Area,
         );
         let badge = Rect::new(row.x + 16, row.y + (row.height as i32 - 24) / 2, 24, 24);
-        l.panel(badge, WARNING, 4.0, None);
+        l.panel(badge, p.warning, 4.0, None);
         // Stock's 16 px cap (`st5b`) sits 1 px left of and 1 px below centred Px23 text.
         let letter = Rect::new(badge.x - 1, badge.y + 1, badge.width, badge.height);
         let text = scene.letter().to_string();
-        l.text(letter, text, SCENE_LETTER, ON_ACCENT, Align::Center);
+        l.text(letter, text, SCENE_LETTER, p.on_accent, Align::Center);
         // Stock sets the name 1 px lower than the centre line (its "+" glyph
         // tops at y 168 in row C; Tetrad at 167).
         l.text(
@@ -1230,7 +1262,7 @@ fn scene_menu(ui: &UiState, l: &mut Layout) {
             ),
             scene_title(scene, view),
             BODY,
-            if active { ACCENT } else { TEXT },
+            if active { p.accent } else { p.text },
             Align::Left,
         );
     }
@@ -1243,24 +1275,25 @@ fn scene_menu(ui: &UiState, l: &mut Layout) {
 /// BLOCKS"): the docked panel with the element's name, CLOSE and its knobs. Owned header:
 /// no stock shot of these editors.
 fn site_panel(ui: &UiState, l: &mut Layout, site: EditorSite) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let top = PANEL_TOP;
     l.push(
         Rect::new(0, top, WIDTH, HEIGHT - top as u32),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     let header = top + 8;
     let hue = match site {
         EditorSite::Splitter(_) => ModelCategory::Splitter.hue(),
         EditorSite::Mixer(_) => ModelCategory::Mixer.hue(),
-        EditorSite::InputGate(_) | EditorSite::LaneOutput(_) => TEXT,
+        EditorSite::InputGate(_) | EditorSite::LaneOutput(_) => p.text,
     };
     l.text(
         Rect::new(16, header + 1, 400, 18),
         format!("ROW {}", site.row().get() + 1),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
@@ -1281,7 +1314,7 @@ fn site_panel(ui: &UiState, l: &mut Layout, site: EditorSite) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     let card = Rect::new(
@@ -1291,8 +1324,8 @@ fn site_panel(ui: &UiState, l: &mut Layout, site: EditorSite) {
         (HEIGHT as i32 - 8 - header - 52) as u32,
     );
     if s.parameters.is_empty() {
-        l.panel(card, PANEL, 8.0, None);
-        l.text(card, "No parameters", BODY, FAINT, Align::Center);
+        l.panel(card, p.panel, 8.0, None);
+        l.text(card, "No parameters", BODY, p.faint, Align::Center);
         return;
     }
     let first = (ui.param_page * KNOB_COUNT).min(s.parameters.len());
@@ -1335,6 +1368,7 @@ fn model_name(l: &mut Layout, name_box: Rect, name: &str, hue: Rgb, matched: boo
 /// controls, quick1 first; the icon band is 114 × 37 at y 11. The route marks are owned
 /// drawings: one lane forks into two (quick1), and the two rejoin (quick2).
 fn quick_buttons(l: &mut Layout, right: i32, header: i32) {
+    let p = l.palette;
     const WIDTH: i32 = 114;
     for (index, quick) in [QuickSplit::Split, QuickSplit::SplitAndMix]
         .into_iter()
@@ -1342,7 +1376,7 @@ fn quick_buttons(l: &mut Layout, right: i32, header: i32) {
     {
         let x = right - (2 - index as i32) * (WIDTH + 4) + 4;
         let button = Rect::new(x, header, WIDTH as u32, 44);
-        l.panel(button, SURFACE, 8.0, None);
+        l.panel(button, p.surface, 8.0, None);
         l.control(
             button,
             Control::QuickSplit(quick),
@@ -1365,24 +1399,25 @@ fn quick_buttons(l: &mut Layout, right: i32, header: i32) {
             x as f32 + 74.0,
             x as f32 + 92.0,
         );
-        l.line((left, y), (fork, y), 2.0, TEXT);
+        l.line((left, y), (fork, y), 2.0, p.text);
         for rail in [top, bottom] {
-            l.line((fork, y), (fork + 8.0, rail), 2.0, TEXT);
+            l.line((fork, y), (fork + 8.0, rail), 2.0, p.text);
             match quick {
-                QuickSplit::Split => l.line((fork + 8.0, rail), (end, rail), 2.0, TEXT),
+                QuickSplit::Split => l.line((fork + 8.0, rail), (end, rail), 2.0, p.text),
                 QuickSplit::SplitAndMix => {
-                    l.line((fork + 8.0, rail), (join - 8.0, rail), 2.0, TEXT);
-                    l.line((join - 8.0, rail), (join, y), 2.0, TEXT);
+                    l.line((fork + 8.0, rail), (join - 8.0, rail), 2.0, p.text);
+                    l.line((join - 8.0, rail), (join, y), 2.0, p.text);
                 }
             }
         }
         if quick == QuickSplit::SplitAndMix {
-            l.line((join, y), (end, y), 2.0, TEXT);
+            l.line((join, y), (end, y), 2.0, p.text);
         }
     }
 }
 
 fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
+    let p = l.palette;
     let s = &ui.snapshot;
     // Pattern Tremolo and cab editors fill the screen: the header row, then an 800 × 420
     // body (`0x3ae61c`, `0x643e44`; header row height I).
@@ -1392,13 +1427,13 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
     l.push(
         Rect::new(0, top, WIDTH, HEIGHT - top as u32),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     let cell = s.cell(position);
     let category = s.blocks[position.index()].category;
-    let hue = category.map_or(MUTED, ModelCategory::hue);
+    let hue = category.map_or(p.muted, ModelCategory::hue);
     let header = top + 8;
-    // Stock editor keys (MENU, footswitch, scenes, bypass) are `TAB_IDLE`; ✓ stays `PANEL`
+    // Stock editor keys (MENU, footswitch, scenes, bypass) are `TAB_IDLE`; ✓ stays panel
     // (`b4-stock1`).
     l.control(
         Rect::new(8, header, 44, 44),
@@ -1407,7 +1442,7 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
         "MENU",
         Look::IconButton {
             icon: Icon::More,
-            fill: TAB_IDLE,
+            fill: p.tone(TAB_IDLE),
         },
     );
     // FOOTSWITCH ASSIGNMENT (shot 058) while any tile is a stomp: footswitch glyph and
@@ -1438,7 +1473,7 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
             Rect::new(name_box.x, header + 1, name_box.width, 18),
             category.label().to_uppercase(),
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     }
@@ -1453,7 +1488,7 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
     model_name(l, name_box, &name, title_hue, s.editor_preset.is_some());
     if stomp_button {
         let button = Rect::new(428, header, 66, 44);
-        l.panel(button, TAB_IDLE, 8.0, None);
+        l.panel(button, p.tone(TAB_IDLE), 8.0, None);
         let assigned = s.selected_stomp.map(|tile| char::from(b'A' + tile));
         l.control(
             button,
@@ -1468,24 +1503,24 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
             Look::Glyph {
                 icon: Icon::Footswitch,
                 size: IconSize::Medium,
-                color: TEXT,
+                color: p.text,
             },
         );
         l.text(
             Rect::new(button.x + 36, button.y, 24, 44),
             assigned.map_or_else(|| "?".to_owned(), String::from),
             MEDIUM_BOLD,
-            if assigned.is_some() { TEXT } else { MUTED },
+            if assigned.is_some() { p.text } else { p.muted },
             Align::Center,
         );
     }
     let scenes = Rect::new(502, header, 132, 44);
-    l.panel(scenes, TAB_IDLE, 8.0, None);
+    l.panel(scenes, p.tone(TAB_IDLE), 8.0, None);
     super::scene_stepper(ui, l, scenes, 24);
     // Stock 2 px divider (`b4-stock1`, 22 px tall) between the scene selector and bypass.
-    l.push(Rect::new(642, header + 11, 2, 22), "", Look::Fill(PANEL));
+    l.push(Rect::new(642, header + 11, 2, 22), "", Look::Fill(p.panel));
     let bypass = Rect::new(652, header, 66, 44);
-    l.panel(bypass, TAB_IDLE, 8.0, None);
+    l.panel(bypass, p.tone(TAB_IDLE), 8.0, None);
     l.control(
         bypass,
         Control::Param(ParamControl::Bypass),
@@ -1502,13 +1537,13 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
             Look::Glyph {
                 icon: Icon::Power,
                 size: IconSize::Medium,
-                color: TEXT,
+                color: p.text,
             },
         );
     }
     // Stock ✓ is a 20 px glyph (16 × 12 measured), not the 24 px button glyph.
     let close = Rect::new(726, header, 66, 44);
-    l.panel(close, PANEL, 8.0, None);
+    l.panel(close, p.panel, 8.0, None);
     l.control(
         close,
         Control::Param(ParamControl::Close),
@@ -1522,7 +1557,7 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
         Look::Glyph {
             icon: Icon::Check,
             size: IconSize::Compact,
-            color: TEXT,
+            color: p.text,
         },
     );
     if let Some(editor) = editor {
@@ -1536,12 +1571,12 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
         (HEIGHT as i32 - 8 - header - 52) as u32,
     );
     if s.parameters.is_empty() {
-        l.panel(card, PANEL, 8.0, None);
+        l.panel(card, p.panel, 8.0, None);
         l.text(
             card,
             "No parameters from the application",
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
         return;
@@ -1563,13 +1598,13 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
     if cell.bypassed {
         let tabs = Rect::new(name_right, header, (tabs_right - name_right) as u32, 52);
         let veil = Look::Veil {
-            color: BYPASS_VEIL_COLOUR,
+            color: p.tone(BYPASS_VEIL_COLOUR),
             alpha: BYPASS_VEIL,
         };
         l.push(tabs, "", veil);
         let fade = Look::Fade {
-            card: CARD,
-            faded: BYPASS_CARD,
+            card: p.tone(CARD),
+            faded: p.tone(BYPASS_CARD),
             keep: BYPASS_KEEP,
         };
         l.push(card, "", fade);
@@ -1595,14 +1630,16 @@ const BYPASS_VEIL: u8 = 182;
 /// `sl-1` at 673, 214): a 2 px rounded square (18 × 18, radius 4) in the block colour, its
 /// sides cut at y 10–13 of the 24 px box, crossed by a 2 px white bar the box's width.
 fn bypassed_glyph(l: &mut Layout, key: Rect, hue: Rgb) {
+    let p = l.palette;
     let (x, y) = (
         key.x + (key.width as i32 - 24) / 2,
         key.y + (key.height as i32 - 24) / 2,
     );
     l.panel(Rect::new(x + 3, y + 3, 18, 18), hue, 4.0, None);
-    l.panel(Rect::new(x + 5, y + 5, 14, 14), TAB_IDLE, 2.0, None);
-    l.push(Rect::new(x + 3, y + 10, 18, 4), "", Look::Fill(TAB_IDLE));
-    l.push(Rect::new(x, y + 11, 24, 2), "", Look::Fill(TEXT));
+    let idle = p.tone(TAB_IDLE);
+    l.panel(Rect::new(x + 5, y + 5, 14, 14), idle, 2.0, None);
+    l.push(Rect::new(x + 3, y + 10, 18, 4), "", Look::Fill(idle));
+    l.push(Rect::new(x, y + 11, 24, 2), "", Look::Fill(p.text));
 }
 
 /// The editor's `zenUI::TabBar` (`0x4ba858`, paint `0x347d10`), right-aligned to `right`:
@@ -1611,6 +1648,7 @@ fn bypassed_glyph(l: &mut Layout, key: Rect, hue: Rgb) {
 /// into the card; the others are 44 px `#1e1e1e` with grey text. Hidden below two pages
 /// (`0x4b8268`). Returns the left edge of the bar (`right` when hidden).
 fn tab_bar(ui: &UiState, l: &mut Layout, right: i32, header: i32) -> i32 {
+    let p = l.palette;
     let pages = ui.last_param_page() + 1;
     if pages < 2 {
         return right;
@@ -1628,10 +1666,11 @@ fn tab_bar(ui: &UiState, l: &mut Layout, right: i32, header: i32) -> i32 {
         let tab = Rect::new(x, header, width, 44);
         if selected {
             // Top corners rounded, square into the card below.
-            l.panel(Rect::new(x, header, width, 52), CARD, 8.0, None);
-            l.push(Rect::new(x, header + 30, width, 22), "", Look::Fill(CARD));
+            let card = p.tone(CARD);
+            l.panel(Rect::new(x, header, width, 52), card, 8.0, None);
+            l.push(Rect::new(x, header + 30, width, 22), "", Look::Fill(card));
         } else {
-            l.panel(tab, SURFACE, 8.0, None);
+            l.panel(tab, p.surface, 8.0, None);
         }
         l.control(
             tab,
@@ -1644,7 +1683,7 @@ fn tab_bar(ui: &UiState, l: &mut Layout, right: i32, header: i32) -> i32 {
             tab,
             label,
             BODY,
-            if selected { TEXT } else { MUTED },
+            if selected { p.text } else { p.muted },
             Align::Center,
         );
         x += width as i32 + 4;

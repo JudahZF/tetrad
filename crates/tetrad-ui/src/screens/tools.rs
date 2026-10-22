@@ -1,9 +1,6 @@
 //! Tuner, Looper X and tempo/metronome. The Neural Capture wizard is in `capture.rs`.
 
-use tetrad_assets::{
-    ACCENT, ACCENT_FILL, BACKGROUND, CANVAS, DANGER, FAINT, Icon, MUTED, PANEL, Rgb, SECTION,
-    SURFACE, TEXT, TUNER_IN, TextSize, WARNING, Weight,
-};
+use tetrad_assets::{Icon, Palette, Rgb, TUNER_IN, TextSize, Weight};
 
 use crate::layout::{
     BODY, BODY_BOLD, ButtonStyle, CAPTION, LARGE, LARGE_BOLD, Layout, Look, MEDIUM, MEDIUM_BOLD,
@@ -113,6 +110,7 @@ fn panel(
     divider: Rgb,
     cells: &[Cell],
 ) {
+    let p = l.palette;
     let rows = cells.len().div_ceil(KNOB_COUNT / 2) as u32;
     for (cell, b) in cells
         .iter()
@@ -120,20 +118,25 @@ fn panel(
     {
         match cell {
             // Stock has no cell there (037: four cells), so no divider before it.
-            Cell::Empty => l.push(Rect::new(b.x - 1, b.y, 1, b.height), "", Look::Fill(CARD)),
+            Cell::Empty => l.push(
+                Rect::new(b.x - 1, b.y, 1, b.height),
+                "",
+                Look::Fill(p.tone(CARD)),
+            ),
             cell => panel_cell(ui, l, screen, b, *cell),
         }
     }
 }
 
 fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell) {
+    let p = l.palette;
     let s = &ui.snapshot;
     // Tempo (008) switches sit 8 px and its MUTE button 6 px lower than the Tuner's (037).
     let tempo = screen == Screen::Tempo;
     let knob = |value: String, kind: ParameterKind| Look::Knob {
         value,
         kind,
-        color: ACCENT,
+        color: p.accent,
         focused: false,
     };
     match cell {
@@ -147,7 +150,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
                 kind: ParameterKind::Continuous {
                     position: (s.tempo.bpm - 40.0) / 200.0,
                 },
-                color: tempo_color(ui),
+                color: tempo_color(ui, &p),
                 focused: false,
             },
         ),
@@ -201,7 +204,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
             // Stock switch (shot 037): black slot, green ring at the active end.
             let top = b.y + b.height as i32 / 2 - 15 + if tempo { 8 } else { 0 };
             let track = Rect::new(b.x + 16, top, 22, 46);
-            l.panel(track, CANVAS, 11.0, None);
+            l.panel(track, p.canvas, 11.0, None);
             for (index, option) in options.into_iter().enumerate() {
                 let y = track.y + index as i32 * 23;
                 let on = active == Some(index);
@@ -209,19 +212,19 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
                     Rect::new(track.right() + 16, y, b.width.saturating_sub(60), 23),
                     option,
                     BODY,
-                    if on { TEXT } else { FAINT },
+                    if on { p.text } else { p.faint },
                     Align::Left,
                 );
                 if on {
                     l.push(
                         Rect::new(track.x + 1, y + 2, 19, 19),
                         "",
-                        Look::Dot { color: ACCENT },
+                        Look::Dot { color: p.accent },
                     );
                     l.push(
                         Rect::new(track.x + 4, y + 5, 13, 13),
                         "",
-                        Look::Dot { color: CANVAS },
+                        Look::Dot { color: p.canvas },
                     );
                 }
             }
@@ -239,8 +242,8 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
                 id.label(),
                 Look::Area,
             );
-            l.panel(field, CANVAS, 4.0, None);
-            let ink = if known { TEXT } else { FAINT };
+            l.panel(field, p.canvas, 4.0, None);
+            let ink = if known { p.text } else { p.faint };
             let arrow = Rect::new(field.right() - 22, field.y + 15, 9, 7);
             super::settings::triangle(l, arrow, true, ink);
             l.text(
@@ -275,7 +278,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
                 Rect::new(field.x + 8, field.y, field.width - 38, field.height),
                 id.format(value),
                 CAPTION,
-                if enabled { TEXT } else { FAINT },
+                if enabled { p.text } else { p.faint },
                 Align::Left,
             );
         }
@@ -286,7 +289,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
             let button = Rect::new(b.x + 10, top, b.width - 20, 38);
             l.panel(
                 button,
-                if lit && alarm { DANGER } else { CANVAS },
+                if lit && alarm { p.danger } else { p.canvas },
                 6.0,
                 None,
             );
@@ -305,17 +308,19 @@ fn panel_cell(ui: &UiState, l: &mut Layout, screen: Screen, b: Rect, cell: Cell)
 /// Stock ⓘ (008 MODE): a grey disc with a dark "i", 8 px inside the cell's top right.
 /// Drawn only; its help text is not recovered.
 fn info_mark(l: &mut Layout, b: Rect) {
+    let p = l.palette;
     let disc = Rect::new(b.right() - 30, b.y + 8, 22, 22);
-    l.push(disc, "", Look::Dot { color: MUTED });
-    l.text(disc, "i", BODY_BOLD, PANEL, Align::Center);
+    l.push(disc, "", Look::Dot { color: p.muted });
+    l.text(disc, "i", BODY_BOLD, p.panel, Align::Center);
 }
 
 fn cell_label(l: &mut Layout, b: Rect, label: &str, enabled: bool) {
+    let p = l.palette;
     l.text(
         Rect::new(b.x + 10, b.y + 6, b.width.saturating_sub(20), 28),
         label,
         BODY,
-        if enabled { TEXT } else { FAINT },
+        if enabled { p.text } else { p.faint },
         Align::Left,
     );
 }
@@ -335,26 +340,33 @@ fn note_name(pitch_class: u8) -> String {
 /// Tuner (shot 037): cents row with ±50, a white line with the ball, the note
 /// between its neighbours, then the one-row settings panel.
 pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     const LINE_Y: i32 = 189;
     const BALL: i32 = 41;
     let t = &ui.snapshot.tuner;
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(PAGE));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     page_header(l, "Tuner", Control::Back, Icon::Check);
-    l.text(Rect::new(25, 76, 100, 30), "-50", LARGE, MUTED, Align::Left);
+    l.text(
+        Rect::new(25, 76, 100, 30),
+        "-50",
+        LARGE,
+        p.muted,
+        Align::Left,
+    );
     l.text(
         Rect::new(672, 76, 100, 30),
         "+50",
         LARGE,
-        MUTED,
+        p.muted,
         Align::Right,
     );
-    l.line((26.0, LINE_Y as f32), (774.0, LINE_Y as f32), 2.0, TEXT);
+    l.line((26.0, LINE_Y as f32), (774.0, LINE_Y as f32), 2.0, p.text);
     let Some(note) = t.note else {
         l.text(
             Rect::new(250, 255, 300, 90),
             "-",
             NOTE,
-            FAINT,
+            p.faint,
             Align::Center,
         );
         panel(
@@ -362,8 +374,8 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
             l,
             Screen::Tuner,
             Rect::new(8, 366, 784, 107),
-            PAGE,
-            TUNER_DIVIDER,
+            p.tone(PAGE),
+            p.tone(TUNER_DIVIDER),
             &TUNER_PANEL,
         );
         return;
@@ -379,15 +391,15 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
         Rect::new(250, 66, 300, 50),
         format!("{sign}{shown:.1}"),
         CENTS,
-        TEXT,
+        p.text,
         Align::Center,
     );
     // Both chevrons always show. Out of tune, the one on the ball's side changes pixmap
     // (`+0x150`/`+0x168`); the other keeps its in-tune pixmap. I: the changed one is red.
     let (left, right) = match () {
-        _ if in_tune => (ACCENT, ACCENT),
-        _ if shown > 0.0 => (ACCENT, DANGER),
-        _ => (DANGER, ACCENT),
+        _ if in_tune => (p.accent, p.accent),
+        _ if shown > 0.0 => (p.accent, p.danger),
+        _ => (p.danger, p.accent),
     };
     for (x, chevron, color) in [(195, ">", left), (573, "<", right)] {
         l.text(
@@ -401,9 +413,9 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
     // Stock ball centre: (cents + 50) · 7.48 + 26, so the travel is the whole line.
     let x = ((cents + 50.0) * 7.48 + 26.0).round() as i32;
     for (radius, color) in [
-        (BALL, TEXT),
-        (BALL - 2, CANVAS),
-        (30, if in_tune { TUNER_IN } else { DANGER }),
+        (BALL, p.text),
+        (BALL - 2, p.canvas),
+        (30, if in_tune { TUNER_IN } else { p.danger }),
     ] {
         l.push(
             Rect::new(
@@ -420,21 +432,21 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
         Rect::new(25, 270, 250, 50),
         note_name(note.pitch_class % 12 + 11),
         SIDE_NOTE,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(250, 255, 300, 90),
         note.name(),
         NOTE,
-        TEXT,
+        p.text,
         Align::Center,
     );
     l.text(
         Rect::new(525, 270, 250, 50),
         note_name(note.pitch_class % 12 + 1),
         SIDE_NOTE,
-        MUTED,
+        p.muted,
         Align::Right,
     );
     panel(
@@ -442,8 +454,8 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
         l,
         Screen::Tuner,
         Rect::new(8, 366, 784, 107),
-        PAGE,
-        TUNER_DIVIDER,
+        p.tone(PAGE),
+        p.tone(TUNER_DIVIDER),
         &TUNER_PANEL,
     );
 }
@@ -458,20 +470,25 @@ fn midi_clock_out(ui: &UiState) -> bool {
 
 /// The BPM number and TEMPO knob colour: stock red `0xff2727` with MIDI Clock Out on
 /// (`0x380924`..`0x3809cc`, seen on the QC 2026-10-15), else the accent green.
-fn tempo_color(ui: &UiState) -> Rgb {
-    if midi_clock_out(ui) { DANGER } else { ACCENT }
+fn tempo_color(ui: &UiState, p: &Palette) -> Rgb {
+    if midi_clock_out(ui) {
+        p.danger
+    } else {
+        p.accent
+    }
 }
 
 pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let tempo = &ui.snapshot.tempo;
     // Stock Tempo (008) is black; Tuner (037) and Capture use `PAGE` (#101010).
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(CANVAS));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.canvas));
     page_header(l, "Tempo", Control::Back, Icon::Check);
     // Scene stepper left of ✓, as on stock (seen on the QC 2026-10-15).
     let scenes = Rect::new(544, 8, 132, 44);
-    l.panel(scenes, PANEL, 8.0, None);
+    l.panel(scenes, p.panel, 8.0, None);
     super::scene_stepper(ui, l, scenes, 28);
-    l.push(Rect::new(684, 14, 1, 32), "", Look::Fill(SECTION));
+    l.push(Rect::new(684, 14, 1, 32), "", Look::Fill(p.section));
     let bpm = Rect::new(240, 38, 320, 88);
     // The tap area starts below the header so it does not overlap the scene stepper.
     l.control(
@@ -485,7 +502,7 @@ pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
         bpm,
         format!("{:.0}", tempo.bpm),
         BPM,
-        tempo_color(ui),
+        tempo_color(ui, &p),
         Align::Center,
     );
     // Read-only "BPM = QUARTERS / EIGHTHS" (`0x38087c`): the beat unit of the time signature;
@@ -499,7 +516,7 @@ pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
         Rect::new(200, 128, 400, 26),
         caption,
         BODY,
-        DANGER,
+        p.danger,
         Align::Center,
     );
     let beats = i32::from(tempo.beats_per_bar.clamp(1, 16));
@@ -508,7 +525,7 @@ pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
     for beat in 0..beats {
         let lit = tempo.beat.is_some_and(|current| i32::from(current) == beat);
         let x = first + beat * spacing;
-        let color = if lit { TEXT } else { SECTION };
+        let color = if lit { p.text } else { p.section };
         l.push(Rect::new(x - 12, 201, 24, 24), "", Look::Dot { color });
         // Marks: 8 px dots 24 px above or below the beat centre (shot 008).
         let accent = tempo
@@ -518,9 +535,9 @@ pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
             .unwrap_or_default();
         let mark = match accent {
             BeatAccent::Dot => None,
-            BeatAccent::Black => Some((Rect::new(x - 10, 203, 20, 20), CANVAS)),
-            BeatAccent::Above => Some((Rect::new(x - 4, 185, 8, 8), SECTION)),
-            BeatAccent::Below => Some((Rect::new(x - 4, 233, 8, 8), SECTION)),
+            BeatAccent::Black => Some((Rect::new(x - 10, 203, 20, 20), p.canvas)),
+            BeatAccent::Above => Some((Rect::new(x - 4, 185, 8, 8), p.section)),
+            BeatAccent::Below => Some((Rect::new(x - 4, 233, 8, 8), p.section)),
         };
         if let Some((bounds, color)) = mark {
             l.push(bounds, "", Look::Dot { color });
@@ -532,8 +549,8 @@ pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
         l,
         Screen::Tempo,
         bounds,
-        CANVAS,
-        TEMPO_DIVIDER,
+        p.canvas,
+        p.tone(TEMPO_DIVIDER),
         &TEMPO_PANEL,
     );
 }
@@ -542,6 +559,7 @@ pub(super) fn tempo(ui: &UiState, l: &mut Layout) {
 /// scene, ✓), the hint card, then the eight action tiles assigned to A–H.
 /// Stock tile origins (`_INIT_519` table `0x155e6cc`) are x 8 + 198·i.
 pub(super) fn looper(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let looper = &s.looper;
     let swap = ui.looper_swap;
@@ -552,14 +570,14 @@ pub(super) fn looper(ui: &UiState, l: &mut Layout) {
         "MENU",
         Look::IconButton {
             icon: Icon::More,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     l.text(
         Rect::new(60, 8, 280, 20),
         "LOOPER",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
@@ -578,9 +596,9 @@ pub(super) fn looper(ui: &UiState, l: &mut Layout) {
             Look::IconButton {
                 icon: Icon::Lock,
                 fill: if looper.editor_view {
-                    ACCENT_FILL
+                    p.accent_fill
                 } else {
-                    PANEL
+                    p.panel
                 },
             },
         );
@@ -601,7 +619,7 @@ pub(super) fn looper(ui: &UiState, l: &mut Layout) {
         },
     );
     super::scene_stepper(ui, l, Rect::new(544, 8, 132, 44), 28);
-    l.push(Rect::new(684, 14, 1, 32), "", Look::Fill(SECTION));
+    l.push(Rect::new(684, 14, 1, 32), "", Look::Fill(p.section));
     l.control(
         CLOSE_BUTTON,
         if swap.is_some() {
@@ -613,24 +631,24 @@ pub(super) fn looper(ui: &UiState, l: &mut Layout) {
         if swap.is_some() { "DONE" } else { "CLOSE" },
         Look::IconButton {
             icon: Icon::Check,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
-    l.panel(Rect::new(8, 60, 784, 208), PANEL, 8.0, None);
-    l.panel(Rect::new(8, 168, 784, 100), SURFACE, 8.0, None);
+    l.panel(Rect::new(8, 60, 784, 208), p.panel, 8.0, None);
+    l.panel(Rect::new(8, 168, 784, 100), p.surface, 8.0, None);
     if swap.is_some() {
         // Swap dialog hint (`0xa30f6c`, `0x37c7ac`).
         l.text(
             Rect::new(16, 62, 760, 26),
             "Tap Looper X actions to reassign them to different footswitches.",
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
     } else {
         status_lines(l, looper);
     }
-    let color = status_color(looper);
+    let color = status_color(looper, &p);
     if let Some(seconds) = looper.loop_seconds {
         l.text(
             Rect::new(560, 192, 216, 28),
@@ -662,8 +680,8 @@ pub(super) fn looper(ui: &UiState, l: &mut Layout) {
         };
         let (column, row) = (index % 4, index / 4);
         let hue = match action {
-            LooperAction::Duplicate | LooperAction::PunchIn | LooperAction::Record => DANGER,
-            _ => TEXT,
+            LooperAction::Duplicate | LooperAction::PunchIn | LooperAction::Record => p.danger,
+            _ => p.text,
         };
         l.control(
             Rect::new(8 + column as i32 * 198, 276 + row as i32 * 102, 190, 94),
@@ -687,21 +705,22 @@ pub(super) fn looper(ui: &UiState, l: &mut Layout) {
 /// "Assign footswitch" message (`0x37ab08`): `#121212` panel, the QC text (`0xa30e04`) and
 /// CANCEL. The device takes the next footswitch letter.
 fn assign_prompt(l: &mut Layout) {
+    let p = l.palette;
     l.overlay();
     let panel = Rect::new(160, 140, 480, 200);
-    l.panel(panel, BACKGROUND, 8.0, None);
+    l.panel(panel, p.background, 8.0, None);
     l.text(
         Rect::new(panel.x + 24, panel.y + 16, panel.width - 48, 28),
         "Assign footswitch",
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
         Rect::new(panel.x + 24, panel.y + 60, panel.width - 48, 60),
         "Press the target footswitch you want to assign the action to",
         MEDIUM,
-        MUTED,
+        p.muted,
     );
     l.button(
         Rect::new(panel.right() - 164, panel.bottom() - 64, 140, 44),
@@ -717,20 +736,21 @@ fn minutes(seconds: f32) -> String {
     format!("{}:{:02}", total / 60, total % 60)
 }
 
-fn status_color(looper: &LooperView) -> tetrad_assets::Rgb {
+fn status_color(looper: &LooperView, p: &Palette) -> Rgb {
     use LooperState::*;
     match looper.state {
-        _ if looper.waiting.is_some() => WARNING,
-        Recording => DANGER,
-        Overdubbing | Duplicating | Punching => WARNING,
-        Playing | PlayingToEnd => ACCENT,
-        Empty | Armed | Stopped => MUTED,
+        _ if looper.waiting.is_some() => p.warning,
+        Recording => p.danger,
+        Overdubbing | Duplicating | Punching => p.warning,
+        Playing | PlayingToEnd => p.accent,
+        Empty | Armed | Stopped => p.muted,
     }
 }
 
 /// Card lines (`0x614e48`, `0x6153e4`, `0x616690`): the state or the record
 /// prompt, "AVAILABLE m:ss", then the close gesture for this product.
 fn status_lines(l: &mut Layout, looper: &LooperView) {
+    let p = l.palette;
     const FIRST: i32 = 62;
     const SECOND: i32 = 101;
     let line = |l: &mut Layout, x: i32, y: i32, text: &str, color| {
@@ -740,26 +760,26 @@ fn status_lines(l: &mut Layout, looper: &LooperView) {
     };
     // Inline record dot / UP icon between two words, as the stock hint lines.
     let inline = |l: &mut Layout, y: i32, before: &str, look: Look, after: &str| {
-        let x = line(l, 16, y, before, TEXT);
+        let x = line(l, 16, y, before, p.text);
         l.push(Rect::new(x, y + 3, 20, 20), "", look);
-        line(l, x + 26, y, after, TEXT);
+        line(l, x + 26, y, after, p.text);
     };
     match (looper.undo_in_progress, looper.waiting, looper.state) {
         (true, ..) => {
-            line(l, 16, FIRST, "UNDO/REDO IN PROGRESS", TEXT);
+            line(l, 16, FIRST, "UNDO/REDO IN PROGRESS", p.text);
         }
         (false, Some(wait), _) => {
-            line(l, 16, FIRST, wait.label(), WARNING);
+            line(l, 16, FIRST, wait.label(), p.warning);
         }
         (false, None, LooperState::Empty) => inline(
             l,
             FIRST,
             "USE",
-            Look::Dot { color: DANGER },
+            Look::Dot { color: p.danger },
             "TO START RECORDING",
         ),
         (false, None, state) => {
-            line(l, 16, FIRST, state.label(), status_color(looper));
+            line(l, 16, FIRST, state.label(), status_color(looper, &p));
         }
     }
     if let Some(seconds) = looper.available_seconds {
@@ -767,12 +787,12 @@ fn status_lines(l: &mut Layout, looper: &LooperView) {
             Rect::new(560, FIRST, 216, 26),
             format!("AVAILABLE {}", minutes(seconds)),
             BODY,
-            TEXT,
+            p.text,
             Align::Right,
         );
     }
     if looper.mini {
-        line(l, 16, SECOND, "USE B+D TO CLOSE THE LOOPER VIEW", TEXT);
+        line(l, 16, SECOND, "USE B+D TO CLOSE THE LOOPER VIEW", p.text);
     } else {
         inline(
             l,
