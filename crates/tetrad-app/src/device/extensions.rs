@@ -694,10 +694,19 @@ impl Extensions {
         if !slot.registrations.usb {
             return Err(format!("{id} has no USB handler"));
         }
+        // A message over the runner frame limit would fault the extension when it is sent: it
+        // is refused here, and the extension keeps running.
+        let event = Event::Usb { message };
+        let frame = HostMessage::Event {
+            scope: u64::MAX,
+            event: event.clone(),
+        };
+        tetrad_extensions::protocol::encode(&frame)
+            .map_err(|error| format!("the message is too large for an extension: {error}"))?;
         session.usb_waiting.push_back(request);
         let key = key.clone();
         let mut outcome = Outcome::default();
-        self.deliver(&key, Event::Usb { message }, backend, &mut outcome);
+        self.deliver(&key, event, backend, &mut outcome);
         Ok(outcome)
     }
 

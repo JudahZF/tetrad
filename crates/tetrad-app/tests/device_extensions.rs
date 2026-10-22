@@ -528,7 +528,8 @@ fn the_native_channel_takes_a_reserved_channel_back() {
 
 /// A computer's message over USB (`tetrad-usb ext`) reaches the extension's
 /// `ctx.usb.onMessage`; the handler's return value is the reply. An extension that is not
-/// installed gets an error reply.
+/// installed gets an error reply, and so does a message over the runner frame limit, which
+/// leaves the extension running.
 #[test]
 fn a_usb_message_is_answered_by_the_extension() {
     use tetrad_dsp_protocol::hid::{HEADER_BYTES, REPORT_BYTES};
@@ -548,18 +549,23 @@ fn a_usb_message_is_answered_by_the_extension() {
     }
     install(&mut device);
 
-    let ask = |device: &mut Device<Sim>, id, extension: &str| {
+    let ask = |device: &mut Device<Sim>, id, extension: &str, ping: serde_json::Value| {
         let op = Op::Extension {
             extension: extension.into(),
-            message: json!({ "ping": 7 }),
+            message: json!({ "ping": ping }),
         };
-        let rings = &device.platform().clock.rings;
-        for report in tetrad_usb::reports(0, &tetrad_usb::encode(&Request { id, op }, &[])) {
-            common::publish(
-                &mut rings.0.borrow_mut(),
-                CoreId::Dsp(DspCore::Core3),
-                &encode(ResponseType::HidReport, 0, &report),
-            );
+        let reports = tetrad_usb::reports(0, &tetrad_usb::encode(&Request { id, op }, &[]));
+        // Fewer reports per step than the response ring's 14 slots, so none is overwritten.
+        for batch in reports.chunks(12) {
+            let rings = &device.platform().clock.rings;
+            for report in batch {
+                common::publish(
+                    &mut rings.0.borrow_mut(),
+                    CoreId::Dsp(DspCore::Core3),
+                    &encode(ResponseType::HidReport, 0, report),
+                );
+            }
+            assert!(device.step().is_none());
         }
     };
     let replies = |log: &common::Log| -> Vec<Reply> {
@@ -572,10 +578,12 @@ fn a_usb_message_is_answered_by_the_extension() {
             .map(|(_, message)| tetrad_usb::decode::<Reply>(&message).unwrap().0)
             .collect()
     };
-    ask(&mut device, 1, "test.mapper");
-    ask(&mut device, 2, "test.missing");
-    pump(&mut device, "two USB replies", |_| {
-        replies(&log.borrow()).len() == 2
+    ask(&mut device, 1, "test.mapper", json!(7));
+    ask(&mut device, 2, "test.missing", json!(7));
+    ask(&mut device, 3, "test.mapper", json!("x".repeat(66_000)));
+    ask(&mut device, 4, "test.mapper", json!(8));
+    pump(&mut device, "four USB replies", |_| {
+        replies(&log.borrow()).len() == 4
     });
     let replies = replies(&log.borrow());
     let answer = |id| &replies.iter().find(|reply| reply.id == id).unwrap().answer;
@@ -589,5 +597,16 @@ fn a_usb_message_is_answered_by_the_extension() {
         matches!(answer(2), Answer::Error { message } if message.contains("test.missing")),
         "{:?}",
         answer(2)
+    );
+    assert!(
+        matches!(answer(3), Answer::Error { message } if message.contains("too large")),
+        "{:?}",
+        answer(3)
+    );
+    assert_eq!(
+        answer(4),
+        &Answer::Extension {
+            value: json!({ "pong": 8 })
+        }
     );
 }
