@@ -1504,9 +1504,12 @@ pub enum TetradUpdateState {
         progress: Option<f32>,
     },
     /// `retry`: the version UPDATE TETRAD tries again; `None`: check again.
+    /// `usb`: a release that came over USB failed; its files are gone, so the computer must
+    /// send it again. No retry, and the page shows the error offline too.
     Failed {
         error: String,
         retry: Option<String>,
+        usb: bool,
     },
 }
 

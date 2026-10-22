@@ -22,10 +22,12 @@ pub(super) enum TetradUpdate {
         offer: Offer,
         progress: Option<f32>,
     },
-    /// `offer`: the release that UPDATE TETRAD tries again.
+    /// `offer`: the release that UPDATE TETRAD tries again. `usb`: a USB release failed and
+    /// must be sent again.
     Failed {
         error: String,
         offer: Option<Offer>,
+        usb: bool,
     },
 }
 
@@ -120,7 +122,12 @@ impl Services {
             ),
             Err(error) => {
                 let text = format!("Tetrad update check failed: {error}");
-                (TetradUpdate::Failed { error, offer: None }, text)
+                let state = TetradUpdate::Failed {
+                    error,
+                    offer: None,
+                    usb: false,
+                };
+                (state, text)
             }
         };
         self.tetrad = state;
@@ -147,8 +154,9 @@ impl Services {
                 let text = format!("Tetrad update failed: {error}");
                 // A failed install removes the `.part` files, so a USB release must be
                 // pushed again; a GitHub release downloads again on retry.
-                let offer = (offer.source != Source::Usb).then_some(offer);
-                self.tetrad = TetradUpdate::Failed { error, offer };
+                let usb = offer.source == Source::Usb;
+                let offer = (!usb).then_some(offer);
+                self.tetrad = TetradUpdate::Failed { error, offer, usb };
                 vec![notice(text)]
             }
         }
@@ -177,9 +185,10 @@ impl Services {
                 version: offer.version().to_string(),
                 progress: *progress,
             },
-            TetradUpdate::Failed { error, offer } => TetradUpdateState::Failed {
+            TetradUpdate::Failed { error, offer, usb } => TetradUpdateState::Failed {
                 error: error.clone(),
                 retry: offer.as_ref().map(|offer| offer.version().to_string()),
+                usb: *usb,
             },
         };
         TetradUpdateView {
