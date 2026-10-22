@@ -192,8 +192,11 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
         button,
         changelog: false,
     };
-    let installing = matches!(u.state, S::Installing { .. });
-    if !u.online && !installing {
+    let local = matches!(
+        u.state,
+        S::Installing { .. } | S::Available { usb: true, .. }
+    );
+    if !u.online && !local {
         return page(
             "No Internet connection",
             "Your Quad Cortex is currently offline. Connect to Wi-Fi\nand try again.".into(),
@@ -217,10 +220,15 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
             format!("Tetrad {current} is the newest release.\n\n{only_tetrad}"),
             check,
         ),
-        S::Available { version } => page(
+        S::Available { version, usb } => page(
             "Tetrad update available",
             format!(
-                "Tetrad: {current} → {version}\n\nTetrad downloads the update, checks it and restarts\nyour Quad Cortex. CorOS does not change."
+                "Tetrad: {current} → {version}\n\n{} the update, checks it and restarts\nyour Quad Cortex. CorOS does not change.",
+                if *usb {
+                    "The update came over USB. Tetrad"
+                } else {
+                    "Tetrad downloads"
+                }
             ),
             install,
         ),
@@ -394,6 +402,7 @@ mod tests {
             S::UpToDate,
             S::Available {
                 version: "0.2.0".into(),
+                usb: false,
             },
             installing.clone(),
             S::Failed {
@@ -413,6 +422,7 @@ mod tests {
         let available = tetrad_page(&view(
             S::Available {
                 version: "0.2.0".into(),
+                usb: false,
             },
             true,
         ));
@@ -427,6 +437,16 @@ mod tests {
         assert_eq!(
             tetrad_page(&view(S::Idle, false)).title,
             "No Internet connection"
+        );
+        // A release that came over USB is on the unit already: it installs offline.
+        let usb = |usb| S::Available {
+            version: "0.2.0".into(),
+            usb,
+        };
+        assert_eq!(tetrad_page(&view(usb(false), false)).button, None);
+        assert_eq!(
+            tetrad_page(&view(usb(true), false)).button,
+            available.button
         );
     }
 

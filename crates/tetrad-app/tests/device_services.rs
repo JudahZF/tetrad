@@ -6792,7 +6792,8 @@ fn a_tetrad_update_installs_arms_and_restarts() {
     assert_eq!(
         services.tetrad_update_view().state,
         TetradUpdateState::Available {
-            version: "99.0.0".into()
+            version: "99.0.0".into(),
+            usb: false,
         }
     );
 

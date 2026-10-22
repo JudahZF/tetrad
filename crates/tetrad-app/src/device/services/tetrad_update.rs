@@ -133,10 +133,10 @@ impl Services {
             }
             Err(error) => {
                 let text = format!("Tetrad update failed: {error}");
-                self.tetrad = TetradUpdate::Failed {
-                    error,
-                    offer: Some(offer),
-                };
+                // A failed install removes the `.part` files, so a USB release must be
+                // pushed again; a GitHub release downloads again on retry.
+                let offer = (offer.source != Source::Usb).then_some(offer);
+                self.tetrad = TetradUpdate::Failed { error, offer };
                 vec![notice(text)]
             }
         }
@@ -159,6 +159,7 @@ impl Services {
             TetradUpdate::UpToDate => TetradUpdateState::UpToDate,
             TetradUpdate::Available(offer) => TetradUpdateState::Available {
                 version: offer.version().to_string(),
+                usb: offer.source == Source::Usb,
             },
             TetradUpdate::Installing { offer, progress } => TetradUpdateState::Installing {
                 version: offer.version().to_string(),

@@ -1492,8 +1492,11 @@ pub enum TetradUpdateState {
     Idle,
     Checking,
     UpToDate,
+    /// `usb`: the release came over USB (`tetrad-usb install`) and is already on the unit,
+    /// so it installs without the internet.
     Available {
         version: String,
+        usb: bool,
     },
     /// `progress`: the share of the new binary on p4, `0.0..=1.0`.
     Installing {
