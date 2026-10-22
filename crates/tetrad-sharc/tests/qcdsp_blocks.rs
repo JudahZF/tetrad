@@ -571,6 +571,79 @@ fn network_block_runs_its_frame_kernels() {
     }
 }
 
+/// The less common kernel paths: a convolution that accumulates into its output, a fused
+/// condition on a one-term convolution (its loads need instructions of their own), odd channel
+/// counts, relu and hardtanh, and a gain.
+#[test]
+fn network_kernels_cover_accumulate_and_short_convolutions() {
+    use qcdsp::{Activation, BlockBuilder, Category, NetworkBuilder, Parameter};
+    let mut dsp = BlockBuilder::new("net", "Net", Category::Utility);
+    dsp.parameter(Parameter::new("Level", 0.0, 2.0, 1.0).unwrap())
+        .unwrap();
+    let mut net = NetworkBuilder::new();
+    let x = net.input();
+    net.gain(x, 0);
+    let a = net.buffer(3);
+    // One term (1 input, kernel 1) with a fused condition (x, accumulate).
+    net.conv(
+        x,
+        a,
+        1,
+        1,
+        vec![0.5, -0.25, 0.75],
+        Some(vec![0.1, 0.0, -0.1]),
+        false,
+    );
+    net.conv(x, a, 1, 1, vec![0.2, 0.3, -0.4], None, true);
+    net.activation(a, Activation::Relu);
+    let b = net.buffer(3);
+    net.conv(
+        a,
+        b,
+        2,
+        3,
+        (0..18).map(|n| n as f32 * 0.05 - 0.4).collect(),
+        None,
+        false,
+    );
+    // Accumulates into b with history: the residual is the output itself.
+    net.conv(
+        a,
+        b,
+        3,
+        1,
+        (0..27).map(|n| 0.3 - n as f32 * 0.02).collect(),
+        None,
+        true,
+    );
+    net.activation(b, Activation::Hardtanh);
+    let y = net.buffer(1);
+    net.conv(b, y, 1, 1, vec![0.6, -0.5, 0.4], Some(vec![0.05]), false);
+    let output = dsp.network(net.finish(y)).unwrap();
+    let block = dsp.finish(output).unwrap();
+    for byte_state in [false, true] {
+        let mut h = Harness::new(&block, byte_state);
+        h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+        h.call(
+            h.generated.entries.set_parameter,
+            0,
+            0.8_f32.to_bits(),
+            None,
+        );
+        let mut twin = Processor::new(block.clone()).unwrap();
+        twin.set_parameter(0, 1.6).unwrap();
+        let mut peak = 0f32;
+        for frame in 0..8 {
+            let input = h.write_input(frame);
+            let expected = input[0].map(|x| twin.process_sample(x));
+            peak = expected.iter().fold(peak, |peak, v| peak.max(v.abs()));
+            h.call(h.generated.entries.process, IO, 0, None);
+            check_output(&h, &[expected, expected], block.name(), frame);
+        }
+        assert!(peak > 0.01, "the network makes a signal: peak {peak}");
+    }
+}
+
 /// heap_malloc returns 0 when heap 0 is full. Then nothing touches the arena: process leaves
 /// the buffers as they are (dry) and writes only its own frame, recovery writes nothing, and
 /// destroy goes straight to the stock destroy.
