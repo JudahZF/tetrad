@@ -1,6 +1,6 @@
-//! USB MIDI events. The SHARC owns the USB device; ZenUI sends events with
-//! DSP message 0x18 (`enUSBMIDIOut`) and receives them as DSP response
-//! records. This module maps them to and from [`MidiMessage`] with the
+//! USB MIDI events. The stock SOC2 firmware owns the USB device (docs/usb.md);
+//! ZenUI sends events with DSP message 0x18 (`enUSBMIDIOut`) and receives them
+//! as DSP response records. This module maps them to and from [`MidiMessage`] with the
 //! USB MIDI 1.0 code index number (CIN) table.
 //!
 //! (C) USB probe 2026-10-22: the SOC2 firmware forwards every CIN 0x2..=0xF
