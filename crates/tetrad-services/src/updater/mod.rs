@@ -1,9 +1,11 @@
-//! Updater: check, download, verify (`gzip -t` only, as stock), stage and install CorOS packages.
+//! Updater: check, download, verify (`gzip -t` only, as stock), stage and install CorOS packages;
+//! [`tetrad`] updates Tetrad itself.
 
 pub mod cloud;
 pub mod install;
 pub mod manager;
 pub mod state;
+pub mod tetrad;
 
 /// Stock updater paths (ZenUI `_INIT_359`, VA 0x00091824, slots 0x0154b070..0x0154b0a0).
 pub mod paths {

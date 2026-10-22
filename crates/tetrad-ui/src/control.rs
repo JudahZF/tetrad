@@ -759,6 +759,14 @@ pub enum UpdaterCommand {
     CancelDownload,
 }
 
+/// Owned (Tetrad): the Tetrad Updates page. These update Tetrad only, never CorOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TetradUpdateCommand {
+    Check,
+    /// Download, check, install and arm the offered release, then restart.
+    Install,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WifiControl {
     Scan,
@@ -947,6 +955,7 @@ pub enum Control {
     /// The Mappings page (`screens::mappings`).
     Mapping(MappingControl),
     Updater(UpdaterCommand),
+    TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
     Backup(BackupControl),
     Login,
@@ -1556,6 +1565,9 @@ pub enum UiCommand {
     Updater {
         command: UpdaterCommand,
     },
+    TetradUpdate {
+        command: TetradUpdateCommand,
+    },
     /// CREATE BACKUP after its `BackupEditDialog` (`0x3f8568` → `onBackupCreateNameConfirmed`).
     CreateBackup {
         name: String,
@@ -1939,6 +1951,7 @@ impl fmt::Debug for UiCommand {
             C::WifiForget { ssid } => show!("WifiForget", ssid),
             C::WifiDisconnect => f.write_str("WifiDisconnect"),
             C::Updater { command } => show!("Updater", command),
+            C::TetradUpdate { command } => show!("TetradUpdate", command),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),

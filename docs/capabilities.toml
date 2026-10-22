@@ -78,6 +78,12 @@ tested = "unit"
 gaps = "Tested from 4.1.0 to 4.1.1 only. A roll back to the other root partition is not tested."
 
 [[capability]]
+id = "tetrad_updates"
+what = "Settings → Tetrad Updates: downloads the newest Tetrad release from GitHub, checks its SHA-256 values and CorOS support, arms it and restarts. CorOS does not change."
+tested = "host"
+gaps = "Not tested on a unit. No signature check: the trust is HTTPS and the GitHub releases of JudahZF/tetrad."
+
+[[capability]]
 id = "installer"
 what = "scripts/install.sh: install, update, status, disable, enable and uninstall over root SSH, and the move of a zen-rs installation to Tetrad."
 tested = "host"

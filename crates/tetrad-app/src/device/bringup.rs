@@ -290,19 +290,23 @@ impl RunOptions {
     /// and a Directory upload and its preset or capture overwrite answer (publishes to the
     /// account); the capture download overwrite answer (a `zenui.db` write); and a capture
     /// save (a `zenui.db` record, r21-control MR 6); a Wi-Fi connect or forget (a
-    /// `wpa_supplicant.conf` write). Always:
-    /// an update download or install (the install pre-steps mute and lock before the job is
-    /// refused, review-r21 H4) and Reset Wi-Fi (review bring-up safety 2 R3). Outside bring-up:
-    /// nothing.
+    /// `wpa_supplicant.conf` write). Always: a CorOS update download or install (the install
+    /// pre-steps mute and lock before the job is refused, review-r21 H4), a Tetrad update
+    /// install and Reset Wi-Fi (review bring-up safety 2 R3). Outside bring-up: nothing.
     pub fn handoff_refusal(&self, handoff: &Handoff) -> Option<&'static str> {
         use tetrad_ui::{DeviceAction, UiCommand as C};
         if !self.is_bringup() {
             return None;
         }
         match handoff {
-            Handoff::Services(C::Updater {
-                command: UpdaterCommand::Install | UpdaterCommand::CheckAndDownload,
-            }) => Some("an update download or install"),
+            Handoff::Services(
+                C::Updater {
+                    command: UpdaterCommand::Install | UpdaterCommand::CheckAndDownload,
+                }
+                | C::TetradUpdate {
+                    command: tetrad_ui::TetradUpdateCommand::Install,
+                },
+            ) => Some("an update download or install"),
             // Review bring-up safety 2 R3: `REMOVE_NETWORK all` + `SAVE_CONFIG` drops SSH.
             Handoff::Services(C::Device {
                 action: DeviceAction::ResetWifi,
@@ -368,7 +372,7 @@ impl RunOptions {
     }
 
     /// What bring-up refuses in `effect`, or `None` when it may run. Always refused: resets
-    /// (the Wi-Fi reset drops SSH), update downloads and installs, and the Cortex Control
+    /// (the Wi-Fi reset drops SSH), CorOS update downloads and installs, Tetrad update installs, and the Cortex Control
     /// update commands before their pre-steps (mute, Control lock; review-r21 H4). Without `--persist`: backup
     /// create and restore jobs, the Cortex Control account work (licence activation can use up an account activation;
     /// sign-out unpairs), the NC2 cloud product DELETE, as [`Self::handoff_refusal`] for the UI.
@@ -385,7 +389,9 @@ impl RunOptions {
         }
         match effect {
             Effect::ResetSteps(_) | Effect::Action(Action::Reset(_)) => Some("a reset"),
-            Effect::Service(ServiceJob::Download(_) | ServiceJob::Install)
+            Effect::Service(
+                ServiceJob::Download(_) | ServiceJob::Install | ServiceJob::TetradInstall(_),
+            )
             | Effect::ControlAccount(
                 AccountRequest::Updater(UpdaterCommand::Install | UpdaterCommand::CheckAndDownload)
                 | AccountRequest::RestartDownloadViaControl,

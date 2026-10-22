@@ -229,6 +229,9 @@ impl Services {
         if self.updater.status != UpdaterStatus::NewVersionDownloaded {
             return Err(ServiceError::NotReady("no downloaded update to install"));
         }
+        if self.tetrad_installing() {
+            return Err(ServiceError::NotReady("a Tetrad update is installing"));
+        }
         self.install_progress = None;
         self.inputs_masked = true;
         let mut effects = self.report(UpdaterState::Updating);

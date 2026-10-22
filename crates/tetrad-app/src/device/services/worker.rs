@@ -37,6 +37,16 @@ pub fn run_job(backends: &mut impl ServiceBackends, job: ServiceJob) -> ServiceN
             Some(io) => run_installer(io),
             None => Err(JobError::NoBackends),
         }),
+        ServiceJob::TetradCheck => ServiceNotice::TetradChecked(match backends.lend() {
+            Some(io) => tetrad_update::check(io.http),
+            None => Err(JobError::NoBackends.to_string()),
+        }),
+        ServiceJob::TetradInstall(offer) => ServiceNotice::TetradInstalled(match backends.lend() {
+            Some(io) => {
+                tetrad::install(io.http, io.files, io.runner, &offer).map_err(|e| e.to_string())
+            }
+            None => Err(JobError::NoBackends.to_string()),
+        }),
         ServiceJob::Cloud(job) => {
             let reply = job.take().map(|job| match backends.lend() {
                 Some(io) => job.run(io.http, io.files),

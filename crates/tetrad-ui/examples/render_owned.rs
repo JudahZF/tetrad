@@ -1643,7 +1643,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
         }
         "wifi" | "updates" | "update-ready" | "update-confirm" | "update-install" | "backups"
         | "storage" | "storage-quarantine" | "groups" | "backup-name" | "backup-menu"
-        | "backup-update" => {
+        | "backup-update" | "tetrad-update" | "tetrad-updating" => {
             let mut snapshot = ui.snapshot().clone();
             match view {
                 "update-ready" | "update-install" => {
@@ -1653,6 +1653,22 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 "update-confirm" => {
                     snapshot.updater.state = UpdaterState::Idle;
                     snapshot.updater.channel = UpdateChannel::Beta;
+                }
+                "tetrad-update" | "tetrad-updating" => {
+                    snapshot.tetrad_update = TetradUpdateView {
+                        current_version: "0.1.0-alpha.3".into(),
+                        state: if view == "tetrad-update" {
+                            TetradUpdateState::Available {
+                                version: "0.1.0-alpha.4".into(),
+                            }
+                        } else {
+                            TetradUpdateState::Installing {
+                                version: "0.1.0-alpha.4".into(),
+                                progress: Some(0.4),
+                            }
+                        },
+                        online: true,
+                    };
                 }
                 "storage-quarantine" => {
                     snapshot.quarantine = vec![
@@ -1679,13 +1695,19 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                     SettingsPage::Backups
                 }
                 "storage" | "storage-quarantine" => SettingsPage::DeviceStorage,
+                "tetrad-update" | "tetrad-updating" => SettingsPage::TetradUpdates,
                 _ => SettingsPage::Updates,
             };
             if page.group() == SettingsGroup::System {
                 activate(&mut ui, Control::Setting(SettingControl::Groups));
                 activate(&mut ui, Control::Choose(1));
             }
-            activate(&mut ui, Control::Setting(SettingControl::Page(page)));
+            // Tetrad Updates is below the fold of the System list.
+            if page == SettingsPage::TetradUpdates {
+                ui.show(Screen::Settings(page));
+            } else {
+                activate(&mut ui, Control::Setting(SettingControl::Page(page)));
+            }
             match view {
                 "update-confirm" => {
                     activate(&mut ui, Control::Updater(UpdaterCommand::CheckAndDownload));

@@ -3,6 +3,8 @@
 # release with:
 #   tetrad, tetrad.sha256             the ARM binary and its SHA-256
 #   tetrad-<tag>-armv7.tar.gz (+ .sha256)  the layout that scripts/install.sh expects
+#   tetrad-update.json + the 3 launcher scripts  what Settings → Tetrad Updates installs
+#                                     (crates/tetrad-services/src/updater/tetrad.rs)
 # A manual run (workflow_dispatch) builds and uploads a workflow artifact only.
 name: release
 
@@ -57,6 +59,28 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The device installs a release only when this manifest names its own version, so a tag
+      # must match the version in Cargo.toml (the version the new binary reports).
+      - name: Make the Tetrad update manifest
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          case $GITHUB_REF in
+            refs/tags/v*)
+              [ "v$version" = "$GITHUB_REF_NAME" ] ||
+                { echo "::error::tag $GITHUB_REF_NAME is not v$version (Cargo.toml)"; exit 1; } ;;
+          esac
+          scripts="tetrad-launch.sh tetrad-launcher.sh tetrad-update.sh"
+          for s in $scripts; do install -m 755 "scripts/launcher/$s" "dist/$s"; done
+          entry() {
+            jq -n --arg path "$1" --arg sha256 "$(sha256sum "$2" | cut -c1-64)" \
+              --argjson size "$(stat -c %s "$2")" '{($path): {size: $size, sha256: $sha256}}'
+          }
+          {
+            entry bin/tetrad dist/tetrad
+            for s in $scripts; do entry "launcher/$s" "dist/$s"; done
+          } | jq -s --arg version "$version" '{version: $version, files: add}' > dist/tetrad-update.json
+          { echo '```json'; cat dist/tetrad-update.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tetrad-armv7-glibc2.18
@@ -65,6 +89,8 @@ jobs:
             dist/tetrad.sha256
             dist/*.tar.gz
             dist/*.tar.gz.sha256
+            dist/*.sh
+            dist/tetrad-update.json
           if-no-files-found: error
 
       - name: Publish the GitHub release
@@ -77,4 +103,5 @@ jobs:
           case $TAG in *-*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag "${flags[@]}" \
             --title "Tetrad $TAG" --notes "See CHANGELOG.md. Install: docs/install.md." \
-            dist/tetrad dist/tetrad.sha256 dist/*.tar.gz dist/*.tar.gz.sha256
+            dist/tetrad dist/tetrad.sha256 dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.sh \
+            dist/tetrad-update.json
