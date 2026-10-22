@@ -340,6 +340,8 @@ impl RunOptions {
             Handoff::Capture(C::SaveCapture { .. }) if !self.persist => {
                 Some("a capture save without --persist")
             }
+            // Bring-up never opens a listening port (`LinuxPlatform::enable_remote`).
+            Handoff::Remote { .. } => Some("Remote (it runs only in `tetrad run`)"),
             // Setlist slot writes and cloud requests (re-r31 §5).
             Handoff::DownloadPresets { .. } if !self.services => {
                 Some("services in a bring-up run without --services")

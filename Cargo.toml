@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tetrad-preset", "crates/tetrad-catalog", "crates/tetrad-cli", "crates/tetrad-core", "crates/tetrad-control", "crates/tetrad-hal", "crates/tetrad-runtime", "crates/tetrad-dsp-protocol", "crates/tetrad-loader", "crates/tetrad-capture", "crates/tetrad-storage", "crates/tetrad-sharc", "crates/tetrad-media", "crates/tetrad-ui", "crates/tetrad-assets", "crates/tetrad-dsp-host", "crates/tetrad-library", "crates/tetrad-engine", "crates/tetrad-sys", "crates/tetrad-app", "crates/tetrad-watchdog", "crates/tetrad-midi", "crates/tetrad-services", "crates/tetrad-settings", "crates/tetrad-blocks", "crates/tetrad-firmware", "crates/tetrad-extensions", "crates/tetrad-extension-cli"]
+members = ["crates/tetrad-preset", "crates/tetrad-catalog", "crates/tetrad-cli", "crates/tetrad-core", "crates/tetrad-control", "crates/tetrad-hal", "crates/tetrad-runtime", "crates/tetrad-dsp-protocol", "crates/tetrad-loader", "crates/tetrad-capture", "crates/tetrad-storage", "crates/tetrad-sharc", "crates/tetrad-media", "crates/tetrad-ui", "crates/tetrad-assets", "crates/tetrad-dsp-host", "crates/tetrad-library", "crates/tetrad-engine", "crates/tetrad-sys", "crates/tetrad-app", "crates/tetrad-watchdog", "crates/tetrad-midi", "crates/tetrad-services", "crates/tetrad-settings", "crates/tetrad-blocks", "crates/tetrad-firmware", "crates/tetrad-extensions", "crates/tetrad-extension-cli", "crates/tetrad-remote"]
 # qcdsp/ (its own Cargo workspace) and qc-dev/ are git submodules, not members.
 exclude = ["qcdsp", "qc-dev"]
 resolver = "3"
@@ -38,6 +38,7 @@ tetrad-watchdog = { path = "crates/tetrad-watchdog" }
 tetrad-blocks = { path = "crates/tetrad-blocks" }
 tetrad-firmware = { path = "crates/tetrad-firmware" }
 tetrad-extensions = { path = "crates/tetrad-extensions" }
+tetrad-remote = { path = "crates/tetrad-remote" }
 qc-format = { path = "qcdsp/crates/qc-format" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -57,6 +58,7 @@ base64 = "0.22"
 fontdue = "0.9"
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["alloc", "zeroize"] }
 semver = "1.0.28"
+httparse = "1.10.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

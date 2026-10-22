@@ -954,6 +954,8 @@ pub enum Control {
     Extension(ExtensionControl),
     /// The Mappings page (`screens::mappings`).
     Mapping(MappingControl),
+    /// The switch of the Remote page (`screens::remote`).
+    RemoteToggle,
     Updater(UpdaterCommand),
     TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
@@ -1218,6 +1220,10 @@ pub enum UiCommand {
     Extension(crate::ExtensionCommand),
     /// A Mappings page request (`crate::mappings`).
     Mapping(crate::MappingCommand),
+    /// The Remote page switch (`crate::remote`).
+    SetRemote {
+        enabled: bool,
+    },
     SelectScene {
         scene: SceneIndex,
     },
@@ -1952,6 +1958,7 @@ impl fmt::Debug for UiCommand {
             C::WifiDisconnect => f.write_str("WifiDisconnect"),
             C::Updater { command } => show!("Updater", command),
             C::TetradUpdate { command } => show!("TetradUpdate", command),
+            C::SetRemote { enabled } => show!("SetRemote", enabled),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),

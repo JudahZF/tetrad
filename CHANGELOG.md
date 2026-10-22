@@ -3,6 +3,17 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Remote (Settings → System → Remote): a web page on the unit to add IRs from a browser on the
+  same Wi-Fi, behind a 4-digit PIN that the page shows. The browser converts each WAV or AIFF to
+  the stock IR format (mono, 48 kHz, first 1,024 samples); the unit imports it into the IR
+  saving destination as Cortex Control does. The on/off setting is in
+  `/media/p4/tetrad/remote.json` (docs/remote.md).
+- The application can show a toast (`UiSnapshot::toast`); Remote shows "IR added" with it.
+
 ## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
 
 ### Added

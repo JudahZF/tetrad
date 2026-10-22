@@ -35,6 +35,10 @@ pub struct SettingsViews {
     pub extensions: tetrad_ui::ExtensionsView,
     /// Mappings page (`mappings::Mappings::view`).
     pub mappings: tetrad_ui::MappingsView,
+    /// Remote page (`remote::Remote::view`).
+    pub remote: tetrad_ui::RemoteView,
+    /// The last application toast (`remote::Remote::toast`).
+    pub toast: Option<tetrad_ui::ToastView>,
     /// `Control::cloud_route` is set: the cloud is usable without Wi-Fi (re-r44 §3).
     pub control_online: bool,
     /// Cortex Control's link for the cloud dialog (whatever the cloud route).
@@ -97,6 +101,8 @@ pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
     snapshot.wifi = views.wifi.clone();
     snapshot.extensions = views.extensions.clone();
     snapshot.mappings = views.mappings.clone();
+    snapshot.remote = views.remote.clone();
+    snapshot.toast = views.toast.clone();
     snapshot.control_online = views.control_online;
     snapshot.control_link = views.control_link;
     snapshot.updater = UpdaterView {
@@ -319,8 +325,12 @@ impl<P: Platform> Device<P> {
                 total,
             });
         let control = &self.bridges.control;
+        let wifi = services.wifi_view();
+        let remote = &self.bridges.remote;
         let mut views = SettingsViews {
-            wifi: services.wifi_view(),
+            remote: remote.view(wifi.ip_address.as_deref()),
+            toast: remote.toast(),
+            wifi,
             extensions: Default::default(),
             mappings: Default::default(),
             control_online: control.cloud_route().is_some(),
