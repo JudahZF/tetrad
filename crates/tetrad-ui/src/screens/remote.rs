@@ -2,8 +2,6 @@
 //! and PIN a browser needs while Remote runs. Rows follow the generic settings rows (60 px
 //! with a divider).
 
-use tetrad_assets::{MUTED, TEXT};
-
 use super::extensions::{divider, label, switch_row};
 use crate::layout::{LARGE, Layout, Look, MEDIUM};
 use crate::render::Align;
@@ -15,6 +13,7 @@ const HELP: &str = "Open the address in a browser on the same Wi-Fi network, ent
 
 /// `body` is the settings content under the page title.
 pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
+    let p = l.palette;
     let view = &ui.snapshot.remote;
     // Stock rows run 8 px past the text inset (`screens::settings`).
     let mut row = Rect::new(body.x, body.y, body.width + 8, ROW);
@@ -44,7 +43,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
             ),
             value,
             font,
-            TEXT,
+            p.text,
             Align::Right,
         );
         divider(l, row);
@@ -59,6 +58,6 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
         ),
         HELP,
         MEDIUM,
-        MUTED,
+        p.muted,
     );
 }

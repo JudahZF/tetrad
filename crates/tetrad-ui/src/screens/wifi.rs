@@ -3,7 +3,7 @@
 //! the network table (the joined network first, as a card) and RESET WI-FI SETTINGS. Positions
 //! are relative to the settings content panel and match the QC (stock 4.1.0, 2026-10-16).
 
-use tetrad_assets::{ACCENT, DANGER, Icon, IconSize, MUTED, PANEL, Rgb, SURFACE, TEXT, WARNING};
+use tetrad_assets::{Icon, IconSize, Rgb};
 
 use crate::layout::{BODY, ButtonStyle, CAPTION, LARGE, Layout, ListId, Look, MEDIUM};
 use crate::render::Align;
@@ -34,6 +34,7 @@ fn title(s: &UiSnapshot) -> &'static str {
 const CONTROL_ROW: u32 = 80;
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, page: Rect) {
+    let p = l.palette;
     if ui.wifi_domains {
         return domains(ui, l, page);
     }
@@ -44,7 +45,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: Rect) {
         at(16, 16, 360, 26),
         title(&ui.snapshot),
         LARGE,
-        TEXT,
+        p.text,
         Align::Left,
     );
     link(
@@ -62,7 +63,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: Rect) {
         l.push(
             Rect::new(check.x + 2, check.y + 12, 8, 8),
             "",
-            Look::Dot { color: DANGER },
+            Look::Dot { color: p.danger },
         );
     }
     let (x, y, width, height) = TABLE;
@@ -108,15 +109,16 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: Rect) {
 /// A stock link button: 14 px #959595 underlined text `inset` from the left of `bounds`. The
 /// touch area grows 4 px up and down to the 40 px minimum (review R10).
 fn link(l: &mut Layout, bounds: Rect, inset: i32, text: &str, control: WifiControl) {
+    let p = l.palette;
     let touch = Rect::new(bounds.x, bounds.y - 4, bounds.width, bounds.height + 8);
     l.control(touch, Control::Wifi(control), true, text, Look::Area);
     let width = CAPTION.width(text).ceil() as u32;
     let text_box = Rect::new(bounds.x + inset, bounds.y, width, bounds.height);
-    l.text(text_box, text, CAPTION, MUTED, Align::Left);
+    l.text(text_box, text, CAPTION, p.muted, Align::Left);
     l.push(
         Rect::new(text_box.x, bounds.y + 23, width, 1),
         "",
-        Look::Fill(MUTED),
+        Look::Fill(p.muted),
     );
 }
 
@@ -133,9 +135,10 @@ fn network_cell(
     card: bool,
     ip: Option<&str>,
 ) {
+    let p = l.palette;
     let inset = if card { 16 } else { 8 };
     if card {
-        l.panel(cell, SURFACE, 8.0, None);
+        l.panel(cell, p.surface, 8.0, None);
     }
     let tap = Control::Wifi(WifiControl::Network(index as u16));
     if network.secured && network.saved {
@@ -157,7 +160,7 @@ fn network_cell(
             Look::Glyph {
                 icon: Icon::Trash,
                 size: IconSize::Medium,
-                color: TEXT,
+                color: p.text,
             },
         );
     } else {
@@ -172,7 +175,7 @@ fn network_cell(
             Look::Glyph {
                 icon: Icon::Lock,
                 size: IconSize::Small,
-                color: TEXT,
+                color: p.text,
             },
         );
         inset + 20
@@ -183,14 +186,14 @@ fn network_cell(
         Rect::new(cell.x + ssid_x, cell.y + ssid_y, 390, 24),
         network.ssid.clone(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.text(
         Rect::new(cell.x + inset, cell.y + detail_y, 400, 18),
         network.detail(),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.push(
@@ -204,7 +207,7 @@ fn network_cell(
         l.push(
             Rect::new(cell.x + 8, cell.y + 59, 488, 1),
             "",
-            Look::Fill(SURFACE),
+            Look::Fill(p.surface),
         );
         return;
     }
@@ -220,14 +223,14 @@ fn network_cell(
     let address = ip.map(|ip| format!("IP address {ip}"));
     match (network.weak(), address) {
         (false, Some(address)) => {
-            line(l, 16, "Connected".into(), ACCENT);
-            line(l, 93, address, MUTED);
+            line(l, 16, "Connected".into(), p.accent);
+            line(l, 93, address, p.muted);
         }
-        (false, None) => line(l, 16, WifiStatus::ObtainingIp.label().into(), MUTED),
+        (false, None) => line(l, 16, WifiStatus::ObtainingIp.label().into(), p.muted),
         (true, address) => {
-            line(l, 16, "Weak connection".into(), WEAK);
+            line(l, 16, "Weak connection".into(), p.tone(WEAK));
             if let Some(address) = address {
-                line(l, 133, address, MUTED);
+                line(l, 133, address, p.muted);
             }
         }
     }
@@ -236,11 +239,12 @@ fn network_cell(
 /// State 3: a card with the #ffd236 accent bar (2 × 56 at 14, 11) and the stock line
 /// (`0x11e3e00`) in 16 px white at (32, 18).
 fn control_row(ui: &UiState, l: &mut Layout, cell: Rect) {
-    l.panel(cell, SURFACE, 8.0, None);
+    let p = l.palette;
+    l.panel(cell, p.surface, 8.0, None);
     l.push(
         Rect::new(cell.x + 14, cell.y + 11, 2, 56),
         "",
-        Look::Fill(WARNING),
+        Look::Fill(p.warning),
     );
     l.paragraph(
         Rect::new(cell.x + 32, cell.y + 18, 420, 42),
@@ -249,21 +253,22 @@ fn control_row(ui: &UiState, l: &mut Layout, cell: Rect) {
             super::support::product_name(ui.snapshot.mini)
         ),
         BODY,
-        TEXT,
+        p.text,
     );
 }
 
 /// Domain Settings (`0x40c4bc`), shown in place of the page; the page's ✓ closes it. Two
 /// stock radio buttons (66 × 44, green when selected) pick the Cortex Cloud domain.
 fn domains(ui: &UiState, l: &mut Layout, page: Rect) {
+    let p = l.palette;
     let at =
         |x: i32, y: i32, width: u32, height: u32| Rect::new(page.x + x, page.y + y, width, height);
-    l.panel(page, PANEL, 8.0, None);
+    l.panel(page, p.panel, 8.0, None);
     l.text(
         at(16, 16, 300, 26),
         "Domain Settings",
         LARGE,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
@@ -274,7 +279,7 @@ fn domains(ui: &UiState, l: &mut Layout, page: Rect) {
             super::support::product_name(ui.snapshot.mini)
         ),
         MEDIUM,
-        TEXT,
+        p.text,
     );
     // Text box y and height, radio button y (`0x40c13c`: x 438, 66 × 44).
     let options: [(i32, u32, i32, &str); 2] = [
@@ -294,10 +299,15 @@ fn domains(ui: &UiState, l: &mut Layout, page: Rect) {
     ];
     let current = ui.snapshot.setting(SettingId::CloudDomain);
     for (index, (y, height, button_y, text)) in options.into_iter().enumerate() {
-        l.paragraph(at(16, y, 416, height), text, MEDIUM, TEXT);
+        l.paragraph(at(16, y, 416, height), text, MEDIUM, p.text);
         let selected = current == Some(&SettingValue::Choice(index as u16));
         let button = at(438, button_y, 66, 44);
-        l.panel(button, if selected { ACCENT } else { SURFACE }, 8.0, None);
+        l.panel(
+            button,
+            if selected { p.accent } else { p.surface },
+            8.0,
+            None,
+        );
         l.control(
             button,
             Control::Setting(SettingControl::Set(SettingId::CloudDomain, index as i32)),
@@ -305,11 +315,7 @@ fn domains(ui: &UiState, l: &mut Layout, page: Rect) {
             text.split(':').next().unwrap_or_default(),
             Look::Area,
         );
-        let ink = if selected {
-            tetrad_assets::CANVAS
-        } else {
-            TEXT
-        };
+        let ink = if selected { p.canvas } else { p.text };
         let center = button.center();
         let dot = |l: &mut Layout, radius: i32, color: Rgb| {
             let size = (radius * 2) as u32;
@@ -320,7 +326,7 @@ fn domains(ui: &UiState, l: &mut Layout, page: Rect) {
             );
         };
         dot(l, 10, ink);
-        dot(l, 8, if selected { ACCENT } else { SURFACE });
+        dot(l, 8, if selected { p.accent } else { p.surface });
         if selected {
             dot(l, 5, ink);
         }

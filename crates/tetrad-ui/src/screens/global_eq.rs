@@ -3,9 +3,7 @@
 //! and a one-row parameter card. Encoders turn the cells left to right. The graph, tabs and
 //! card are shared with the block EQ editor (`EQModelEditor` `0x640440`, `eq_editor.rs`).
 
-use tetrad_assets::{
-    ACCENT, CANVAS, DIVIDER, FAINT, Icon, MUTED, PANEL, Rgb, SURFACE, TEXT, block,
-};
+use tetrad_assets::{Icon, Rgb, block};
 
 use crate::layout::{BODY, ButtonStyle, CAPTION, Layout, Look, MEDIUM};
 use crate::render::{Align, HEIGHT, WIDTH};
@@ -26,7 +24,7 @@ pub(super) const CELL_WIDTH: i32 = 157;
 /// `#2e2e2e` part with a grey "ON".
 const ON: Rect = Rect::new(606, 8, 80, 44);
 /// Selected node fill (`0x4f6d08`: `#0a74e0` for a selected band that is on).
-const NODE_BLUE: Rgb = Rgb(0x0a, 0x74, 0xe0);
+const NODE_BLUE: Rgb = block::EQ;
 
 fn x_of(hz: f32) -> f32 {
     PX_PER_DECADE * (hz / 20.0).log10()
@@ -160,8 +158,9 @@ pub(super) fn response(bands: &[Band], hz: f32) -> f32 {
 }
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: EqTab) {
+    let p = l.palette;
     // Stock 009 page and graph: `#101010`.
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(PAGE));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     // Stock 4.1.0 preset button (`GlobalEQPresetPopup` `0x227a84`; shot 009 is older and
     // shows ⋮).
     super::settings_presets::button(ui, l, crate::SettingsPresetPage::GlobalEq);
@@ -169,7 +168,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: EqTab) {
         Rect::new(60, 8, 200, 20),
         "GLOBAL EQ",
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
@@ -182,12 +181,12 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: EqTab) {
     let enabled = ui.snapshot.setting(SettingId::EqEnabled);
     let on = enabled == Some(&SettingValue::Bool(true));
     let label = Rect::new(ON.x + 12, ON.y, ON.width - 12, ON.height);
-    l.panel(ON, SURFACE, 8.0, None);
-    l.panel(label, PANEL, 8.0, None);
+    l.panel(ON, p.surface, 8.0, None);
+    l.panel(label, p.panel, 8.0, None);
     l.push(
         Rect::new(label.x, ON.y, 8, ON.height),
         "",
-        Look::Fill(PANEL),
+        Look::Fill(p.panel),
     );
     l.control(
         ON,
@@ -198,7 +197,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: EqTab) {
     );
     l.panel(
         Rect::new(ON.x + 3, ON.y + 13, 6, 18),
-        if on { ACCENT } else { FAINT },
+        if on { p.accent } else { p.faint },
         3.0,
         None,
     );
@@ -207,7 +206,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: EqTab) {
         Rect::new(label.x + 2, ON.y, label.width, ON.height),
         "ON",
         MEDIUM,
-        if enabled.is_some() { MUTED } else { FAINT },
+        if enabled.is_some() { p.muted } else { p.faint },
         Align::Center,
     );
     l.control(
@@ -217,7 +216,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: EqTab) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     graph(ui, l, tab);
@@ -246,6 +245,7 @@ pub(super) fn band_tab(
     selected: bool,
     control: Control,
 ) {
+    let p = l.palette;
     let bounds = Rect::new(24 + index as i32 * 84, TAB_Y, 80, 52);
     l.panel(
         Rect::new(
@@ -255,11 +255,11 @@ pub(super) fn band_tab(
             if selected { 60 } else { 52 },
         ),
         // Shot 009: selected `#282c28` (the card), others `#181c18`.
-        if selected {
+        p.tone(if selected {
             crate::widgets::CARD
         } else {
             crate::draw::TAB_IDLE
-        },
+        }),
         8.0,
         None,
     );
@@ -268,20 +268,21 @@ pub(super) fn band_tab(
         bounds,
         label,
         BODY,
-        if selected { TEXT } else { MUTED },
+        if selected { p.text } else { p.muted },
         Align::Center,
     );
 }
 
 /// The parameter card with its four dividers (`#121212`, 1 × 78, `0x640440`).
 pub(super) fn card(l: &mut Layout) {
-    l.panel(CARD, PANEL, 8.0, None);
+    let p = l.palette;
+    l.panel(CARD, p.panel, 8.0, None);
     for column in 1..5 {
         let x = CARD.x + column * CELL_WIDTH;
         l.push(
             Rect::new(x - 1, CARD.y + 8, 2, CARD.height - 16),
             "",
-            Look::Fill(DIVIDER),
+            Look::Fill(p.divider),
         );
     }
 }
@@ -305,11 +306,12 @@ pub(super) fn bypass_cell(
     enabled: bool,
     control: Control,
 ) {
+    let p = l.palette;
     l.text(
         Rect::new(bounds.x + 10, bounds.y + 6, bounds.width - 20, 28),
         label,
         BODY,
-        if enabled { TEXT } else { FAINT },
+        if enabled { p.text } else { p.faint },
         Align::Left,
     );
     let button = Rect::new(bounds.x + 10, bounds.y + 48, 66, 44);
@@ -322,7 +324,7 @@ pub(super) fn bypass_cell(
     } else {
         Look::IconButton {
             icon: Icon::Power,
-            fill: SURFACE,
+            fill: p.surface,
         }
     };
     l.control(button, control, enabled, label, look);
@@ -478,7 +480,8 @@ pub(super) struct Node {
 /// while off), others 38 px `#2e2e2e` with a white label and a `#121212` ring when on.
 /// The selected node is on top.
 pub(super) fn draw_graph(l: &mut Layout, frame: Rect, curve: &[Band], nodes: &[Node]) {
-    l.push(frame, "", Look::Fill(PAGE));
+    let p = l.palette;
+    l.push(frame, "", Look::Fill(p.tone(PAGE)));
     for decade in [100.0f32, 1_000.0, 10_000.0] {
         for step in 1..10 {
             let x = x_of(decade / 10.0 * step as f32);
@@ -488,7 +491,7 @@ pub(super) fn draw_graph(l: &mut Layout, frame: Rect, curve: &[Band], nodes: &[N
                     (x, frame.y as f32),
                     (x, frame.bottom() as f32),
                     1.0,
-                    if major { FAINT } else { SURFACE },
+                    if major { p.faint } else { p.surface },
                 );
             }
         }
@@ -501,19 +504,19 @@ pub(super) fn draw_graph(l: &mut Layout, frame: Rect, curve: &[Band], nodes: &[N
             Rect::new(x_of(decade) as i32 + 6, frame.y + 2, 40, 16),
             label,
             CAPTION,
-            FAINT,
+            p.faint,
             Align::Left,
         );
     }
     let zero = zero_y(frame);
-    l.line((0.0, zero), (WIDTH as f32, zero), 1.0, SURFACE);
+    l.line((0.0, zero), (WIDTH as f32, zero), 1.0, p.surface);
     let hz_at = |x: f32| 20.0 * 10f32.powf(x / PX_PER_DECADE);
     if !curve.is_empty() {
         let mut previous = (0.0, y_of(frame, response(curve, hz_at(0.0))));
         for step in 1..=100 {
             let x = WIDTH as f32 * step as f32 / 100.0;
             let point = (x, y_of(frame, response(curve, hz_at(x))));
-            l.line(previous, point, 2.0, TEXT);
+            l.line(previous, point, 2.0, p.text);
             previous = point;
         }
     }
@@ -527,9 +530,9 @@ pub(super) fn draw_graph(l: &mut Layout, frame: Rect, curve: &[Band], nodes: &[N
         let (x, y) = (x_of(node.hz) as i32, y_of(frame, node.db) as i32);
         let bounds = Rect::new(x - radius, y - radius, radius as u32 * 2, radius as u32 * 2);
         let (fill, text) = match (node.selected, node.on) {
-            (true, true) => (NODE_BLUE, CANVAS),
-            (true, false) => (DIVIDER, TEXT),
-            _ => (PANEL, TEXT),
+            (true, true) => (NODE_BLUE, p.canvas),
+            (true, false) => (p.divider, p.text),
+            _ => (p.panel, p.text),
         };
         if node.on && !node.selected {
             let ring = Rect::new(
@@ -538,7 +541,7 @@ pub(super) fn draw_graph(l: &mut Layout, frame: Rect, curve: &[Band], nodes: &[N
                 bounds.width + 4,
                 bounds.height + 4,
             );
-            l.push(ring, "", Look::Dot { color: DIVIDER });
+            l.push(ring, "", Look::Dot { color: p.divider });
         }
         l.push(bounds, "", Look::Dot { color: fill });
         l.text(bounds, node.label.clone(), BODY, text, Align::Center);

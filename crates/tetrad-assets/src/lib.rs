@@ -1,6 +1,7 @@
-//! Visual assets: the stock colour tokens, IBM Plex Sans text (vendored OFL
-//! font, rasterized at runtime) and owned line icons. No stock image, icon or
-//! font byte from the device is used.
+//! Visual assets: the fixed data colours (block categories, scene swatches), IBM Plex Sans
+//! text (vendored OFL font, rasterized at runtime) and owned line icons. No stock image, icon
+//! or font byte from the device is used. Chrome colours are theme roles
+//! ([`tetrad_theme::Palette`], re-exported as [`Palette`]).
 #![forbid(unsafe_code)]
 
 mod device_art;
@@ -12,67 +13,10 @@ pub use font::{Glyph, TextSize, Weight, glyph, pen_advance, text_width};
 pub use icon::{Icon, IconSize, icon};
 pub use raster::Mask;
 
-/// Opaque RGB color, independent of stock scene-color storage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rgb(pub u8, pub u8, pub u8);
+pub use tetrad_theme::{Palette, Rgb};
 
-impl Rgb {
-    /// Linear mix toward `other`; `amount` 0 keeps `self`, 255 gives `other`.
-    pub const fn mix(self, other: Rgb, amount: u8) -> Rgb {
-        const fn channel(a: u8, b: u8, t: u8) -> u8 {
-            ((a as u16 * (255 - t) as u16 + b as u16 * t as u16 + 127) / 255) as u8
-        }
-        Rgb(
-            channel(self.0, other.0, amount),
-            channel(self.1, other.1, amount),
-            channel(self.2, other.2, amount),
-        )
-    }
+// Fixed colours: data, not chrome. Themes do not change them.
 
-    const fn hex(value: u32) -> Rgb {
-        Rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
-    }
-}
-
-// Stock `QColor(QRgb)` constants (tokens §2). A 16 bpp framebuffer truncates
-// them the same way the stock screenshots show.
-
-/// Page background and inset controls on cards: dropdown fields, bar tracks,
-/// black buttons (ASSIGN, UNMUTE), `+` slots. Also the divider on cards.
-pub const BACKGROUND: Rgb = Rgb::hex(0x121212);
-/// Grid, tuner and tempo background; block tile fill; knob face; popover menus.
-pub const CANVAS: Rgb = Rgb::hex(0x000000);
-/// Cards, menu lists, parameter panels and the top-right ✓ button.
-pub const PANEL: Rgb = Rgb::hex(0x2e2e2e);
-/// Selected menu row, top-bar icon buttons, the picker drawer, unselected tabs.
-pub const SURFACE: Rgb = Rgb::hex(0x1e1e1e);
-/// Selected preset row; knob track ring.
-pub const ROW_SELECTED: Rgb = Rgb::hex(0x252525);
-/// Search section bars; idle tempo beat dots.
-pub const SECTION: Rgb = Rgb::hex(0x404040);
-/// 1–2 px separators between cells and rows on cards.
-pub const DIVIDER: Rgb = BACKGROUND;
-pub const TEXT: Rgb = Rgb::hex(0xffffff);
-/// Secondary text: page titles, units, info icons.
-pub const MUTED: Rgb = Rgb::hex(0x959595);
-/// Unselected options, ⋮ dots and disabled text.
-pub const FAINT: Rgb = Rgb::hex(0x616161);
-/// Selected text, switch rings, bars, knob arcs, BPM.
-pub const ACCENT: Rgb = Rgb::hex(0x45f862);
-/// Selected tab fill under a 1 px [`ACCENT`] outline.
-pub const ACCENT_FILL: Rgb = Rgb::hex(0x17291a);
-/// Text on [`ACCENT`] and [`WARNING`] fills.
-pub const ON_ACCENT: Rgb = Rgb::hex(0x000000);
-/// Primary action fill (Save, START CAPTURE).
-pub const ACTION: Rgb = Rgb::hex(0x1a3af8);
-/// Record, MUTED, errors.
-pub const DANGER: Rgb = Rgb::hex(0xff2727);
-/// Scene letter badge and "New" badge.
-pub const WARNING: Rgb = Rgb::hex(0xffd236);
-/// Scroll thumb (6 px wide).
-pub const SCROLLBAR: Rgb = Rgb::hex(0x373737);
-/// Grid cable (2 px).
-pub const CABLE: Rgb = Rgb::hex(0xc1c1c1);
 /// Tuner ball when in tune (`Qt::green`).
 pub const TUNER_IN: Rgb = Rgb::hex(0x00ff00);
 
@@ -145,24 +89,14 @@ pub mod block {
 mod tests {
     use super::*;
 
-    #[test]
-    fn mix_endpoints_are_exact() {
-        assert_eq!(ACCENT.mix(BACKGROUND, 0), ACCENT);
-        assert_eq!(ACCENT.mix(BACKGROUND, 255), BACKGROUND);
-        assert_eq!(
-            Rgb(0, 0, 0).mix(Rgb(255, 255, 255), 128),
-            Rgb(128, 128, 128)
-        );
-    }
-
     /// Spot checks against the recovered jump table (tokens §2.1).
     #[test]
     fn block_colors_follow_the_stock_category_table() {
         assert_eq!(block::category(1), Rgb(0xff, 0x27, 0x27));
         assert_eq!(block::category(27), block::AMP);
-        assert_eq!(block::category(15), ACCENT);
+        assert_eq!(block::category(15), Rgb(0x45, 0xf8, 0x62));
         assert_eq!(block::category(10), block::category(4));
         assert_eq!(block::category(29), Rgb(0x69, 0x54, 0xff));
-        assert_eq!(block::category(17), TEXT);
+        assert_eq!(block::category(17), Rgb(0xff, 0xff, 0xff));
     }
 }

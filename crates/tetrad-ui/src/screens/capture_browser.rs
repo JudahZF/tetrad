@@ -10,9 +10,7 @@
 //! Directory controls and pop-ups over this list (I, as the media picker). Geometry and
 //! colours are measured on the stock shots.
 
-use tetrad_assets::{
-    ACCENT, ACCENT_FILL, BACKGROUND, DANGER, FAINT, Icon, IconSize, MUTED, PANEL, SURFACE, TEXT,
-};
+use tetrad_assets::{Icon, IconSize};
 
 use super::directory::{Roles, natural_cmp, stock_date};
 use super::directory_glyph::Glyph;
@@ -41,10 +39,11 @@ const MONTHS: [&str; 12] = [
 ];
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     l.push(
         Rect::new(PANEL_X, 0, WIDTH - PANEL_X as u32, HEIGHT),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     header(ui, l);
     folders(ui, l);
@@ -53,12 +52,13 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
 }
 
 fn header(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let dir = &ui.directory;
     l.text(
         Rect::new(120, 8, 220, 44),
         "Add device",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     // `updateRefreshButtonCombo` (`0x83f1b4`), only in Downloads: offline `no_signal.png`,
@@ -78,14 +78,14 @@ fn header(ui: &UiState, l: &mut Layout) {
             None => {
                 let look = Look::IconButton {
                     icon: Icon::Sync,
-                    fill: SURFACE,
+                    fill: p.surface,
                 };
                 l.control(REFRESH, refresh, true, "REFRESH", look);
             }
             Some(icon) => {
-                l.panel(REFRESH, SURFACE, RADIUS, None);
+                l.panel(REFRESH, p.surface, RADIUS, None);
                 l.control(REFRESH, refresh, true, "REFRESH", Look::Area);
-                for (icon, color) in [(icon, MUTED), (Icon::CornerCross, DANGER)] {
+                for (icon, color) in [(icon, p.muted), (Icon::CornerCross, p.danger)] {
                     let size = IconSize::Medium;
                     l.push(REFRESH, "", Look::Glyph { icon, size, color });
                 }
@@ -100,7 +100,7 @@ fn header(ui: &UiState, l: &mut Layout) {
             "BACK",
             Look::IconButton {
                 icon: Icon::Back,
-                fill: SURFACE,
+                fill: p.surface,
             },
         );
     }
@@ -109,7 +109,7 @@ fn header(ui: &UiState, l: &mut Layout) {
         label,
         mark,
         enabled: true,
-        fill: if active { ACCENT_FILL } else { SURFACE },
+        fill: if active { p.accent_fill } else { p.surface },
     };
     let filtered = dir.made_by_me || !dir.device_types.is_empty() || dir.version.stock().is_some();
     presets::icon_buttons(
@@ -133,7 +133,7 @@ fn header(ui: &UiState, l: &mut Layout) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Close,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
 }
@@ -152,6 +152,7 @@ fn children(library: &CaptureLibrary, parent: Option<u16>) -> Vec<u16> {
 }
 
 fn folders(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let library = &*ui.snapshot.capture_library;
     let browse = ui.picker.captures;
     let selected = |folder| browse.folder == folder;
@@ -200,7 +201,7 @@ fn folders(ui: &UiState, l: &mut Layout) {
         });
     }
     let total = head + rows.len();
-    l.push(FOLDERS, "", Look::Fill(PANEL));
+    l.push(FOLDERS, "", Look::Fill(p.panel));
     l.scroll(
         ListId::MediaFolders,
         FOLDERS,
@@ -226,9 +227,10 @@ fn folders(ui: &UiState, l: &mut Layout) {
 /// The entered folder (shot sn-5): folder icon, the parent's name small and grey ("Captures
 /// Library" at the top level), then the folder name.
 fn head_row(l: &mut Layout, b: Rect, library: &CaptureLibrary, entered: u16, selected: bool) {
+    let p = l.palette;
     let folder = &library.folders[usize::from(entered)];
     if selected {
-        l.push(b, "", Look::Fill(SURFACE));
+        l.push(b, "", Look::Fill(p.surface));
     }
     l.control(
         b,
@@ -254,14 +256,14 @@ fn head_row(l: &mut Layout, b: Rect, library: &CaptureLibrary, entered: u16, sel
         Rect::new(b.x + 54, b.y + 8, width, 20),
         parent,
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(b.x + 54, b.y + 27, width, 22),
         folder.name.clone(),
         BODY,
-        if selected { ACCENT } else { TEXT },
+        if selected { p.accent } else { p.text },
         Align::Left,
     );
 }
@@ -341,15 +343,16 @@ fn date_text(date: &str) -> String {
 }
 
 fn list(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let library = &*ui.snapshot.capture_library;
     let rows = rows(ui);
-    l.push(LIST, "", Look::Fill(PANEL));
+    l.push(LIST, "", Look::Fill(p.panel));
     if rows.is_empty() {
         l.text(
             Rect::new(LIST.x, LIST.y + 40, LIST.width, 30),
             "Empty Folder",
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
         return;
@@ -385,6 +388,7 @@ fn list(ui: &UiState, l: &mut Layout) {
 
 /// Name, date, the initial (shot sn-4: x 378, 745) and a divider inset 16 px.
 fn capture_row(l: &mut Layout, b: Rect, index: u16, capture: &LibraryCapture) {
+    let p = l.palette;
     l.control(
         b,
         Control::Picker(PickerControl::Capture(index)),
@@ -397,14 +401,14 @@ fn capture_row(l: &mut Layout, b: Rect, index: u16, capture: &LibraryCapture) {
         Rect::new(text_x, b.y + 8, 340, 22),
         capture.name.clone(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.text(
         Rect::new(text_x, b.y + 32, 340, 20),
         date_text(&capture.date),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     let initial = (capture.name.trim_start().chars().next())
@@ -414,13 +418,13 @@ fn capture_row(l: &mut Layout, b: Rect, index: u16, capture: &LibraryCapture) {
         Rect::new(b.right() - 36, b.y, 24, ROW),
         initial,
         BODY,
-        MUTED,
+        p.muted,
         Align::Center,
     );
     l.push(
         Rect::new(text_x, b.bottom() - 1, b.width - 16, 1),
         "",
-        Look::Fill(SURFACE),
+        Look::Fill(p.surface),
     );
 }
 
@@ -498,6 +502,8 @@ impl UiState {
 
 #[cfg(test)]
 mod tests {
+    use tetrad_assets::Palette;
+
     use super::*;
 
     /// Role 0x25 prints `dd MMM yyyy` ("29 Apr 2025", shot sn-4) or "--"; the strip maps a
@@ -629,12 +635,12 @@ mod tests {
         assert!(text("2").is_some(), "the library count");
         let frame = ui.render();
         for (x, y, want) in [
-            (400, 30, BACKGROUND),
-            (103, 300, BACKGROUND),
-            (361, 200, BACKGROUND),
-            (150, 450, PANEL),
-            (500, 450, PANEL),
-            (330, 270, SURFACE),
+            (400, 30, Palette::STOCK.background),
+            (103, 300, Palette::STOCK.background),
+            (361, 200, Palette::STOCK.background),
+            (150, 450, Palette::STOCK.panel),
+            (500, 450, Palette::STOCK.panel),
+            (330, 270, Palette::STOCK.surface),
         ] {
             assert_eq!(frame.pixel(x, y), want, "({x}, {y})");
         }

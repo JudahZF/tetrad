@@ -46,6 +46,8 @@ pub enum ExtensionJob {
 pub struct Loaded {
     pub installed: Installed,
     pub module: PathBuf,
+    /// The package has code (`Store::has_module`); a theme-only package has none.
+    pub has_module: bool,
     pub config: Value,
     pub storage: Map<String, Value>,
 }
@@ -74,6 +76,7 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
             let installed = (state.installed.iter())
                 .map(|installed| Loaded {
                     module: store.module_path(installed),
+                    has_module: store.has_module(installed),
                     config: (state.configs.remove(&installed.key))
                         .unwrap_or_else(|| installed.current.manifest.default_config()),
                     storage: state.kv.remove(&installed.key).unwrap_or_default(),
@@ -143,6 +146,7 @@ fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
     let manifest = &installed.current.manifest;
     Ok(Loaded {
         module: store.module_path(&installed),
+        has_module: store.has_module(&installed),
         // An update can make the saved settings invalid; the package is installed already, so
         // the defaults take over, as when the store loads.
         config: store

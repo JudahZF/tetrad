@@ -2,10 +2,7 @@
 //! & Locking and Master Volume overlays and the Modes configuration. Each opens a new layer that
 //! alone receives input.
 
-use tetrad_assets::{
-    ACCENT, ACTION, BACKGROUND, CANVAS, FAINT, Icon, IconSize, MUTED, ON_ACCENT, PANEL, Rgb,
-    SECTION, SURFACE, TEXT, WARNING,
-};
+use tetrad_assets::{Icon, IconSize, Rgb, block};
 
 use super::grid::scene_label;
 use crate::layout::{
@@ -24,6 +21,7 @@ const RADIUS: f32 = 8.0;
 const FULL: Rect = Rect::new(0, 0, WIDTH, HEIGHT);
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     if let Some(draft) = &ui.draft {
         l.overlay();
         scene_draft(ui, l, draft);
@@ -127,7 +125,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         PowerState::Awake => {}
         PowerState::Locked => lock_indicator(l),
         // Be Right Back: the screen is off.
-        PowerState::Away => l.push(FULL, "", Look::Fill(CANVAS)),
+        PowerState::Away => l.push(FULL, "", Look::Fill(p.canvas)),
     }
 }
 
@@ -176,12 +174,13 @@ fn trigger(overlay: &Overlay) -> Option<Control> {
 }
 
 fn dialog_panel(l: &mut Layout, bounds: Rect, title: &str) {
-    l.panel(bounds, PANEL, RADIUS, None);
+    let p = l.palette;
+    l.panel(bounds, p.panel, RADIUS, None);
     l.text(
         Rect::new(bounds.x + 24, bounds.y + 16, bounds.width - 48, 28),
         title,
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
@@ -190,6 +189,7 @@ fn dialog_panel(l: &mut Layout, bounds: Rect, title: &str) {
 /// SCENE pencil opens an editor for one scene's name and colour, which tetrad-ui does not
 /// have yet. Kept as the only scene-label path until that editor exists.
 fn scene_draft(ui: &UiState, l: &mut Layout, draft: &crate::state::SceneDraft) {
+    let p = l.palette;
     let panel = Rect::new(80, 70, 640, 340);
     dialog_panel(l, panel, "Scene labels");
     for scene in SceneIndex::all() {
@@ -214,7 +214,7 @@ fn scene_draft(ui: &UiState, l: &mut Layout, draft: &crate::state::SceneDraft) {
         Rect::new(100, 226, 600, 20),
         "Name",
         BODY_BOLD,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.control(
@@ -249,6 +249,7 @@ fn scene_draft(ui: &UiState, l: &mut Layout, draft: &crate::state::SceneDraft) {
 }
 
 fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
+    let p = l.palette;
     let s = &ui.snapshot;
     // `0x003bbb90`: without a file, Save as, Edit Details, favorites and Delete are grey.
     let loaded = s.preset_id.is_some() && s.preset_file;
@@ -336,9 +337,10 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
     const ROW: u32 = 60;
     let panel = Rect::new(472, 16, 270, 420);
     let update = s.updater.available_version.is_some();
-    l.veil(crate::layout::GREY_VEIL);
+    let (veil, alpha) = crate::layout::GREY_VEIL;
+    l.veil((p.tone(veil), alpha));
     l.popover(panel);
-    l.panel(panel, crate::widgets::PAGE, RADIUS, None);
+    l.panel(panel, p.tone(crate::widgets::PAGE), RADIUS, None);
     let content = rows.len() as u32 * ROW;
     let offset = ui.offset(ListId::Menu);
     l.scroll(ListId::Menu, panel, content, offset, |l, top| {
@@ -349,7 +351,7 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
                     Rect::new(bounds.x + 16, bounds.y, bounds.width - 32, ROW),
                     *title,
                     CAPTION,
-                    TEXT,
+                    p.text,
                     Align::Left,
                 ),
                 MenuRow::Item(action, label, icon, enabled) => {
@@ -373,7 +375,7 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
                     );
                     if update && *action == MenuAction::Settings {
                         let dot = Rect::new(bounds.right() - 43, bounds.y + 22, 16, 16);
-                        l.push(dot, "", Look::Dot { color: ACCENT });
+                        l.push(dot, "", Look::Dot { color: p.accent });
                     }
                 }
             }
@@ -784,6 +786,7 @@ fn download_overwrite(ui: &UiState, l: &mut Layout) {
 /// 90 px body; a longer body (the stock Factory Reset WARNING! text, `0xa3d1bc`, wraps to 5
 /// lines) grows the panel around the screen centre.
 pub(super) fn message_panel(l: &mut Layout, title: &str, body: &str) -> Rect {
+    let p = l.palette;
     let lines = wrap(body, MEDIUM, 432.0).len() as u32;
     let body_height = (lines * MEDIUM.size.line_px()).max(90);
     let height = 150 + body_height;
@@ -793,7 +796,7 @@ pub(super) fn message_panel(l: &mut Layout, title: &str, body: &str) -> Rect {
         Rect::new(panel.x + 24, panel.y + 60, panel.width - 48, body_height),
         body,
         MEDIUM,
-        MUTED,
+        p.muted,
     );
     panel
 }
@@ -804,6 +807,7 @@ pub(super) fn message_panel(l: &mut Layout, title: &str, body: &str) -> Rect {
 /// CPU MONITOR (`#1A3AF8`) 157 × 45 at x 48 and 214, y 159 (182). I: the veil colour and
 /// the OK look.
 fn global_eq_inhibited(l: &mut Layout, global_eq: bool, input_gate: bool) {
+    let p = l.palette;
     let (title, body) = match (global_eq, input_gate) {
         (true, true) => (
             "Global EQ and Input Gate disabled",
@@ -820,20 +824,27 @@ fn global_eq_inhibited(l: &mut Layout, global_eq: bool, input_gate: bool) {
     };
     let both = global_eq && input_gate;
     let (color, alpha) = crate::layout::LOADING_VEIL;
+    let color = p.tone(color);
     l.push(FULL, "", Look::Veil { color, alpha });
     let panel = if both {
         Rect::new(190, 102, 420, 260)
     } else {
         Rect::new(190, 114, 420, 236)
     };
-    l.panel(panel, BACKGROUND, RADIUS, None);
+    l.panel(panel, p.background, RADIUS, None);
     let at = |x, y, width, height| Rect::new(panel.x + x, panel.y + y, width, height);
-    l.text(at(20, 32, 379, 26), title, LARGE_BOLD, TEXT, Align::Center);
+    l.text(
+        at(20, 32, 379, 26),
+        title,
+        LARGE_BOLD,
+        p.text,
+        Align::Center,
+    );
     l.paragraph(
         at(20, 81, 379, if both { 69 } else { 49 }),
         body,
         MEDIUM_BOLD,
-        TEXT,
+        p.text,
     );
     let row = if both { 182 } else { 159 };
     l.button(
@@ -844,7 +855,7 @@ fn global_eq_inhibited(l: &mut Layout, global_eq: bool, input_gate: bool) {
         ButtonStyle::Secondary,
     );
     let monitor = at(214, row, 157, 45);
-    l.panel(monitor, Rgb(0x1a, 0x3a, 0xf8), RADIUS, None);
+    l.panel(monitor, p.action, RADIUS, None);
     l.control(
         monitor,
         Control::Dialog(DialogButton::Primary),
@@ -852,7 +863,7 @@ fn global_eq_inhibited(l: &mut Layout, global_eq: bool, input_gate: bool) {
         "CPU MONITOR",
         Look::Area,
     );
-    l.text(monitor, "CPU MONITOR", BODY_BOLD, TEXT, Align::Center);
+    l.text(monitor, "CPU MONITOR", BODY_BOLD, p.text, Align::Center);
 }
 
 /// "Corrupt Neural Capture" (`0x2b0cf8`, text `0x54663c`): an 800 × 480 veil (0.7), a
@@ -862,16 +873,18 @@ fn global_eq_inhibited(l: &mut Layout, global_eq: bool, input_gate: bool) {
 /// Tetrad has no report service, so it stays disabled. Owned: the stock rich text
 /// (`<b>%1</b>`) as three paragraphs, the names in Medium.
 fn corrupt_captures(l: &mut Layout, names: &[String]) {
+    let p = l.palette;
     let (color, alpha) = crate::layout::LOADING_VEIL;
+    let color = p.tone(color);
     l.push(FULL, "", Look::Veil { color, alpha });
     let panel = Rect::new(190, 32, 419, 416);
-    l.panel(panel, BACKGROUND, RADIUS, None);
+    l.panel(panel, p.background, RADIUS, None);
     let at = |x, y, width, height| Rect::new(panel.x + x, panel.y + y, width, height);
     l.text(
         at(0, 0, 419, 82),
         "Corrupt Neural Capture",
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Center,
     );
     let intro =
@@ -885,7 +898,7 @@ fn corrupt_captures(l: &mut Layout, names: &[String]) {
     let mut y = 82;
     for (text, font) in [(intro, BODY), (list.as_str(), BODY_BOLD), (outro, BODY)] {
         let h = height(text, font).min(225 - (y - 82).min(225) as u32);
-        l.paragraph(at(24, y, width, h), text, font, TEXT);
+        l.paragraph(at(24, y, width, h), text, font, p.text);
         y += h as i32 + 16;
     }
     l.button(
@@ -896,7 +909,7 @@ fn corrupt_captures(l: &mut Layout, names: &[String]) {
         ButtonStyle::Secondary,
     );
     let report = at(213, 339, 157, 45);
-    l.panel(report, Rgb(0x1a, 0x3a, 0xf8), RADIUS, None);
+    l.panel(report, p.action, RADIUS, None);
     l.control(
         report,
         Control::Dialog(DialogButton::Primary),
@@ -904,7 +917,7 @@ fn corrupt_captures(l: &mut Layout, names: &[String]) {
         "SEND REPORT",
         Look::Area,
     );
-    l.text(report, "SEND REPORT", BODY_BOLD, FAINT, Align::Center);
+    l.text(report, "SEND REPORT", BODY_BOLD, p.faint, Align::Center);
 }
 
 /// DSPErrorDialog (ctor `0x6c6248`), above every other layer: an 800 × 480 `#323232` veil
@@ -914,17 +927,21 @@ fn corrupt_captures(l: &mut Layout, names: &[String]) {
 /// Medium 16 px, 158 × 45 at (59, 197) and (351, 197). I: white button text (the Button
 /// default; the ctor sets none). `%1` is the product name (`0x498ce4`).
 fn dsp_error(ui: &UiState, l: &mut Layout) {
+    /// Stock DSPErrorDialog card.
+    const ERROR_CARD: Rgb = Rgb(0xfe, 0x59, 0x48);
     const TITLE: crate::render::Font =
         crate::render::Font::new(tetrad_assets::TextSize::Px20, tetrad_assets::Weight::Bold);
-    l.veil(crate::layout::LOADING_VEIL);
+    let p = l.palette;
+    let (veil, alpha) = crate::layout::LOADING_VEIL;
+    l.veil((p.tone(veil), alpha));
     let card = Rect::new(116, 103, 568, 275);
-    l.panel(card, Rgb(0xfe, 0x59, 0x48), 10.0, None);
+    l.panel(card, p.tone(ERROR_CARD), 10.0, None);
     let at = |x, y, width, height| Rect::new(card.x + x, card.y + y, width, height);
     l.text(
         at(0, 27, 568, TITLE.size.line_px()),
         "Something went wrong",
         TITLE,
-        ON_ACCENT,
+        p.on_accent,
         Align::Center,
     );
     let body = format!(
@@ -935,7 +952,7 @@ fn dsp_error(ui: &UiState, l: &mut Layout) {
     let height = (wrap(&body, MEDIUM, 488.0).len() as u32 * MEDIUM.size.line_px()).min(162);
     let paragraph = Look::Paragraph {
         font: MEDIUM,
-        color: ON_ACCENT,
+        color: p.on_accent,
         align: Align::Center,
     };
     l.push(
@@ -945,7 +962,7 @@ fn dsp_error(ui: &UiState, l: &mut Layout) {
     );
     for (x, reboot, label) in [(59, false, "CANCEL"), (351, true, "REBOOT")] {
         let button = at(x, 197, 158, 45);
-        l.panel(button, CANVAS, 4.0, None);
+        l.panel(button, p.canvas, 4.0, None);
         l.control(
             button,
             Control::DspError { reboot },
@@ -953,13 +970,14 @@ fn dsp_error(ui: &UiState, l: &mut Layout) {
             label,
             Look::Area,
         );
-        l.text(button, label, BODY_BOLD, TEXT, Align::Center);
+        l.text(button, label, BODY_BOLD, p.text, Align::Center);
     }
 }
 
 /// "Excessive %1 in Downloads folder" (`0x22bd50`): the text, a "Don't show again" box
 /// (`icons/24/checkbox_unchecked.png`, owned box) and CANCEL / SHOW DOWNLOADS.
 fn excessive_downloads(l: &mut Layout, kind: crate::ExcessDownloads, dont_show: bool) {
+    let p = l.palette;
     let name = kind.label();
     let body = format!(
         "Your {name} Downloads folder has a large number of saved {name}, which can result in \
@@ -969,7 +987,7 @@ fn excessive_downloads(l: &mut Layout, kind: crate::ExcessDownloads, dont_show: 
     let panel = message_panel(l, &format!("Excessive {name} in Downloads folder"), &body);
     let row = Rect::new(panel.x + 24, panel.bottom() - 68, 200, 48);
     let box_ = Rect::new(row.x, row.y + 12, 24, 24);
-    l.panel(box_, SURFACE, 4.0, Some(MUTED));
+    l.panel(box_, p.surface, 4.0, Some(p.muted));
     if dont_show {
         l.push(
             box_,
@@ -977,7 +995,7 @@ fn excessive_downloads(l: &mut Layout, kind: crate::ExcessDownloads, dont_show: 
             Look::Glyph {
                 icon: Icon::Check,
                 size: IconSize::Small,
-                color: TEXT,
+                color: p.text,
             },
         );
     }
@@ -992,7 +1010,7 @@ fn excessive_downloads(l: &mut Layout, kind: crate::ExcessDownloads, dont_show: 
         Rect::new(row.x + 32, row.y, row.width - 32, row.height),
         "Don't show again",
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.button(
@@ -1052,6 +1070,7 @@ fn assign_stomp(ui: &UiState, l: &mut Layout, position: GridPosition) {
 /// `0xa34c10`) and one chip per Grid block, lit when assigned to this stomp.
 fn edit_stomp(ui: &UiState, l: &mut Layout, tile: u8) {
     const CHIP: (u32, u32) = (124, 40);
+    let p = l.palette;
     let s = &ui.snapshot;
     let stomp = &s.stomps[usize::from(tile)];
     let blocks: Vec<GridPosition> = GridPosition::all()
@@ -1092,7 +1111,7 @@ fn edit_stomp(ui: &UiState, l: &mut Layout, tile: u8) {
             Rect::new(panel.x + 24, top, panel.width - 48, CHIP.1),
             "No device blocks on the Grid",
             BODY,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     }
@@ -1232,6 +1251,7 @@ fn choice(ui: &UiState, l: &mut Layout, purpose: ChoicePurpose, anchor: Option<R
 }
 
 fn info(ui: &UiState, l: &mut Layout, title: &str, body: &str) {
+    let p = l.palette;
     let panel = Rect::new(100, 40, 600, HEIGHT - 80);
     dialog_panel(l, panel, title);
     let viewport = Rect::new(
@@ -1252,7 +1272,7 @@ fn info(ui: &UiState, l: &mut Layout, title: &str, body: &str) {
                 Rect::new(viewport.x, y, viewport.width, content.max(1)),
                 body,
                 BODY,
-                TEXT,
+                p.text,
             );
         },
     );
@@ -1271,6 +1291,7 @@ fn info(ui: &UiState, l: &mut Layout, title: &str, body: &str) {
 /// (`0x1d37fc`: scene >> 2 → "I", "II"), as "Scene B (Page II)" (C, review r15 R11). The
 /// scene buttons are owned (review R25).
 fn scene_target(ui: &UiState, l: &mut Layout, swap: bool) {
+    let p = l.palette;
     let current = ui.scene_source.unwrap_or(ui.snapshot.selected_scene);
     let mini = ui.snapshot.mini;
     let verb = if swap { "Swap" } else { "Copy" };
@@ -1291,7 +1312,7 @@ fn scene_target(ui: &UiState, l: &mut Layout, swap: bool) {
             "Press Scene destination footswitch."
         },
         MEDIUM,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     for scene in SceneIndex::all() {
@@ -1322,6 +1343,7 @@ fn scene_target(ui: &UiState, l: &mut Layout, swap: bool) {
 /// empty slot and drags the S / M tokens; tetrad-ui has no token drag yet, so this stays the
 /// only routing path.
 fn routing(ui: &UiState, l: &mut Layout, pair: RowPair) {
+    let p = l.palette;
     let view = ui.snapshot.pairs[pair.index()];
     let title = match pair {
         RowPair::Upper => "ROWS 1/2",
@@ -1366,7 +1388,7 @@ fn routing(ui: &UiState, l: &mut Layout, pair: RowPair) {
             Rect::new(panel.x + 24, y, 80, 48),
             label,
             crate::layout::MEDIUM_BOLD,
-            TEXT,
+            p.text,
             Align::Left,
         );
         super::stepper(
@@ -1400,6 +1422,7 @@ fn routing(ui: &UiState, l: &mut Layout, pair: RowPair) {
 /// inferred. Drawn as a black card anchored at the abort control.
 fn abort_confirm(ui: &UiState, l: &mut Layout, anchor: Option<Rect>) {
     const SIZE: (u32, u32) = (336, 172);
+    let p = l.palette;
     let running = matches!(
         ui.snapshot.capture.step,
         CaptureStep::RecordingSignals
@@ -1437,19 +1460,19 @@ fn abort_confirm(ui: &UiState, l: &mut Layout, anchor: Option<Rect>) {
         ),
     };
     l.popover(card);
-    l.panel(card, CANVAS, RADIUS, None);
+    l.panel(card, p.canvas, RADIUS, None);
     l.text(
         Rect::new(card.x + 16, card.y + 12, card.width - 32, 26),
         title,
         MEDIUM_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
         Rect::new(card.x + 16, card.y + 44, card.width - 32, 48),
         body,
         BODY,
-        MUTED,
+        p.muted,
     );
     let row = card.y + card.height as i32 - 60;
     l.button(
@@ -1478,9 +1501,10 @@ const SLOT_GAP: u32 = 24;
 const ADD_WIDTH: u32 = 80;
 /// Stock footswitch slots in the cycle (tetrad-settings `ModeSettings::MAX_SLOTS`).
 const MAX_SLOTS: usize = 3;
-/// Device map row colours (shot 021): first hybrid row yellow, second violet.
-const ROW_UPPER: Rgb = WARNING;
-const ROW_LOWER: Rgb = Rgb(0x69, 0x54, 0xff);
+/// Device map row colours (shot 021): first hybrid row yellow, second violet. Data: they
+/// stay fixed under themes.
+const ROW_UPPER: Rgb = block::PITCH;
+const ROW_LOWER: Rgb = block::CAB;
 const SINGLE_MODES: [FootswitchMode; 3] = [
     FootswitchMode::Preset,
     FootswitchMode::Scene,
@@ -1611,12 +1635,13 @@ const MODES_INFO: &str = "Mode Slot 1: CC#47 value 0\nMode Slot 2: CC#47 value 1
      Mode.\n\nIf a slot is empty, MIDI will not recall any mode.";
 
 fn modes(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let cycle = Cycle::of(ui);
-    l.push(FULL, "", Look::Fill(BACKGROUND));
+    l.push(FULL, "", Look::Fill(p.background));
     crate::widgets::page_header(l, "Modes configuration", Control::Back, Icon::Check);
     // Stock 021: a grey ⓘ disc on a `#1e1e1e` button.
     let info = Rect::new(610, 8, 66, 44);
-    l.panel(info, SURFACE, 8.0, None);
+    l.panel(info, p.surface, 8.0, None);
     l.control(
         info,
         Control::Mode(ModeControl::Info),
@@ -1625,23 +1650,23 @@ fn modes(ui: &UiState, l: &mut Layout) {
         Look::Area,
     );
     let disc = Rect::new(info.x + 22, info.y + 11, 22, 22);
-    l.push(disc, "", Look::Dot { color: MUTED });
-    l.text(disc, "i", SMALL_BOLD, BACKGROUND, Align::Center);
+    l.push(disc, "", Look::Dot { color: p.muted });
+    l.text(disc, "i", SMALL_BOLD, p.background, Align::Center);
     l.push(
         Rect::new(160, 82, 480, 48),
         "Drag a Mode on top of another to create a Hybrid\nMode. Use a long press to break a Hybrid Mode apart.",
         Look::Paragraph {
             font: BODY,
-            color: TEXT,
+            color: p.text,
             align: Align::Center,
         },
     );
     // 2 px #2e2e2e loop, radius 38, with a gap for its "CYCLE" label.
-    l.panel(CYCLE_TRACK, PANEL, 38.0, None);
-    l.panel(CYCLE_TRACK.inset(2, 2), BACKGROUND, 36.0, None);
+    l.panel(CYCLE_TRACK, p.panel, 38.0, None);
+    l.panel(CYCLE_TRACK.inset(2, 2), p.background, 36.0, None);
     let label = Rect::new(366, 149, 66, 18);
-    l.push(label, "", Look::Fill(BACKGROUND));
-    l.text(label, "CYCLE", CAPTION, SECTION, Align::Center);
+    l.push(label, "", Look::Fill(p.background));
+    l.text(label, "CYCLE", CAPTION, p.section, Align::Center);
     triangle(l, CYCLE_TRACK.x, 190, true);
     triangle(l, CYCLE_TRACK.right(), 190, false);
 
@@ -1652,13 +1677,13 @@ fn modes(ui: &UiState, l: &mut Layout) {
     let (slots, add) = cycle_row(&cycle);
     for (index, (mode, rect)) in cycle.modes.iter().zip(&slots).enumerate() {
         if dragging == Some(index) {
-            l.panel(*rect, SURFACE, RADIUS, Some(PANEL));
+            l.panel(*rect, p.surface, RADIUS, Some(p.panel));
             continue;
         }
         mode_slot(l, &cycle, *mode, *rect, Some(index as u8), None);
     }
     if let Some(add) = add {
-        l.panel(add, PANEL, RADIUS, None);
+        l.panel(add, p.panel, RADIUS, None);
         l.control(
             add,
             Control::Mode(ModeControl::Add),
@@ -1689,7 +1714,7 @@ fn modes(ui: &UiState, l: &mut Layout) {
             SLOT.0,
             SLOT.1,
         );
-        mode_slot(l, &cycle, *mode, ghost, None, Some(ACCENT));
+        mode_slot(l, &cycle, *mode, ghost, None, Some(p.accent));
     }
 }
 
@@ -1703,7 +1728,8 @@ fn mode_slot(
     slot: Option<u8>,
     border: Option<Rgb>,
 ) {
-    l.panel(rect, PANEL, RADIUS, border);
+    let p = l.palette;
+    l.panel(rect, p.panel, RADIUS, border);
     if let Some(slot) = slot {
         l.control(
             rect,
@@ -1714,12 +1740,12 @@ fn mode_slot(
         );
     }
     let row = |l: &mut Layout, mode: FootswitchMode, y: i32| {
-        mode_icon(l, mode, rect.x + 16, y + 3, TEXT);
+        mode_icon(l, mode, rect.x + 16, y + 3, p.text);
         l.text(
             Rect::new(rect.x + 56, y, 80, 30),
             mode_name(mode),
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Left,
         );
     };
@@ -1743,10 +1769,10 @@ fn mode_slot(
     let (down, up) = ((rect.x + 133) as f32, (rect.x + 147) as f32);
     let (top, bottom) = ((rect.y + 32) as f32, (rect.y + 47) as f32);
     for (x, from, to) in [(down, top, bottom), (up, bottom, top)] {
-        l.line((x, from), (x, to), 1.5, FAINT);
+        l.line((x, from), (x, to), 1.5, p.faint);
         let head = if to > from { -4.0 } else { 4.0 };
-        l.line((x - 3.0, to + head), (x, to), 1.5, FAINT);
-        l.line((x + 3.0, to + head), (x, to), 1.5, FAINT);
+        l.line((x - 3.0, to + head), (x, to), 1.5, p.faint);
+        l.line((x + 3.0, to + head), (x, to), 1.5, p.faint);
     }
     if slot.is_some() {
         l.control(
@@ -1762,12 +1788,13 @@ fn mode_slot(
 /// Filled cycle arrowhead, 18 px wide and 14 px high, centred on `x` (`0x002cc3cc`):
 /// down on the left end, up on the right end.
 fn triangle(l: &mut Layout, x: i32, top: i32, down: bool) {
+    let p = l.palette;
     for row in 0..14 {
         let half = 9 - (if down { row } else { 13 - row }) * 9 / 14;
         l.push(
             Rect::new(x - half, top + row, (2 * half) as u32, 1),
             "",
-            Look::Fill(PANEL),
+            Look::Fill(p.panel),
         );
     }
 }
@@ -1776,18 +1803,31 @@ fn triangle(l: &mut Layout, x: i32, top: i32, down: bool) {
 /// A–H footswitches, coloured by the hybrid rows.
 fn device_map(l: &mut Layout, cycle: &Cycle) {
     const LINE: Rgb = Rgb(0x52, 0x52, 0x52);
+    let p = l.palette;
+    let line = p.tone(LINE);
     let ring = |l: &mut Layout, x: i32, y: i32, r: u32, fill: Option<Rgb>| {
         let outer = Rect::new(x - r as i32, y - r as i32, 2 * r, 2 * r);
         match fill {
             Some(color) => l.push(outer, "", Look::Dot { color }),
             None => {
-                l.push(outer, "", Look::Dot { color: LINE });
-                l.push(outer.inset(1, 1), "", Look::Dot { color: BACKGROUND });
+                l.push(outer, "", Look::Dot { color: line });
+                l.push(
+                    outer.inset(1, 1),
+                    "",
+                    Look::Dot {
+                        color: p.background,
+                    },
+                );
             }
         }
     };
-    l.panel(Rect::new(282, 308, 236, 150), BACKGROUND, 12.0, Some(LINE));
-    l.panel(Rect::new(344, 316, 112, 62), BACKGROUND, 3.0, Some(LINE));
+    l.panel(
+        Rect::new(282, 308, 236, 150),
+        p.background,
+        12.0,
+        Some(line),
+    );
+    l.panel(Rect::new(344, 316, 112, 62), p.background, 3.0, Some(line));
     ring(l, 314, 347, 11, None);
     for y in [347, 403, 437] {
         ring(l, 487, y, 6, None);
@@ -1849,13 +1889,14 @@ fn mode_icon(l: &mut Layout, mode: FootswitchMode, x: i32, y: i32, color: Rgb) {
 /// fits its four lines. The full-size QC strings are used (`0x499a60` false).
 fn power(l: &mut Layout) {
     const CARD: Rect = Rect::new(42, 90, 716, 299);
+    let p = l.palette;
     let at = |x: i32, y: i32, w: u32, h: u32| Rect::new(CARD.x + x, CARD.y + y, w, h);
-    l.panel(CARD, BACKGROUND, 10.0, None);
+    l.panel(CARD, p.background, 10.0, None);
     l.text(
         at(237, 32, 242, 26),
         "Power & Locking functions",
         MEDIUM_BOLD,
-        TEXT,
+        p.text,
         Align::Center,
     );
     l.control(
@@ -1876,7 +1917,7 @@ fn power(l: &mut Layout) {
          will wake Quad Cortex and re-enable the audio outputs.",
         Look::Paragraph {
             font: CAPTION,
-            color: MUTED,
+            color: p.muted,
             align: Align::Center,
         },
     );
@@ -1889,13 +1930,13 @@ fn power(l: &mut Layout) {
     ] {
         let rect = at(x, 222, 157, 48);
         let fill = if control == PowerControl::Cancel {
-            CANVAS
+            p.canvas
         } else {
-            ACTION
+            p.action
         };
         l.panel(rect, fill, 4.0, None);
         l.control(rect, Control::Power(control), true, label, Look::Area);
-        l.text(rect, label, BODY_BOLD, TEXT, Align::Center);
+        l.text(rect, label, BODY_BOLD, p.text, Align::Center);
     }
 }
 
@@ -1904,14 +1945,15 @@ fn power(l: &mut Layout) {
 /// `MasterVolume*` settings. It closes after [`volume_ms`] without a turn or a touch.
 fn volume(ui: &UiState, l: &mut Layout) {
     const CARD: Rect = Rect::new(205, 32, 390, 196);
+    let p = l.palette;
     l.popover(CARD);
-    l.panel(CARD, CANVAS, 10.0, Some(SECTION));
+    l.panel(CARD, p.canvas, 10.0, Some(p.section));
     let percent = ui.volume_percent.min(100);
     l.text(
         Rect::new(CARD.x, CARD.y + 4, CARD.width, 76),
         percent.to_string(),
         HUGE_BOLD,
-        ACCENT,
+        p.accent,
         Align::Center,
     );
     l.push(
@@ -1919,7 +1961,7 @@ fn volume(ui: &UiState, l: &mut Layout) {
         "",
         Look::Progress {
             fraction: f32::from(percent) / 100.0,
-            color: ACCENT,
+            color: p.accent,
         },
     );
     for (x, id, label) in [
@@ -1931,9 +1973,9 @@ fn volume(ui: &UiState, l: &mut Layout) {
         let tile = Rect::new(x, 142, 80, 64);
         let on = matches!(ui.snapshot.setting(id), Some(SettingValue::Bool(true)));
         let (fill, ink) = if on {
-            (ACCENT, ON_ACCENT)
+            (p.accent, p.on_accent)
         } else {
-            (SURFACE, MUTED)
+            (p.surface, p.muted)
         };
         l.panel(tile, fill, RADIUS, None);
         l.control(
@@ -1960,17 +2002,17 @@ fn volume(ui: &UiState, l: &mut Layout) {
         }
         let check = Rect::new(tile.x + 8, tile.y + 34, 22, 22);
         if on {
-            l.panel(check, CANVAS, 4.0, None);
+            l.panel(check, p.canvas, 4.0, None);
             l.push(
                 check,
                 "",
                 Look::IconButton {
                     icon: Icon::Check,
-                    fill: CANVAS,
+                    fill: p.canvas,
                 },
             );
         } else {
-            l.panel(check, SURFACE, 4.0, Some(FAINT));
+            l.panel(check, p.surface, 4.0, Some(p.faint));
         }
     }
 }
@@ -1980,12 +2022,13 @@ fn volume(ui: &UiState, l: &mut Layout) {
 /// glyph. It sits under the header (y 82–107): the Grid ⋮, ✓ buttons and the mode label
 /// fill x 550–787 above it, and the first Grid row starts at y 109.
 fn lock_indicator(l: &mut Layout) {
+    let p = l.palette;
     l.push(
         Rect::new(766, 82, 26, 26),
         "LOCKED",
         Look::IconButton {
             icon: Icon::Lock,
-            fill: SECTION,
+            fill: p.section,
         },
     );
 }
@@ -2252,13 +2295,10 @@ const DIGITS: [&str; 3] = ["1234567890", "-@#$%&()'", "!^_{}~."];
 const SYMBOLS: [&str; 3] = ["+=*/\\|<>[]", ":;\",?`.'-", "@#$%&()"];
 
 fn keyboard(ui: &UiState, l: &mut Layout, keyboard: &crate::state::Keyboard) {
+    let p = l.palette;
     let target = &keyboard.target;
     let (_, max) = target.limits();
-    l.push(
-        Rect::new(0, 0, WIDTH, 200),
-        "",
-        Look::Fill(tetrad_assets::BACKGROUND),
-    );
+    l.push(Rect::new(0, 0, WIDTH, 200), "", Look::Fill(p.background));
     if target.preset_save() {
         super::preset_metadata::header(ui, l, keyboard);
         super::preset_metadata::field(l, keyboard);
@@ -2270,16 +2310,17 @@ fn keyboard(ui: &UiState, l: &mut Layout, keyboard: &crate::state::Keyboard) {
 
 /// The owned title, field, counter and CANCEL of the keyboards not traced yet (O).
 fn text_field(l: &mut Layout, keyboard: &crate::state::Keyboard, max: usize) {
+    let p = l.palette;
     let target = &keyboard.target;
     l.text(
         Rect::new(24, 18, 600, 20),
         target.title(),
         BODY_BOLD,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     let field = Rect::new(24, 44, 752, 60);
-    l.panel(field, SURFACE, 10.0, Some(ACCENT));
+    l.panel(field, p.surface, 10.0, Some(p.accent));
     let shown = if target.secret() {
         "*".repeat(keyboard.text.chars().count())
     } else {
@@ -2288,22 +2329,22 @@ fn text_field(l: &mut Layout, keyboard: &crate::state::Keyboard, max: usize) {
     let font = XLARGE_BOLD;
     let text_area = field.inset(16, 0);
     if shown.is_empty() {
-        l.text(text_area, "Enter text...", font, FAINT, Align::Left);
+        l.text(text_area, "Enter text...", font, p.faint, Align::Left);
     } else {
-        l.text(text_area, shown.clone(), font, TEXT, Align::Left);
+        l.text(text_area, shown.clone(), font, p.text, Align::Left);
     }
     let caret = (font.width(&shown).ceil() as i32).min(text_area.width as i32 - 2);
     l.push(
         Rect::new(text_area.x + caret + 2, field.y + 14, 2, 32),
         "",
-        Look::Fill(ACCENT),
+        Look::Fill(p.accent),
     );
     let left = max.saturating_sub(keyboard.text.chars().count());
     l.text(
         Rect::new(24, 112, 400, 20),
         format!("Characters left: {left}"),
         BODY_BOLD,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.button(
@@ -2316,11 +2357,12 @@ fn text_field(l: &mut Layout, keyboard: &crate::state::Keyboard, max: usize) {
 }
 
 fn keys(l: &mut Layout, keyboard: &crate::state::Keyboard) {
+    let p = l.palette;
     let target = &keyboard.target;
     l.push(
         Rect::new(0, 200, WIDTH, HEIGHT - 200),
         "",
-        Look::Fill(SURFACE),
+        Look::Fill(p.surface),
     );
     let rows = match keyboard.layer {
         KeyLayer::Letters => LETTERS,

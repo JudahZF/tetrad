@@ -10,9 +10,7 @@
 //! capture name, and a title tap opens the capture browser (`capture_browser.rs`).
 //! Panel places and page split are inferred; the parts and texts are stock.
 
-use tetrad_assets::{
-    BACKGROUND, CANVAS, FAINT, Icon, IconSize, MUTED, PANEL, Rgb, SURFACE, TEXT, WARNING,
-};
+use tetrad_assets::{Icon, IconSize, Rgb};
 
 use super::model_editor::{BODY_TOP, ModelEditor, parameter};
 use crate::layout::{BODY, BODY_BOLD, LARGE, Layout, Look};
@@ -76,13 +74,14 @@ fn knob_cell(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb) {
 
 /// A row of knob cells (157 px pitch, `#121212` dividers) on a `#2e2e2e` card.
 fn knob_row(ui: &UiState, l: &mut Layout, card: Rect, knobs: &[u16], hue: Rgb) {
+    let background = l.palette.background;
     for (column, &index) in knobs.iter().enumerate() {
         let x = card.x + column as i32 * 157;
         if column > 0 {
             l.push(
                 Rect::new(x - 1, card.y + 15, 1, 78),
                 "",
-                Look::Fill(BACKGROUND),
+                Look::Fill(background),
             );
         }
         if let Some(p) = parameter(ui, index) {
@@ -94,10 +93,11 @@ fn knob_row(ui: &UiState, l: &mut Layout, card: Rect, knobs: &[u16], hue: Rgb) {
 // --- IR Loader -------------------------------------------------------------------------
 
 pub(super) fn ir_loader(ui: &UiState, l: &mut Layout, dual: bool, lite: bool, hue: Rgb) {
+    let p = l.palette;
     l.push(
         Rect::new(0, BODY_TOP, WIDTH, 420),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     if ui.param_page == 0 {
         for channel in 0..if dual { 2 } else { 1 } {
@@ -114,22 +114,23 @@ pub(super) fn ir_loader(ui: &UiState, l: &mut Layout, dual: bool, lite: bool, hu
     let mut top = BODY_TOP;
     if !lite {
         let card = Rect::new(8, top, 784, 108);
-        l.panel(card, PANEL, 8.0, None);
+        l.panel(card, p.panel, 8.0, None);
         knob_row(ui, l, card, &ROOM_KNOBS, hue);
         top += 112;
     }
     if dual {
         let card = Rect::new(8, top, 157, 108);
-        l.panel(card, PANEL, 8.0, None);
+        l.panel(card, p.panel, 8.0, None);
         knob_row(ui, l, card, &[GLOBAL_OUTPUT], hue);
     }
 }
 
 fn ir_channel(ui: &UiState, l: &mut Layout, channel: u8, top: i32, hue: Rgb) {
+    let p = l.palette;
     let base = base(channel);
     l.panel(
         Rect::new(8, top, 784, CHANNEL_HEIGHT as u32),
-        PANEL,
+        p.panel,
         8.0,
         None,
     );
@@ -137,7 +138,7 @@ fn ir_channel(ui: &UiState, l: &mut Layout, channel: u8, top: i32, hue: Rgb) {
     let button = |x: i32, y: i32| Rect::new(area.0 + x, area.1 + y, 98, 48);
     // Power: MUTE on dims the glyph (`icons/24/bypass_white.png`).
     let power = button(0, 0);
-    l.panel(power, SURFACE, 8.0, None);
+    l.panel(power, p.surface, 8.0, None);
     let muted = on(ui, base + MUTE);
     l.control(
         power,
@@ -147,12 +148,12 @@ fn ir_channel(ui: &UiState, l: &mut Layout, channel: u8, top: i32, hue: Rgb) {
         Look::Glyph {
             icon: Icon::Power,
             size: IconSize::Medium,
-            color: if muted { FAINT } else { TEXT },
+            color: if muted { p.faint } else { p.text },
         },
     );
     // Phase (`icons/24/phase_on.png`): owned Ø, white while INVERT is on.
     let phase = button(0, 50);
-    l.panel(phase, SURFACE, 8.0, None);
+    l.panel(phase, p.surface, 8.0, None);
     l.control(
         phase,
         Control::Editor(EditorControl::IrPhase(channel)),
@@ -167,12 +168,16 @@ fn ir_channel(ui: &UiState, l: &mut Layout, channel: u8, top: i32, hue: Rgb) {
             tetrad_assets::TextSize::Px24,
             tetrad_assets::Weight::Regular,
         ),
-        if on(ui, base + INVERT) { TEXT } else { MUTED },
+        if on(ui, base + INVERT) {
+            p.text
+        } else {
+            p.muted
+        },
         Align::Center,
     );
     // Label area: the IR browser (`selectFirstIRPressed` / `selectSecondIRPressed`).
     let label = Rect::new(area.0 + 100, area.1, 532, 98);
-    l.panel(label, SURFACE, 8.0, None);
+    l.panel(label, p.surface, 8.0, None);
     let path = parameter(ui, base + IR_PATH);
     let name = path.map_or("", |p| p.value.as_str());
     let empty = name.is_empty() || name == "-";
@@ -188,19 +193,19 @@ fn ir_channel(ui: &UiState, l: &mut Layout, channel: u8, top: i32, hue: Rgb) {
         Rect::new(text.x, label.y + 9, text.width, 21),
         "IMPULSE RESPONSE",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(text.x, label.y + 38, text.width, 46),
         if empty { "Choose IR file" } else { name },
         if empty { BODY } else { NAME_FONT },
-        if empty { MUTED } else { TEXT },
+        if empty { p.muted } else { p.text },
         Align::Left,
     );
     for (y, forward, icon) in [(0, false, Icon::Up), (50, true, Icon::Down)] {
         let rect = button(678, y);
-        l.panel(rect, SURFACE, 8.0, None);
+        l.panel(rect, p.surface, 8.0, None);
         l.control(
             rect,
             Control::Editor(EditorControl::IrNext { channel, forward }),
@@ -209,7 +214,7 @@ fn ir_channel(ui: &UiState, l: &mut Layout, channel: u8, top: i32, hue: Rgb) {
             Look::Glyph {
                 icon,
                 size: IconSize::Small,
-                color: TEXT,
+                color: p.text,
             },
         );
     }
@@ -240,17 +245,18 @@ fn missing_capture(ui: &UiState) -> bool {
 
 /// The body under the editor header at `top` (shot sn-7: the knob card at y 256).
 pub(super) fn capture(ui: &UiState, l: &mut Layout, top: i32, hue: Rgb) {
+    let p = l.palette;
     let name = parameter(ui, FILE_NAME).map_or("-", |p| p.value.as_str());
     // The 108 px knob card (shot sn-7: y 256..364), with the missing-file notice row below.
     let missing = missing_capture(ui);
     let card = Rect::new(8, top, 784, if missing { 216 } else { 108 });
-    l.panel(card, PANEL, 8.0, None);
+    l.panel(card, p.panel, 8.0, None);
     knob_row(ui, l, Rect::new(8, card.y, 784, 108), &CAPTURE_KNOBS, hue);
     if missing {
         let row = Rect::new(8, card.y + 108, 784, 108);
         let mark = Rect::new(row.x + 19, row.y + 42, 24, 24);
-        l.push(mark, "", Look::Dot { color: WARNING });
-        l.text(mark, "!", BODY_BOLD, CANVAS, Align::Center);
+        l.push(mark, "", Look::Dot { color: p.warning });
+        l.text(mark, "!", BODY_BOLD, p.canvas, Align::Center);
         // I: the failure hides DOWNLOAD (the `0x3c5aa0` visibility flags are not decoded)
         // and its text takes the button's width.
         let failed = ui.capture_download_failed.as_deref() == Some(name);
@@ -262,7 +268,7 @@ pub(super) fn capture(ui: &UiState, l: &mut Layout, top: i32, hue: Rgb) {
             Rect::new(row.x + 64, row.y + 18, width, 72),
             text.replace("%1", name),
             BODY,
-            TEXT,
+            p.text,
         );
         if !failed {
             l.control(
@@ -272,7 +278,7 @@ pub(super) fn capture(ui: &UiState, l: &mut Layout, top: i32, hue: Rgb) {
                 "DOWNLOAD",
                 Look::IconButton {
                     icon: Icon::Download,
-                    fill: SURFACE,
+                    fill: p.surface,
                 },
             );
         }

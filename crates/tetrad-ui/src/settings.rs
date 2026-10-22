@@ -573,6 +573,8 @@ pub enum SettingsPage {
     /// Owned (Tetrad): updates Tetrad itself; [`Self::Updates`] updates CorOS.
     TetradUpdates,
     Brightness,
+    /// Owned (Tetrad): the colour theme.
+    Appearance,
     PowerFunctions,
     PowerOnMode,
     MasterVolume,
@@ -619,7 +621,8 @@ impl SettingsGroup {
     }
 
     /// Pages in stock menu order (`0x791ac`). Owned: Tetrad Updates follows CorOS Updates, so
-    /// the two update pages sit together; Extensions and Remote end System.
+    /// the two update pages sit together; Appearance follows Brightness; Extensions and
+    /// Remote end System.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -629,6 +632,7 @@ impl SettingsGroup {
                 Updates,
                 TetradUpdates,
                 Brightness,
+                Appearance,
                 PowerFunctions,
                 PowerOnMode,
                 MasterVolume,
@@ -705,6 +709,7 @@ impl SettingsPage {
             Self::Updates => "CorOS Updates",
             Self::TetradUpdates => "Tetrad Updates",
             Self::Brightness => "Brightness",
+            Self::Appearance => "Appearance",
             Self::PowerFunctions => "Power Functions",
             Self::PowerOnMode => "Power On Mode",
             Self::MasterVolume => "Master Volume Knob",
@@ -841,6 +846,7 @@ impl SettingsPage {
             | Self::Updates
             | Self::TetradUpdates
             | Self::Brightness
+            | Self::Appearance
             | Self::DeviceStorage
             | Self::FactoryReset
             | Self::Extensions

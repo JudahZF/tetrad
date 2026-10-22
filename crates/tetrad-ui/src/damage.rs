@@ -8,7 +8,7 @@ use crate::draw::{extent, is_pressed, paint_item, paint_region};
 use crate::layout::{Item, Look};
 use crate::render::{Canvas, FULL};
 use crate::{Frame, Rect, UiState};
-use tetrad_assets::Rgb;
+use tetrad_assets::{Palette, Rgb};
 
 /// More damaged rectangles than this are merged into their bounding box.
 const MAX_RECTS: usize = 8;
@@ -34,6 +34,9 @@ pub struct Renderer {
     /// Earlier frames with the lists they show (each equal to a full render of its list),
     /// oldest first.
     kept: Vec<(Vec<Painted>, Frame)>,
+    /// The palette `shown` and `kept` are painted in. Items do not hold every colour they
+    /// paint (button styles resolve in `draw`), so a new palette repaints everything.
+    palette: Palette,
 }
 
 impl Renderer {
@@ -55,8 +58,13 @@ impl Renderer {
     /// in frame coordinates: empty when nothing changed, the full frame on the
     /// first call. The result equals [`UiState::render`] pixel for pixel.
     pub fn render(&mut self, ui: &UiState) -> Vec<Rect> {
-        let next: Vec<Painted> = ui
-            .layout()
+        let layout = ui.layout();
+        if layout.palette != self.palette {
+            self.palette = layout.palette;
+            self.shown = None;
+            self.kept.clear();
+        }
+        let next: Vec<Painted> = layout
             .items
             .into_iter()
             .map(|item| Painted {
@@ -93,7 +101,7 @@ impl Renderer {
         if let Some(changed) = changed {
             let base = self.shown.as_ref().map_or(0, Vec::len);
             let fixed = merge(changed);
-            let mut canvas = Canvas::new(&mut self.frame);
+            let mut canvas = Canvas::new(&mut self.frame, self.palette);
             for &rect in &fixed {
                 paint_region(&mut canvas, &next[..base], rect, |painted| {
                     (&painted.item, painted.pressed)
@@ -121,7 +129,7 @@ impl Renderer {
                     _ => self.keep(shown, false),
                 }
             }
-            let mut canvas = Canvas::new(&mut self.frame);
+            let mut canvas = Canvas::new(&mut self.frame, self.palette);
             for painted in added {
                 paint_item(&mut canvas, &painted.item, painted.pressed);
             }
@@ -141,7 +149,7 @@ impl Renderer {
         } else {
             rects.clone()
         };
-        let mut canvas = Canvas::new(&mut self.frame);
+        let mut canvas = Canvas::new(&mut self.frame, self.palette);
         for &rect in &paint {
             paint_region(&mut canvas, &next, rect, |painted| {
                 (&painted.item, painted.pressed)

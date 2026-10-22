@@ -102,7 +102,12 @@ cargo run --locked -p tetrad-ui --example render_owned -- readme docs/images
 ```
 
 `render_owned` with one view name writes that view as PPM to stdout, for a quick look at one
-screen.
+screen. `render_owned themes <dir>` writes a few views in every built-in theme as PNG.
+
+Screens take their colours from `l.palette` (a `tetrad_theme::Palette`), never from constants,
+so every theme reaches them. A stock shade that is not a palette role stays a constant with its
+stock value and is drawn as `p.tone(CONST)`: unchanged in Stock, mapped onto the theme
+elsewhere. Block colours, scene swatches and the tuner green are data and stay fixed.
 
 ## What ran on the test unit
 
@@ -125,7 +130,8 @@ on-device update.
 | --- | --- |
 | `crates/tetrad-app` | `tetrad`: the device program, the boot selector and offline tools |
 | `crates/tetrad-ui` | The 800×480 touch UI: screens, widgets, dialogs and view models |
-| `crates/tetrad-assets` | Colour tokens, icons and the IBM Plex Sans font |
+| `crates/tetrad-assets` | Fixed data colours, icons and the IBM Plex Sans font |
+| `crates/tetrad-theme` | Themes: the UI palette, built-in themes and the theme file schema |
 | `crates/tetrad-control` | Cortex Control: USB HID reports, payload codecs and the dispatcher |
 | `crates/tetrad-dsp-host` | ARM side of the DSP link: ring transport, session, model deploy, block drivers |
 | `crates/tetrad-dsp-protocol` | DSP request and response codecs |

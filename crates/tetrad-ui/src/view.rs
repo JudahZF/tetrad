@@ -5,7 +5,7 @@ use crate::ItemKind;
 
 use std::collections::BTreeMap;
 
-use tetrad_assets::{Icon, Rgb};
+use tetrad_assets::{Icon, Palette, Rgb};
 
 use crate::control::CaptureDevice;
 use crate::settings::{SettingId, SettingValue};
@@ -222,7 +222,7 @@ impl ModelCategory {
     }
 
     /// Plugin tag text colour (`0x002eb7f0`): black on the light category colours, else
-    /// white.
+    /// white. Stock under every theme: the tag sits on a fixed category colour.
     pub fn tag_ink(self) -> Rgb {
         match self {
             Self::GuitarOverdrive
@@ -239,8 +239,8 @@ impl ModelCategory {
             | Self::Utility
             | Self::Pitch
             | Self::Filter
-            | Self::Morph => tetrad_assets::CANVAS,
-            _ => tetrad_assets::TEXT,
+            | Self::Morph => Palette::STOCK.canvas,
+            _ => Palette::STOCK.text,
         }
     }
 
@@ -385,13 +385,13 @@ impl BlockInfo {
     }
 
     /// Stock tile fill (`0x002eb624`): a plugin block's colour at alpha 0.3 over the black
-    /// tile (`3d-worship-v5`: amp `#4a0c08`, cab `#18184a`), else black. The 76/255 weight
-    /// reproduces both measured 565 pixels; 77 does not. Stock also tints some models by a
-    /// parameter (8036, 8039, 18018); Tetrad does not model that.
-    pub fn fill(self, capture: Option<CaptureDevice>) -> Rgb {
+    /// tile (`3d-worship-v5`: amp `#4a0c08`, cab `#18184a`), else the tile (canvas). The
+    /// 76/255 weight reproduces both measured 565 pixels; 77 does not. Stock also tints some
+    /// models by a parameter (8036, 8039, 18018); Tetrad does not model that.
+    pub fn fill(self, capture: Option<CaptureDevice>, p: &Palette) -> Rgb {
         match (self.plugin, self.hue(capture)) {
-            (Some(_), Some(hue)) => hue.mix(tetrad_assets::CANVAS, 255 - 76),
-            _ => tetrad_assets::CANVAS,
+            (Some(_), Some(hue)) => hue.mix(p.canvas, 255 - 76),
+            _ => p.canvas,
         }
     }
 
@@ -941,12 +941,12 @@ impl DeviceGroup {
     }
 
     /// Tile border colour: the stock colour of the group's categories; Plugins
-    /// is green (shot 076).
-    pub fn hue(self) -> Rgb {
+    /// is the accent (stock green, shot 076).
+    pub fn hue(self, p: &Palette) -> Rgb {
         ModelCategory::PICKER
             .into_iter()
             .find(|category| Self::of(*category).is_some_and(|(group, _)| group == self))
-            .map_or(tetrad_assets::ACCENT, ModelCategory::hue)
+            .map_or(p.accent, ModelCategory::hue)
     }
 }
 
@@ -2146,6 +2146,29 @@ pub struct UiSnapshot {
     /// Captures the corruption check moved out of the library (O: stock deletes them), in
     /// quarantine order. Device Storage lists them with RESTORE.
     pub quarantine: Vec<QuarantineRow>,
+    /// The active palette and the themes of Settings → Appearance (owned).
+    pub appearance: AppearanceView,
+}
+
+/// Settings → Appearance (owned): the active palette and the themes to pick from.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AppearanceView {
+    /// The active theme's colours. Recovery and the boot menu stay stock.
+    pub palette: tetrad_theme::Palette,
+    /// Built-in themes first, then theme files, then extension themes.
+    pub themes: Vec<ThemeRow>,
+}
+
+/// One theme on the Appearance page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeRow {
+    pub id: tetrad_theme::ThemeId,
+    pub name: String,
+    /// Where it comes from: "Built-in", "Theme file" or the extension's name.
+    pub source: String,
+    /// Its colours, or why it failed its checks (it cannot be picked then).
+    pub palette: Result<tetrad_theme::Palette, String>,
+    pub selected: bool,
 }
 
 /// A capture in the Tetrad quarantine table (O, review r23 K5).
@@ -2279,6 +2302,7 @@ impl Default for UiSnapshot {
             editor_meters: BTreeMap::new(),
             voice_notes: [None; 2],
             quarantine: Vec::new(),
+            appearance: AppearanceView::default(),
         }
     }
 }

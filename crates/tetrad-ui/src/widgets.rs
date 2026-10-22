@@ -3,7 +3,7 @@
 //! looks: [`Look::Switch`] (vertical On/Off switch), [`Look::Dropdown`] (`value ▼` field) and
 //! [`Look::IconButton`].
 
-use tetrad_assets::{ACCENT, CANVAS, DIVIDER, Icon, MUTED, PANEL, Rgb, TEXT};
+use tetrad_assets::{Icon, Rgb};
 
 use crate::layout::{BODY, Layout, ListId, Look, MEDIUM, SMALL_BOLD};
 use crate::render::{Align, HEIGHT, WIDTH};
@@ -105,12 +105,13 @@ const MARGIN: i32 = 8;
 /// (no bar, no back arrow) and the icon-only `icon` button at [`CLOSE_BUTTON`]
 /// sending `close`. Returns the free header area between the two.
 pub(crate) fn page_header(l: &mut Layout, title: &str, close: Control, icon: Icon) -> Rect {
+    let p = l.palette;
     let width = (MEDIUM.width(title).ceil() as u32 + 8).min(420);
     l.text(
         Rect::new(16, CLOSE_BUTTON.y, width, CLOSE_BUTTON.height),
         title,
         MEDIUM,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.control(
@@ -118,7 +119,10 @@ pub(crate) fn page_header(l: &mut Layout, title: &str, close: Control, icon: Ico
         close,
         true,
         "CLOSE",
-        Look::IconButton { icon, fill: PANEL },
+        Look::IconButton {
+            icon,
+            fill: p.panel,
+        },
     );
     let left = 16 + width as i32 + 12;
     Rect::new(
@@ -173,6 +177,7 @@ pub(crate) fn dropdown_list(
     current: Option<usize>,
     offset: i32,
 ) {
+    let p = l.palette;
     let content = options.len() as u32 * CHOICE_ROW;
     let widest = options
         .iter()
@@ -192,7 +197,7 @@ pub(crate) fn dropdown_list(
     };
     let panel = Rect::new(clamp_x(anchor.x, width), y, width, height);
     l.popover(panel);
-    l.panel(panel, CANVAS, 8.0, None);
+    l.panel(panel, p.canvas, 8.0, None);
     l.scroll(ListId::Choice, panel, content, offset, |l, top| {
         for (index, option) in options.iter().enumerate() {
             list_row(
@@ -225,6 +230,7 @@ pub(crate) fn popover_menu(
 ) {
     const MENU_WIDTH: u32 = 256;
     const ROW: u32 = 52;
+    let p = l.palette;
     let height = items.len() as u32 * ROW;
     let bottom = HEIGHT as i32 - MARGIN;
     let right_half = anchor.center().0 > WIDTH as i32 / 2;
@@ -251,7 +257,7 @@ pub(crate) fn popover_menu(
         height,
     );
     l.popover(panel);
-    l.panel(panel, CANVAS, 8.0, None);
+    l.panel(panel, p.canvas, 8.0, None);
     for (index, (control, label, enabled)) in items.iter().enumerate() {
         list_row(
             l,
@@ -291,6 +297,7 @@ pub(crate) fn parameter_panel(
     focus: Option<KnobIndex>,
 ) -> Rect {
     const COLUMNS: usize = KNOB_COUNT / 2;
+    let p = l.palette;
     let shown = parameters.len().clamp(1, KNOB_COUNT);
     let rows = shown.div_ceil(COLUMNS);
     let last = shown - (rows - 1) * COLUMNS;
@@ -298,7 +305,7 @@ pub(crate) fn parameter_panel(
         .map(|index| (rows as u32 - 1, index as u32))
         .collect();
     let card = Rect::new(bounds.x, bounds.y, bounds.width, rows as u32 * 109 - 2);
-    let cells = panel_cells(l, card, rows as u32, DIVIDER, DIVIDER, &hidden);
+    let cells = panel_cells(l, card, rows as u32, p.divider, p.divider, &hidden);
     for ((slot, parameter), b) in parameters.iter().take(KNOB_COUNT).enumerate().zip(cells) {
         let (x, y) = (b.x, b.y);
         let knob = KnobIndex(slot as u8);
@@ -308,8 +315,8 @@ pub(crate) fn parameter_panel(
             .iter()
             .any(|link| link.target == ExpressionTarget::Parameter(parameter.index));
         let arc = match (linked, parameter.scene) {
-            (true, _) => ACCENT,
-            (false, true) => TEXT,
+            (true, _) => p.accent,
+            (false, true) => p.text,
             (false, false) => color,
         };
         l.control(
@@ -345,6 +352,7 @@ pub(crate) fn parameter_panel(
 /// The scene-assigned mark under a parameter label (shot 109): 24 × 24, four white
 /// 11 px squares with the dark letters A B / C D.
 pub(crate) fn scene_mark(l: &mut Layout, x: i32, y: i32) {
+    let p = l.palette;
     for (index, letter) in ["A", "B", "C", "D"].into_iter().enumerate() {
         let square = Rect::new(
             x + (index as i32 % 2) * 13,
@@ -352,8 +360,8 @@ pub(crate) fn scene_mark(l: &mut Layout, x: i32, y: i32) {
             11,
             11,
         );
-        l.panel(square, TEXT, 1.0, None);
-        l.text(square, letter, SMALL_BOLD, PANEL, Align::Center);
+        l.panel(square, p.text, 1.0, None);
+        l.text(square, letter, SMALL_BOLD, p.panel, Align::Center);
     }
 }
 
@@ -383,9 +391,10 @@ pub(crate) fn panel_cells(
     const CELL_HEIGHT: u32 = 107;
     const DIVIDER_INSET: i32 = 15;
     const DIVIDER_HEIGHT: u32 = 78;
+    let p = l.palette;
     let rows = rows.max(1);
     let row_top = |index: u32| bounds.y + index as i32 * ROW_PITCH;
-    l.panel(bounds, CARD, 8.0, None);
+    l.panel(bounds, p.tone(CARD), 8.0, None);
     for index in 1..rows {
         l.push(
             Rect::new(bounds.x, row_top(index) - 2, bounds.width, 2),

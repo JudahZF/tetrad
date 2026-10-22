@@ -1,4 +1,5 @@
-//! The extension manifest: identity, API level, capabilities, settings and command labels.
+//! The extension manifest: identity, API level, capabilities, settings, command labels and
+//! themes.
 //!
 //! A manifest is authored as `tetrad-extension.json` and travels inside every package. The
 //! host trusts nothing in it until [`Manifest::validate`] passes.
@@ -6,6 +7,7 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use tetrad_theme::ThemeSpec;
 
 /// The extension API level this host runs.
 pub const API_VERSION: u32 = 1;
@@ -16,6 +18,8 @@ pub const MAX_DESCRIPTION: usize = 280;
 pub const MAX_SETTINGS: usize = 16;
 pub const MAX_COMMANDS: usize = 16;
 pub const MAX_OPTIONS: usize = 32;
+/// Most themes one package may add.
+pub const MAX_THEMES: usize = 8;
 /// Longest setting key, setting label, option label, command ID and command label.
 pub const MAX_LABEL: usize = 32;
 
@@ -36,6 +40,10 @@ pub struct Manifest {
     /// registered ID without an entry here shows its ID as the label.
     #[serde(default)]
     pub commands: Vec<CommandSpec>,
+    /// Colour themes for Settings → Appearance. Data only: the host reads them from the
+    /// manifest and runs no code for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<ThemeSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -121,6 +129,10 @@ pub enum ManifestError {
     Setting(String, &'static str),
     #[error("command ID {0:?} must be 1..={MAX_LABEL} characters of [a-z0-9-]")]
     CommandId(String),
+    #[error("at most {MAX_THEMES} themes")]
+    TooManyThemes,
+    #[error("theme {0:?}: {1}")]
+    Theme(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -174,7 +186,28 @@ impl Manifest {
                 return Err(ManifestError::Duplicate(command.id.clone()));
             }
         }
+        if self.themes.len() > MAX_THEMES {
+            return Err(ManifestError::TooManyThemes);
+        }
+        for (i, theme) in self.themes.iter().enumerate() {
+            if let Err(error) = theme.resolve() {
+                return Err(ManifestError::Theme(theme.id.clone(), error.to_string()));
+            }
+            if self.themes[..i].iter().any(|t| t.id == theme.id) {
+                return Err(ManifestError::Duplicate(theme.id.clone()));
+            }
+        }
         Ok(())
+    }
+
+    /// A data-only manifest adds themes and nothing else: no capabilities, settings or
+    /// commands. Its package may leave out the module; the host runs nothing for a package
+    /// without one (a package with a module still runs it).
+    pub fn data_only(&self) -> bool {
+        !self.themes.is_empty()
+            && self.capabilities.is_empty()
+            && self.settings.is_empty()
+            && self.commands.is_empty()
     }
 
     pub fn has(&self, capability: Capability) -> bool {

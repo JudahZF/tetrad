@@ -231,6 +231,12 @@ impl Store {
         self.module_file(&installed.key, &installed.current.version)
     }
 
+    /// Whether the installation has code to run. A theme-only package installs an empty
+    /// module; an extension with code and themes has a module and runs.
+    pub fn has_module(&self, installed: &Installed) -> bool {
+        fs::metadata(self.module_path(installed)).is_ok_and(|meta| meta.len() > 0)
+    }
+
     /// Reads everything, re-verifying cached catalogs against pinned keys and installed
     /// packages against their recorded SHA-256. Bad files are skipped and reported in
     /// [`StoreState::problems`]; stale temporary files are deleted.

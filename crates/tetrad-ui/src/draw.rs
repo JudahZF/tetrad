@@ -1,12 +1,9 @@
-//! Paints display-list items with the stock tokens. Purely visual: no state
+//! Paints display-list items with the canvas palette. Purely visual: no state
 //! changes.
 
 use std::sync::OnceLock;
 
-use tetrad_assets::{
-    ACCENT, ACTION, BACKGROUND, CANVAS, DANGER, DIVIDER, FAINT, Icon, IconSize, MUTED, ON_ACCENT,
-    PANEL, ROW_SELECTED, Rgb, SECTION, SURFACE, TEXT, TextSize, WARNING, Weight,
-};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb, TextSize, Weight};
 
 use crate::layout::{
     BODY, BODY_BOLD, ButtonStyle, CAPTION, Item, LARGE_BOLD, Look, MEDIUM, SMALL_BOLD, TileMark,
@@ -34,7 +31,7 @@ pub(crate) const PORT_RADIUS: f32 = 14.0;
 pub(crate) const PORT_LINE_TOP: i32 = 16;
 pub(crate) const PORT_LINE_PITCH: i32 = 21;
 /// A faded port (opacity 0.2) as the RGB565 screen shows it. Text: white × 0.2 reads
-/// `#313031` (`st-mp1g.png`). The `MUTED` "+" pixmap reads `#181818` (`sl-2.png`): Qt blends
+/// `#313031` (`st-mp1g.png`). The muted "+" pixmap reads `#181818` (`sl-2.png`): Qt blends
 /// pixmaps into RGB16 with the opacity cut to 6/32.
 const FADED_PORT_TEXT: Rgb = Rgb(0x33, 0x33, 0x33);
 const FADED_PORT_PLUS: Rgb = Rgb(0x18, 0x18, 0x18);
@@ -50,10 +47,10 @@ fn port_label(canvas: &mut Canvas, b: Rect, label: &str, color: Rgb) {
 }
 
 /// Unselected tab fill: Global EQ band tabs (shot 009), Expression tabs (068), the Capture
-/// save instrument chips and folder pill (030). Darker and greener than `SURFACE` `#1e1e1e`.
+/// save instrument chips and folder pill (030). Darker and greener than the stock surface `#1e1e1e`.
 pub(crate) const TAB_IDLE: Rgb = Rgb(0x18, 0x1c, 0x18);
 /// Fill of a selected tab (068 Expression, 030 metadata indicator; every
-/// `ButtonStyle::Tab`). The shared `ACCENT_FILL` `#17291a` stays on the picker Plugins
+/// `ButtonStyle::Tab`). The shared accent fill `#17291a` stays on the picker Plugins
 /// tile (076) and the other accent fills.
 pub(crate) const TAB_ACTIVE: Rgb = Rgb(0x10, 0x28, 0x18);
 
@@ -119,10 +116,11 @@ pub(crate) fn paint_region<T>(
 ) {
     /// Items from this area up are worth the scan of the later items.
     const LARGE: u64 = 24_000;
+    let p = canvas.palette;
     canvas.clipped(rect, |canvas| {
         let cover = opaque_cover(items.iter().map(|entry| item_of(entry).0), rect);
         if cover.is_none() {
-            canvas.fill(rect, BACKGROUND);
+            canvas.fill(rect, p.background);
         }
         let start = cover.unwrap_or(0);
         for (index, entry) in items.iter().enumerate().skip(start) {
@@ -197,11 +195,12 @@ fn shrink(open: Rect, item: &Item) -> Option<Rect> {
 }
 
 /// Text colour for enabled or disabled content.
-fn ink(enabled: bool) -> Rgb {
-    if enabled { TEXT } else { FAINT }
+fn ink(p: &Palette, enabled: bool) -> Rgb {
+    if enabled { p.text } else { p.faint }
 }
 
 fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
+    let p = canvas.palette;
     let b = item.bounds;
     let label = item.label.as_str();
     let enabled = item.enabled;
@@ -246,8 +245,12 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             button(canvas, b, (label, font), *style, *icon, enabled, pressed);
         }
         Look::IconButton { icon, fill } => {
-            canvas.round_rect(b, RADIUS, if pressed { fill.mix(TEXT, 40) } else { *fill });
-            canvas.icon_in(b, *icon, IconSize::Medium, ink(enabled));
+            canvas.round_rect(
+                b,
+                RADIUS,
+                if pressed { fill.mix(p.text, 40) } else { *fill },
+            );
+            canvas.icon_in(b, *icon, IconSize::Medium, ink(&p, enabled));
         }
         Look::Dropdown { value } => dropdown(canvas, b, value, None, enabled, pressed),
         Look::ListRow {
@@ -274,12 +277,16 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             chevron,
             selected,
         } => {
-            let fill = if *selected || pressed { SURFACE } else { PANEL };
+            let fill = if *selected || pressed {
+                p.surface
+            } else {
+                p.panel
+            };
             canvas.round_rect(b, RADIUS, fill);
             let text = match (*selected, enabled) {
-                (_, false) => FAINT,
-                (true, true) => ACCENT,
-                (false, true) => TEXT,
+                (_, false) => p.faint,
+                (true, true) => p.accent,
+                (false, true) => p.text,
             };
             let mut x = b.x + 14;
             if let Some(hue) = hue {
@@ -310,7 +317,7 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
                     size,
                     right - size.px() as i32,
                     b.y + (b.height as i32 - size.px() as i32) / 2,
-                    FAINT,
+                    p.faint,
                 );
                 right -= size.px() as i32 + 8;
             }
@@ -353,11 +360,11 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             // label or "+" shows (`st-mp1g.png`, `sl-2.png`).
             let (plus, text) = match faded {
                 false => {
-                    let fill = if pressed { SURFACE } else { BACKGROUND };
+                    let fill = if pressed { p.surface } else { p.background };
                     canvas.round_rect(b, PORT_RADIUS, fill);
-                    (MUTED, TEXT)
+                    (p.muted, p.text)
                 }
-                true => (FADED_PORT_PLUS, FADED_PORT_TEXT),
+                true => (p.tone(FADED_PORT_PLUS), p.tone(FADED_PORT_TEXT)),
             };
             if label.is_empty() {
                 // A 22 × 22 "+" of 2 px strokes, centred (`st-mp1a.png` x 19–40, y 230–251).
@@ -391,7 +398,7 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             )
         }
         Look::Progress { fraction, color } => {
-            canvas.round_rect(b, b.height as f32 / 2.0, BACKGROUND);
+            canvas.round_rect(b, b.height as f32 / 2.0, p.background);
             let filled = (b.width as f32 * fraction.clamp(0.0, 1.0)).round() as u32;
             if filled > 0 {
                 canvas.round_rect(
@@ -405,15 +412,15 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             }
         }
         Look::Meter { level } => {
-            canvas.round_rect(b, 2.0, BACKGROUND);
+            canvas.round_rect(b, 2.0, p.background);
             let level = level.clamp(0.0, 1.0);
             let height = (b.height as f32 * level).round() as u32;
             let color = if level > 0.95 {
-                DANGER
+                p.danger
             } else if level > 0.75 {
-                WARNING
+                p.warning
             } else {
-                ACCENT
+                p.accent
             };
             // A wide meter fills left to right (capture calibration, manual §6).
             let fill = if b.width > b.height {
@@ -436,21 +443,21 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
                         2,
                         height,
                     ),
-                    if bar < *bars { TEXT } else { SURFACE },
+                    if bar < *bars { p.text } else { p.surface },
                 );
             }
         }
         Look::Key { icon, accent } => {
             let fill = match (pressed, accent) {
-                (true, _) => PANEL.mix(TEXT, 60),
-                (false, true) => ACCENT,
-                (false, false) => PANEL,
+                (true, _) => p.panel.mix(p.text, 60),
+                (false, true) => p.accent,
+                (false, false) => p.panel,
             };
             canvas.round_rect(b, 6.0, fill);
             let color = if *accent && !pressed {
-                ON_ACCENT
+                p.on_accent
             } else {
-                ink(enabled)
+                ink(&p, enabled)
             };
             match icon {
                 Some(icon) => canvas.icon_in(b, *icon, IconSize::Medium, color),
@@ -469,25 +476,25 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
         }
         Look::DropZone { active } => {
             let fill = if *active {
-                DANGER.mix(CANVAS, 140)
+                p.danger.mix(p.canvas, 140)
             } else {
-                SURFACE
+                p.surface
             };
             canvas.round_rect(b, RADIUS, fill);
-            canvas.round_outline(b, RADIUS, 1.5, DANGER);
+            canvas.round_outline(b, RADIUS, 1.5, p.danger);
             let size = IconSize::Medium;
             canvas.icon(
                 Icon::Trash,
                 size,
                 b.x + b.width as i32 / 2 - 84,
                 b.y + (b.height as i32 - size.px() as i32) / 2,
-                DANGER,
+                p.danger,
             );
-            canvas.text(b, label, BODY_BOLD, TEXT, Align::Center);
+            canvas.text(b, label, BODY_BOLD, p.text, Align::Center);
         }
         Look::Area => {
             if pressed {
-                canvas.round_rect(b, RADIUS, SURFACE);
+                canvas.round_rect(b, RADIUS, p.surface);
             }
         }
         Look::Dismiss => {}
@@ -495,8 +502,8 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
         Look::Veil { color, alpha } => canvas.tint(b, *color, *alpha),
         Look::Fade { card, faded, keep } => canvas.fade(b, *card, *faded, *keep),
         Look::Toast => {
-            canvas.round_rect(b, b.height as f32 / 2.0, SECTION);
-            canvas.text(b.inset(16, 0), label, BODY, TEXT, Align::Center);
+            canvas.round_rect(b, b.height as f32 / 2.0, p.section);
+            canvas.text(b.inset(16, 0), label, BODY, p.text, Align::Center);
         }
         Look::ActionTile {
             letter,
@@ -506,12 +513,12 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             active,
         } => {
             let fill = match (*active, pressed) {
-                (_, true) => SURFACE,
-                (true, false) => hue.mix(CANVAS, 150),
-                (false, false) => PANEL,
+                (_, true) => p.surface,
+                (true, false) => hue.mix(p.canvas, 150),
+                (false, false) => p.panel,
             };
             canvas.round_rect(b, RADIUS, fill);
-            let ink = ink(enabled);
+            let ink = ink(&p, enabled);
             // Shot 086: 16 px Regular title, 40 px Regular letter 14 px from the right edge.
             canvas.text(
                 Rect::new(b.x + 10, b.y + 3, b.width - 60, 26),
@@ -523,7 +530,7 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             let letter = letter.to_string();
             let x = b.right() as f32 - 14.0 - TILE_LETTER.width(&letter);
             canvas.text_at(x, b.y + 41, &letter, TILE_LETTER, ink);
-            let color = if enabled { *hue } else { FAINT };
+            let color = if enabled { *hue } else { p.faint };
             let centre = (b.x + b.width as i32 / 2, b.y + 57);
             match mark {
                 TileMark::Icon(icon) => tile_glyph(canvas, centre, *icon, color, fill),
@@ -584,6 +591,7 @@ fn undo_ring() -> &'static [RingPixel] {
 /// Owned large Looper X tile glyphs measured on shot 086, centred on `(cx, cy)`. `fill` is
 /// the tile fill, used to cut gaps. Other icons draw as the 32 px line icon.
 fn tile_glyph(canvas: &mut Canvas, (cx, cy): (i32, i32), icon: Icon, color: Rgb, fill: Rgb) {
+    let p = canvas.palette;
     let (x, y) = (cx as f32, cy as f32);
     match icon {
         Icon::Record => canvas.circle(x, y, 23.0, color),
@@ -655,7 +663,7 @@ fn tile_glyph(canvas: &mut Canvas, (cx, cy): (i32, i32), icon: Icon, color: Rgb,
                 x + 9.0,
                 y - 17.0,
                 2.0,
-                color.mix(TEXT, 70),
+                color.mix(p.text, 70),
             );
         }
         icon => canvas.icon_in(
@@ -669,6 +677,7 @@ fn tile_glyph(canvas: &mut Canvas, (cx, cy): (i32, i32), icon: Icon, color: Rgb,
 
 /// Right-aligned muted value ending at `right`; returns its width.
 fn trailing_value(canvas: &mut Canvas, b: Rect, right: i32, value: &str, enabled: bool) -> i32 {
+    let p = canvas.palette;
     if value.is_empty() {
         return 0;
     }
@@ -677,7 +686,7 @@ fn trailing_value(canvas: &mut Canvas, b: Rect, right: i32, value: &str, enabled
         Rect::new(right - width, b.y, width as u32, b.height),
         value,
         BODY,
-        if enabled { MUTED } else { FAINT },
+        if enabled { p.muted } else { p.faint },
         Align::Right,
     );
     width
@@ -692,29 +701,30 @@ fn button(
     enabled: bool,
     pressed: bool,
 ) {
+    let p = canvas.palette;
     let selected_tab = style == ButtonStyle::Tab { selected: true };
     let (fill, text) = match (style, enabled) {
-        (ButtonStyle::Ghost | ButtonStyle::Tab { selected: false }, false) => (None, FAINT),
-        (ButtonStyle::Inset, false) => (Some(CANVAS), FAINT),
-        (_, false) => (Some(SURFACE), FAINT),
-        (ButtonStyle::Primary, true) => (Some(ACTION), TEXT),
-        (ButtonStyle::Secondary, true) => (Some(SECTION), TEXT),
-        (ButtonStyle::Inset, true) => (Some(CANVAS), TEXT),
-        (ButtonStyle::Danger, true) => (Some(SECTION), DANGER),
-        (ButtonStyle::Ghost, true) => (None, TEXT),
-        (ButtonStyle::Tab { selected: true }, true) => (Some(TAB_ACTIVE), TEXT),
-        (ButtonStyle::Tab { selected: false }, true) => (Some(SURFACE), MUTED),
+        (ButtonStyle::Ghost | ButtonStyle::Tab { selected: false }, false) => (None, p.faint),
+        (ButtonStyle::Inset, false) => (Some(p.canvas), p.faint),
+        (_, false) => (Some(p.surface), p.faint),
+        (ButtonStyle::Primary, true) => (Some(p.action), p.text),
+        (ButtonStyle::Secondary, true) => (Some(p.section), p.text),
+        (ButtonStyle::Inset, true) => (Some(p.canvas), p.text),
+        (ButtonStyle::Danger, true) => (Some(p.section), p.danger),
+        (ButtonStyle::Ghost, true) => (None, p.text),
+        (ButtonStyle::Tab { selected: true }, true) => (Some(p.tone(TAB_ACTIVE)), p.text),
+        (ButtonStyle::Tab { selected: false }, true) => (Some(p.surface), p.muted),
     };
     let fill = match (fill, pressed) {
-        (Some(color), true) => Some(color.mix(TEXT, 40)),
-        (None, true) => Some(SURFACE),
+        (Some(color), true) => Some(color.mix(p.text, 40)),
+        (None, true) => Some(p.surface),
         (fill, false) => fill,
     };
     if let Some(fill) = fill {
         canvas.round_rect(b, RADIUS, fill);
     }
     if selected_tab && enabled {
-        canvas.round_outline(b, RADIUS, 1.0, ACCENT);
+        canvas.round_outline(b, RADIUS, 1.0, p.accent);
     }
     // Narrow buttons cannot fit an icon and a label: show the icon only.
     match (
@@ -769,26 +779,31 @@ fn dropdown(
     enabled: bool,
     pressed: bool,
 ) {
-    let fill = if icon.is_some() { CANVAS } else { BACKGROUND };
-    canvas.round_rect(b, 4.0, if pressed { fill.mix(TEXT, 30) } else { fill });
+    let p = canvas.palette;
+    let fill = if icon.is_some() {
+        p.canvas
+    } else {
+        p.background
+    };
+    canvas.round_rect(b, 4.0, if pressed { fill.mix(p.text, 30) } else { fill });
     let arrow = Rect::new(b.right() - 24, b.y + (b.height as i32 - 7) / 2, 12, 7);
     let mut x = b.x + 8;
     let font = match icon {
         Some(icon) => {
-            canvas.triangle_down(arrow, if enabled { MUTED } else { FAINT });
+            canvas.triangle_down(arrow, if enabled { p.muted } else { p.faint });
             let size = IconSize::Medium;
             canvas.icon(
                 icon,
                 size,
                 x,
                 b.y + (b.height as i32 - size.px() as i32) / 2,
-                ink(enabled),
+                ink(&p, enabled),
             );
             x += size.px() as i32 + 6;
             CAPTION
         }
         None => {
-            canvas.triangle_down(arrow, ink(enabled));
+            canvas.triangle_down(arrow, ink(&p, enabled));
             MEDIUM
         }
     };
@@ -796,7 +811,7 @@ fn dropdown(
         Rect::new(x, b.y, (arrow.x - x - 6).max(0) as u32, b.height),
         value,
         font,
-        ink(enabled),
+        ink(&p, enabled),
         Align::Left,
     );
 }
@@ -814,13 +829,14 @@ fn list_row(
     enabled: bool,
     pressed: bool,
 ) {
+    let p = canvas.palette;
     if selected || pressed {
-        canvas.fill(b, if pressed { ROW_SELECTED } else { SURFACE });
+        canvas.fill(b, if pressed { p.row_selected } else { p.surface });
     }
     let text = match (selected, enabled) {
-        (_, false) => FAINT,
-        (true, true) => ACCENT,
-        (false, true) => TEXT,
+        (_, false) => p.faint,
+        (true, true) => p.accent,
+        (false, true) => p.text,
     };
     let mut x = b.x + 16;
     if let Some(icon) = icon {
@@ -831,14 +847,14 @@ fn list_row(
             x,
             b.y + (b.height as i32 - size.px() as i32) / 2,
             // Stock keeps the icon white on the selected (green) row.
-            ink(enabled),
+            ink(&p, enabled),
         );
         x += 38;
     }
     let mut right = b.right() - 16;
     if menu {
         let menu = Rect::new(b.right() - 48, b.y, 48, b.height);
-        canvas.icon_in(menu, Icon::More, IconSize::Medium, FAINT);
+        canvas.icon_in(menu, Icon::More, IconSize::Medium, p.faint);
         right = menu.x;
     }
     let value_width = trailing_value(canvas, b, right, value, enabled);
@@ -856,7 +872,7 @@ fn list_row(
         Align::Left,
     );
     if divider {
-        canvas.fill(Rect::new(b.x, b.bottom() - 1, b.width, 1), DIVIDER);
+        canvas.fill(Rect::new(b.x, b.bottom() - 1, b.width, 1), p.divider);
     }
 }
 
@@ -872,10 +888,12 @@ fn switch(canvas: &mut Canvas, b: Rect, on: Option<bool>, enabled: bool) {
     );
     // Disabled, stock dims the ring and tints the slot green (068 LATCH, 102 PHANTOM).
     const DISABLED_RING: Rgb = Rgb(0x20, 0x70, 0x28);
+    const DISABLED_SLOT: Rgb = Rgb(0x10, 0x1c, 0x10);
+    let p = canvas.palette;
     let track_fill = if enabled {
-        CANVAS
+        p.canvas
     } else {
-        Rgb(0x10, 0x1c, 0x10)
+        p.tone(DISABLED_SLOT)
     };
     canvas.round_rect(track, TRACK.0 as f32 / 2.0, track_fill);
     let rows = [(true, "On", track.y), (false, "Off", track.y + 23)];
@@ -886,15 +904,24 @@ fn switch(canvas: &mut Canvas, b: Rect, on: Option<bool>, enabled: bool) {
             text,
             BODY,
             match (active, enabled) {
-                (true, true) => TEXT,
-                (false, false) => SECTION,
-                _ => FAINT,
+                (true, true) => p.text,
+                (false, false) => p.section,
+                _ => p.faint,
             },
             Align::Left,
         );
         if active {
             let (cx, cy) = (track.x as f32 + 11.0, y as f32 + 11.5);
-            canvas.circle(cx, cy, 9.5, if enabled { ACCENT } else { DISABLED_RING });
+            canvas.circle(
+                cx,
+                cy,
+                9.5,
+                if enabled {
+                    p.accent
+                } else {
+                    p.tone(DISABLED_RING)
+                },
+            );
             canvas.circle(cx, cy, 6.5, track_fill);
         }
     }
@@ -915,21 +942,22 @@ fn block(
     capture_two: bool,
     pressed: bool,
 ) {
+    let p = canvas.palette;
     // The slot is 70 × 70; the visible tile is 64 × 64 inside it (shot 013).
     let tile = b.inset(3, 3);
     let Some(hue) = hue else {
         // Empty slots draw nothing; only the tapped (or drop) target shows
         // the stock black "+" tile (shot 076).
         if pressed || drop_target {
-            canvas.round_rect(tile, tile_ring_radius(2.0), BACKGROUND);
+            canvas.round_rect(tile, tile_ring_radius(2.0), p.background);
             if drop_target {
-                canvas.round_outline(tile, tile_ring_radius(2.0), 2.0, ACCENT);
+                canvas.round_outline(tile, tile_ring_radius(2.0), 2.0, p.accent);
             }
             canvas.icon_in(
                 tile,
                 Icon::Plus,
                 IconSize::Large,
-                if drop_target { ACCENT } else { TEXT },
+                if drop_target { p.accent } else { p.text },
             );
         }
         return;
@@ -938,14 +966,14 @@ fn block(
     // and glyph at about 19 % with no fill, so the cable shows through
     // (shot 013; opacity inferred; I: a bypassed plugin block is not measured).
     let (outline, ink) = if bypassed {
-        (hue.mix(CANVAS, 206), TEXT.mix(CANVAS, 206))
+        (hue.mix(p.canvas, 206), p.text.mix(p.canvas, 206))
     } else {
-        (hue, TEXT)
+        (hue, p.text)
     };
     // Stock fills the stroked path itself: the 62 px rect on the pen's centre line, radius 13.
     let body = tile.inset(1, 1);
     if pressed {
-        canvas.round_rect(body, TILE_RADIUS, SURFACE);
+        canvas.round_rect(body, TILE_RADIUS, p.surface);
     } else if !bypassed {
         canvas.round_rect(body, TILE_RADIUS, fill);
     }
@@ -956,7 +984,7 @@ fn block(
     // 2 px rounded square 5 px inside the tile, at opacity 0.6 (`nc-s1`: `#299639` at tile
     // y 5–6 and 57–58 of a green capture), `drawRoundedRect(10, 10)` on the pen's centre line.
     if capture_two {
-        canvas.round_outline(tile.inset(5, 5), 11.0, 2.0, outline.mix(CANVAS, 102));
+        canvas.round_outline(tile.inset(5, 5), 11.0, 2.0, outline.mix(p.canvas, 102));
     }
     match icon {
         // Stock draws the 32 px device glyph unscaled, centred in the tile (QC screenshots,
@@ -984,10 +1012,10 @@ fn block(
         }
     }
     if drop_target {
-        canvas.round_outline(tile.grow(3, 3), tile_ring_radius(2.0) + 3.0, 2.0, ACCENT);
+        canvas.round_outline(tile.grow(3, 3), tile_ring_radius(2.0) + 3.0, 2.0, p.accent);
     }
     if ghost {
-        canvas.round_outline(tile, tile_ring_radius(2.0), 2.0, ACCENT);
+        canvas.round_outline(tile, tile_ring_radius(2.0), 2.0, p.accent);
     }
 }
 
@@ -1022,10 +1050,11 @@ fn knob(
     enabled: bool,
     dial_dy: i32,
 ) {
+    let p = canvas.palette;
     if focused || pressed {
-        canvas.fill(b, PANEL.mix(TEXT, if pressed { 24 } else { 12 }));
+        canvas.fill(b, p.panel.mix(p.text, if pressed { 24 } else { 12 }));
     }
-    let ink = ink(enabled);
+    let ink = ink(&p, enabled);
     canvas.text(
         Rect::new(b.x + 10, b.y + 6, b.width.saturating_sub(20), 28),
         label,
@@ -1043,7 +1072,7 @@ fn knob(
             let (cx, cy) = (b.right() as f32 - 41.5, top as f32 + 71.5);
             let center = (b.right() - 42, top + 71);
             let (track, value_arc) = knob_rings();
-            canvas.arc(center, track, 135.0, 270.0, ROW_SELECTED);
+            canvas.arc(center, track, 135.0, 270.0, p.row_selected);
             // Stock `0x4d0c44`: a centred arc starts at the top with span
             // sweep/2·(2·pos − 1); otherwise it starts at the minimum.
             let pointer = 135.0 + 270.0 * position.clamp(0.0, 1.0);
@@ -1055,18 +1084,18 @@ fn knob(
             let arc = if enabled {
                 color
             } else {
-                ROW_SELECTED.mix(color, 112)
+                p.row_selected.mix(color, 112)
             };
             canvas.arc(center, value_arc, start, end - start, arc);
             // Stock face: the track grey inside a 3 px black ring (r 21.5–24.5);
             // disabled, the ring is dim. The pointer runs from r 10 to r 24.
             let rim = if enabled {
-                CANVAS
+                p.canvas
             } else {
-                ROW_SELECTED.mix(CANVAS, 64)
+                p.row_selected.mix(p.canvas, 64)
             };
             canvas.circle(cx, cy, 24.5, rim);
-            canvas.circle(cx, cy, 21.5, ROW_SELECTED);
+            canvas.circle(cx, cy, 21.5, p.row_selected);
             let (dx, dy) = (pointer.to_radians().cos(), pointer.to_radians().sin());
             canvas.line(
                 cx + dx * 10.0,
@@ -1087,7 +1116,7 @@ fn knob(
                 ink,
             );
             if let Some(unit) = unit {
-                canvas.text_at(end + 4.0, baseline, unit, CAPTION, MUTED);
+                canvas.text_at(end + 4.0, baseline, unit, CAPTION, p.muted);
             }
         }
         ParameterKind::Toggle { on } => {
@@ -1123,7 +1152,7 @@ mod tests {
     use super::{opaque_cover, split_unit, uncovered};
     use crate::Rect;
     use crate::layout::{Layout, Look};
-    use tetrad_assets::{PANEL, TEXT};
+    use tetrad_assets::Palette;
 
     /// A redraw starts at the fills that cover the rectangle together (side by side, or one
     /// over all of it), and an item shows only where later fills leave it open; a fill with
@@ -1131,16 +1160,28 @@ mod tests {
     #[test]
     fn opaque_cover_finds_fills_that_cover_the_rectangle() {
         let full = Rect::new(0, 0, 800, 480);
-        let mut l = Layout::default();
-        l.push(full, "", Look::Fill(PANEL));
-        l.push(Rect::new(0, 0, 400, 480), "", Look::Fill(PANEL));
-        l.push(Rect::new(100, 0, 700, 480), "", Look::Fill(PANEL));
-        l.push(Rect::new(300, 200, 100, 50), "", Look::Fill(TEXT));
+        let mut l = Layout::new(Palette::STOCK);
+        l.push(full, "", Look::Fill(Palette::STOCK.panel));
+        l.push(
+            Rect::new(0, 0, 400, 480),
+            "",
+            Look::Fill(Palette::STOCK.panel),
+        );
+        l.push(
+            Rect::new(100, 0, 700, 480),
+            "",
+            Look::Fill(Palette::STOCK.panel),
+        );
+        l.push(
+            Rect::new(300, 200, 100, 50),
+            "",
+            Look::Fill(Palette::STOCK.text),
+        );
         l.push(
             Rect::new(0, 0, 800, 480),
             "",
             Look::Veil {
-                color: TEXT,
+                color: Palette::STOCK.text,
                 alpha: 9,
             },
         );

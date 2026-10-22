@@ -4,7 +4,7 @@
 //! text is not a number inside the range (`0x64b774`); the dialog never clamps. Tetrad also
 //! types the MIDI number of a mapping trigger with it.
 
-use tetrad_assets::{ACCENT, BACKGROUND, FAINT, Icon, PANEL, SURFACE, TEXT};
+use tetrad_assets::Icon;
 
 use crate::layout::{CAPTION, Layout, Look, XLARGE_BOLD};
 use crate::render::{Align, HEIGHT, WIDTH};
@@ -163,8 +163,9 @@ const KEY_X: [i32; 3] = [224, 344, 464];
 const KEY_Y: [i32; 4] = [215, 280, 344, 408];
 
 pub(super) fn layout(l: &mut Layout, entry: &NumericEntry) {
+    let p = l.palette;
     l.overlay();
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(BACKGROUND));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.background));
     let key = |key| Control::Numeric(key);
     l.control(
         Rect::new(8, 8, 98, 44),
@@ -173,7 +174,7 @@ pub(super) fn layout(l: &mut Layout, entry: &NumericEntry) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Close,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     l.control(
@@ -183,16 +184,16 @@ pub(super) fn layout(l: &mut Layout, entry: &NumericEntry) {
         "DONE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     let field = Rect::new(40, 79, 720, 60);
-    l.panel(field, SURFACE, 10.0, Some(ACCENT));
+    l.panel(field, p.surface, 10.0, Some(p.accent));
     let area = field.inset(16, 0);
     if entry.text.is_empty() {
-        l.text(area, "0.00", XLARGE_BOLD, FAINT, Align::Left);
+        l.text(area, "0.00", XLARGE_BOLD, p.faint, Align::Left);
     } else {
-        l.text(area, entry.text.clone(), XLARGE_BOLD, TEXT, Align::Left);
+        l.text(area, entry.text.clone(), XLARGE_BOLD, p.text, Align::Left);
     }
     l.text(
         Rect::new(0, 176, WIDTH, 18),
@@ -202,7 +203,7 @@ pub(super) fn layout(l: &mut Layout, entry: &NumericEntry) {
             number_g(entry.range.max)
         ),
         CAPTION,
-        FAINT,
+        p.faint,
         Align::Center,
     );
     let mut keys: Vec<(Rect, NumericKey, &str)> = (1..=9u8)

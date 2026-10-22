@@ -2,8 +2,6 @@
 //! §12, A + H held at startup; layout I), the locked reset progress screen and the backup
 //! restore overlay. Stock strings `0xa3cfe8`..`0xa3d384` with %1 = Quad Cortex.
 
-use tetrad_assets::{ACCENT, BACKGROUND, CANVAS, MUTED, Rgb, TEXT};
-
 use crate::layout::{BODY, ButtonStyle, LARGE, LOADING_VEIL, Layout, Look, MEDIUM, MEDIUM_BOLD};
 use crate::render::{Align, HEIGHT, WIDTH};
 use crate::settings::DeviceAction;
@@ -28,12 +26,13 @@ const OPTIONS: [(DeviceAction, &str, ButtonStyle, &str); 2] = [
 /// "Choose a Recovery option" and one button + description block per option. Both
 /// buttons open the stock confirm popup; the factory one then locks the screen.
 pub(super) fn options(l: &mut Layout, area: Rect, centred: bool) {
+    let p = l.palette;
     let align = if centred { Align::Center } else { Align::Left };
     l.text(
         Rect::new(area.x, area.y, area.width, 28),
         HEADING,
         if centred { LARGE } else { MEDIUM },
-        TEXT,
+        p.text,
         align,
     );
     for (index, (action, label, style, text)) in OPTIONS.into_iter().enumerate() {
@@ -55,7 +54,7 @@ pub(super) fn options(l: &mut Layout, area: Rect, centred: bool) {
             text,
             Look::Paragraph {
                 font: BODY,
-                color: MUTED,
+                color: p.muted,
                 align,
             },
         );
@@ -64,14 +63,15 @@ pub(super) fn options(l: &mut Layout, area: Rect, centred: bool) {
 
 /// Boot Recovery screen: full screen, no settings frame; CANCEL boots normally.
 pub(super) fn layout(_ui: &UiState, l: &mut Layout) {
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(CANVAS));
+    let p = l.palette;
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.canvas));
     options(l, Rect::new(120, 32, 560, 310), true);
     l.push(
         Rect::new(120, 352, 560, 24),
         "Reset actions are permanent.",
         Look::Paragraph {
             font: BODY,
-            color: MUTED,
+            color: p.muted,
             align: Align::Center,
         },
     );
@@ -86,13 +86,14 @@ pub(super) fn layout(_ui: &UiState, l: &mut Layout) {
 
 /// Locked progress screen after a confirmed factory reset: no controls, Back ignored.
 pub(super) fn locked(l: &mut Layout) {
+    let p = l.palette;
     l.overlay();
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(CANVAS));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.canvas));
     l.text(
         Rect::new(40, 180, WIDTH - 80, 32),
         "Resetting Quad Cortex to factory settings",
         LARGE,
-        TEXT,
+        p.text,
         Align::Center,
     );
     l.push(
@@ -100,7 +101,7 @@ pub(super) fn locked(l: &mut Layout) {
         "This process can take up to a few minutes, during which time the device will be locked.",
         Look::Paragraph {
             font: BODY,
-            color: MUTED,
+            color: p.muted,
             align: Align::Center,
         },
     );
@@ -119,11 +120,12 @@ pub(super) fn restoring(l: &mut Layout) {
 /// Medium at (0, 32) 443 × 24, centred; the bar 336 × 8 at (54, 90), radius 4, `#45f862`
 /// filled to `progress` (`0x81bcf4`) on `#252525`.
 pub(super) fn progress_dialog(l: &mut Layout, text: &str, progress: f32, cancel: Option<Control>) {
-    l.veil(LOADING_VEIL);
+    let p = l.palette;
+    l.veil((p.tone(LOADING_VEIL.0), LOADING_VEIL.1));
     let height = if cancel.is_some() { 190 } else { 130 };
     let panel = Rect::new(178, 171, 443, height);
     let panel_look = Look::Panel {
-        fill: BACKGROUND,
+        fill: p.background,
         radius: 10.0,
         border: None,
     };
@@ -132,11 +134,11 @@ pub(super) fn progress_dialog(l: &mut Layout, text: &str, progress: f32, cancel:
         Rect::new(panel.x, panel.y + 32, panel.width, 24),
         text,
         MEDIUM_BOLD,
-        TEXT,
+        p.text,
         Align::Center,
     );
     let track = Look::Panel {
-        fill: Rgb(0x25, 0x25, 0x25),
+        fill: p.row_selected,
         radius: 4.0,
         border: None,
     };
@@ -145,15 +147,15 @@ pub(super) fn progress_dialog(l: &mut Layout, text: &str, progress: f32, cancel:
     if filled > 0 {
         l.panel(
             Rect::new(panel.x + 54, panel.y + 90, filled, 8),
-            ACCENT,
+            p.accent,
             4.0,
             None,
         );
     }
     if let Some(control) = cancel {
         let button = Rect::new(panel.x + 124, panel.y + 120, 196, 44);
-        l.panel(button, Rgb(0x2e, 0x2e, 0x2e), 4.0, None);
+        l.panel(button, p.panel, 4.0, None);
         l.control(button, control, true, "Cancel", Look::Area);
-        l.text(button, "Cancel", BODY, TEXT, Align::Center);
+        l.text(button, "Cancel", BODY, p.text, Align::Center);
     }
 }

@@ -6,9 +6,7 @@
 //! SWITCH DELAY (`0xa2dda8`) and LATCH EMULATION leads the card. The MIN /
 //! MAX range editor of a linked cell is not drawn (layout not in the manual).
 
-use tetrad_assets::{
-    ACCENT, ACTION, BACKGROUND, CANVAS, FAINT, Icon, MUTED, PANEL, Rgb, SECTION, SURFACE, TEXT,
-};
+use tetrad_assets::{Icon, Rgb};
 
 use crate::draw::{TAB_ACTIVE, TAB_IDLE};
 use crate::layout::{BODY, ButtonStyle, Layout, ListId, Look, MEDIUM};
@@ -27,10 +25,11 @@ const TAB_OUTLINE: Rgb = Rgb(0x30, 0xc8, 0x48);
 const DELAY_STEP: u16 = 100;
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let pedal = ui.expression_pedal;
     // Stock 068 page: `#101010`.
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(PAGE));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     l.control(
         Rect::new(8, 8, 98, 44),
         Control::Back,
@@ -38,11 +37,11 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Close,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     for x in [115, 271] {
-        l.push(Rect::new(x, 18, 1, 24), "", Look::Fill(SECTION));
+        l.push(Rect::new(x, 18, 1, 24), "", Look::Fill(p.section));
     }
     for (bounds, tab) in [
         (Rect::new(124, 8, 138, 44), ExpressionPedal::Exp1),
@@ -52,9 +51,9 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         // the other tab white text on `#181c18`.
         let selected = tab == pedal;
         if selected {
-            l.panel(bounds, TAB_ACTIVE, 8.0, Some(TAB_OUTLINE));
+            l.panel(bounds, p.tone(TAB_ACTIVE), 8.0, Some(p.tone(TAB_OUTLINE)));
         } else {
-            l.panel(bounds, TAB_IDLE, 8.0, None);
+            l.panel(bounds, p.tone(TAB_IDLE), 8.0, None);
         }
         l.control(
             bounds,
@@ -67,7 +66,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             bounds,
             tab.label(),
             MEDIUM,
-            if selected { ACCENT } else { TEXT },
+            if selected { p.accent } else { p.text },
             Align::Center,
         );
     }
@@ -76,7 +75,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             Rect::new(0, 200, WIDTH, 30),
             "Select a device on the Grid first",
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
         return;
@@ -88,14 +87,14 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         "SAVE",
         Look::IconButton {
             icon: Icon::Save,
-            fill: ACTION,
+            fill: p.action,
         },
     );
     l.paragraph(
         Rect::new(16, 70, 620, 50),
         "Please choose which parameters you wish to control.\nYou can assign multiple at once.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
 
     let linked = |target| {
@@ -120,7 +119,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     let top_rows = u32::from(bypass_row) + u32::from(range.is_some());
     let rows = targets.len().div_ceil(COLUMNS as usize) as u32 + top_rows;
 
-    l.panel(CARD, SURFACE, 8.0, None);
+    l.panel(CARD, p.surface, 8.0, None);
     l.scroll(
         ListId::ExpressionCells,
         CARD,
@@ -147,7 +146,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                     l.push(
                         bounds,
                         "",
-                        Look::Fill(if selected { SECTION } else { PANEL }),
+                        Look::Fill(if selected { p.section } else { p.panel }),
                     );
                 }
                 if let (true, ExpressionTarget::Parameter(index)) = (on, *target) {
@@ -163,7 +162,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                     Rect::new(bounds.x + 10, bounds.y + 8, bounds.width - 52, 26),
                     label.clone(),
                     BODY,
-                    TEXT,
+                    p.text,
                     Align::Left,
                 );
                 range_mark(l, bounds.right() - 32, bounds.y + 10, on);
@@ -184,10 +183,11 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
 /// Range row of the selected linked parameter (`0x34d9b8`): MIN RANGE and MAX RANGE knobs
 /// (0–100 %) in columns 1 and 2.
 fn range_row(l: &mut Layout, range: ExpressionRangeView, top: i32) {
+    let p = l.palette;
     l.push(
         Rect::new(CARD.x, top, CARD.width, CELL_HEIGHT),
         "",
-        Look::Fill(PANEL),
+        Look::Fill(p.panel),
     );
     for (column, title, value, max) in [
         (1, "MIN RANGE", range.min, false),
@@ -203,7 +203,7 @@ fn range_row(l: &mut Layout, range: ExpressionRangeView, top: i32) {
                 kind: ParameterKind::Continuous {
                     position: f32::from(value) / 100.0,
                 },
-                color: ACCENT,
+                color: p.accent,
                 focused: false,
             },
         );
@@ -226,11 +226,12 @@ fn cell(top: i32, index: usize) -> Rect {
 
 /// 2 px row lines and 1 px column lines across the card content.
 fn dividers(l: &mut Layout, top: i32, rows: u32) {
+    let p = l.palette;
     for row in 1..rows {
         l.push(
             Rect::new(CARD.x, top + (row * CELL_HEIGHT) as i32 - 1, CARD.width, 2),
             "",
-            Look::Fill(BACKGROUND),
+            Look::Fill(p.background),
         );
     }
     for column in 1..COLUMNS {
@@ -238,19 +239,20 @@ fn dividers(l: &mut Layout, top: i32, rows: u32) {
         l.push(
             Rect::new(x, top, 1, rows * CELL_HEIGHT),
             "",
-            Look::Fill(BACKGROUND),
+            Look::Fill(p.background),
         );
     }
 }
 
 /// Bypass row: power, SWITCH ON, INVERT RANGE, SWITCH DELAY, LATCH EMULATION.
 fn bypass(ui: &UiState, l: &mut Layout, position: GridPosition, top: i32) {
+    let p = l.palette;
     let switch = ui.snapshot.expression_switch;
     let bypassed = ui.snapshot.cell(position).bypassed;
     l.push(
         Rect::new(CARD.x, top, CARD.width, CELL_HEIGHT),
         "",
-        Look::Fill(PANEL),
+        Look::Fill(p.panel),
     );
     let power = cell(top, 0);
     l.control(
@@ -275,7 +277,7 @@ fn bypass(ui: &UiState, l: &mut Layout, position: GridPosition, top: i32) {
         Look::Area,
     );
     let track = Rect::new(bounds.x + 16, top + 36, 22, 64);
-    l.panel(track, CANVAS, 11.0, None);
+    l.panel(track, p.canvas, 11.0, None);
     for (index, choice) in ExpressionSwitch::ALL.into_iter().enumerate() {
         let y = top + 36 + index as i32 * 21;
         let active = choice == switch.switch_on;
@@ -286,7 +288,7 @@ fn bypass(ui: &UiState, l: &mut Layout, position: GridPosition, top: i32) {
             Rect::new(track.right() + 16, y, bounds.width - 60, 21),
             choice.label(),
             BODY,
-            if active { TEXT } else { MUTED },
+            if active { p.text } else { p.muted },
             Align::Left,
         );
     }
@@ -329,7 +331,7 @@ fn bypass(ui: &UiState, l: &mut Layout, position: GridPosition, top: i32) {
             kind: ParameterKind::Continuous {
                 position: f32::from(switch.delay_ms) / f32::from(MAX_SWITCH_DELAY_MS),
             },
-            color: ACCENT,
+            color: p.accent,
             focused: false,
         },
     );
@@ -338,15 +340,16 @@ fn bypass(ui: &UiState, l: &mut Layout, position: GridPosition, top: i32) {
 /// Stock range mark "-[-]-" (shot 068), 24 × 20 at (`x`, `y`): grey brackets, a green
 /// bar and white side ticks; all green when the cell is linked to the shown pedal.
 fn range_mark(l: &mut Layout, x: i32, y: i32, linked: bool) {
+    let p = l.palette;
     let (bracket, tick) = if linked {
-        (ACCENT, ACCENT)
+        (p.accent, p.accent)
     } else {
-        (BRACKET, TEXT)
+        (p.tone(BRACKET), p.text)
     };
     let parts = [
         (0, 9, 3, 2, tick),
         (21, 9, 3, 2, tick),
-        (7, 9, 10, 2, ACCENT),
+        (7, 9, 10, 2, p.accent),
         (4, 0, 2, 20, bracket),
         (4, 0, 4, 2, bracket),
         (4, 18, 4, 2, bracket),
@@ -365,26 +368,28 @@ fn range_mark(l: &mut Layout, x: i32, y: i32, linked: bool) {
 
 fn label(l: &mut Layout, bounds: Rect, text: &str, enabled: bool) {
     // Inset 10 left, 2 right: stock shows "LATCH EMULATION" in full in a 157 px cell.
+    let p = l.palette;
     l.text(
         Rect::new(bounds.x + 10, bounds.y + 8, bounds.width - 12, 26),
         text,
         BODY,
-        if enabled { TEXT } else { FAINT },
+        if enabled { p.text } else { p.faint },
         Align::Left,
     );
 }
 
 /// Green switch ring (shot 068) at `center`.
 fn ring(l: &mut Layout, (x, y): (i32, i32)) {
+    let p = l.palette;
     l.push(
         Rect::new(x - 8, y - 8, 16, 16),
         "",
-        Look::Dot { color: ACCENT },
+        Look::Dot { color: p.accent },
     );
     l.push(
         Rect::new(x - 6, y - 6, 12, 12),
         "",
-        Look::Dot { color: CANVAS },
+        Look::Dot { color: p.canvas },
     );
 }
 

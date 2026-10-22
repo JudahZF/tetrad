@@ -62,7 +62,10 @@ enum Cmd {
     },
     /// Type-check with tsc, then bundle `src/index.ts` to `dist/index.mjs` with esbuild.
     Build { dir: PathBuf },
-    /// Pack `tetrad-extension.json` and `dist/index.mjs` into a `.tetradext` file.
+    /// Pack `tetrad-extension.json` and `dist/index.mjs` into a `.tetradext` file. A
+    /// theme-only manifest (themes, no capabilities, settings or commands) with no
+    /// `dist/index.mjs` packs without a module; themes are checked here, as the device checks
+    /// them.
     Package {
         dir: PathBuf,
         #[arg(long)]
@@ -290,7 +293,14 @@ fn run(dir: &Path, args: &[&str]) -> Result {
 fn package(dir: &Path, out: &Path) -> Result {
     let manifest: Manifest = serde_json::from_slice(&read(&dir.join(MANIFEST_FILE))?)
         .map_err(|e| format!("{MANIFEST_FILE}: {e}"))?;
-    let module = String::from_utf8(read(&dir.join(BUNDLE))?)?;
+    // A theme-only manifest needs no build; a bundle that is there is always packed, so an
+    // extension with code and themes keeps its code.
+    let bundle = dir.join(BUNDLE);
+    let module = if manifest.data_only() && !bundle.exists() {
+        String::new()
+    } else {
+        String::from_utf8(read(&bundle)?)?
+    };
     let bytes = Package { manifest, module }.encode()?;
     write(out, &bytes)?;
     println!("{} ({} bytes)", out.display(), bytes.len());
@@ -389,6 +399,9 @@ fn check(file: &Path) -> Result {
     }
     for c in &m.commands {
         println!("  command {} \"{}\"", c.id, c.label);
+    }
+    for t in &m.themes {
+        println!("  theme {} \"{}\"", t.id, t.name);
     }
     println!(
         "  module {} bytes, package {} bytes, sha256 {}",

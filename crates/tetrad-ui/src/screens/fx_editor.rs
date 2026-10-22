@@ -3,10 +3,7 @@
 //! card and point look the voicer, Parallax and synth editors reuse. Stock geometry and
 //! colours; the points and axis marks are owned drawings (no stock bitmaps).
 
-use tetrad_assets::{
-    BACKGROUND, CANVAS, DIVIDER, FAINT, Icon, IconSize, MUTED, PANEL, ROW_SELECTED, Rgb, SURFACE,
-    TEXT,
-};
+use tetrad_assets::{Icon, IconSize, Rgb, block};
 
 use super::model_editor::{BODY_TOP, ModelEditor, parameter};
 use crate::layout::{BODY, Layout, Look};
@@ -23,7 +20,7 @@ use crate::{UiState, widgets};
 pub(super) const CARD: Rect = Rect::new(8, BODY_TOP + 305, 784, 107);
 const CELL: i32 = 157;
 /// Selected control point fill (as the EQ graph, `0x4f6d08`; I for these graphs).
-const POINT_BLUE: Rgb = Rgb(0x0a, 0x74, 0xe0);
+const POINT_BLUE: Rgb = block::EQ;
 
 /// The normalized value of a knob, toggle or choice.
 pub(super) fn position(ui: &UiState, index: u16) -> f32 {
@@ -43,13 +40,14 @@ pub(super) fn position(ui: &UiState, index: u16) -> f32 {
 /// A tab bar (`TabBar` `0x346a94`): equal tabs over `frame`; the selected tab takes the card
 /// colour so it joins the card under it (I: idle tabs `#1e1e1e`).
 pub(super) fn tab_bar(l: &mut Layout, frame: Rect, labels: &[&str], selected: usize) {
+    let p = l.palette;
     let width = frame.width as f32 / labels.len() as f32;
     for (index, label) in labels.iter().enumerate() {
         let x = frame.x + (index as f32 * width).round() as i32;
         let next = frame.x + ((index + 1) as f32 * width).round() as i32;
         let bounds = Rect::new(x, frame.y, (next - x - 2).max(1) as u32, frame.height);
         let on = index == selected;
-        l.panel(bounds, if on { PANEL } else { SURFACE }, 4.0, None);
+        l.panel(bounds, if on { p.panel } else { p.surface }, 4.0, None);
         l.control(
             bounds,
             Control::Editor(EditorControl::Tab(index as u8)),
@@ -61,7 +59,7 @@ pub(super) fn tab_bar(l: &mut Layout, frame: Rect, labels: &[&str], selected: us
             bounds,
             *label,
             BODY,
-            if on { TEXT } else { MUTED },
+            if on { p.text } else { p.muted },
             Align::Center,
         );
     }
@@ -76,14 +74,15 @@ pub(super) fn knob_card(
     hue: Rgb,
     live: impl Fn(u16) -> bool,
 ) {
-    l.panel(CARD, PANEL, 6.0, None);
+    let palette = l.palette;
+    l.panel(CARD, palette.panel, 6.0, None);
     for (column, index) in knobs.iter().enumerate() {
         let x = CARD.x + column as i32 * CELL;
         if column > 0 {
             l.push(
                 Rect::new(x - 1, CARD.y + 15, 1, 78),
                 "",
-                Look::Fill(DIVIDER),
+                Look::Fill(palette.divider),
             );
         }
         if let Some(p) = index.and_then(|index| parameter(ui, index)) {
@@ -120,12 +119,13 @@ pub(super) fn knob(l: &mut Layout, bounds: Rect, p: &ParameterView, hue: Rgb, li
 /// label, others 38 px `#2e2e2e` with a `#121212` ring; an off point is `#1e1e1e` with a
 /// `#2e2e2e` ring and a grey label.
 pub(super) fn point(l: &mut Layout, (x, y): (i32, i32), label: &str, selected: bool, on: bool) {
+    let p = l.palette;
     let radius = if selected { 26 } else { 19 };
     let bounds = Rect::new(x - radius, y - radius, radius as u32 * 2, radius as u32 * 2);
     let (fill, text) = match (selected, on) {
-        (true, true) => (POINT_BLUE, CANVAS),
-        (_, false) => (SURFACE, FAINT),
-        (false, true) => (PANEL, TEXT),
+        (true, true) => (POINT_BLUE, p.canvas),
+        (_, false) => (p.surface, p.faint),
+        (false, true) => (p.panel, p.text),
     };
     if !selected || !on {
         let ring = Rect::new(
@@ -134,7 +134,7 @@ pub(super) fn point(l: &mut Layout, (x, y): (i32, i32), label: &str, selected: b
             bounds.width + 4,
             bounds.height + 4,
         );
-        let color = if on { DIVIDER } else { PANEL };
+        let color = if on { p.divider } else { p.panel };
         l.push(ring, "", Look::Dot { color });
     }
     l.push(bounds, "", Look::Dot { color: fill });
@@ -215,14 +215,15 @@ fn arpeggio_place(ui: &UiState, tap: u16) -> (i32, i32) {
 }
 
 pub(super) fn arpeggio(ui: &UiState, l: &mut Layout, hue: Rgb) {
+    let p = l.palette;
     let top = BODY_TOP;
-    l.push(Rect::new(0, top, WIDTH, 420), "", Look::Fill(BACKGROUND));
+    l.push(Rect::new(0, top, WIDTH, 420), "", Look::Fill(p.background));
     // Axes and the pitch grid (`#252525` 751 × 1 lines; I: four of them).
-    l.push(Rect::new(32, top + 16, 2, 208), "", Look::Fill(PANEL));
-    l.push(Rect::new(32, top + 224, 751, 2), "", Look::Fill(PANEL));
+    l.push(Rect::new(32, top + 16, 2, 208), "", Look::Fill(p.panel));
+    l.push(Rect::new(32, top + 224, 751, 2), "", Look::Fill(p.panel));
     for quarter in 0..=4 {
         let y = top + (PITCH_Y - PITCH_PX * quarter as f32 / 4.0).round() as i32;
-        l.push(Rect::new(34, y, 749, 1), "", Look::Fill(ROW_SELECTED));
+        l.push(Rect::new(34, y, 749, 1), "", Look::Fill(p.row_selected));
     }
     // Axis marks (`0x2aa7d4`): + / − 11 px and the pitch and delay icons 16 px (owned).
     let glyph = |l: &mut Layout, x, y, size: u32, icon| {
@@ -234,7 +235,7 @@ pub(super) fn arpeggio(ui: &UiState, l: &mut Layout, hue: Rgb) {
         let look = Look::Glyph {
             icon,
             size: small,
-            color: MUTED,
+            color: p.muted,
         };
         l.push(Rect::new(x, top + y, size, size), "", look);
     };

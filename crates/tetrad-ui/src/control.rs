@@ -954,6 +954,8 @@ pub enum Control {
     Extension(ExtensionControl),
     /// The Mappings page (`screens::mappings`).
     Mapping(MappingControl),
+    /// Settings → Appearance: pick the theme of row n ([`crate::AppearanceView::themes`]).
+    Theme(u16),
     /// The switch of the Remote page (`screens::remote`).
     RemoteToggle,
     Updater(UpdaterCommand),
@@ -1220,6 +1222,8 @@ pub enum UiCommand {
     Extension(crate::ExtensionCommand),
     /// A Mappings page request (`crate::mappings`).
     Mapping(crate::MappingCommand),
+    /// Apply and store a theme (Settings → Appearance, owned).
+    SetTheme(tetrad_theme::ThemeId),
     /// The Remote page switch (`crate::remote`).
     SetRemote {
         enabled: bool,
@@ -1807,6 +1811,7 @@ impl fmt::Debug for UiCommand {
         match self {
             C::Extension(command) => f.debug_tuple("Extension").field(command).finish(),
             C::Mapping(command) => f.debug_tuple("Mapping").field(command).finish(),
+            C::SetTheme(id) => f.debug_tuple("SetTheme").field(id).finish(),
             C::WifiConnect { ssid, password } => f
                 .debug_struct("WifiConnect")
                 .field("ssid", ssid)

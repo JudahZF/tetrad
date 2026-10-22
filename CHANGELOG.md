@@ -7,6 +7,13 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Added
 
+- Themes (Settings → System → Appearance): pick the UI colours. The built-in themes are Stock
+  (the default, pixel for pixel the old look), Stage High Contrast, Slate and Ember. Tetrad
+  also reads theme files from `/media/p4/tetrad/themes/`, and extensions can add themes in
+  their manifest. Themes are dark only and must pass contrast checks. Block colours, scene
+  colours, LEDs, the boot menu and Recovery do not change (docs/themes.md).
+- Theme-only extensions: a manifest with `themes` and no capabilities, settings or commands
+  packs without a module, and Tetrad runs nothing for it (docs/extensions.md#ship-themes).
 - Remote (Settings → System → Remote): a web page on the unit to add IRs from a browser on the
   same Wi-Fi, behind a 4-digit PIN that the page shows. The browser converts each WAV or AIFF to
   the stock IR format (mono, 48 kHz, first 1,024 samples); the unit imports it into the IR

@@ -148,6 +148,42 @@ scope. A scope closes when its handler settles. After a preset change, calls wit
 with `staleContext`. There is no module loader: bundle everything into one file (`tetrad-ext
 build` does this).
 
+### Ship themes
+
+An extension can add up to 8 [themes](themes.md) to Settings → Appearance. List them in
+`themes` in the manifest, in the same format as a theme file but without `version`:
+
+```json
+{
+  "id": "my.theme-pack",
+  "name": "My Themes",
+  "version": "0.1.0",
+  "api": 1,
+  "themes": [
+    { "id": "dusk", "name": "Dusk", "base": "slate",
+      "colors": { "background": "#15111c", "accent": "#ff8fab" } }
+  ]
+}
+```
+
+A manifest with themes and no capabilities, settings or commands is **theme-only**:
+
+- It needs no `src/` and no build. `tetrad-ext package` packs it without a module.
+- Tetrad runs no code for it.
+- It asks for no access.
+
+An extension with code can add themes too.
+
+`tetrad-ext package` checks the themes in the same way as the unit does. A theme that fails
+(for example, a light background or text that is too hard to read) stops the package, and the
+unit refuses it at install.
+
+Themes show in Appearance while the extension is installed and enabled. The extension's page
+lists them. See `extensions/fixtures/theme-pack` for a complete example.
+
+Tetrad builds before 0.1.0-alpha.5 do not know the `themes` field. They refuse the package at
+install and change nothing.
+
 ### Try it on a unit
 
 `tetrad-ext stage --repo-dir <repository> --source <owner/repo> --store <dir>/extensions`

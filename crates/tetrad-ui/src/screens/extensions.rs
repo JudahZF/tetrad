@@ -5,8 +5,7 @@
 //! settings content panel and follow the generic settings rows (60 px rows with a divider,
 //! 34 px section headers, black fields and buttons on the panel).
 
-use tetrad_assets::{ACCENT, ACCENT_FILL, CANVAS, DANGER, DIVIDER, Icon, IconSize, MUTED, PANEL};
-use tetrad_assets::{Rgb, SURFACE, TEXT, WARNING};
+use tetrad_assets::{Icon, IconSize, Rgb};
 
 use crate::layout::SMALL_BOLD;
 use crate::layout::{BODY, BODY_BOLD, ButtonStyle, CAPTION, LARGE, Layout, ListId, Look, MEDIUM};
@@ -29,7 +28,7 @@ const BADGE: (u32, u32) = (88, 24);
 /// Header buttons: 40 px high, centred on the 32 px page title.
 const HEADER_BUTTON: u32 = 40;
 
-/// Dark fills of the Starting and Faulted badges, as [`ACCENT_FILL`] is for Running.
+/// Dark fills of the Starting and Faulted badges, as the accent fill is for Running.
 const WARNING_FILL: Rgb = Rgb(0x33, 0x2d, 0x10);
 const DANGER_FILL: Rgb = Rgb(0x3a, 0x14, 0x14);
 
@@ -67,39 +66,43 @@ fn source_label<'a>(view: &ExtensionsView, source: &'a str) -> &'a str {
 
 /// Generic settings section header (`PageRow::Header`).
 fn header(l: &mut Layout, x: i32, y: i32, width: u32, title: &str) {
+    let p = l.palette;
     l.text(
         Rect::new(x, y + 10, width, 20),
         title,
         BODY_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
 
 pub(super) fn divider(l: &mut Layout, row: Rect) {
+    let p = l.palette;
     l.push(
         Rect::new(row.x, row.bottom() - 1, row.width, 1),
         "",
-        Look::Fill(DIVIDER),
+        Look::Fill(p.divider),
     );
 }
 
 fn empty(l: &mut Layout, row: Rect, text: &str) {
+    let p = l.palette;
     l.text(
         Rect::new(row.x + 16, row.y, row.width - 32, row.height),
         text,
         MEDIUM,
-        MUTED,
+        p.muted,
         Align::Left,
     );
 }
 
 fn state_badge(l: &mut Layout, bounds: Rect, state: &ExtensionState) {
+    let p = l.palette;
     let (label, ink, fill) = match state {
-        ExtensionState::Running => ("Running", ACCENT, ACCENT_FILL),
-        ExtensionState::Starting => ("Starting", WARNING, WARNING_FILL),
-        ExtensionState::Disabled => ("Disabled", MUTED, SURFACE),
-        ExtensionState::Faulted(_) => ("Faulted", DANGER, DANGER_FILL),
+        ExtensionState::Running => ("Running", p.accent, p.accent_fill),
+        ExtensionState::Starting => ("Starting", p.warning, p.tone(WARNING_FILL)),
+        ExtensionState::Disabled => ("Disabled", p.muted, p.surface),
+        ExtensionState::Faulted(_) => ("Faulted", p.danger, p.tone(DANGER_FILL)),
     };
     l.panel(bounds, fill, bounds.height as f32 / 2.0, None);
     l.text(bounds, label, SMALL_BOLD, ink, Align::Center);
@@ -107,6 +110,7 @@ fn state_badge(l: &mut Layout, bounds: Rect, state: &ExtensionState) {
 
 /// Back arrow left of an own page title: [`Control::Back`] returns to the Extensions list.
 fn title_row(l: &mut Layout, pane: Rect, title: &str, right: i32) {
+    let p = l.palette;
     l.control(
         Rect::new(pane.x - 8, pane.y - 4, 40, HEADER_BUTTON),
         Control::Back,
@@ -114,7 +118,7 @@ fn title_row(l: &mut Layout, pane: Rect, title: &str, right: i32) {
         "BACK",
         Look::IconButton {
             icon: Icon::Back,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     let x = pane.x + 40;
@@ -122,13 +126,14 @@ fn title_row(l: &mut Layout, pane: Rect, title: &str, right: i32) {
         Rect::new(x, pane.y, (right - 8 - x).max(0) as u32, 32),
         title,
         LARGE,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
 
 /// The running job or last result under the title; a ring marks a running job.
 fn status_line(l: &mut Layout, view: &ExtensionsView, area: Rect) {
+    let p = l.palette;
     let mut x = area.x;
     if view.busy {
         l.push(
@@ -138,7 +143,7 @@ fn status_line(l: &mut Layout, view: &ExtensionsView, area: Rect) {
                 width: 2.0,
                 start: 0.0,
                 sweep: 270.0,
-                color: ACCENT,
+                color: p.accent,
             },
         );
         x += 24;
@@ -149,7 +154,7 @@ fn status_line(l: &mut Layout, view: &ExtensionsView, area: Rect) {
             Rect::new(x, area.y, (area.right() - x) as u32, area.height),
             text,
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     }
@@ -240,6 +245,7 @@ fn installed_row(
     index: u16,
     extension: &InstalledExtension,
 ) {
+    let p = l.palette;
     l.control(
         row,
         Control::Extension(ExtensionControl::Open(index)),
@@ -254,7 +260,7 @@ fn installed_row(
         Look::Glyph {
             icon: Icon::Forward,
             size: IconSize::Small,
-            color: MUTED,
+            color: p.muted,
         },
     );
     let badge = Rect::new(
@@ -270,7 +276,7 @@ fn installed_row(
         Rect::new(x, row.y + 8, width, 22),
         extension.name.clone(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     let meta = format!(
@@ -288,7 +294,7 @@ fn installed_row(
         Rect::new(x, row.y + 32, meta_width, 18),
         meta,
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     if let Some(update) = update {
@@ -296,7 +302,7 @@ fn installed_row(
             Rect::new(x + meta_width as i32, row.y + 32, width - meta_width, 18),
             update,
             CAPTION,
-            ACCENT,
+            p.accent,
             Align::Left,
         );
     }
@@ -311,6 +317,7 @@ fn available_row(
     index: u16,
     extension: &AvailableExtension,
 ) {
+    let p = l.palette;
     let install = Rect::new(
         row.right() - 16 - 104,
         row.y + (row.height - HEADER_BUTTON) as i32 / 2,
@@ -328,8 +335,8 @@ fn available_row(
     let x = row.x + 16;
     let width = (install.x - 12 - x) as u32;
     let lines = [
-        (8, 22, extension.name.clone(), BODY, TEXT),
-        (31, 18, extension.description.clone(), CAPTION, MUTED),
+        (8, 22, extension.name.clone(), BODY, p.text),
+        (31, 18, extension.description.clone(), CAPTION, p.muted),
         (
             50,
             18,
@@ -339,7 +346,7 @@ fn available_row(
                 source_label(view, &extension.source)
             ),
             CAPTION,
-            MUTED,
+            p.muted,
         ),
     ];
     for (dy, height, text, font, color) in lines {
@@ -415,6 +422,10 @@ fn parts(extension: &InstalledExtension, width: u32) -> Vec<Part<'_>> {
         parts.push(Part::Header("Commands"));
         parts.extend((0..extension.commands.len()).step_by(2).map(Part::Commands));
     }
+    if !extension.themes.is_empty() {
+        parts.push(Part::Header("Themes (Settings → Appearance)"));
+        parts.extend(extension.themes.iter().map(|name| Part::StatusLine(name)));
+    }
     if !extension.status_lines.is_empty() {
         parts.push(Part::Header("Status"));
         parts.extend(
@@ -461,6 +472,7 @@ fn detail_part(
     part: &Part,
     row: Rect,
 ) {
+    let p = l.palette;
     let control = |control| Control::Extension(control);
     match part {
         Part::Meta => l.text(
@@ -471,14 +483,14 @@ fn detail_part(
                 source_label(view, &extension.source)
             ),
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         ),
         Part::Description(lines) => l.paragraph(
             Rect::new(row.x, row.y, row.width - 8, row.height),
             lines.join("\n"),
             BODY,
-            TEXT,
+            p.text,
         ),
         Part::Enabled => {
             l.control(
@@ -492,12 +504,12 @@ fn detail_part(
         }
         Part::Fault(lines) => {
             let card = Rect::new(row.x, row.y + 4, row.width - 8, row.height - 8);
-            l.panel(card, SURFACE, 8.0, None);
+            l.panel(card, p.surface, 8.0, None);
             l.paragraph(
                 Rect::new(card.x + 16, card.y + 12, FAULT_TEXT, card.height - 16),
                 lines.join("\n"),
                 CAPTION,
-                DANGER,
+                p.danger,
             );
             l.button_in(
                 Rect::new(
@@ -550,12 +562,12 @@ fn detail_part(
             Rect::new(row.x, row.y, row.width - 8, row.height),
             *line,
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         ),
         Part::Log(lines) => {
             let panel = Rect::new(row.x, row.y, row.width - 8, row.height - 8);
-            l.panel(panel, CANVAS, 8.0, None);
+            l.panel(panel, p.canvas, 8.0, None);
             for (index, line) in lines.iter().enumerate() {
                 l.text(
                     Rect::new(
@@ -566,7 +578,7 @@ fn detail_part(
                     ),
                     line.as_str(),
                     CAPTION,
-                    MUTED,
+                    p.muted,
                     Align::Left,
                 );
             }
@@ -583,12 +595,13 @@ fn detail_part(
 
 /// A row label from x + 16 to `right`, as generic setting rows.
 pub(super) fn label(l: &mut Layout, row: Rect, right: i32, text: impl Into<String>) {
+    let p = l.palette;
     let x = row.x + 16;
     l.text(
         Rect::new(x, row.y, (right - x).max(0) as u32, row.height),
         text,
         MEDIUM,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
@@ -604,6 +617,7 @@ pub(super) fn switch_row(l: &mut Layout, row: Rect, text: &str, on: Option<bool>
 /// A manifest setting in the generic setting row styles: a toggle flips with the whole
 /// row, a choice opens a dropdown list from its black field, a number has a stepper.
 fn setting_row(l: &mut Layout, row: Rect, index: u16, setting: &ExtensionSetting) {
+    let p = l.palette;
     let open = Control::Extension(ExtensionControl::Setting(index));
     match &setting.value {
         ExtensionSettingValue::Toggle(on) => {
@@ -625,9 +639,9 @@ fn setting_row(l: &mut Layout, row: Rect, index: u16, setting: &ExtensionSetting
                 setting.label.clone(),
                 Look::Area,
             );
-            l.panel(field, CANVAS, 4.0, None);
+            l.panel(field, p.canvas, 4.0, None);
             let arrow = Rect::new(field.right() - 24, field.y + 15, 12, 7);
-            super::settings::triangle(l, arrow, true, TEXT);
+            super::settings::triangle(l, arrow, true, p.text);
             l.text(
                 Rect::new(
                     field.x + 8,
@@ -637,7 +651,7 @@ fn setting_row(l: &mut Layout, row: Rect, index: u16, setting: &ExtensionSetting
                 ),
                 options.get(*selected).map_or("-", String::as_str),
                 MEDIUM,
-                TEXT,
+                p.text,
                 Align::Left,
             );
             label(l, row, field.x - 8, setting.label.as_str());
@@ -701,6 +715,7 @@ fn sources(ui: &UiState, l: &mut Layout, pane: Rect) {
 }
 
 fn source_row(l: &mut Layout, row: Rect, index: u16, source: &ExtensionSource) {
+    let p = l.palette;
     let remove = Rect::new(
         row.right() - 16 - 44,
         row.y + (row.height - 44) as i32 / 2,
@@ -745,26 +760,26 @@ fn source_row(l: &mut Layout, row: Rect, index: u16, source: &ExtensionSource) {
         Rect::new(x, row.y + 10, name_px, 22),
         name,
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     if source.default {
         let badge = Rect::new(x + name_px as i32 + 8, row.y + 10, pill, 22);
-        l.panel(badge, ACCENT_FILL, 11.0, None);
-        l.text(badge, "Default", SMALL_BOLD, ACCENT, Align::Center);
+        l.panel(badge, p.accent_fill, 11.0, None);
+        l.text(badge, "Default", SMALL_BOLD, p.accent, Align::Center);
     }
     l.text(
         Rect::new(x, row.y + 36, width, 18),
         format!("Key {}", source.fingerprint),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(x, row.y + 56, width, 18),
         source.status.as_str(),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     divider(l, row);
@@ -1105,6 +1120,7 @@ pub(crate) mod tests {
             settings: Vec::new(),
             status_lines: Vec::new(),
             log: Vec::new(),
+            themes: Vec::new(),
         };
         let mapper = InstalledExtension {
             update: Some("1.1.0".into()),

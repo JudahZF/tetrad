@@ -30,7 +30,7 @@ the stock SHARC DSP firmware that is on the unit.
   tetrad-ui       tetrad-dsp-host    tetrad-control   tetrad-midi      tetrad-services   tetrad-watchdog
   tetrad-assets   tetrad-loader                                        tetrad-settings   tetrad-runtime
                                                                        tetrad-remote
-                  tetrad-engine
+  tetrad-theme    tetrad-engine
                   tetrad-dsp-protocol
   ──────────────────────────── data and rules ────────────────────────────────────────────────
   tetrad-preset  tetrad-catalog  tetrad-core  tetrad-library  tetrad-storage  tetrad-media
@@ -45,7 +45,8 @@ the stock SHARC DSP firmware that is on the unit.
 | --- | --- |
 | `tetrad-app` | `tetrad`: the device program (`src/device/`), the boot selector and offline tools |
 | `tetrad-ui` | Screens, widgets, dialogs and view models of the touch UI |
-| `tetrad-assets` | Colour tokens, icons and the IBM Plex Sans font |
+| `tetrad-assets` | Fixed data colours (block categories, scene swatches), icons and the IBM Plex Sans font |
+| `tetrad-theme` | Themes: the palette of UI colours, the stock palette, built-in themes, and the checked schema of theme files and extension themes |
 | `tetrad-dsp-host` | Shared-memory ring transport, the DSP session, model blob placement, per-model block drivers |
 | `tetrad-loader` | SHARC boot: LDR parsing and the boot plans of both DSP chips |
 | `tetrad-engine` | Preset-to-DSP compiler: routing, core assignment, run lists, latency alignment |

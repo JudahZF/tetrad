@@ -126,6 +126,8 @@ pub enum Handoff {
     Extensions(tetrad_ui::ExtensionCommand),
     /// Mappings page requests → mappings bridge.
     Mappings(tetrad_ui::MappingCommand),
+    /// Settings → Appearance picked a theme → appearance bridge.
+    Theme(tetrad_theme::ThemeId),
     /// The Remote page switch → `Device::set_remote`.
     Remote { enabled: bool },
     /// Capture wizard requests and saves → capture bridge.
@@ -779,6 +781,7 @@ impl Ui {
         match command {
             C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
             C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
+            C::SetTheme(id) => vec![Request::Handoff(Handoff::Theme(id))],
             C::SetRemote { enabled } => vec![Request::Handoff(Handoff::Remote { enabled })],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),

@@ -1,0 +1,32 @@
+{
+  "id": "tetrad.theme-pack",
+  "name": "Theme Pack",
+  "version": "0.1.0",
+  "description": "Test fixture and example: two themes, no code. Package it with `tetrad-ext package`; there is nothing to build.",
+  "api": 1,
+  "themes": [
+    {
+      "id": "dusk",
+      "name": "Dusk",
+      "base": "slate",
+      "colors": {
+        "background": "#15111c",
+        "canvas": "#0b0910",
+        "panel": "#2a2333",
+        "surface": "#1e1926",
+        "accent": "#ff8fab",
+        "action": "#7048e8"
+      }
+    },
+    {
+      "id": "moss",
+      "name": "Moss",
+      "base": "stock",
+      "colors": {
+        "background": "#10140f",
+        "panel": "#252c23",
+        "accent": "#a3d977"
+      }
+    }
+  ]
+}

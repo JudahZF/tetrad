@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 fontdue.workspace = true
 ttf-parser = "0.25"
+tetrad-theme.workspace = true
 
 [lints]
 workspace = true
