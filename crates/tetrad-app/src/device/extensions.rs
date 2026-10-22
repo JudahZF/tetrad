@@ -1800,12 +1800,12 @@ impl Extensions {
     pub fn themes(&self) -> Option<Vec<super::appearance::ExtensionThemes>> {
         let repositories = &self.repositories;
         repositories.loaded.then(|| {
-            (repositories.records.values())
-                .filter(|record| record.installed.enabled)
-                .map(|record| &record.installed.current.manifest)
-                .filter(|manifest| !manifest.themes.is_empty())
-                .map(|manifest| super::appearance::ExtensionThemes {
-                    extension: manifest.id.clone(),
+            (repositories.records.iter())
+                .filter(|(_, record)| record.installed.enabled)
+                .map(|(key, record)| (key, &record.installed.current.manifest))
+                .filter(|(_, manifest)| !manifest.themes.is_empty())
+                .map(|(key, manifest)| super::appearance::ExtensionThemes {
+                    extension: key.clone(),
                     name: manifest.name.clone(),
                     themes: manifest.themes.clone(),
                 })

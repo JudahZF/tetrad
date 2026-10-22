@@ -78,8 +78,12 @@ with the reason, but you cannot choose it.
   block icons are made for a dark background.
 - **Readable.** Tetrad measures contrast as the screen shows the colours (16-bit colour):
   - `text` on `background`, `panel` and `canvas`: at least 7:1
+  - `text` on `action` (button labels): at least 4.5:1
   - `muted` on `background`: at least 4.5:1
-  - `onAccent` on `accent`: at least 4.5:1
+  - `onAccent` on `accent` and on `warning` (badges): at least 4.5:1
+  - `accent` on `panel` (selected text): at least 4.5:1
+  - `accent` on `canvas` (knob arcs, switch rings): at least 3:1
+  - `danger` on `background` (error text): at least 4.5:1
 - **Id.** 1 to 32 characters of `a-z`, `0-9` and `-`. It must not start with `-`.
 - **Name.** 1 to 24 characters.
 

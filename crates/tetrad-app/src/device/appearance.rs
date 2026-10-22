@@ -13,7 +13,8 @@ use tetrad_ui::{AppearanceView, ThemeRow};
 
 pub const FILE: &str = "/media/p4/tetrad/appearance.json";
 pub const THEMES_DIR: &str = "/media/p4/tetrad/themes";
-/// Largest theme file and appearance file read.
+/// Largest theme file and appearance file. Read them with `read_bounded(.., MAX_FILE)`: it
+/// returns one byte more for a larger file, and the bridge refuses that.
 pub const MAX_FILE: u64 = 64 * 1024;
 /// Theme files read at most, in name order.
 pub const MAX_THEME_FILES: usize = 32;
@@ -31,6 +32,7 @@ struct Stored {
 /// Themes one enabled extension adds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionThemes {
+    /// The install key, `owner/repo:extension.id`: two repositories may ship one extension ID.
     pub extension: String,
     pub name: String,
     pub themes: Vec<ThemeSpec>,
@@ -57,10 +59,21 @@ pub struct Appearance {
     pub(in crate::device) view_stale: bool,
 }
 
+/// `bytes` unless they are over [`MAX_FILE`]: a file cut at the limit must not parse.
+fn bounded(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    match bytes.len() as u64 > MAX_FILE {
+        true => Err(format!("the file is larger than {} KiB", MAX_FILE / 1024)),
+        false => Ok(bytes),
+    }
+}
+
 impl Appearance {
     /// The stored choice. A bad file is reported and Stock shows.
     pub fn load(&mut self, bytes: Option<&[u8]>) -> Option<String> {
         self.view_stale = true;
+        if bytes.is_some_and(|bytes| bytes.len() as u64 > MAX_FILE) {
+            return Some(format!("{FILE}: larger than {} KiB", MAX_FILE / 1024));
+        }
         let stored: Stored = match bytes.map(serde_json::from_slice) {
             None => return None,
             Some(Ok(stored)) => stored,
@@ -85,8 +98,9 @@ impl Appearance {
         self.view_stale = true;
         self.files.clear();
         for (file, bytes) in files {
-            let spec =
-                bytes.and_then(|bytes| ThemeSpec::from_file(&bytes).map_err(|e| e.to_string()));
+            let spec = bytes
+                .and_then(bounded)
+                .and_then(|bytes| ThemeSpec::from_file(&bytes).map_err(|e| e.to_string()));
             let candidate = match spec {
                 Ok(spec) => {
                     let duplicate =
@@ -219,15 +233,43 @@ mod tests {
     }
 
     fn dusk() -> ExtensionThemes {
-        let spec = serde_json::from_str(
-            r##"{ "id": "dusk", "name": "Dusk", "base": "slate", "colors": { "accent": "#ff8fab" } }"##,
-        )
-        .unwrap();
+        pack("judah/themes:judah.dusk-pack", "#ff8fab")
+    }
+
+    fn pack(key: &str, accent: &str) -> ExtensionThemes {
+        let spec = serde_json::json!({
+            "id": "dusk", "name": "Dusk", "base": "slate", "colors": { "accent": accent }
+        });
         ExtensionThemes {
-            extension: "judah.dusk-pack".into(),
+            extension: key.into(),
             name: "Dusk Themes".into(),
-            themes: vec![spec],
+            themes: vec![serde_json::from_value(spec).unwrap()],
         }
+    }
+
+    /// The same extension ID from two repositories gives two themes, each with its own colours.
+    #[test]
+    fn extension_themes_are_keyed_by_installation() {
+        let mut appearance = Appearance::default();
+        let other = "someone/fork:judah.dusk-pack";
+        appearance.set_extensions(vec![dusk(), pack(other, "#00c2a8")]);
+        let id = ThemeId::from(format!("ext:{other}/dusk"));
+        appearance.select(id.clone()).unwrap();
+        assert_eq!(
+            appearance.palette().accent,
+            tetrad_theme::Rgb::hex(0x00c2a8)
+        );
+        let selected: Vec<_> = (appearance.view().themes.into_iter())
+            .filter(|row| row.selected)
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(selected, [id]);
+        appearance.set_extensions(vec![dusk()]);
+        assert_eq!(
+            appearance.palette(),
+            Palette::STOCK,
+            "never the other pack's theme"
+        );
     }
 
     /// A chosen extension theme shows from the first frame, falls back to Stock while its
@@ -236,7 +278,7 @@ mod tests {
     fn extension_theme_survives_boot_and_its_extension_going_away() {
         let mut first = Appearance::default();
         first.set_extensions(vec![dusk()]);
-        let id = ThemeId::from("ext:judah.dusk-pack/dusk".to_owned());
+        let id = ThemeId::from("ext:judah/themes:judah.dusk-pack/dusk".to_owned());
         let stored = first.select(id.clone()).unwrap();
         let chosen = first.palette();
         assert_eq!(chosen.panel, slate().panel);
@@ -267,6 +309,20 @@ mod tests {
         assert!(boot.set_extensions(Vec::new()).is_some());
     }
 
+    fn oversized(json: &[u8]) -> Vec<u8> {
+        let mut bytes = json.to_vec();
+        bytes.resize(MAX_FILE as usize + 1, b' ');
+        bytes
+    }
+
+    #[test]
+    fn oversized_appearance_file_is_refused() {
+        let mut appearance = Appearance::default();
+        let stored = br##"{"version":1,"theme":"slate","palette":{}}"##;
+        let problem = appearance.load(Some(&oversized(stored))).unwrap();
+        assert!(problem.contains("larger"), "{problem}");
+    }
+
     #[test]
     fn theme_files_are_rows_and_bad_ones_cannot_be_chosen() {
         let mut appearance = Appearance::default();
@@ -278,13 +334,16 @@ mod tests {
             ("b.json".into(), Ok(good.to_vec())),
             ("c.json".into(), Ok(light.to_vec())),
             ("d.json".into(), Err("permission denied".into())),
+            // A valid theme padded past the limit: `read_bounded` hands over one byte more.
+            ("e.json".into(), Ok(oversized(good))),
         ]);
         let rows = appearance.view().themes;
         let files: Vec<_> = rows
             .iter()
             .filter(|r| r.source.starts_with("Theme file"))
             .collect();
-        assert_eq!(files.len(), 4);
+        assert_eq!(files.len(), 5);
+        assert!(files[4].palette.as_ref().unwrap_err().contains("larger"));
         assert!(files[0].palette.is_ok());
         assert!(
             files[1]

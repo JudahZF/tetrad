@@ -12,13 +12,35 @@ pub const MAX_NAME: usize = 24;
 /// Largest relative luminance of a dark background (T3 Code's dark threshold).
 pub const MAX_LUMINANCE: f32 = 0.18;
 
-/// The minimum contrasts, as (foreground, background, ratio).
-const CONTRASTS: [(&str, &str, f32); 5] = [
-    ("text", "background", 7.0),
-    ("text", "panel", 7.0),
-    ("text", "canvas", 7.0),
-    ("muted", "background", 4.5),
-    ("onAccent", "accent", 4.5),
+/// A role by its theme file name.
+type Role = (&'static str, fn(&Palette) -> Rgb);
+
+const TEXT: Role = ("text", |p| p.text);
+const ACCENT: Role = ("accent", |p| p.accent);
+const ON_ACCENT: Role = ("onAccent", |p| p.on_accent);
+
+/// The minimum contrasts of the pairs the screens draw, as (foreground, background, ratio):
+/// text and the accent (selected text) at 4.5:1 or more, the accent as a bare mark (knob
+/// arcs, switch rings on the canvas) at 3:1.
+const CONTRASTS: [(Role, Role, f32); 10] = [
+    (TEXT, ("background", |p| p.background), 7.0),
+    (TEXT, ("panel", |p| p.panel), 7.0),
+    (TEXT, ("canvas", |p| p.canvas), 7.0),
+    (TEXT, ("action", |p| p.action), 4.5),
+    (
+        ("muted", |p| p.muted),
+        ("background", |p| p.background),
+        4.5,
+    ),
+    (ON_ACCENT, ACCENT, 4.5),
+    (ON_ACCENT, ("warning", |p| p.warning), 4.5),
+    (ACCENT, ("panel", |p| p.panel), 4.5),
+    (ACCENT, ("canvas", |p| p.canvas), 3.0),
+    (
+        ("danger", |p| p.danger),
+        ("background", |p| p.background),
+        4.5,
+    ),
 ];
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -150,17 +172,8 @@ pub fn check(palette: &Palette) -> Result<(), ThemeError> {
             return Err(ThemeError::Light(role));
         }
     }
-    let role = |name: &str| match name {
-        "text" => palette.text,
-        "muted" => palette.muted,
-        "onAccent" => palette.on_accent,
-        "accent" => palette.accent,
-        "panel" => palette.panel,
-        "canvas" => palette.canvas,
-        _ => palette.background,
-    };
-    for (fg, bg, min) in CONTRASTS {
-        let ratio = contrast(role(fg), role(bg));
+    for ((fg, fg_of), (bg, bg_of), min) in CONTRASTS {
+        let ratio = contrast(fg_of(palette), bg_of(palette));
         if ratio < min {
             return Err(ThemeError::Contrast { fg, bg, ratio, min });
         }
@@ -188,14 +201,20 @@ fn luminance(c: Rgb) -> f32 {
     0.2126 * linear(c.0, 5) + 0.7152 * linear(c.1, 6) + 0.0722 * linear(c.2, 5)
 }
 
-/// Names a theme wherever it came from: `stock`, `file:<id>`, `ext:<extension>/<id>`. This is
+/// Names a theme wherever it came from: `stock`, `file:<id>`, `ext:<installation>/<id>`, where
+/// the installation is the extension's install key (`owner/repo:extension.id`), so the same
+/// extension ID from two repositories names two themes. This is
 /// also how `appearance.json` stores the choice.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum ThemeId {
     Builtin(String),
     File(String),
-    Extension { extension: String, theme: String },
+    Extension {
+        /// The install key, `owner/repo:extension.id`.
+        extension: String,
+        theme: String,
+    },
 }
 
 impl ThemeId {
@@ -215,7 +234,7 @@ impl From<String> for ThemeId {
         if let Some(id) = text.strip_prefix("file:") {
             return Self::File(id.into());
         }
-        if let Some((extension, theme)) = text.strip_prefix("ext:").and_then(|t| t.split_once('/'))
+        if let Some((extension, theme)) = text.strip_prefix("ext:").and_then(|t| t.rsplit_once('/'))
         {
             return Self::Extension {
                 extension: extension.into(),
@@ -305,6 +324,14 @@ mod tests {
                 json!({ "id": "x", "name": "X", "colors": { "muted": "#303030" } }),
                 "muted on background",
             ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "action": "#ffffff" } }),
+                "text on action",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "accent": "#000000" } }),
+                "onAccent on warning",
+            ),
         ] {
             let message = spec(value).unwrap().resolve().unwrap_err().to_string();
             assert!(message.contains(error), "{message}");
@@ -323,13 +350,17 @@ mod tests {
 
     #[test]
     fn ids_round_trip_as_text() {
-        for text in ["stock", "file:midnight", "ext:judah.dusk-pack/dusk"] {
+        for text in [
+            "stock",
+            "file:midnight",
+            "ext:judah/themes:judah.dusk-pack/dusk",
+        ] {
             assert_eq!(ThemeId::from(text.to_owned()).to_string(), text);
         }
         assert_eq!(
-            ThemeId::from("ext:judah.dusk-pack/dusk".to_owned()),
+            ThemeId::from("ext:judah/themes:judah.dusk-pack/dusk".to_owned()),
             ThemeId::Extension {
-                extension: "judah.dusk-pack".into(),
+                extension: "judah/themes:judah.dusk-pack".into(),
                 theme: "dusk".into()
             }
         );

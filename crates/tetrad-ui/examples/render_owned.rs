@@ -516,7 +516,7 @@ fn theme_rows(selected: &str) -> Vec<ThemeRow> {
     let mut dusk = builtin("ember").map(|t| t.palette).unwrap_or_default();
     dusk.accent = tetrad_theme::Rgb::hex(0xff8fab);
     rows.push(ThemeRow {
-        id: ThemeId::from("ext:judah.dusk-pack/dusk".to_owned()),
+        id: ThemeId::from("ext:JudahZF/tetrad-extensions:judah.dusk-pack/dusk".to_owned()),
         name: "Dusk".into(),
         source: "Dusk Themes".into(),
         palette: Ok(dusk),
