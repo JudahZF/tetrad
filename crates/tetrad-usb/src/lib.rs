@@ -96,6 +96,7 @@ impl Reassembler {
         }
         let [protocol, flags, channel, length] = [report[6], report[7], report[8], report[9]];
         if protocol != PROTOCOL {
+            self.partial.remove(&channel);
             return Err(FrameError::Protocol(protocol));
         }
         if usize::from(length) > PAYLOAD_BYTES {
@@ -282,6 +283,14 @@ mod tests {
         assert_eq!(reassembler.push(&big[1]), Ok(None));
         assert_eq!(reassembler.push(&big[2]), Err(FrameError::TooLarge(300)));
         assert_eq!(reassembler.push(&big[3]), Err(FrameError::Sequence(0)));
+
+        // A bad report in the middle drops the message: its end does not complete it.
+        let three = reports(4, &[4; 300]);
+        let mut bad = three[1];
+        bad[6] = 2;
+        assert_eq!(reassembler.push(&three[0]), Ok(None));
+        assert_eq!(reassembler.push(&bad), Err(FrameError::Protocol(2)));
+        assert_eq!(reassembler.push(&three[2]), Err(FrameError::Sequence(4)));
 
         let mut stock = [0_u8; REPORT_BYTES];
         stock[..2].copy_from_slice(&(0xc000_u16 | 20).to_le_bytes());
