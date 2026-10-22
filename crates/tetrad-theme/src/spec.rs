@@ -16,35 +16,35 @@ pub const MAX_LUMINANCE: f32 = 0.18;
 type Role = (&'static str, fn(&Palette) -> Rgb);
 
 const TEXT: Role = ("text", |p| p.text);
+const MUTED: Role = ("muted", |p| p.muted);
 const ACCENT: Role = ("accent", |p| p.accent);
 const ON_ACCENT: Role = ("onAccent", |p| p.on_accent);
+const DANGER: Role = ("danger", |p| p.danger);
 
-/// The minimum contrasts of the pairs the screens draw, as (foreground, background, ratio):
-/// text and the accent (selected text) at 4.5:1 or more, the accent as a bare mark (knob
-/// arcs, switch rings on the canvas) at 3:1. Text and white icons sit on every fill role.
-const CONTRASTS: [(Role, Role, f32); 14] = [
-    (TEXT, ("background", |p| p.background), 7.0),
-    (TEXT, ("panel", |p| p.panel), 7.0),
-    (TEXT, ("canvas", |p| p.canvas), 7.0),
-    (TEXT, ("surface", |p| p.surface), 4.5),
-    (TEXT, ("rowSelected", |p| p.row_selected), 4.5),
-    (TEXT, ("section", |p| p.section), 4.5),
+/// Every fill text sits on, with the minimum contrast of `text`, `muted` and `accent` on it.
+/// Main text needs 7:1 on the page, cards and canvas; muted labels and the accent as a bare
+/// mark (switch rings on section grey) 3:1; the rest is text at 4.5:1.
+const FILLS: [(Role, [f32; 3]); 7] = [
+    (("background", |p| p.background), [7.0, 4.5, 4.5]),
+    (("canvas", |p| p.canvas), [7.0, 3.0, 4.5]),
+    (("panel", |p| p.panel), [7.0, 3.0, 4.5]),
+    (("surface", |p| p.surface), [4.5, 3.0, 4.5]),
+    (("rowSelected", |p| p.row_selected), [4.5, 3.0, 4.5]),
+    (("section", |p| p.section), [4.5, 3.0, 3.0]),
+    (("accentFill", |p| p.accent_fill), [4.5, 3.0, 4.5]),
+];
+
+/// The other pairs the screens draw: button labels on the action fill, error text, and
+/// `onAccent`, the ink of every bright fill (accent, badges, the selected paste row, the
+/// error card between text and danger, the muted stomp fallback).
+const PAIRS: [(Role, Role, f32); 7] = [
     (TEXT, ("action", |p| p.action), 4.5),
-    (
-        ("muted", |p| p.muted),
-        ("background", |p| p.background),
-        4.5,
-    ),
+    (DANGER, ("background", |p| p.background), 4.5),
     (ON_ACCENT, ACCENT, 4.5),
     (ON_ACCENT, ("warning", |p| p.warning), 4.5),
-    (ON_ACCENT, ("muted", |p| p.muted), 4.5),
-    (ACCENT, ("panel", |p| p.panel), 4.5),
-    (ACCENT, ("canvas", |p| p.canvas), 3.0),
-    (
-        ("danger", |p| p.danger),
-        ("background", |p| p.background),
-        4.5,
-    ),
+    (ON_ACCENT, MUTED, 4.5),
+    (ON_ACCENT, TEXT, 4.5),
+    (ON_ACCENT, DANGER, 4.5),
 ];
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -176,7 +176,13 @@ pub fn check(palette: &Palette) -> Result<(), ThemeError> {
             return Err(ThemeError::Light(role));
         }
     }
-    for ((fg, fg_of), (bg, bg_of), min) in CONTRASTS {
+    let inks = (FILLS.iter()).flat_map(|&(fill, mins)| {
+        [TEXT, MUTED, ACCENT]
+            .into_iter()
+            .zip(mins)
+            .map(move |(ink, min)| (ink, fill, min))
+    });
+    for ((fg, fg_of), (bg, bg_of), min) in inks.chain(PAIRS) {
         let ratio = contrast(fg_of(palette), bg_of(palette));
         if ratio < min {
             return Err(ThemeError::Contrast { fg, bg, ratio, min });
@@ -342,7 +348,19 @@ mod tests {
             ),
             (
                 json!({ "id": "x", "name": "X", "colors": { "accent": "#000000" } }),
-                "onAccent on warning",
+                "accent on background",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "accentFill": "#ffffff" } }),
+                "text on accentFill",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "surface": "#707070" } }),
+                "muted on surface",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "onAccent": "#ffffff" } }),
+                "onAccent on accent",
             ),
         ] {
             let message = spec(value).unwrap().resolve().unwrap_err().to_string();

@@ -56,7 +56,8 @@ fn knob_row(
     }
 }
 
-/// A button that flips parameter `index` (or does another editor action).
+/// A button that flips parameter `index` (or does another editor action). Lit, it fills with
+/// `fill`, a fixed category colour, so its label takes stock's ink.
 fn button(l: &mut Layout, bounds: Rect, label: &str, control: EditorControl, lit: bool, fill: Rgb) {
     let p = l.palette;
     l.panel(bounds, if lit { fill } else { p.surface }, 8.0, None);
@@ -65,7 +66,7 @@ fn button(l: &mut Layout, bounds: Rect, label: &str, control: EditorControl, lit
         bounds,
         label,
         BODY,
-        if lit { p.text } else { p.muted },
+        if lit { Palette::STOCK.text } else { p.muted },
         Align::Center,
     );
 }
@@ -683,16 +684,15 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
                         let control = Control::Editor(EditorControl::Toggle(active));
                         l.control(bounds, control, true, label.clone(), Look::Area);
                         let top = Rect::new(x + 11, BODY_TOP + y + 5, 70, 21);
-                        l.text(
-                            top,
-                            label,
-                            BODY,
-                            if lit { palette.text } else { palette.muted },
-                            Align::Left,
-                        );
+                        // Lit, the fill is a fixed category colour: stock's ink on it.
+                        let (ink, readout_ink) = match lit {
+                            true => (Palette::STOCK.text, Palette::STOCK.text),
+                            false => (palette.muted, palette.text),
+                        };
+                        l.text(top, label, BODY, ink, Align::Left);
                         let readout = Rect::new(x + 11, BODY_TOP + y + 27, 70, 18);
                         let text = if lit { WAVES[current] } else { "OFF" };
-                        l.text(readout, text, CAPTION, palette.text, Align::Left);
+                        l.text(readout, text, CAPTION, readout_ink, Align::Left);
                     } else {
                         let lit = on(ui, active) && item == current;
                         let control = EditorControl::Wave {
@@ -722,7 +722,13 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
         let control = Control::Editor(EditorControl::Tab(index as u8));
         l.control(bounds, control, true, *label, Look::Area);
         let text = Rect::new(bounds.x + 8, bounds.y + 8, 176, 21);
-        l.text(text, *label, BODY, palette.text, Align::Left);
+        // The selected tab is the fixed synth colour: stock's ink on it.
+        let ink = if index == category {
+            Palette::STOCK.text
+        } else {
+            palette.text
+        };
+        l.text(text, *label, BODY, ink, Align::Left);
     }
 }
 

@@ -76,14 +76,16 @@ with the reason, but you cannot choose it.
 
 - **Dark only.** `background` and `canvas` must be dark (relative luminance under 0.18). The
   block icons are made for a dark background.
-- **Readable.** Tetrad measures contrast as the screen shows the colours (16-bit colour):
-  - `text` on `background`, `panel` and `canvas`: at least 7:1
-  - `text` on `surface`, `rowSelected`, `section` and `action` (rows and buttons): at least 4.5:1
-  - `muted` on `background`: at least 4.5:1
-  - `onAccent` on `accent`, `warning` (badges) and `muted`: at least 4.5:1
-  - `accent` on `panel` (selected text): at least 4.5:1
-  - `accent` on `canvas` (knob arcs, switch rings): at least 3:1
-  - `danger` on `background` (error text): at least 4.5:1
+- **Readable.** Tetrad measures contrast as the screen shows the colours (16-bit colour).
+  Each text colour must be readable on every fill it can sit on: `background`, `canvas`,
+  `panel`, `surface`, `rowSelected`, `section` and `accentFill`.
+  - `text`: at least 7:1 on `background`, `canvas` and `panel`, and 4.5:1 on the other fills
+    and on `action`.
+  - `muted`: at least 4.5:1 on `background` and 3:1 on the other fills.
+  - `accent`: at least 4.5:1 on every fill except `section` (3:1).
+  - `danger`: at least 4.5:1 on `background`.
+  - `onAccent`: at least 4.5:1 on `accent`, `warning`, `muted`, `text` and `danger`, the bright
+    fills it is drawn on.
 - **Id.** 1 to 32 characters of `a-z`, `0-9` and `-`. It must not start with `-`.
 - **Name.** 1 to 24 characters.
 
