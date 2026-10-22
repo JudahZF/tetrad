@@ -4,7 +4,7 @@
 //! preset; ✓ keeps it and ✕ (or Back) reverts. Overwrite and Delete ask first
 //! (`0x39793c`, `0x397cb4`; drawn in `overlay.rs`).
 
-use tetrad_assets::{ACTION, BACKGROUND, FAINT, Icon, MUTED, PANEL, SURFACE, TEXT};
+use tetrad_assets::Icon;
 
 use super::picker::DRAWER;
 use crate::layout::{BODY, CAPTION, Layout, ListId, Look};
@@ -18,11 +18,12 @@ const ROW: u32 = 60;
 const MENU: u32 = 48;
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: PresetPane) {
+    let p = l.palette;
     let s = &ui.snapshot;
     l.push(
         Rect::new(DRAWER as i32, 0, WIDTH - DRAWER, HEIGHT),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     for (index, (user, label)) in [(false, "FACTORY"), (true, "USER")].into_iter().enumerate() {
         let tab = Rect::new(PANE_X + index as i32 * 104, 8, 100, 60);
@@ -35,12 +36,12 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: PresetPane) {
             label,
             Look::Area,
         );
-        l.panel(tab, if selected { PANEL } else { SURFACE }, 8.0, None);
+        l.panel(tab, if selected { p.panel } else { p.surface }, 8.0, None);
         l.text(
             Rect::new(tab.x, tab.y, tab.width, 52),
             label,
             BODY,
-            if selected { TEXT } else { MUTED },
+            if selected { p.text } else { p.muted },
             Align::Center,
         );
     }
@@ -53,7 +54,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: PresetPane) {
             "KEEP",
             Look::IconButton {
                 icon: Icon::Check,
-                fill: ACTION,
+                fill: p.action,
             },
         );
         Rect::new(622, 8, 66, 44)
@@ -67,12 +68,12 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: PresetPane) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Close,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
 
     let list = Rect::new(PANE_X, 60, WIDTH - PANE_X as u32, HEIGHT - 60);
-    l.push(list, "", Look::Fill(PANEL));
+    l.push(list, "", Look::Fill(p.panel));
     let presets = pane_presets(ui, pane);
     l.scroll(
         ListId::PickerPresets,
@@ -95,7 +96,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: PresetPane) {
                 "No factory presets for this device"
             },
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
     }
@@ -131,9 +132,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: PresetPane) {
 }
 
 fn preset_row(ui: &UiState, l: &mut Layout, row: Rect, preset: &DevicePresetItem) {
+    let p = l.palette;
     let (body, menu) = row.take_right(MENU, 0);
     if ui.snapshot.device_preset == Some(preset.id) {
-        l.push(row, "", Look::Fill(SURFACE));
+        l.push(row, "", Look::Fill(p.surface));
     }
     l.control(
         body,
@@ -157,25 +159,25 @@ fn preset_row(ui: &UiState, l: &mut Layout, row: Rect, preset: &DevicePresetItem
             Rect::new(text.x, row.y + 8, text.width, 24),
             preset.name.clone(),
             name_font,
-            TEXT,
+            p.text,
             Align::Left,
         );
         l.text(
             Rect::new(text.x, row.y + 33, text.width, 18),
             "Default",
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     } else {
-        l.text(text, preset.name.clone(), name_font, TEXT, Align::Left);
+        l.text(text, preset.name.clone(), name_font, p.text, Align::Left);
     }
     let (x, y) = menu.center();
     for dy in [-7, 0, 7] {
         l.push(
             Rect::new(x - 2, y + dy - 2, 4, 4),
             "",
-            Look::Dot { color: FAINT },
+            Look::Dot { color: p.faint },
         );
     }
 }

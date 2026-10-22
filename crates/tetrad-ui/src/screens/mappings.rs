@@ -6,8 +6,7 @@
 //! Full-screen chrome as Preset MIDI Out: a muted title, 66 × 44 header icons, the ✓ and
 //! 64 px rows on `#2e2e2e` panels. The action menu has the ⋮ menu's look.
 
-use tetrad_assets::{ACCENT, ACCENT_FILL, CANVAS, DIVIDER, FAINT, Icon, IconSize, MUTED, PANEL};
-use tetrad_assets::{Rgb, SECTION, SURFACE, TEXT, WARNING};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb};
 
 use super::NumericPurpose;
 use crate::layout::{
@@ -99,20 +98,22 @@ fn glyph(l: &mut Layout, bounds: Rect, icon: Icon, size: IconSize, color: Rgb) {
 
 /// A grid block tile at a small size: the category ring, the tile fill and the device glyph.
 fn block_tile(l: &mut Layout, s: &UiSnapshot, position: GridPosition, bounds: Rect) {
+    let p = l.palette;
     let (info, capture) = (s.blocks[position.index()], s.captures[position.index()]);
-    l.panel(bounds, info.hue(capture).unwrap_or(MUTED), 8.0, None);
+    l.panel(bounds, info.hue(capture).unwrap_or(p.muted), 8.0, None);
     l.panel(bounds.inset(2, 2), info.fill(capture), 6.0, None);
     if let Some(icon) = info.icon(capture) {
         let size = match bounds.width {
             40.. => IconSize::Medium,
             _ => IconSize::Compact,
         };
-        glyph(l, bounds, icon, size, TEXT);
+        glyph(l, bounds, icon, size, p.text);
     }
 }
 
 /// A block action shows its block tile, another action its icon, in the square `bounds`.
 fn action_mark(ui: &UiState, l: &mut Layout, action: Option<&MappingAction>, bounds: Rect) {
+    let p = l.palette;
     let icon = match action {
         None => return,
         Some(MappingAction::Block { position, .. }) => {
@@ -121,14 +122,14 @@ fn action_mark(ui: &UiState, l: &mut Layout, action: Option<&MappingAction>, bou
         Some(MappingAction::System(action)) => system_icon(*action),
         Some(MappingAction::SendMidi) => Icon::Midi,
     };
-    glyph(l, bounds, icon, IconSize::Medium, TEXT);
+    glyph(l, bounds, icon, IconSize::Medium, p.text);
 }
 
 /// Label, detail line and colour of a row's action.
-fn action_text(row: &MappingRow) -> (&str, &str, Rgb) {
+fn action_text<'a>(p: &Palette, row: &'a MappingRow) -> (&'a str, &'a str, Rgb) {
     match row.action {
-        None => ("Choose an action", "System, block or MIDI out", ACCENT),
-        Some(_) => (&row.action_label, &row.action_detail, TEXT),
+        None => ("Choose an action", "System, block or MIDI out", p.accent),
+        Some(_) => (&row.action_label, &row.action_detail, p.text),
     }
 }
 
@@ -140,6 +141,7 @@ fn lines(
     (label, detail): (&str, &str),
     color: Rgb,
 ) {
+    let p = l.palette;
     let width = (right - x).max(0) as u32;
     let top = row.y + (row.height as i32 - 46) / 2;
     l.text(
@@ -153,42 +155,54 @@ fn lines(
         Rect::new(x, top + 24, width, 20),
         fit(detail, CAPTION, width as f32),
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
 }
 
 /// The faint → between a trigger and its action.
 fn arrow(l: &mut Layout, x: i32, cy: i32) {
+    let p = l.palette;
     let (x, y) = (x as f32, cy as f32);
-    l.line((x, y), (x + 18.0, y), 2.0, FAINT);
-    l.line((x + 12.0, y - 6.0), (x + 18.0, y), 2.0, FAINT);
-    l.line((x + 12.0, y + 6.0), (x + 18.0, y), 2.0, FAINT);
+    l.line((x, y), (x + 18.0, y), 2.0, p.faint);
+    l.line((x + 12.0, y - 6.0), (x + 18.0, y), 2.0, p.faint);
+    l.line((x + 12.0, y + 6.0), (x + 18.0, y), 2.0, p.faint);
 }
 
 fn chevron(l: &mut Layout, row: Rect) {
+    let p = l.palette;
     let bounds = Rect::new(row.right() - 40, row.y, 24, row.height);
-    glyph(l, bounds, Icon::Forward, IconSize::Small, FAINT);
+    glyph(l, bounds, Icon::Forward, IconSize::Small, p.faint);
 }
 
 /// A 1 px divider under a panel row, 16 px in from the panel edges.
 fn divider(l: &mut Layout, row: Rect) {
+    let p = l.palette;
     let line = Rect::new(row.x + 16, row.bottom() - 1, row.width - 32, 1);
-    l.push(line, "", Look::Fill(DIVIDER));
+    l.push(line, "", Look::Fill(p.divider));
 }
 
 fn label(l: &mut Layout, row: Rect, text: &str) {
+    let p = l.palette;
     let bounds = Rect::new(row.x + 16, row.y, 260, row.height);
-    l.text(bounds, text, MEDIUM, TEXT, Align::Left);
+    l.text(bounds, text, MEDIUM, p.text, Align::Left);
 }
 
 /// A 14 px muted section caption above a panel.
 fn caption(l: &mut Layout, y: i32, text: &str) {
-    l.text(Rect::new(16, y, 300, 32), text, CAPTION, MUTED, Align::Left);
+    let p = l.palette;
+    l.text(
+        Rect::new(16, y, 300, 32),
+        text,
+        CAPTION,
+        p.muted,
+        Align::Left,
+    );
 }
 
 /// The + and trash header buttons left of the ✓, with the stock divider between.
 fn header_button(l: &mut Layout, control: MappingControl, label: &str, icon: Icon, fill: Rgb) {
+    let p = l.palette;
     let bounds = Rect::new(620, 8, 66, 44);
     l.control(
         bounds,
@@ -197,11 +211,12 @@ fn header_button(l: &mut Layout, control: MappingControl, label: &str, icon: Ico
         label,
         Look::IconButton { icon, fill },
     );
-    l.push(Rect::new(685, 18, 1, 24), "", Look::Fill(SECTION));
+    l.push(Rect::new(685, 18, 1, 24), "", Look::Fill(p.section));
 }
 
 /// The list: title, THIS PRESET / GLOBAL, + and ✓, the caption and the rows.
 fn list(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let view = &ui.snapshot.mappings;
     let tab = ui.mappings.tab;
     crate::widgets::page_header(l, "Mappings", Control::Back, Icon::Check);
@@ -212,7 +227,7 @@ fn list(ui: &UiState, l: &mut Layout) {
     for (index, (scope, text)) in tabs.into_iter().enumerate() {
         let bounds = Rect::new(122 + index as i32 * 134, 8, 128, 44);
         let selected = scope == tab;
-        let fill = if selected { PANEL } else { SURFACE };
+        let fill = if selected { p.panel } else { p.surface };
         let look = Look::Panel {
             fill,
             radius: 8.0,
@@ -225,10 +240,10 @@ fn list(ui: &UiState, l: &mut Layout) {
             text,
             look,
         );
-        let ink = if selected { ACCENT } else { MUTED };
+        let ink = if selected { p.accent } else { p.muted };
         l.text(bounds, text, BODY_BOLD, ink, Align::Center);
     }
-    header_button(l, MappingControl::Add, "ADD", Icon::Plus, SECTION);
+    header_button(l, MappingControl::Add, "ADD", Icon::Plus, p.section);
     let rows = view.rows(tab);
     let owner = match tab {
         MappingScope::Preset if view.preset_name.is_empty() => "This preset",
@@ -245,7 +260,7 @@ fn list(ui: &UiState, l: &mut Layout) {
         Rect::new(16, 56, width, 32),
         text,
         CAPTION,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     // A refusal shows beside the caption until the next accepted command.
@@ -257,13 +272,19 @@ fn list(ui: &UiState, l: &mut Layout) {
             Rect::new(x, 56, space, 32),
             notice,
             CAPTION,
-            WARNING,
+            p.warning,
             Align::Right,
         );
     }
-    l.panel(LIST, PANEL, 8.0, None);
+    l.panel(LIST, p.panel, 8.0, None);
     if rows.is_empty() {
-        l.text(LIST, "Tap + to add a mapping.", BODY, MUTED, Align::Center);
+        l.text(
+            LIST,
+            "Tap + to add a mapping.",
+            BODY,
+            p.muted,
+            Align::Center,
+        );
         return;
     }
     let content = rows.len() as u32 * ROW;
@@ -279,20 +300,27 @@ fn list(ui: &UiState, l: &mut Layout) {
 
 /// Trigger icon, label and detail, the arrow, the action mark, label and detail, a chevron.
 fn list_row(ui: &UiState, l: &mut Layout, bounds: Rect, index: u16, row: &MappingRow) {
+    let p = l.palette;
     let open = Control::Mapping(MappingControl::Open(index));
     l.control(bounds, open, true, row.trigger_label.clone(), Look::Area);
     if index > 0 {
         let line = Rect::new(bounds.x + 16, bounds.y, bounds.width - 32, 1);
-        l.push(line, "", Look::Fill(DIVIDER));
+        l.push(line, "", Look::Fill(p.divider));
     }
     let icon = Rect::new(bounds.x + 12, bounds.y, 40, ROW);
-    glyph(l, icon, trigger_icon(&row.trigger), IconSize::Medium, TEXT);
+    glyph(
+        l,
+        icon,
+        trigger_icon(&row.trigger),
+        IconSize::Medium,
+        p.text,
+    );
     let trigger = (row.trigger_label.as_str(), row.trigger_detail.as_str());
-    lines(l, bounds, (bounds.x + 52, bounds.x + 276), trigger, TEXT);
+    lines(l, bounds, (bounds.x + 52, bounds.x + 276), trigger, p.text);
     arrow(l, bounds.x + 286, bounds.y + ROW as i32 / 2);
     let mark = Rect::new(bounds.x + 322, bounds.y + 14, 36, 36);
     action_mark(ui, l, row.action.as_ref(), mark);
-    let (text, detail, color) = action_text(row);
+    let (text, detail, color) = action_text(&p, row);
     lines(
         l,
         bounds,
@@ -305,13 +333,14 @@ fn list_row(ui: &UiState, l: &mut Layout, bounds: Rect, index: u16, row: &Mappin
 
 /// One row's page: the Trigger panel, the Action panel and the storage footer.
 fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
+    let p = l.palette;
     let view = &ui.snapshot.mappings;
     let scope = ui.mappings.tab;
     let title = format!("{} mapping", row.trigger_label);
     crate::widgets::page_header(l, &title, Control::Back, Icon::Check);
-    header_button(l, MappingControl::Remove, "REMOVE", Icon::Trash, SURFACE);
+    header_button(l, MappingControl::Remove, "REMOVE", Icon::Trash, p.surface);
     caption(l, 56, "Trigger");
-    l.panel(TRIGGER_PANEL, PANEL, 8.0, None);
+    l.panel(TRIGGER_PANEL, p.panel, 8.0, None);
     let kind = Rect::new(TRIGGER_PANEL.x, TRIGGER_PANEL.y, TRIGGER_PANEL.width, ROW);
     label(l, kind, "Type");
     dropdown(l, kind, MappingChoice::Kind, kind_label(view, &row.trigger));
@@ -322,13 +351,13 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     let target = midi_target(&row.trigger).filter(|_| row.action == Some(MappingAction::SendMidi));
     let rows = if target.is_some() { 3 } else { 2 };
     let panel = Rect::new(8, ACTION_Y, 784, rows * ROW);
-    l.panel(panel, PANEL, 8.0, None);
+    l.panel(panel, p.panel, 8.0, None);
     let action = Rect::new(panel.x, panel.y, panel.width, ROW);
     let open = Control::Mapping(MappingControl::Actions);
     l.control(action, open, true, "ACTION", Look::Area);
     let mark = Rect::new(action.x + 16, action.y + 12, 40, 40);
     action_mark(ui, l, row.action.as_ref(), mark);
-    let (text, detail, color) = action_text(row);
+    let (text, detail, color) = action_text(&p, row);
     lines(
         l,
         action,
@@ -360,7 +389,7 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
         Rect::new(x, value.y, width, ROW),
         used,
         MEDIUM,
-        MUTED,
+        p.muted,
         Align::Right,
     );
     if target.is_some() {
@@ -376,7 +405,7 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     match &view.notice {
         Some(notice) => {
             let notice = fit(notice, CAPTION, footer.width as f32);
-            l.text(footer, notice, CAPTION, WARNING, Align::Left);
+            l.text(footer, notice, CAPTION, p.warning, Align::Left);
         }
         None => {
             let note = match scope {
@@ -387,7 +416,7 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
                     "Saved for all presets. A preset mapping with the same trigger wins."
                 }
             };
-            l.text(footer, note, CAPTION, FAINT, Align::Left);
+            l.text(footer, note, CAPTION, p.faint, Align::Left);
         }
     }
 }
@@ -415,6 +444,7 @@ fn dropdown(l: &mut Layout, row: Rect, choice: MappingChoice, value: &str) {
 /// The Trigger panel's second row: the footswitch, the pedal, the load note, or the MIDI
 /// message or extension source with LEARN.
 fn trigger_row(l: &mut Layout, row: &MappingRow, bounds: Rect, learning: bool) {
+    let p = l.palette;
     let field = Rect::new(bounds.x + 292, bounds.y + 12, 284, 40);
     match &row.trigger {
         Trigger::PresetLoaded => {
@@ -424,7 +454,7 @@ fn trigger_row(l: &mut Layout, row: &MappingRow, bounds: Rect, learning: bool) {
                 note,
                 "Each time this preset loads",
                 MEDIUM,
-                MUTED,
+                p.muted,
                 Align::Right,
             );
             return;
@@ -445,8 +475,14 @@ fn trigger_row(l: &mut Layout, row: &MappingRow, bounds: Rect, learning: bool) {
             return;
         }
         _ if learning => {
-            l.panel(field, CANVAS, 4.0, None);
-            l.text(field.inset(8, 0), "Listening…", MEDIUM, ACCENT, Align::Left);
+            l.panel(field, p.canvas, 4.0, None);
+            l.text(
+                field.inset(8, 0),
+                "Listening…",
+                MEDIUM,
+                p.accent,
+                Align::Left,
+            );
         }
         Trigger::Midi(input) => {
             let (kind, number) = match input {
@@ -468,8 +504,8 @@ fn trigger_row(l: &mut Layout, row: &MappingRow, bounds: Rect, learning: bool) {
         }
         Trigger::Extension { source, .. } => {
             let (text, color) = match source.is_empty() {
-                true => ("Not learned yet", MUTED),
-                false => (row.trigger_label.as_str(), TEXT),
+                true => ("Not learned yet", p.muted),
+                false => (row.trigger_label.as_str(), p.text),
             };
             let text = fit(text, MEDIUM, (field.width - 16) as f32);
             l.text(field.inset(8, 0), text, MEDIUM, color, Align::Left);
@@ -484,12 +520,12 @@ fn trigger_row(l: &mut Layout, row: &MappingRow, bounds: Rect, learning: bool) {
     let control = Control::Mapping(MappingControl::Learn);
     if learning {
         let look = Look::Panel {
-            fill: ACCENT_FILL,
+            fill: p.accent_fill,
             radius: 8.0,
-            border: Some(ACCENT),
+            border: Some(p.accent),
         };
         l.control(learn, control, true, "CANCEL", look);
-        l.text(learn, "CANCEL", MEDIUM, ACCENT, Align::Center);
+        l.text(learn, "CANCEL", MEDIUM, p.accent, Align::Center);
     } else {
         l.button_in(learn, control, true, "LEARN", ButtonStyle::Inset, MEDIUM);
     }
@@ -755,10 +791,11 @@ fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
 /// The action menu over the detail page: the ⋮ menu's grey veil, 270 × 420 panel, 60 px rows,
 /// 44 px section headers and 2 px scroll thumb. A tap outside closes it.
 pub(super) fn action_menu(ui: &UiState, l: &mut Layout, menu: ActionMenu) {
+    let p = l.palette;
     let entries = entries(ui, menu);
-    l.veil(GREY_VEIL);
+    l.veil((p.tone(GREY_VEIL.0), GREY_VEIL.1));
     l.popover(MENU);
-    l.panel(MENU, crate::widgets::PAGE, 8.0, None);
+    l.panel(MENU, p.tone(crate::widgets::PAGE), 8.0, None);
     let content: u32 = entries.iter().map(Entry::height).sum();
     let offset = ui.offset(ListId::MappingActions);
     l.scroll(ListId::MappingActions, MENU, content, offset, |l, mut y| {
@@ -772,32 +809,33 @@ pub(super) fn action_menu(ui: &UiState, l: &mut Layout, menu: ActionMenu) {
 }
 
 fn menu_entry(ui: &UiState, l: &mut Layout, row: Rect, index: u16, entry: &Entry) {
+    let p = l.palette;
     let pick = Control::Mapping(MappingControl::Pick(index));
     let (icon, block, text) = match entry {
         Entry::Header(title) => {
             let bounds = Rect::new(row.x + 16, row.y + 8, row.width - 32, 36);
-            return l.text(bounds, *title, CAPTION, TEXT, Align::Left);
+            return l.text(bounds, *title, CAPTION, p.text, Align::Left);
         }
         Entry::Back(title, location) => {
             l.control(row, pick, true, *title, Look::Area);
             let mark = Rect::new(row.x + 8, row.y, 32, row.height);
-            glyph(l, mark, Icon::Back, IconSize::Medium, ACCENT);
+            glyph(l, mark, Icon::Back, IconSize::Medium, p.accent);
             let span = (row.x + 46, row.right() - 16);
             match location {
-                Some(location) => lines(l, row, span, (title, location), ACCENT),
+                Some(location) => lines(l, row, span, (title, location), p.accent),
                 None => {
                     let bounds = Rect::new(span.0, row.y, (span.1 - span.0) as u32, row.height);
                     l.text(
                         bounds,
                         fit(title, MEDIUM, bounds.width as f32),
                         MEDIUM,
-                        ACCENT,
+                        p.accent,
                         Align::Left,
                     );
                 }
             }
             let line = Rect::new(row.x, row.bottom() - 1, row.width, 1);
-            l.push(line, "", Look::Fill(PANEL));
+            l.push(line, "", Look::Fill(p.panel));
             return;
         }
         Entry::Open {
@@ -813,7 +851,7 @@ fn menu_entry(ui: &UiState, l: &mut Layout, row: Rect, index: u16, entry: &Entry
     if let Some(position) = block {
         block_tile(l, &ui.snapshot, position, mark);
     } else if let Some(icon) = icon {
-        glyph(l, mark, icon, IconSize::Medium, TEXT);
+        glyph(l, mark, icon, IconSize::Medium, p.text);
     }
     let x = if icon.is_some() || block.is_some() {
         row.x + 56
@@ -826,7 +864,7 @@ fn menu_entry(ui: &UiState, l: &mut Layout, row: Rect, index: u16, entry: &Entry
         bounds,
         fit(text, MEDIUM, width as f32),
         MEDIUM,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
