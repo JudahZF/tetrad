@@ -32,16 +32,23 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - DSP Examples 0.2.0: eight qcdsp example blocks (gain, two drives, tremolo, slapback, a 187 ms
   echo from the DSP heap, envelope filter, micro synth) to try DSP blocks on a unit.
 - DSP blocks larger than 32 KB get their memory from the DSP core's heap when they start
-  (qcdsp arenas); the catalogue charges the exact heap figure.
+  (qcdsp arenas): the DM heap when the block fits it, else the SD heap (DDR). The catalogue
+  charges the exact heap figures, and the CPU estimate charges the measured cost of DDR access.
 - Tested on a unit over USB audio: the blocks match their host references, a preset with a DSP
   block loads in stock CorOS with its placeholder and comes back in Tetrad, and 100 redeploys of
-  an arena block leave the heap unchanged.
+  an arena block leave the heap unchanged. A 512 KB SD arena block starts on cores 2, 3 and 4
+  and matches its host reference.
 - qcdsp IR 2: `div`, `recip`, `tanh`, `sigmoid` and mono blocks.
 
 ### Changed
 
 - qcdsp's CPU estimate counts instructions (one per cycle) instead of 16-bit parcels; the
   catalogue figure still doubles it.
+
+### Fixed
+
+- DSP Diagnostics: the heap cell (`DM:a/PM:b/SD:c`) was cut off. The DM, PM and SD heaps now
+  have one row each.
 
 ## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
 

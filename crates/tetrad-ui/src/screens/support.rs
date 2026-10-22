@@ -360,7 +360,8 @@ fn number_g(value: f32, precision: usize) -> String {
 
 /// DSP Diagnostics (`0x3672a8`, update slot `0x364ba0`): rows by core; a cell shows "-1"
 /// until its core reports. The "SOC2 ARM" column always shows "-1": `0x364ba0` writes only
-/// the column of a `0x00` block and those come from cores 0..3.
+/// the column of a `0x00` block and those come from cores 0..3. Stock prints the three heaps
+/// in one cell (`DM:a/PM:b/SD:c`), which the column cuts off; here each heap has its own row.
 fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
     title(l, page, DiagnosticsPage::Dsp.label());
     const COLUMN: i32 = 84;
@@ -382,7 +383,9 @@ fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
         "FP exc:",
         "CPU Av/Pk(%):",
         "EMDMA (%):",
-        "Heap(%):",
+        "DM heap (%):",
+        "PM heap (%):",
+        "SD heap (%):",
     ]
     .into_iter()
     .enumerate()
@@ -406,13 +409,12 @@ fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
                 || "-1".to_owned(),
                 |core| {
                     let [a, b, c] = core.cpu;
-                    let [dm, pm, sd] = core.heap.map(|heap| number_g(heap, 3));
                     match row {
                         0 => core.dropped_messages.to_string(),
                         1 => core.fp_exceptions.to_string(),
                         2 => [a, b, c].map(|cpu| number_g(cpu, 2)).join("/"),
                         3 => number_g(core.emdma, 3),
-                        _ => format!("DM:{dm}/PM:{pm}/SD:{sd}"),
+                        heap => number_g(core.heap[heap - 4], 3),
                     }
                 },
             );

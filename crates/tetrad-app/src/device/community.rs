@@ -427,17 +427,19 @@ mod tests {
             eprintln!("skipped: set QC_CORPUS_DIR");
             return;
         };
-        // 40 000 samples of delay need far more than the 32 KB of block state.
-        let mut big = qcdsp::BlockBuilder::new("big", "Big", qcdsp::Category::Delay);
-        let line = big.delay(40_000).unwrap();
-        big.update_delay(line, big.input()).unwrap();
-        let big = big.finish(line.signal()).unwrap();
-        // 9000 samples of stereo delay (72 KB) need a kernel-heap arena.
-        let arena = qcdsp::examples::delay(9000).unwrap();
+        let line = |samples| {
+            let mut block = qcdsp::BlockBuilder::new("line", "Line", qcdsp::Category::Delay);
+            let line = block.delay(samples).unwrap();
+            block.update_delay(line, block.input()).unwrap();
+            block.finish(line.signal()).unwrap()
+        };
+        // 9000 samples of stereo delay (72 KB) need a heap-0 arena; 40 000 (320 KB) do not fit
+        // heap 0 and take an SD arena; 2.2 M (17.6 MB) do not fit the SD heap either.
         let sources = [
             source("a/b:c/sat", qcdsp::examples::saturator().unwrap()),
-            source("a/b:c/big", big),
-            source("a/b:c/arena", arena),
+            source("a/b:c/huge", line(2_200_000)),
+            source("a/b:c/sd", line(40_000)),
+            source("a/b:c/arena", qcdsp::examples::delay(9000).unwrap()),
         ];
         let mut specs = Specs::default();
         let mut cache = BTreeMap::new();
@@ -446,8 +448,18 @@ mod tests {
         let id = sat.model.expect("the saturator builds");
         assert_eq!(id / 1000, 0, "Guitar Overdrive band");
         assert!(sat.cpu.is_some_and(|cpu| cpu > 0));
-        let big = statuses.iter().find(|s| s.key == "a/b:c/big").unwrap();
-        assert!(big.model.is_none() && big.error.is_some(), "{big:?}");
+        let huge = statuses.iter().find(|s| s.key == "a/b:c/huge").unwrap();
+        assert!(huge.model.is_none() && huge.error.is_some(), "{huge:?}");
+        let sd = statuses.iter().find(|s| s.key == "a/b:c/sd").unwrap();
+        let sd_stats = specs
+            .model(sd.model.expect("an SD arena block builds"))
+            .unwrap()
+            .stats
+            .unwrap();
+        assert!(
+            sd_stats.sd_heap > 320_000 && sd_stats.dm_heap < 1_000,
+            "the SD arena is charged to the SD heap: {sd_stats:?}"
+        );
         let arena = statuses.iter().find(|s| s.key == "a/b:c/arena").unwrap();
         let arena_id = arena.model.expect("an arena block builds");
         let arena_stats = specs.model(arena_id).unwrap().stats.unwrap();

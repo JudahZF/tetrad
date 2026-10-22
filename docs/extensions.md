@@ -246,10 +246,13 @@ Tetrad validates every graph and replaces its name and category from the manifes
 
 Limits of one block: 65 536 nodes (24 576 after `tanh` and the other approximations expand),
 256 parameters, and 4096 states and delay lines. Up to 32 KB of state and delay memory lives in
-the block itself; a block that needs more gets it from the DSP core's heap when it starts (about
-150 KB per core, shared with the other blocks on that core). If the heap is full, the block
-plays dry. `tetrad-ext
-check <package>` shows each block's state size and CPU estimate. `tetrad-ext preview
+the block itself; a block that needs more gets it from a DSP core heap when it starts: the fast
+DM heap (about 150 KB per core, shared with the other blocks on that core) when the block fits
+it, else the SD heap (16 MiB of DDR per core). Each load or store in the SD heap costs about 40
+cycles, and the CPU estimate includes it, so the SD heap suits long delay lines with few taps.
+The preset fit refuses a layout whose heaps or CPU do not fit, as for stock blocks; that check is
+the only guard, because the DSP kernel does not refuse a request larger than its heap.
+`tetrad-ext check <package>` shows each block's state size and CPU estimate. `tetrad-ext preview
 --package <file> --block <id> --input in.wav --output out.wav --set Gain=12` runs a static
 block on your computer.
 

@@ -7,7 +7,7 @@ use qc_format::{blob::Section, diff::DiffFile};
 use qcdsp::{
     Block, Channels, Processor,
     device::{
-        Generated, KernelMap, Layout, VolumeTemplate,
+        Generated, Heap, KernelMap, Layout, VolumeTemplate,
         template::{STOCK_DESTROY, STOCK_INIT, STOCK_PARCELS},
     },
     examples,
@@ -101,10 +101,11 @@ impl Harness {
         map.write(IO + 4, 0xc_0000).unwrap();
         // The arena takes the other address unit from the state, so neither depends on it.
         let arena = layout.arena.map(|arena| {
-            let (base, scale, unit) = if byte_state {
-                (0xd_0000, 1, AddressUnit::Word)
-            } else {
-                (0x25_0000, 4, AddressUnit::Byte)
+            let (base, scale, unit) = match arena.heap {
+                // The SD heap of core 1 (DDR, byte space).
+                Heap::Sd => (0x8000_0000, 4, AddressUnit::Byte),
+                Heap::Dm if byte_state => (0xd_0000, 1, AddressUnit::Word),
+                Heap::Dm => (0x25_0000, 4, AddressUnit::Byte),
             };
             map.add(base, unit, arena.words as usize).unwrap();
             for word in 0..arena.words {
@@ -378,20 +379,28 @@ fn arena_block() -> Block {
     examples::delay(9_000).unwrap()
 }
 
-/// The arena block on the raw machine, with the kernel heap answered by the harness: init
-/// allocates once with heap 0 and the arena size, zeroes the arena and sets the cursors; process
+/// The arena blocks on the raw machine, with the kernel heap answered by the harness: init
+/// allocates once with the arena's heap and size, zeroes the arena and sets the cursors; process
 /// matches the host reference across the whole delay line; fault recovery repairs the poisoned
-/// arena; destroy frees the same pointer from the same heap, then runs the stock destroy.
+/// arena; destroy frees the same pointer from the same heap, then runs the stock destroy. A
+/// 65536-sample stereo delay (512 KB) does not fit heap 0, so its arena is in the SD heap.
 #[test]
 fn arena_block_allocates_runs_recovers_and_frees_its_heap_memory() {
-    let block = arena_block();
+    for (samples, heap) in [(9_000, Heap::Dm), (65_536, Heap::Sd)] {
+        arena_lifecycle(&examples::delay(samples).unwrap(), samples as u32, heap);
+    }
+}
+
+fn arena_lifecycle(block: &Block, samples: u32, heap: Heap) {
+    let frames = samples / 32 + 20;
     for byte_state in [false, true] {
-        let mut h = Harness::new(&block, byte_state);
+        let mut h = Harness::new(block, byte_state);
         let arena = h.layout.arena.expect("banks larger than the state");
+        assert_eq!(arena.heap, heap);
         let (base, _) = h.arena.unwrap();
         assert!(arena.bytes() > 0x7fff);
         h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
-        assert_eq!(h.heap_calls, [(HEAP_MALLOC, 0, arena.bytes())]);
+        assert_eq!(h.heap_calls, [(HEAP_MALLOC, heap as u32, arena.bytes())]);
         assert_eq!(h.state_word(arena.pointer), base);
         let cursors: Vec<u32> = h
             .layout
@@ -400,7 +409,7 @@ fn arena_block_allocates_runs_recovers_and_frees_its_heap_memory() {
             .map(|bank| bank + h.layout.cursors)
             .collect();
         for word in 0..arena.words {
-            let expected = if cursors.contains(&word) { 9_000 } else { 0 };
+            let expected = if cursors.contains(&word) { samples } else { 0 };
             assert_eq!(h.arena_word(word), expected, "arena word {word}");
         }
 
@@ -420,9 +429,9 @@ fn arena_block_allocates_runs_recovers_and_frees_its_heap_memory() {
                     .unwrap();
             }
         }
-        // 290 frames pass the 9000-sample line (281.25 frames) and its wrap.
-        for frame in 0..310 {
-            if frame == 290 {
+        // The frames before the recovery pass the delay line and its wrap.
+        for frame in 0..frames + 20 {
+            if frame == frames {
                 let (base, scale) = h.arena.unwrap();
                 for word in 0..arena.words {
                     h.memory.map.write(base + scale * word, CANARY).unwrap();
@@ -432,18 +441,18 @@ fn arena_block_allocates_runs_recovers_and_frees_its_heap_memory() {
                     twin.reset();
                 }
             }
-            let input = h.write_input(frame);
+            let input = h.write_input(frame as usize);
             let expected: [[f32; 32]; 2] = std::array::from_fn(|channel| {
                 input[channel].map(|x| twins[channel].process_sample(x))
             });
             h.call(h.generated.entries.process, IO, 0, None);
-            check_output(&h, &expected, block.name(), frame);
+            check_output(&h, &expected, block.name(), frame as usize);
         }
         assert_eq!(h.heap_calls.len(), 1, "only init allocates");
 
         let destroy = h.generated.entries.destroy.expect("arena blocks free it");
         h.call(destroy, 0, 0, Some(STOCK_DESTROY));
-        assert_eq!(h.heap_calls[1..], [(HEAP_FREE, 0, base)]);
+        assert_eq!(h.heap_calls[1..], [(HEAP_FREE, heap as u32, base)]);
         assert!(
             h.memory
                 .writes
