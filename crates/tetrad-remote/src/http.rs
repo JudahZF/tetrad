@@ -20,6 +20,7 @@ struct Head {
     method: String,
     path: String,
     query: String,
+    host: Option<String>,
     pin: Option<String>,
     length: Option<usize>,
     chunked: bool,
@@ -71,6 +72,9 @@ enum Route {
 
 fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
     const PAGE_PATHS: [&str; 2] = ["/", "/index.html"];
+    if !head.host.as_deref().is_some_and(ip_host) {
+        return Err(Fail::Status(421, "open the page by the unit's IP address"));
+    }
     let device = |pin: Option<String>| pin.ok_or(Fail::Status(401, "PIN required"));
     match (head.method.as_str(), head.path.as_str()) {
         ("GET", path) if PAGE_PATHS.contains(&path) => Ok(Route::Page),
@@ -106,6 +110,9 @@ fn read_request(stream: &mut impl Read) -> Result<(Head, Vec<u8>), Fail> {
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut request = httparse::Request::new(&mut headers);
         match request.parse(&buffer) {
+            Ok(httparse::Status::Complete(length)) if length > MAX_HEAD => {
+                return Err(Fail::Status(431, "request header too large"));
+            }
             Ok(httparse::Status::Complete(length)) => break (head(&request)?, length),
             Ok(httparse::Status::Partial) if buffer.len() > MAX_HEAD => {
                 return Err(Fail::Status(431, "request header too large"));
@@ -145,13 +152,16 @@ fn head(request: &httparse::Request<'_, '_>) -> Result<Head, Fail> {
         method: request.method.unwrap_or("").to_owned(),
         path: path.to_owned(),
         query: query.to_owned(),
+        host: None,
         pin: None,
         length: None,
         chunked: false,
     };
     for header in request.headers.iter() {
         let value = || std::str::from_utf8(header.value).map(str::trim);
-        if header.name.eq_ignore_ascii_case(PIN_HEADER) {
+        if header.name.eq_ignore_ascii_case("host") {
+            head.host = value().ok().map(str::to_owned);
+        } else if header.name.eq_ignore_ascii_case(PIN_HEADER) {
             let pin = value().map_err(|_| Fail::Status(400, "malformed PIN"))?;
             head.pin = (!pin.is_empty()).then(|| pin.to_owned());
         } else if header.name.eq_ignore_ascii_case("content-length") {
@@ -162,6 +172,15 @@ fn head(request: &httparse::Request<'_, '_>) -> Result<Head, Fail> {
         }
     }
     Ok(head)
+}
+
+/// A `Host` that is an IPv4 address, with or without a port. A name could be a site that
+/// resolves to the unit after its page loaded (DNS rebinding) and then asks it as its own.
+fn ip_host(host: &str) -> bool {
+    let address = (host.rsplit_once(':'))
+        .filter(|(_, port)| port.parse::<u16>().is_ok())
+        .map_or(host, |(address, _)| address);
+    address.parse::<std::net::Ipv4Addr>().is_ok()
 }
 
 /// The decoded value of `key` in a query string (`%XX` escapes, `+` for a space).
@@ -212,6 +231,7 @@ fn respond(
         405 => "Method Not Allowed",
         411 => "Length Required",
         413 => "Content Too Large",
+        421 => "Misdirected Request",
         422 => "Unprocessable Content",
         431 => "Request Header Fields Too Large",
         503 => "Service Unavailable",

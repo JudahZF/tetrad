@@ -46,7 +46,10 @@ struct Stored {
 pub struct Remote {
     /// `remote.json` was read (at the first preset load).
     loaded: bool,
+    /// The switch, as saved. It stays on when the port does not open, so the next boot (or
+    /// the switch turned off and on) tries again.
     enabled: bool,
+    /// `Some` while the server runs.
     pin: Option<String>,
     wrong: u8,
     status: Option<String>,
@@ -98,17 +101,18 @@ impl<P: Platform> Device<P> {
                 false
             }
         };
+        self.bridges.remote.enabled = enabled;
         if enabled {
             self.start_remote();
         }
     }
 
-    /// The Remote page switch. The choice is saved even when the port does not open, so the
-    /// next boot tries again.
+    /// The Remote page switch, saved in `remote.json`.
     pub(super) fn set_remote(&mut self, enabled: bool) {
         if enabled == self.bridges.remote.enabled {
             return;
         }
+        self.bridges.remote.enabled = enabled;
         if enabled {
             self.start_remote();
         } else {
@@ -136,7 +140,6 @@ impl<P: Platform> Device<P> {
         let remote = &mut self.bridges.remote;
         match started {
             Ok(pin) => {
-                remote.enabled = true;
                 remote.pin = Some(pin);
                 remote.wrong = 0;
                 remote.status = None;
@@ -153,7 +156,6 @@ impl<P: Platform> Device<P> {
             backend.stop();
         }
         let remote = &mut self.bridges.remote;
-        remote.enabled = false;
         remote.pin = None;
         remote.status = status;
     }
@@ -168,10 +170,10 @@ impl<P: Platform> Device<P> {
 
     fn remote_reply(&mut self, request: Request) -> Reply {
         let remote = &mut self.bridges.remote;
-        if !remote.enabled {
+        let Some(pin) = remote.pin.as_deref() else {
             return Reply::Off;
-        }
-        if remote.pin.as_deref() != Some(request.pin()) {
+        };
+        if pin != request.pin() {
             remote.wrong += 1;
             if remote.wrong >= MAX_WRONG_PINS {
                 self.new_remote_pin();
@@ -215,8 +217,10 @@ impl<P: Platform> Device<P> {
         }
         match self.import_remote_ir(&name, wav) {
             Ok(folder) => {
+                // Not `Library`: a Library notice right after a touch opens a dialog, and the
+                // toast already tells the player.
                 self.notice(
-                    Subsystem::Library,
+                    Subsystem::Remote,
                     format!("Remote: IR {name} added to {folder}"),
                 );
                 self.refresh_directory_media();

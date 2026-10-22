@@ -920,6 +920,8 @@ pub struct Sim {
 #[derive(Debug, Default)]
 pub struct FakeRemote {
     pub running: bool,
+    /// `start` fails with this reason (a port in use).
+    pub fail: Option<String>,
     pub replies: Vec<(u64, tetrad_remote::Reply)>,
     /// PINs made so far; the next PIN is this count plus one, as four digits.
     pub pins: u32,
@@ -927,6 +929,9 @@ pub struct FakeRemote {
 
 impl tetrad_app::device::remote::RemoteBackend for FakeRemote {
     fn start(&mut self) -> Result<(), String> {
+        if let Some(reason) = &self.fail {
+            return Err(reason.clone());
+        }
         self.running = true;
         Ok(())
     }
@@ -1403,10 +1408,10 @@ pub fn boot_with_files(media: Media, files: MemFiles) -> (Device<Sim>, Rc<RefCel
     (device, log, media)
 }
 
-/// [`boot`] with a [`FakeRemote`], the media cipher and a wall clock (an IR import needs
-/// both), over the service files `files`.
+/// [`boot`] with `remote`, the media cipher and a wall clock (an IR import needs both), over
+/// the service files `files`.
 #[allow(dead_code)]
-pub fn boot_remote(media: Media, files: MemFiles) -> (Device<Sim>, Media) {
+pub fn boot_remote(media: Media, files: MemFiles, remote: FakeRemote) -> (Device<Sim>, Media) {
     use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
     let log = Rc::new(RefCell::new(Log::default()));
     let mut sim = Sim::new(STOCK, &media, &log);
@@ -1420,7 +1425,7 @@ pub fn boot_remote(media: Media, files: MemFiles) -> (Device<Sim>, Media) {
     sim.wall_clock.set(Some(
         std::time::UNIX_EPOCH + Duration::from_secs(1_791_635_696),
     ));
-    sim.remote = Some(FakeRemote::default());
+    sim.remote = Some(remote);
     let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
     (device, media)
 }

@@ -75,7 +75,7 @@ fn status(pin: &str) -> Request {
 #[test]
 fn an_upload_needs_the_pin_and_lands_in_the_ir_saving_destination() {
     let files = MemFiles::default();
-    let (mut device, _media) = boot_remote(media(), files.clone());
+    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
     assert_eq!(ask(&mut device, status("")), Reply::Off);
 
     tap_switch(&mut device);
@@ -113,13 +113,15 @@ fn an_upload_needs_the_pin_and_lands_in_the_ir_saving_destination() {
     let snapshot = device.bridges().ui.view().snapshot();
     let toast = snapshot.toast.as_ref().map(|toast| toast.text.as_str());
     assert_eq!(toast, Some("IR added: V30 SM57"));
+    // The upload came right after a touch: no notice dialog besides the toast.
+    assert_eq!(snapshot.notice, None);
     assert_eq!(view(&device).status.as_deref(), Some("Added V30 SM57"));
 }
 
 /// After [`MAX_WRONG_PINS`] wrong PINs the unit makes a new PIN: the old one stops working.
 #[test]
 fn too_many_wrong_pins_make_a_new_pin() {
-    let (mut device, _media) = boot_remote(media(), MemFiles::default());
+    let (mut device, _media) = boot_remote(media(), MemFiles::default(), FakeRemote::default());
     tap_switch(&mut device);
     for _ in 0..MAX_WRONG_PINS {
         assert_eq!(ask(&mut device, status("9999")), Reply::WrongPin);
@@ -138,7 +140,7 @@ fn too_many_wrong_pins_make_a_new_pin() {
 fn the_switch_is_saved_across_boots() {
     let files = MemFiles::default();
     files.put(SETTINGS_FILE, r#"{"enabled":true}"#);
-    let (mut device, _media) = boot_remote(media(), files.clone());
+    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
     assert!(remote(&device).running);
     // The views follow at the next pass.
     device.step();
@@ -149,4 +151,26 @@ fn the_switch_is_saved_across_boots() {
     assert_eq!(view(&device), RemoteView::default());
     assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":false}"#);
     assert_eq!(ask(&mut device, status("0001")), Reply::Off);
+}
+
+/// A port that does not open leaves the switch on and saved, with the reason; the switch still
+/// turns off and saves off.
+#[test]
+fn a_failed_start_keeps_the_switch_and_turns_off() {
+    let files = MemFiles::default();
+    let remote = FakeRemote {
+        fail: Some("Port 80 is in use".into()),
+        ..FakeRemote::default()
+    };
+    let (mut device, _media) = boot_remote(media(), files.clone(), remote);
+    tap_switch(&mut device);
+    let shown = view(&device);
+    assert!(shown.enabled && shown.pin.is_none());
+    assert_eq!(shown.status.as_deref(), Some("Port 80 is in use"));
+    assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":true}"#);
+    assert_eq!(ask(&mut device, status("0001")), Reply::Off);
+
+    tap_switch(&mut device);
+    assert!(!view(&device).enabled);
+    assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":false}"#);
 }

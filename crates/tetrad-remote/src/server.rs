@@ -3,11 +3,12 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::net::Shutdown;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::api::{Call, Reply, Request};
@@ -24,12 +25,17 @@ const WRONG_PIN_DELAY: Duration = Duration::from_secs(1);
 
 type Message = (Call, Sender<Reply>);
 
-/// A running server. Drop stops it; the thread ends within [`ACCEPT_POLL`] after its open
-/// connection.
+/// The connection being served, so that a stop can end it.
+type Open = Arc<Mutex<Option<TcpStream>>>;
+
+/// A running server. Drop stops it and waits for the thread (at most about [`ACCEPT_POLL`]),
+/// so the port is free again when drop returns.
 pub struct Server {
     calls: Receiver<Message>,
     pending: HashMap<u64, Sender<Reply>>,
     stop: Arc<AtomicBool>,
+    open: Open,
+    thread: Option<JoinHandle<()>>,
     address: SocketAddr,
 }
 
@@ -39,15 +45,18 @@ impl Server {
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
+        let open = Open::default();
         let (sender, calls) = mpsc::channel();
-        let stopped = Arc::clone(&stop);
-        thread::Builder::new()
+        let (stopped, served) = (Arc::clone(&stop), Arc::clone(&open));
+        let thread = thread::Builder::new()
             .name("remote".into())
-            .spawn(move || accept(&listener, &sender, &stopped))?;
+            .spawn(move || accept(&listener, &sender, &stopped, &served))?;
         Ok(Self {
             calls,
             pending: HashMap::new(),
             stop,
+            open,
+            thread: Some(thread),
             address,
         })
     }
@@ -74,23 +83,45 @@ impl Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.stop.store(true, Ordering::SeqCst);
+        // Ends a connection that waits for its client, and with the receiver gone (and every
+        // reply sender with it) one that waits for the device.
+        let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(stream) = open.as_ref() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        drop(open);
+        drop(std::mem::replace(&mut self.calls, mpsc::channel().1));
+        self.pending.clear();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
-fn accept(listener: &TcpListener, calls: &Sender<Message>, stop: &AtomicBool) {
+fn accept(listener: &TcpListener, calls: &Sender<Message>, stop: &AtomicBool, open: &Open) {
     let mut next_id = 0;
-    while !stop.load(Ordering::Relaxed) {
+    while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _)) => {
-                let _ = connection(stream, calls, &mut next_id);
+                // Published before the stop check: a stop either sees it or is seen here.
+                *open.lock().unwrap_or_else(PoisonError::into_inner) = stream.try_clone().ok();
+                if !stop.load(Ordering::SeqCst) {
+                    let _ = connection(stream, calls, stop, &mut next_id);
+                }
+                *open.lock().unwrap_or_else(PoisonError::into_inner) = None;
             }
             Err(_) => thread::sleep(ACCEPT_POLL),
         }
     }
 }
 
-fn connection(stream: TcpStream, calls: &Sender<Message>, next_id: &mut u64) -> io::Result<()> {
+fn connection(
+    stream: TcpStream,
+    calls: &Sender<Message>,
+    stop: &AtomicBool,
+    next_id: &mut u64,
+) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     let mut stream = Deadline {
         stream,
@@ -109,7 +140,11 @@ fn connection(stream: TcpStream, calls: &Sender<Message>, next_id: &mut u64) -> 
             Err(RecvTimeoutError::Disconnected) => Reply::Off,
         };
         if reply == Reply::WrongPin {
-            thread::sleep(WRONG_PIN_DELAY);
+            // In steps, so a stop does not wait for the whole delay.
+            let until = Instant::now() + WRONG_PIN_DELAY;
+            while Instant::now() < until && !stop.load(Ordering::SeqCst) {
+                thread::sleep(ACCEPT_POLL);
+            }
         }
         reply
     })

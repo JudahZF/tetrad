@@ -53,13 +53,15 @@ fn upload(head: &str, body: &[u8]) -> Vec<u8> {
 /// device; its reply becomes the status code and JSON body.
 #[test]
 fn routes_reach_the_device_with_pin_name_and_body() {
-    let (status, response, seen) = exchange(b"GET / HTTP/1.1\r\nHost: qc\r\n\r\n", Reply::Off);
+    let (status, response, seen) =
+        exchange(b"GET / HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n", Reply::Off);
     assert_eq!(status, "HTTP/1.1 200 OK");
     assert!(response.contains("Content-Security-Policy: default-src 'none'"));
     assert!(response.contains("<title>Tetrad Remote</title>"));
     assert_eq!(seen, None);
 
-    let status_request = b"GET /api/status HTTP/1.1\r\nX-Tetrad-Pin: 4821\r\n\r\n";
+    let status_request =
+        b"GET /api/status HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 4821\r\n\r\n";
     let folder = Reply::Status {
         folder: "IRs".into(),
     };
@@ -69,7 +71,7 @@ fn routes_reach_the_device_with_pin_name_and_body() {
     assert_eq!(seen, Some(Request::Status { pin: "4821".into() }));
 
     let wav = [7_u8; 100];
-    let head = "POST /api/irs?x=1&name=V30%20SM57+%C3%A9 HTTP/1.1\r\n\
+    let head = "POST /api/irs?x=1&name=V30%20SM57+%C3%A9 HTTP/1.1\r\nHost: 192.168.1.20\r\n\
                 x-tetrad-pin: 4821\r\nContent-Length: 100\r\n\r\n";
     let added = Reply::Added {
         name: "V30 SM57 é".into(),
@@ -99,19 +101,20 @@ fn routes_reach_the_device_with_pin_name_and_body() {
 /// Requests the server refuses itself never reach the device.
 #[test]
 fn bad_requests_are_refused_without_a_device_call() {
-    let cases: [(Vec<u8>, &str); 7] = [
-        (b"GET /api/status HTTP/1.1\r\n\r\n".to_vec(), "401"),
+    let big = "a".repeat(8 * 1024);
+    let cases: [(Vec<u8>, &str); 10] = [
+        (b"GET /api/status HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n".to_vec(), "401"),
         (
-            b"GET /api/status HTTP/1.1\r\nX-Tetrad-Pin:\r\n\r\n".to_vec(),
+            b"GET /api/status HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin:\r\n\r\n".to_vec(),
             "401",
         ),
         (
-            b"POST /api/irs?name=a HTTP/1.1\r\nX-Tetrad-Pin: 1\r\n\r\n".to_vec(),
+            b"POST /api/irs?name=a HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 1\r\n\r\n".to_vec(),
             "411",
         ),
         (
             format!(
-                "POST /api/irs?name=a HTTP/1.1\r\nX-Tetrad-Pin: 1\r\nContent-Length: {}\r\n\r\n",
+                "POST /api/irs?name=a HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 1\r\nContent-Length: {}\r\n\r\n",
                 MAX_BODY + 1
             )
             .into_bytes(),
@@ -119,13 +122,21 @@ fn bad_requests_are_refused_without_a_device_call() {
         ),
         (
             upload(
-                "POST /api/irs?name=%20 HTTP/1.1\r\nX-Tetrad-Pin: 1\r\nContent-Length: 1\r\n\r\n",
+                "POST /api/irs?name=%20 HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 1\r\nContent-Length: 1\r\n\r\n",
                 b"x",
             ),
             "400",
         ),
-        (b"DELETE /api/irs HTTP/1.1\r\n\r\n".to_vec(), "405"),
-        (b"GET /secret HTTP/1.1\r\n\r\n".to_vec(), "404"),
+        (b"DELETE /api/irs HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n".to_vec(), "405"),
+        (b"GET /secret HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n".to_vec(), "404"),
+        // DNS rebinding: a name, or no Host at all.
+        (b"GET / HTTP/1.1\r\nHost: qc.example:80\r\n\r\n".to_vec(), "421"),
+        (b"GET / HTTP/1.0\r\n\r\n".to_vec(), "421"),
+        // Over the 8 KiB limit, though one read completes the header.
+        (
+            format!("GET / HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Big: {big}\r\n\r\n").into_bytes(),
+            "431",
+        ),
     ];
     for (request, code) in cases {
         let (status, _, seen) = exchange(&request, Reply::Off);
@@ -143,7 +154,9 @@ fn server_round_trip_over_loopback() {
     let client = std::thread::spawn(move || {
         let mut stream = TcpStream::connect(address).unwrap();
         stream
-            .write_all(b"GET /api/status HTTP/1.1\r\nX-Tetrad-Pin: 4821\r\n\r\n")
+            .write_all(
+                b"GET /api/status HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 4821\r\n\r\n",
+            )
             .unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
@@ -168,4 +181,23 @@ fn server_round_trip_over_loopback() {
     let response = client.join().unwrap();
     assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
     assert!(response.ends_with(r#"{"folder":"IRs"}"#));
+}
+
+/// Stop closes the port even while a client holds the connection open: Remote turned off and
+/// on again binds the same port.
+#[test]
+fn stop_frees_the_port_while_a_client_waits() {
+    let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+    let address = server.local_addr();
+    let mut client = TcpStream::connect(address).unwrap();
+    client.write_all(b"GET / HTTP/1.1\r\n").unwrap();
+    // Time for the thread to take the connection and wait for the rest.
+    std::thread::sleep(Duration::from_millis(300));
+    drop(server);
+    Server::start(address).expect("the port is free when drop returns");
+    // The waiting client was closed, not left until its deadline.
+    client
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    assert_eq!(client.read(&mut [0; 16]).unwrap(), 0);
 }

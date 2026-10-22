@@ -20,7 +20,9 @@ Each IR goes into the IR saving destination: the folder you chose with **SET AS 
 DESTINATION** in the IR browser, or the IR root folder. The unit shows a short message for each
 IR it adds. Its name is the file name without the extension, at most 60 characters.
 
-Remote stays on after a restart if you leave it on. It gets a new PIN at each start.
+Remote stays on after a restart if you leave it on. It gets a new PIN at each start. If the
+port does not open, the switch stays on and the page shows why; turn it off and on to try
+again.
 
 ## Files that work
 
@@ -45,7 +47,9 @@ import does.
   the traffic on your network can read the PIN. Turn Remote off on networks you do not trust,
   for example at a venue.
 - The page talks only to the unit. Other websites cannot upload through your browser: the
-  requests need the PIN header, and the unit answers no cross-site requests.
+  requests need the PIN header, the unit answers no cross-site requests, and it answers only
+  requests addressed to its IP address. A name that points to the unit (DNS rebinding) gets
+  no page.
 
 ## Problems
 
@@ -55,6 +59,7 @@ import does.
 | The unit is not reachable | Check that the computer is on the same network, and that Remote is on. |
 | Port 80 is in use | Another program on the unit uses port 80. Restart the unit. |
 | Wrong PIN | Enter the PIN that the Remote page shows now. |
+| Open the page by the unit's IP address | Type the address as the unit shows it (numbers), not a name. |
 | Not an audio file | The browser cannot decode the file. Export it again as WAV. |
 
 ## Settings file
