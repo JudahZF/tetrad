@@ -5,10 +5,7 @@
 //! opens its Virtual Device Presets (`vd_presets.rs`). Name search and
 //! clipboard paste rows are owned additions (I). Glyphs are owned vectors.
 
-use tetrad_assets::{
-    ACCENT, ACCENT_FILL, BACKGROUND, CANVAS, FAINT, Icon, IconSize, MUTED, PANEL, Rgb, SURFACE,
-    TEXT, WARNING,
-};
+use tetrad_assets::{Icon, IconSize, Rgb};
 
 use crate::layout::{BODY, CAPTION, GREY_VEIL, Layout, ListId, Look};
 use crate::render::{Align, HEIGHT, WIDTH};
@@ -32,7 +29,8 @@ const STACK: Rgb = Rgb(0x37, 0x37, 0x37);
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     backdrop(ui, l);
-    l.push(drawer(ui), "", Look::Fill(SURFACE));
+    let p = l.palette;
+    l.push(drawer(ui), "", Look::Fill(p.surface));
     let picker = &ui.picker;
     if picker.group.is_none() && picker.query.is_empty() {
         categories(ui, l);
@@ -60,7 +58,8 @@ fn drawer(ui: &UiState) -> Rect {
 /// The Grid under a scrim. A tap beside the drawer closes the picker; in add mode the
 /// target slot shows its black "+" tile (shots 076, sn-2).
 fn backdrop(ui: &UiState, l: &mut Layout) {
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(CANVAS));
+    let p = l.palette;
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.canvas));
     super::main_bar(ui, l);
     super::grid::layout(ui, l);
     let target = ui
@@ -68,7 +67,7 @@ fn backdrop(ui: &UiState, l: &mut Layout) {
         .target
         .filter(|_| !ui.picker.replace)
         .and_then(|target| l.anchor(Control::SelectCell(target)));
-    l.veil(GREY_VEIL);
+    l.veil((p.tone(GREY_VEIL.0), GREY_VEIL.1));
     // The capture browser covers the Grid (shot sn-4).
     if ui.picker.presets.is_some() || ui.capture_browser() {
         return;
@@ -85,7 +84,7 @@ fn backdrop(ui: &UiState, l: &mut Layout) {
             "+",
             Look::IconButton {
                 icon: Icon::Plus,
-                fill: CANVAS,
+                fill: p.canvas,
             },
         );
     }
@@ -115,6 +114,7 @@ fn row_y(top: i32, index: usize) -> i32 {
 
 /// Step 1: icon tile and name per category (no "New" pill on Plugins in 4.1.0, shot sn-2).
 fn categories(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let drawer = drawer(ui);
     let extras = extras(ui);
     let rows = DeviceGroup::ALL.len() + extras.len();
@@ -136,7 +136,7 @@ fn categories(ui: &UiState, l: &mut Layout) {
                     Look::Area,
                 );
                 let plugins = matches!(group, DeviceGroup::Plugins);
-                let fill = if plugins { ACCENT_FILL } else { CANVAS };
+                let fill = if plugins { p.accent_fill } else { p.canvas };
                 tile(
                     l,
                     tile_rect(row),
@@ -148,7 +148,7 @@ fn categories(ui: &UiState, l: &mut Layout) {
                     Rect::new(row.x + 102, row.y, 280, CATEGORY_ROW),
                     group.label(),
                     BODY,
-                    TEXT,
+                    p.text,
                     Align::Left,
                 );
             }
@@ -165,14 +165,14 @@ fn categories(ui: &UiState, l: &mut Layout) {
                     "",
                     Look::IconButton {
                         icon,
-                        fill: SURFACE,
+                        fill: p.surface,
                     },
                 );
                 l.text(
                     Rect::new(row.x + 102, row.y, 280, CATEGORY_ROW),
                     label,
                     BODY,
-                    MUTED,
+                    p.muted,
                     Align::Left,
                 );
             }
@@ -188,15 +188,17 @@ fn tile_rect(row: Rect) -> Rect {
 /// Category tile with a 2 px border in `hue` over `fill`; without a hue only the
 /// glyph shows (unselected rail icons, shot 090).
 fn tile(l: &mut Layout, bounds: Rect, hue: Option<Rgb>, fill: Rgb, mark: Mark) {
+    let text = l.palette.text;
     if let Some(hue) = hue {
         l.panel(bounds, hue, 10.0, None);
         l.panel(bounds.inset(2, 2), fill, 8.0, None);
     }
-    glyph(l, mark, bounds.inset(12, 12), TEXT);
+    glyph(l, mark, bounds.inset(12, 12), text);
 }
 
 /// Step 2 rail: one icon per category; the open one keeps its tile.
 fn rail(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let extras = extras(ui);
     let open = ui.picker.group.filter(|_| ui.picker.query.is_empty());
     let rows = DeviceGroup::ALL.len() + extras.len();
@@ -220,7 +222,7 @@ fn rail(ui: &UiState, l: &mut Layout) {
                     l,
                     tile_rect(row),
                     selected.then(|| group.hue()),
-                    CANVAS,
+                    p.canvas,
                     Mark::Group(group),
                 );
             }
@@ -238,7 +240,7 @@ fn rail(ui: &UiState, l: &mut Layout) {
                     label,
                     Look::IconButton {
                         icon,
-                        fill: SURFACE,
+                        fill: p.surface,
                     },
                 );
             }
@@ -287,12 +289,13 @@ fn current_model(ui: &UiState) -> Option<&ModelEntry> {
 
 /// Tab bar and device list (shots 090, 093).
 fn devices(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let picker = &ui.picker;
     let current = current_model(ui);
     l.push(
         Rect::new(RAIL as i32, 0, DRAWER - RAIL, HEIGHT),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     let tab = |index: i32| Rect::new(LIST_X + index * (TAB.0 as i32 + 4), 8, TAB.0, TAB.1 + 8);
     // Tabs are drawn 8 px deep into the list so the list fill squares off
@@ -301,8 +304,8 @@ fn devices(ui: &UiState, l: &mut Layout) {
     match picker.group {
         _ if !picker.query.is_empty() => {
             let bounds = Rect::new(LIST_X, 8, 236, TAB.1 + 8);
-            l.panel(bounds, PANEL, 8.0, None);
-            labels.push((bounds, format!("\"{}\"", picker.query), TEXT, false));
+            l.panel(bounds, p.panel, 8.0, None);
+            labels.push((bounds, format!("\"{}\"", picker.query), p.text, false));
             l.icon_button(
                 Rect::new(348, 8, 44, 44),
                 Control::Picker(PickerControl::ClearSearch),
@@ -330,24 +333,29 @@ fn devices(ui: &UiState, l: &mut Layout) {
                     label,
                     Look::Area,
                 );
-                l.panel(bounds, if selected { PANEL } else { SURFACE }, 8.0, None);
+                l.panel(
+                    bounds,
+                    if selected { p.panel } else { p.surface },
+                    8.0,
+                    None,
+                );
                 labels.push((
                     bounds,
                     label.into(),
-                    if selected { TEXT } else { MUTED },
+                    if selected { p.text } else { p.muted },
                     current_tab == Some(instrument),
                 ));
             }
         }
         Some(group) => {
             let bounds = Rect::new(LIST_X, 8, 236, TAB.1 + 8);
-            l.panel(bounds, PANEL, 8.0, None);
-            labels.push((bounds, group.label().to_uppercase(), TEXT, false));
+            l.panel(bounds, p.panel, 8.0, None);
+            labels.push((bounds, group.label().to_uppercase(), p.text, false));
         }
         None => {}
     }
     let list = Rect::new(LIST_X, TABS, DRAWER - LIST_X as u32, HEIGHT - TABS as u32);
-    l.push(list, "", Look::Fill(PANEL));
+    l.push(list, "", Look::Fill(p.panel));
     for (bounds, text, color, dot) in labels {
         let text_box = Rect::new(bounds.x, bounds.y, bounds.width, TAB.1);
         if dot {
@@ -355,7 +363,7 @@ fn devices(ui: &UiState, l: &mut Layout) {
             l.push(
                 Rect::new(bounds.x + 8, bounds.y + 23, 6, 6),
                 "",
-                Look::Dot { color: WARNING },
+                Look::Dot { color: p.warning },
             );
         }
         l.text(text_box, text, BODY, color, Align::Center);
@@ -398,7 +406,7 @@ fn devices(ui: &UiState, l: &mut Layout) {
             Rect::new(list.x, list.y + 40, list.width, 30),
             text,
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
     }
@@ -412,12 +420,13 @@ fn model_row(
     current: bool,
     searching: bool,
 ) {
+    let p = l.palette;
     // Virtual Device Presets do not exist for Neural Capture blocks (manual).
     let presets = DeviceGroup::of(model.category)
         .is_some_and(|(group, _)| group != DeviceGroup::NeuralCapture);
     let open = ui.picker.presets.map(|pane| pane.model_id) == Some(model.id);
     if current || open {
-        l.push(row, "", Look::Fill(SURFACE));
+        l.push(row, "", Look::Fill(p.surface));
     }
     let (body, stack) = row.take_right(48, 0);
     l.control(
@@ -427,7 +436,7 @@ fn model_row(
         model.name.clone(),
         Look::Area,
     );
-    let color = if current { ACCENT } else { TEXT };
+    let color = if current { p.accent } else { p.text };
     // A pinned row (`setPinned` `0x38bc68`): the 16 px pin at (16, 22) and the name from
     // x 40. Owned pin drawing; the manual draws it green.
     let pinned = ui.snapshot.pinned_models.contains(&model.id);
@@ -436,7 +445,7 @@ fn model_row(
             l,
             Mark::Pin,
             Rect::new(row.x + 16, row.y + 22, 16, 16),
-            ACCENT,
+            p.accent,
         );
     }
     let text_x = row.x + if pinned { 40 } else { 16 };
@@ -452,7 +461,7 @@ fn model_row(
             Rect::new(text_x, row.y + 32, (body.right() - text_x - 8) as u32, 18),
             model.category.label(),
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     } else {
@@ -484,7 +493,7 @@ fn model_row(
             Look::Glyph {
                 icon: Icon::Lock,
                 size: IconSize::Small,
-                color: MUTED,
+                color: p.muted,
             },
         );
     }
@@ -498,12 +507,17 @@ fn model_row(
             Look::Area,
         );
         let white = current || open;
-        l.panel(button, if white { TEXT } else { STACK }, 6.0, None);
+        l.panel(
+            button,
+            if white { p.text } else { p.tone(STACK) },
+            6.0,
+            None,
+        );
         glyph(
             l,
             Mark::Stack,
             button.inset(11, 11),
-            if white { CANVAS } else { MUTED },
+            if white { p.canvas } else { p.muted },
         );
     }
 }

@@ -4,10 +4,7 @@
 //! (`0xa36efc`…`0xa37954`, types `0x74b5f0`, instruments `0x74b518`). The rear-panel strip,
 //! the capture-type glyphs and the checklist marks are owned vectors (stock uses bitmaps).
 
-use tetrad_assets::{
-    ACCENT, BACKGROUND, CANVAS, DANGER, FAINT, Icon, IconSize, MUTED, PANEL, Rgb, SECTION, SURFACE,
-    TEXT, WARNING, block,
-};
+use tetrad_assets::{Icon, IconSize, Rgb, block};
 
 use crate::draw::{TAB_ACTIVE, TAB_IDLE};
 use crate::layout::{
@@ -410,6 +407,7 @@ impl UiState {
 }
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let c = &ui.snapshot.capture;
     if let (Some(draft), CaptureStep::Audition | CaptureStep::Saving) = (&ui.capture.draft, c.step)
     {
@@ -423,7 +421,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         save_page(l, &page);
         return;
     }
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(PAGE));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     // ✕ asks first while a capture is open; idle and saved close at once.
     let request = if matches!(c.step, CaptureStep::Idle | CaptureStep::Saved) {
         CaptureRequest::Exit
@@ -432,7 +430,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     };
     let free = page_header(l, "Neural Capture", Control::Capture(request), Icon::Close);
     if !c.message.is_empty() {
-        l.text(free, c.message.clone(), BODY_BOLD, WARNING, Align::Left);
+        l.text(free, c.message.clone(), BODY_BOLD, p.warning, Align::Left);
     }
     match c.step {
         CaptureStep::Idle => intro(l),
@@ -448,9 +446,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     }
 }
 
-/// Black secondary button (CONNECTION DIAGRAM, BACK TO CALIBRATION): `#000000` fill.
+/// Black secondary button (CONNECTION DIAGRAM, BACK TO CALIBRATION): canvas fill (`#000000` on stock).
 fn black_button(l: &mut Layout, bounds: Rect, control: Control, label: &str, enabled: bool) {
-    l.panel(bounds, CANVAS, 8.0, None);
+    let p = l.palette;
+    l.panel(bounds, p.canvas, 8.0, None);
     l.button(bounds, control, enabled, label, ButtonStyle::Ghost);
 }
 
@@ -501,48 +500,50 @@ fn outline(l: &mut Layout, b: Rect, radius: f32, width: u32, color: Rgb, fill: R
 
 /// Manual §6 "Tube Amplifier Warning" as the entry page (I: stock entry layout).
 fn intro(l: &mut Layout) {
+    let p = l.palette;
     l.paragraph(
         Rect::new(20, 66, 760, 50),
         "Capture the sound of an amplifier, cabinet or overdrive pedal.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     let card = Rect::new(8, 130, 784, 132);
-    l.panel(card, PANEL, 8.0, None);
+    l.panel(card, p.panel, 8.0, None);
     l.text(
         Rect::new(card.x + 16, card.y + 14, 736, 24),
         "Tube Amplifier Warning",
         MEDIUM_BOLD,
-        WARNING,
+        p.warning,
         Align::Left,
     );
     l.paragraph(
         Rect::new(card.x + 16, card.y + 48, 752, 80),
         "Connecting the speaker output of a tube amplifier directly to the Quad Cortex can cause serious damage to both devices. Use the D.I. output of the captured amplifier while keeping it connected to a speaker cabinet, or connect a reactive load box between the amplifier's speaker output and the Quad Cortex.",
         BODY,
-        TEXT,
+        p.text,
     );
     next_button(l, Control::Capture(CaptureRequest::Begin), "NEXT");
 }
 
 fn diagram(l: &mut Layout, step: u8) {
+    let p = l.palette;
     let index = usize::from(step).min(DIAGRAM.len() - 1);
     let (title, text) = DIAGRAM[index];
     l.text(
         Rect::new(20, 58, 760, 28),
         title,
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
-    l.paragraph(Rect::new(20, 92, 760, 50), text, MEDIUM, TEXT);
+    l.paragraph(Rect::new(20, 92, 760, 50), text, MEDIUM, p.text);
     rear_panel(l, index);
     if index == 3 {
         l.paragraph(
             Rect::new(20, 354, 760, 48),
             "Tube amplifiers: never connect the speaker output directly. Use a reactive load box.",
             BODY_BOLD,
-            WARNING,
+            p.warning,
         );
     }
     if index > 0 {
@@ -563,7 +564,8 @@ const REAR_SHIFT: i32 = 102;
 /// The rear panel of stock 067 on a dark strip (the I/O page map, `io::rear_panel`): the
 /// jacks the page names are green.
 fn rear_panel(l: &mut Layout, page: usize) {
-    l.panel(Rect::new(8, 148, 784, 200), SURFACE, 8.0, None);
+    let p = l.palette;
+    l.panel(Rect::new(8, 148, 784, 200), p.surface, 8.0, None);
     super::io::rear_panel(l, REAR_SHIFT, |port| names(port, page));
 }
 
@@ -583,18 +585,19 @@ fn names(port: &super::io::Port, page: usize) -> bool {
 /// tile with the wire drawn through it. With a cab from the application it is a control:
 /// a tap shows its parameters in the panel, selected with the cab colour.
 fn capture_block(ui: &UiState, l: &mut Layout, tile: Rect) {
+    let p = l.palette;
     let has_cab = !ui.snapshot.capture.cab.is_empty();
     // Shot 095 samples: border #201c38, glyph #383c38, wire #c0c0c0.
     let border = if ui.cab_shown() {
         block::CAB
     } else {
-        block::CAB.mix(CANVAS, 200)
+        block::CAB.mix(p.canvas, 200)
     };
-    let dim = SECTION.mix(CANVAS, 32);
-    outline(l, tile, 12.0, 2, border, CANVAS);
+    let dim = p.section.mix(p.canvas, 32);
+    outline(l, tile, 12.0, 2, border, p.canvas);
     let (cx, cy) = tile.center();
-    ring(l, (cx, cy), 28, 2, dim, CANVAS);
-    ring(l, (cx, cy), 10, 3, dim, CANVAS);
+    ring(l, (cx, cy), 28, 2, dim, p.canvas);
+    ring(l, (cx, cy), 10, 3, dim, p.canvas);
     for (dx, dy) in [(-16, -16), (16, -16), (-16, 16), (16, 16)] {
         l.push(
             Rect::new(cx + dx - 2, cy + dy - 2, 4, 4),
@@ -605,7 +608,7 @@ fn capture_block(ui: &UiState, l: &mut Layout, tile: Rect) {
     l.push(
         Rect::new(tile.x - 12, cy, tile.width + 24, 1),
         "",
-        Look::Fill(TEXT.mix(CANVAS, 63)),
+        Look::Fill(p.text.mix(p.canvas, 63)),
     );
     if has_cab {
         l.control(
@@ -621,13 +624,14 @@ fn capture_block(ui: &UiState, l: &mut Layout, tile: Rect) {
 /// One Cab parameter cell: a knob with the application's value text, or the text alone
 /// for a media parameter (IR names change in the Grid media picker only).
 fn cab_cell(l: &mut Layout, b: Rect, param: &ParameterView) {
+    let p = l.palette;
     if let ParameterKind::Media(_) = param.kind {
         cell_label(l, b, &param.label, true);
         l.text(
             Rect::new(b.x + 10, b.y + 40, b.width.saturating_sub(20), 24),
             param.value.clone(),
             BODY,
-            MUTED,
+            p.muted,
             Align::Left,
         );
         return;
@@ -638,7 +642,7 @@ fn cab_cell(l: &mut Layout, b: Rect, param: &ParameterView) {
         Look::Knob {
             value: param.value.clone(),
             kind: param.kind,
-            color: ACCENT,
+            color: p.accent,
             focused: false,
         },
     );
@@ -649,7 +653,15 @@ fn panel(ui: &UiState, l: &mut Layout, cells: impl FnOnce(&mut Layout)) {
     if !ui.cab_shown() {
         return cells(l);
     }
-    let bounds = panel_cells(l, PANEL_RECT, 2, PAGE, CAPTURE_DIVIDER, CAPTURE_HIDDEN);
+    let p = l.palette;
+    let bounds = panel_cells(
+        l,
+        PANEL_RECT,
+        2,
+        p.tone(PAGE),
+        p.tone(CAPTURE_DIVIDER),
+        CAPTURE_HIDDEN,
+    );
     for (param, b) in ui.snapshot.capture.cab.iter().zip(bounds) {
         cab_cell(l, b, param);
     }
@@ -657,7 +669,8 @@ fn panel(ui: &UiState, l: &mut Layout, cells: impl FnOnce(&mut Layout)) {
 
 /// Calibration settings (shot 095).
 fn calibration(ui: &UiState, l: &mut Layout) {
-    l.paragraph(Rect::new(20, 62, 680, 100), INSTRUCTIONS, MEDIUM, TEXT);
+    let p = l.palette;
+    l.paragraph(Rect::new(20, 62, 680, 100), INSTRUCTIONS, MEDIUM, p.text);
     black_button(
         l,
         Rect::new(8, 185, 220, 44),
@@ -680,7 +693,12 @@ fn calibration(ui: &UiState, l: &mut Layout) {
         // `#181c18` (shot 095).
         let height = if selected { 60 } else { 46 };
         let bounds = Rect::new(x, 206, 66, height);
-        l.panel(bounds, if selected { CARD } else { TAB_IDLE }, 8.0, None);
+        l.panel(
+            bounds,
+            p.tone(if selected { CARD } else { TAB_IDLE }),
+            8.0,
+            None,
+        );
         l.control(
             Rect::new(x, 206, 66, 46),
             Control::CaptureUi(CaptureControl::Tab(tab)),
@@ -692,12 +710,19 @@ fn calibration(ui: &UiState, l: &mut Layout) {
             Rect::new(x, 206, 66, 46),
             label,
             MEDIUM,
-            if selected { TEXT } else { MUTED },
+            if selected { p.text } else { p.muted },
             Align::Center,
         );
     }
     panel(ui, l, |l| {
-        let cells = panel_cells(l, PANEL_RECT, 2, PAGE, CAPTURE_DIVIDER, CAPTURE_HIDDEN);
+        let cells = panel_cells(
+            l,
+            PANEL_RECT,
+            2,
+            p.tone(PAGE),
+            p.tone(CAPTURE_DIVIDER),
+            CAPTURE_HIDDEN,
+        );
         for (cell, bounds) in calibration_cells(current).into_iter().zip(cells) {
             panel_cell(ui, l, bounds, cell);
         }
@@ -705,16 +730,18 @@ fn calibration(ui: &UiState, l: &mut Layout) {
 }
 
 fn cell_label(l: &mut Layout, b: Rect, label: &str, enabled: bool) {
+    let p = l.palette;
     l.text(
         Rect::new(b.x + 10, b.y + 6, b.width.saturating_sub(12), 28),
         label,
         BODY,
-        if enabled { TEXT } else { FAINT },
+        if enabled { p.text } else { p.faint },
         Align::Left,
     );
 }
 
 fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
+    let p = l.palette;
     let s = &ui.snapshot;
     match cell {
         Cell::Level {
@@ -738,7 +765,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
                     Rect::new(b.x + 10, b.y + 30, 80, 18),
                     sub,
                     CAPTION,
-                    FAINT,
+                    p.faint,
                     Align::Left,
                 );
             }
@@ -765,7 +792,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
             cell_label(l, b, label, enabled);
             // Stock switch (shot 095): black slot, green ring at the active end.
             let track = Rect::new(b.x + 16, b.y + 42, 22, 46);
-            l.panel(track, CANVAS, 11.0, None);
+            l.panel(track, p.canvas, 11.0, None);
             for (row, option) in options.into_iter().enumerate() {
                 let y = track.y + row as i32 * 23;
                 let on = top == Some(row == 0);
@@ -773,11 +800,11 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
                     Rect::new(track.right() + 16, y, b.width.saturating_sub(60), 23),
                     option,
                     BODY,
-                    if on { TEXT } else { FAINT },
+                    if on { p.text } else { p.faint },
                     Align::Left,
                 );
                 if on {
-                    ring(l, (track.x + 11, y + 11), 19, 3, ACCENT, CANVAS);
+                    ring(l, (track.x + 11, y + 11), 19, 3, p.accent, p.canvas);
                 }
             }
         }
@@ -786,7 +813,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
             let db = meter_db(s.capture.input_levels[input]);
             let number = format!("{db:.1}");
             let value = Rect::new(b.x + 10, b.y + 40, 70, 24);
-            l.text(value, number.clone(), BODY, TEXT, Align::Left);
+            l.text(value, number.clone(), BODY, p.text, Align::Left);
             l.text(
                 Rect::new(
                     value.x + BODY.width(&number).ceil() as i32 + 4,
@@ -796,7 +823,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
                 ),
                 "dB",
                 CAPTION,
-                MUTED,
+                p.muted,
                 Align::Left,
             );
             let bar = Rect::new(b.x + 10, b.y + 76, b.width - 20, 14);
@@ -808,7 +835,11 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
                 },
             );
             let tick = bar.x + (bar.width as f32 * meter_fraction(TARGET_DB)) as i32;
-            l.push(Rect::new(tick, bar.y, 2, bar.height), "", Look::Fill(PANEL));
+            l.push(
+                Rect::new(tick, bar.y, 2, bar.height),
+                "",
+                Look::Fill(p.panel),
+            );
         }
         Cell::Empty => {}
     }
@@ -817,6 +848,7 @@ fn panel_cell(ui: &UiState, l: &mut Layout, b: Rect, cell: Cell) {
 /// Stock knob cell for a dB setting drawn over `b`; the arc spans the setting bounds.
 /// `touch` is the part of the cell that takes taps.
 fn level_knob(ui: &UiState, l: &mut Layout, b: Rect, touch: Rect, label: &str, id: SettingId) {
+    let p = l.palette;
     let value = ui.snapshot.setting(id);
     let position = match value {
         Some(SettingValue::Number(raw)) => id.knob_position(*raw),
@@ -835,7 +867,7 @@ fn level_knob(ui: &UiState, l: &mut Layout, b: Rect, touch: Rect, label: &str, i
         Look::Knob {
             value: id.format(value),
             kind: ParameterKind::Continuous { position },
-            color: if value.is_some() { ACCENT } else { FAINT },
+            color: if value.is_some() { p.accent } else { p.faint },
             focused: false,
         },
     );
@@ -844,23 +876,25 @@ fn level_knob(ui: &UiState, l: &mut Layout, b: Rect, touch: Rect, label: &str, i
 /// Owned checklist marks (shot 070): green ✓ when done, white → on the running stage, an
 /// empty box when pending (I: pending not shown in the shot).
 fn check_mark(l: &mut Layout, b: Rect, done: bool, current: bool) {
-    l.panel(b, CANVAS, 1.0, None);
+    let p = l.palette;
+    l.panel(b, p.canvas, 1.0, None);
     let (x, y) = (b.x as f32, b.y as f32);
     if done {
-        l.line((x + 3.5, y + 9.5), (x + 7.5, y + 13.5), 2.0, ACCENT);
-        l.line((x + 7.5, y + 13.5), (x + 14.5, y + 4.5), 2.0, ACCENT);
+        l.line((x + 3.5, y + 9.5), (x + 7.5, y + 13.5), 2.0, p.accent);
+        l.line((x + 7.5, y + 13.5), (x + 14.5, y + 4.5), 2.0, p.accent);
     } else if current {
-        l.line((x + 3.5, y + 9.0), (x + 14.0, y + 9.0), 2.0, TEXT);
-        l.line((x + 10.0, y + 5.5), (x + 14.0, y + 9.0), 2.0, TEXT);
-        l.line((x + 10.0, y + 12.5), (x + 14.0, y + 9.0), 2.0, TEXT);
+        l.line((x + 3.5, y + 9.0), (x + 14.0, y + 9.0), 2.0, p.text);
+        l.line((x + 10.0, y + 5.5), (x + 14.0, y + 9.0), 2.0, p.text);
+        l.line((x + 10.0, y + 12.5), (x + 14.0, y + 9.0), 2.0, p.text);
     }
 }
 
 /// Static spinner (shot 070): a 3 px `#404040` ring of radius 10 with a white arc from the
 /// top, about 100° (one frame of the stock animation).
 fn spinner(l: &mut Layout, (cx, cy): (i32, i32)) {
+    let p = l.palette;
     let bounds = Rect::new(cx - 11, cy - 11, 23, 23);
-    for (start, sweep, color) in [(0.0, 360.0, SECTION), (265.0, 100.0, TEXT)] {
+    for (start, sweep, color) in [(0.0, 360.0, p.section), (265.0, 100.0, p.text)] {
         l.push(
             bounds,
             "",
@@ -876,8 +910,9 @@ fn spinner(l: &mut Layout, (cx, cy): (i32, i32)) {
 
 /// Capture process (shot 070): checklist left, stage text and progress right.
 fn process(l: &mut Layout, c: &CaptureView) {
+    let p = l.palette;
     let list = Rect::new(8, 60, 256, 412);
-    l.panel(list, PANEL, 8.0, None);
+    l.panel(list, p.panel, 8.0, None);
     let current = process_index(c.step);
     for (index, name) in PROCESS.into_iter().enumerate() {
         let y = list.y + 28 + index as i32 * 50;
@@ -891,12 +926,12 @@ fn process(l: &mut Layout, c: &CaptureView) {
             Rect::new(44, y - 12, list.width - 44, 24),
             name,
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Left,
         );
     }
     let pane = Rect::new(272, 60, 520, 412);
-    l.panel(pane, PANEL, 8.0, None);
+    l.panel(pane, p.panel, 8.0, None);
     let (title, text) = match c.step {
         CaptureStep::RecordingSignals => (
             "Neural Capture in progress",
@@ -916,25 +951,25 @@ fn process(l: &mut Layout, c: &CaptureView) {
         Rect::new(288, 78, 488, 24),
         title,
         MEDIUM_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
-    l.paragraph(Rect::new(288, 124, 488, 60), text, MEDIUM, TEXT);
+    l.paragraph(Rect::new(288, 124, 488, 60), text, MEDIUM, p.text);
     if let Some(fraction) = c.progress {
         l.text(
             Rect::new(288, 208, 120, 24),
             format!("{:.0}%", fraction * 100.0),
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Left,
         );
         let track = Rect::new(288, 244, 488, 16);
-        l.push(track, "", Look::Fill(BACKGROUND));
+        l.push(track, "", Look::Fill(p.background));
         let filled = (track.width as f32 * fraction.clamp(0.0, 1.0)).round() as u32;
         l.push(
             Rect::new(track.x, track.y, filled, track.height),
             "",
-            Look::Fill(ACCENT),
+            Look::Fill(p.accent),
         );
     }
     spinner(l, (764, 220));
@@ -951,13 +986,14 @@ fn process(l: &mut Layout, c: &CaptureView) {
 
 /// A/B test (shot 098). While the device exports (`Saving`) the buttons wait.
 fn ab_test(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let c = &ui.snapshot.capture;
     let idle = c.step == CaptureStep::Audition;
     l.paragraph(
         Rect::new(20, 62, 680, 60),
         "Your Neural Capture is ready. Switch between the reference and Quad Cortex using the buttons below.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     black_button(
         l,
@@ -990,18 +1026,19 @@ fn ab_panel(
     enabled: bool,
     control: impl Fn(AuditionSource) -> Control,
 ) {
-    l.panel(PANEL_RECT, CARD, 8.0, None);
+    let p = l.palette;
+    l.panel(PANEL_RECT, p.tone(CARD), 8.0, None);
     let half = PANEL_RECT.height as i32 / 2;
     l.push(
         Rect::new(PANEL_RECT.x, PANEL_RECT.y + half - 1, PANEL_RECT.width, 2),
         "",
-        Look::Fill(PAGE),
+        Look::Fill(p.tone(PAGE)),
     );
     let cell = PANEL_RECT.width as i32 / 5;
     l.push(
         Rect::new(AB_DIVIDER_X, PANEL_RECT.y + 15, 1, 78),
         "",
-        Look::Fill(PAGE),
+        Look::Fill(p.tone(PAGE)),
     );
     for (row, (label, source)) in [
         (capture_label, AuditionSource::Capture),
@@ -1012,13 +1049,18 @@ fn ab_panel(
     {
         let selected = ui.snapshot.capture.audition == source;
         let b = Rect::new(24, AB_RADIO_Y[row], 125, 37);
-        l.panel(b, if selected { PAGE } else { AB_RADIO_IDLE }, 4.0, None);
+        l.panel(
+            b,
+            p.tone(if selected { PAGE } else { AB_RADIO_IDLE }),
+            4.0,
+            None,
+        );
         l.control(b, control(source), enabled, label, Look::Area);
         l.text(
             b,
             label,
             BODY,
-            if selected { ACCENT } else { FAINT },
+            if selected { p.accent } else { p.faint },
             Align::Center,
         );
     }
@@ -1030,8 +1072,9 @@ fn ab_panel(
 /// screen while Cortex Control runs Neural Capture 2. Its modes come from the NC2 state
 /// (slot `0x3dcc2c`). The `neuralcapture/C2BG.png` backdrop is not drawn (stock bitmap).
 pub(super) fn nc2(ui: &UiState, l: &mut Layout, dialog: Nc2Dialog) {
+    let p = l.palette;
     l.overlay();
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(BACKGROUND));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.background));
     let close = Control::Nc2(Nc2Request::Close);
     match dialog {
         Nc2Dialog::InProgress | Nc2Dialog::LostConnection => {
@@ -1044,7 +1087,7 @@ pub(super) fn nc2(ui: &UiState, l: &mut Layout, dialog: Nc2Dialog) {
                 Rect::new(245, 216, 310, 23),
                 "Neural Capture Version 2 in progress.",
                 MEDIUM,
-                TEXT,
+                p.text,
                 Align::Center,
             );
             let abort_y = if dialog == Nc2Dialog::LostConnection {
@@ -1052,7 +1095,7 @@ pub(super) fn nc2(ui: &UiState, l: &mut Layout, dialog: Nc2Dialog) {
                     Rect::new(170, 254, 459, 33),
                     "Lost connection to Cortex Control, please reconnect!",
                     MEDIUM,
-                    DANGER,
+                    p.danger,
                     Align::Center,
                 );
                 316
@@ -1077,7 +1120,7 @@ pub(super) fn nc2(ui: &UiState, l: &mut Layout, dialog: Nc2Dialog) {
                 Rect::new(245, 216, 310, 23),
                 "Neural Capture Saved.",
                 MEDIUM,
-                TEXT,
+                p.text,
                 Align::Center,
             );
             black_button(l, Rect::new(294, 268, 211, 45), close, "EXIT", true);
@@ -1091,7 +1134,7 @@ pub(super) fn nc2(ui: &UiState, l: &mut Layout, dialog: Nc2Dialog) {
                 Rect::new(16, 62, 509, 52),
                 "Your Neural Capture is ready. Use the buttons below to toggle between the CAPTURE and the REFERENCE signal.",
                 MEDIUM,
-                TEXT,
+                p.text,
             );
             black_button(
                 l,
@@ -1140,10 +1183,11 @@ pub(super) fn edit_page(l: &mut Layout, edit: &CaptureEdit) {
 /// Shot 030: page `#101010`; folder pill and unselected chips `#181c18`, name field
 /// `#202420`, selected chip `#f8fcf8`.
 fn save_page(l: &mut Layout, page: &SavePage<'_>) {
+    let p = l.palette;
     let saving = page.saving;
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(PAGE));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     let divider = |l: &mut Layout, x: i32| {
-        l.push(Rect::new(x, 18, 2, 24), "", Look::Fill(SECTION));
+        l.push(Rect::new(x, 18, 2, 24), "", Look::Fill(p.section));
     };
     l.control(
         Rect::new(8, 8, 98, 44),
@@ -1152,7 +1196,7 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Close,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
     divider(l, 114);
@@ -1168,7 +1212,7 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
     };
     let width = (BODY.width(shown).ceil() as u32 + 26).clamp(74, 280);
     let name = Rect::new(306, 8, width, 44);
-    l.panel(name, NAME_FIELD, 8.0, None);
+    l.panel(name, p.tone(NAME_FIELD), 8.0, None);
     l.control(
         name,
         Control::CaptureUi(CaptureControl::Name),
@@ -1176,11 +1220,11 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
         "NAME",
         Look::Area,
     );
-    l.text(name, shown, BODY, TEXT, Align::Center);
+    l.text(name, shown, BODY, p.text, Align::Center);
     divider(l, name.right() + 9);
     // Metadata page indicator: green outline, the filled document glyph (shot 030).
     let meta = Rect::new(name.right() + 20, 8, 66, 44);
-    outline(l, meta, 8.0, 1, ACCENT, TAB_ACTIVE);
+    outline(l, meta, 8.0, 1, p.accent, p.tone(TAB_ACTIVE));
     let (cx, cy) = meta.center();
     l.push(
         Rect::new(cx - 12, cy - 12, 24, 24),
@@ -1188,7 +1232,7 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
         Look::Glyph {
             icon: Icon::Document,
             size: IconSize::Medium,
-            color: ACCENT,
+            color: p.accent,
         },
     );
     l.control(
@@ -1198,21 +1242,21 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
         "SAVE",
         Look::IconButton {
             icon: Icon::Save,
-            fill: tetrad_assets::ACTION,
+            fill: p.action,
         },
     );
     l.text(
         Rect::new(157, 90, 400, 20),
         "TYPE OF CAPTURE",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(157, 117, 400, 26),
         page.device.map_or("", CaptureDevice::label),
         MEDIUM,
-        TEXT,
+        p.text,
         Align::Left,
     );
     for (index, device) in CaptureDevice::V1.into_iter().enumerate() {
@@ -1223,7 +1267,7 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
         Rect::new(157, 278, 400, 20),
         "PREFERRED INSTRUMENT",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     for (index, instrument) in CaptureInstrument::CHOICES.into_iter().enumerate() {
@@ -1234,7 +1278,7 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
             36,
         );
         let selected = Some(instrument) == page.instrument;
-        let fill = if selected { CHIP_SELECTED } else { TAB_IDLE };
+        let fill = p.tone(if selected { CHIP_SELECTED } else { TAB_IDLE });
         l.panel(chip, fill, 4.0, None);
         l.control(
             chip,
@@ -1247,7 +1291,7 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
             chip,
             instrument.label(),
             BODY,
-            if selected { CANVAS } else { MUTED },
+            if selected { p.canvas } else { p.muted },
             Align::Center,
         );
     }
@@ -1255,22 +1299,23 @@ fn save_page(l: &mut Layout, page: &SavePage<'_>) {
 
 /// The "My Captures" destination pill of the save page header.
 fn destination(l: &mut Layout) {
+    let p = l.palette;
     let folder = Rect::new(124, 8, 163, 44);
-    l.panel(folder, TAB_IDLE, 8.0, None);
+    l.panel(folder, p.tone(TAB_IDLE), 8.0, None);
     l.push(
         Rect::new(folder.x + 10, folder.y + 10, 24, 24),
         "",
         Look::Glyph {
             icon: Icon::FolderFilled,
             size: IconSize::Medium,
-            color: TEXT,
+            color: p.text,
         },
     );
     l.text(
         Rect::new(folder.x + 48, folder.y, folder.width - 52, folder.height),
         "My Captures",
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
@@ -1279,11 +1324,12 @@ fn destination(l: &mut Layout) {
 /// owned glyph (white when selected, else grey `#848484`, shot 030), and the 20 px
 /// capture badge at the lower left on typed tiles.
 fn device_tile(l: &mut Layout, tile: Rect, device: CaptureDevice, selected: bool, enabled: bool) {
+    let p = l.palette;
     let hue = device_hue(device);
     if selected {
-        outline(l, tile, 12.0, 3, hue, CANVAS);
+        outline(l, tile, 12.0, 3, hue, p.canvas);
     } else {
-        outline(l, tile, 12.0, 2, hue.mix(CANVAS, 128), CANVAS);
+        outline(l, tile, 12.0, 2, hue.mix(p.canvas, 128), p.canvas);
     }
     l.control(
         tile.inset(3, 3),
@@ -1293,9 +1339,9 @@ fn device_tile(l: &mut Layout, tile: Rect, device: CaptureDevice, selected: bool
         Look::Area,
     );
     let ink = if selected {
-        TEXT
+        p.text
     } else {
-        TEXT.mix(CANVAS, 123)
+        p.text.mix(p.canvas, 123)
     };
     let (cx, cy) = tile.center();
     let box_ = |w: u32, h: u32| Rect::new(cx - w as i32 / 2, cy - h as i32 / 2, w, h);
@@ -1323,24 +1369,24 @@ fn device_tile(l: &mut Layout, tile: Rect, device: CaptureDevice, selected: bool
         ),
         CaptureDevice::Amp => {
             let head = box_(32, 18);
-            outline(l, head, 3.0, 2, ink, CANVAS);
+            outline(l, head, 3.0, 2, ink, p.canvas);
             line(l, head, cy - 1);
         }
         CaptureDevice::ComboAmp => {
             let combo = box_(30, 30);
-            outline(l, combo, 3.0, 2, ink, CANVAS);
+            outline(l, combo, 3.0, 2, ink, p.canvas);
             line(l, combo, combo.y + 8);
             dot(l, (combo.right() - 7, combo.y + 5), 4);
         }
         CaptureDevice::AmpAndCab => {
             let cab = Rect::new(cx - 16, cy - 10, 32, 24);
             l.push(Rect::new(cx - 7, cab.y - 4, 14, 2), "", Look::Fill(ink));
-            outline(l, cab, 3.0, 2, ink, CANVAS);
-            ring(l, (cx, cy + 2), 14, 2, ink, CANVAS);
+            outline(l, cab, 3.0, 2, ink, p.canvas);
+            ring(l, (cx, cy + 2), 14, 2, ink, p.canvas);
         }
         // The Grid Cab glyph: a 26 px speaker ring, an 8 px cone, four corner screws.
         CaptureDevice::Cab => {
-            ring(l, (cx, cy), 26, 2, ink, CANVAS);
+            ring(l, (cx, cy), 26, 2, ink, p.canvas);
             dot(l, (cx, cy), 8);
             for (dx, dy) in [(-13, -13), (13, -13), (-13, 13), (13, 13)] {
                 dot(l, (cx + dx, cy + dy), 4);
@@ -1352,46 +1398,48 @@ fn device_tile(l: &mut Layout, tile: Rect, device: CaptureDevice, selected: bool
             for x in [body.x - 2, body.right()] {
                 l.push(Rect::new(x, cy - 9, 2, 7), "", Look::Fill(ink));
             }
-            outline(l, body, 3.0, 2, ink, CANVAS);
+            outline(l, body, 3.0, 2, ink, p.canvas);
             for dx in [-5, 0, 5] {
                 dot(l, (cx + dx, cy - 10), 3);
             }
             dot(l, (cx, cy - 1), 9);
-            l.push(Rect::new(cx, cy - 5, 1, 4), "", Look::Fill(CANVAS));
+            l.push(Rect::new(cx, cy - 5, 1, 4), "", Look::Fill(p.canvas));
             dot(l, (cx, cy + 8), 3);
         }
     }
     if device != CaptureDevice::Default {
         let badge = Rect::new(tile.x - 4, tile.bottom() - 22, 24, 24);
-        l.push(badge, "", Look::Dot { color: CANVAS });
+        l.push(badge, "", Look::Dot { color: p.canvas });
         l.push(
             badge.inset(2, 2),
             "",
             Look::Glyph {
                 icon: Icon::NeuralCapture,
                 size: IconSize::Compact,
-                color: TEXT,
+                color: p.text,
             },
         );
     }
 }
 
 fn saved(l: &mut Layout) {
+    let p = l.palette;
     l.paragraph(
         Rect::new(20, 66, 760, 50),
         "Neural Capture Saved.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     next_button(l, Control::Capture(CaptureRequest::Exit), "EXIT");
 }
 
 fn failed(l: &mut Layout) {
+    let p = l.palette;
     l.paragraph(
         Rect::new(20, 66, 760, 50),
         "There was an error during the Sanity Check stage",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     black_button(
         l,

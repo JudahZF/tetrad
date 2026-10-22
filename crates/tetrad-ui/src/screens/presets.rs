@@ -4,9 +4,7 @@
 //! or, with any other sort, the List View. Multi Select, sort, filter, search and the ⋮
 //! menus open as Directory pop-ups. State and actions: `directory.rs`.
 
-use tetrad_assets::{
-    ACCENT, DANGER, FAINT, Icon, IconSize, MUTED, ON_ACCENT, PANEL, Rgb, SURFACE, TEXT,
-};
+use tetrad_assets::{Icon, IconSize, Rgb};
 
 use super::directory::{Category, DirectoryDelete, Popup, bank_size, slot_label, sort_keys};
 use super::directory_glyph::{Glyph, glyph};
@@ -83,10 +81,12 @@ fn category_mark(category: Category) -> Glyph {
 
 /// 1 px muted header divider (x ≈379 and ≈685, y 18–42).
 pub(super) fn divider(l: &mut Layout, x: i32) {
-    l.push(Rect::new(x, 18, 1, 24), "", Look::Fill(FAINT));
+    let p = l.palette;
+    l.push(Rect::new(x, 18, 1, 24), "", Look::Fill(p.faint));
 }
 
 fn done(l: &mut Layout) {
+    let p = l.palette;
     divider(l, 685);
     l.control(
         crate::widgets::CLOSE_BUTTON,
@@ -95,7 +95,7 @@ fn done(l: &mut Layout) {
         "DONE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
 }
@@ -108,21 +108,22 @@ pub(super) fn dropdown(
     mark: impl FnOnce(&mut Layout, Rect),
     label: &str,
 ) {
-    l.panel(DROPDOWN, PANEL, 8.0, None);
+    let p = l.palette;
+    l.panel(DROPDOWN, p.panel, 8.0, None);
     l.control(DROPDOWN, control, true, label, Look::Area);
     mark(l, Rect::new(24, DROPDOWN.y, 24, DROPDOWN.height));
     l.text(
         Rect::new(62, DROPDOWN.y, 170, DROPDOWN.height),
         label,
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     glyph(
         l,
         Rect::new(236, DROPDOWN.y, 24, DROPDOWN.height),
         Glyph::Caret,
-        TEXT,
+        p.text,
     );
 }
 
@@ -165,12 +166,13 @@ pub(super) fn icon_buttons(l: &mut Layout, buttons: &[HeaderButton]) {
 }
 
 fn header(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let dir = &ui.directory;
     let category = dir.category;
     dropdown(
         l,
         Control::Library(LibraryControl::Category),
-        |l, area| glyph(l, area, category_mark(category), TEXT),
+        |l, area| glyph(l, area, category_mark(category), p.text),
         category.label(),
     );
     // Wide slot: Favorites tabs, UPLOAD or REFRESH (cloud features, not built).
@@ -183,7 +185,7 @@ fn header(ui: &UiState, l: &mut Layout) {
                 let selected = dir.recent == recent;
                 // The selected tab joins the panel below.
                 let tab = Rect::new(x, 8, width, if selected { 60 } else { 44 });
-                l.panel(tab, if selected { PANEL } else { SURFACE }, 8.0, None);
+                l.panel(tab, if selected { p.panel } else { p.surface }, 8.0, None);
                 let face = Rect::new(x, 8, width, 44);
                 l.control(
                     face,
@@ -192,7 +194,7 @@ fn header(ui: &UiState, l: &mut Layout) {
                     label,
                     Look::Area,
                 );
-                glyph(l, face, mark, TEXT);
+                glyph(l, face, mark, p.text);
             }
         }
         Category::Captures => {
@@ -203,7 +205,7 @@ fn header(ui: &UiState, l: &mut Layout) {
                 true,
                 "UPLOAD",
                 Glyph::CloudUp,
-                SURFACE,
+                p.surface,
             );
             divider(l, 379);
         }
@@ -215,7 +217,7 @@ fn header(ui: &UiState, l: &mut Layout) {
                 "REFRESH",
                 Look::IconButton {
                     icon: Icon::Sync,
-                    fill: SURFACE,
+                    fill: p.surface,
                 },
             );
             divider(l, 379);
@@ -261,9 +263,9 @@ fn header(ui: &UiState, l: &mut Layout) {
             fill: if control == LibraryControl::Filter
                 && (dir.made_by_me || !dir.device_types.is_empty() || dir.version.stock().is_some())
             {
-                tetrad_assets::ACCENT_FILL
+                p.accent_fill
             } else {
-                SURFACE
+                p.surface
             },
         })
         .collect();
@@ -295,6 +297,7 @@ fn paste_ready(ui: &UiState) -> bool {
 }
 
 pub(super) fn multi_header(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     if let Some(paste) = ui.pasting() {
         return paste_bar(ui, l, paste);
     }
@@ -308,14 +311,14 @@ pub(super) fn multi_header(ui: &UiState, l: &mut Layout) {
         "CANCEL",
         Look::IconButton {
             icon: Icon::Close,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     l.text(
         Rect::new(86, 8, 178, 44),
         format!("{count} selected"),
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     // In a cloud folder only DOWNLOAD acts on the checked rows.
@@ -393,10 +396,10 @@ pub(super) fn multi_header(ui: &UiState, l: &mut Layout) {
                 label,
                 Look::IconButton {
                     icon,
-                    fill: SURFACE,
+                    fill: p.surface,
                 },
             ),
-            Err(mark) => glyph_button(l, b, control, enabled, label, mark, SURFACE),
+            Err(mark) => glyph_button(l, b, control, enabled, label, mark, p.surface),
         }
     }
     done(l);
@@ -407,6 +410,7 @@ pub(super) fn multi_header(ui: &UiState, l: &mut Layout) {
 /// `#ff2727`) for the occupied target slots; PASTE pastes. I: the bar layout and the manual
 /// mode line (stock sets a line only for the consecutive mode).
 fn paste_bar(ui: &UiState, l: &mut Layout, paste: &super::directory::PasteSlots) {
+    let p = l.palette;
     l.control(
         Rect::new(8, 8, 66, 44),
         Control::Library(LibraryControl::MultiSelect),
@@ -414,7 +418,7 @@ fn paste_bar(ui: &UiState, l: &mut Layout, paste: &super::directory::PasteSlots)
         "CANCEL",
         Look::IconButton {
             icon: Icon::Close,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     let count = ui.pasted_count();
@@ -427,12 +431,12 @@ fn paste_bar(ui: &UiState, l: &mut Layout, paste: &super::directory::PasteSlots)
             &format!("{verb} consecutively from the first chosen slot onwards")
         }
     };
-    l.text(Rect::new(86, 6, 500, 24), mode, BODY, TEXT, Align::Left);
+    l.text(Rect::new(86, 6, 500, 24), mode, BODY, p.text, Align::Left);
     let download = ui.directory.download.is_some();
     // I: a download shows the PASTE line; DOWNLOAD then asks before it overwrites.
     let (status, color) = match overwritten {
-        0 => (format!("{count} Presets collected"), ACCENT),
-        n => (format!("{n} Presets will be overwritten"), DANGER),
+        0 => (format!("{count} Presets collected"), p.accent),
+        n => (format!("{n} Presets will be overwritten"), p.danger),
     };
     l.text(
         Rect::new(86, 30, 500, 22),
@@ -455,6 +459,7 @@ fn paste_bar(ui: &UiState, l: &mut Layout, paste: &super::directory::PasteSlots)
 /// Setlist:" while a setlist row tap picks the target. I: the header layout (CANCEL as the
 /// Multi Select one).
 fn setlist_pick_header(l: &mut Layout) {
+    let p = l.palette;
     l.control(
         Rect::new(8, 8, 66, 44),
         Control::Back,
@@ -462,22 +467,23 @@ fn setlist_pick_header(l: &mut Layout) {
         "CANCEL",
         Look::IconButton {
             icon: Icon::Close,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     l.text(
         Rect::new(86, 8, 400, 44),
         "Choose destination Setlist:",
         BODY_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
 
 /// Search header (shot 024): the query field, three counted type tabs, SORT and ✓.
 fn search_header(ui: &UiState, l: &mut Layout, kind: ItemKind) {
+    let p = l.palette;
     let field = Rect::new(8, 8, 184, 44);
-    l.panel(field, SURFACE, 8.0, None);
+    l.panel(field, p.surface, 8.0, None);
     l.control(
         Rect::new(field.x, field.y, field.width - 40, field.height),
         Control::Library(LibraryControl::Search),
@@ -490,14 +496,14 @@ fn search_header(ui: &UiState, l: &mut Layout, kind: ItemKind) {
         "",
         Look::IconButton {
             icon: Icon::Search,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     l.text(
         Rect::new(field.x + 44, field.y, field.width - 88, field.height),
         ui.library_query.clone(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.control(
@@ -507,7 +513,7 @@ fn search_header(ui: &UiState, l: &mut Layout, kind: ItemKind) {
         "CLEAR",
         Look::IconButton {
             icon: Icon::Close,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     divider(l, 200);
@@ -526,11 +532,7 @@ fn search_header(ui: &UiState, l: &mut Layout, kind: ItemKind) {
         // The selected tab joins the section bar below it.
         l.panel(
             Rect::new(x, 8, 100, if selected { 60 } else { 44 }),
-            if selected {
-                tetrad_assets::SECTION
-            } else {
-                SURFACE
-            },
+            if selected { p.section } else { p.surface },
             8.0,
             None,
         );
@@ -542,7 +544,7 @@ fn search_header(ui: &UiState, l: &mut Layout, kind: ItemKind) {
             count.clone(),
             Look::Area,
         );
-        let color = if selected { TEXT } else { MUTED };
+        let color = if selected { p.text } else { p.muted };
         glyph(l, Rect::new(x + 10, 8, 32, 44), mark, color);
         l.text(
             Rect::new(x + 44, 8, 52, 44),
@@ -559,7 +561,7 @@ fn search_header(ui: &UiState, l: &mut Layout, kind: ItemKind) {
         typed,
         "SORT",
         Glyph::Sort,
-        SURFACE,
+        p.surface,
     );
     done(l);
 }
@@ -576,8 +578,9 @@ fn lists_count(ui: &UiState, kind: ItemKind, typed: bool) -> String {
 /// Downloads and Cloud Presets (enabled as stock), the setlists with their index and ⋮,
 /// then the dimmed "New Setlist" row (shot 054).
 fn setlists(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
-    l.panel(SIDEBAR, PANEL, 8.0, None);
+    l.panel(SIDEBAR, p.panel, 8.0, None);
     let cloud = ui.directory.cloud;
     let mut rows = vec![
         SideRow {
@@ -633,6 +636,7 @@ fn setlists(ui: &UiState, l: &mut Layout) {
 
 /// Two columns of 52×52 bank number buttons; the open bank has no fill and a green number.
 fn banks(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let size = bank_size(s);
     let pages = s.presets.len().div_ceil(size);
@@ -652,7 +656,7 @@ fn banks(ui: &UiState, l: &mut Layout) {
                 );
                 let selected = page == open;
                 if !selected {
-                    l.panel(b, PANEL, 8.0, None);
+                    l.panel(b, p.panel, 8.0, None);
                 }
                 let number = (s.presets[page * size].id / size as u64 + 1).to_string();
                 l.control(
@@ -666,7 +670,7 @@ fn banks(ui: &UiState, l: &mut Layout) {
                     b,
                     number,
                     BODY,
-                    if selected { ACCENT } else { TEXT },
+                    if selected { p.accent } else { p.text },
                     Align::Center,
                 );
             }
@@ -676,14 +680,15 @@ fn banks(ui: &UiState, l: &mut Layout) {
 
 /// The open bank's presets: flat "1A Name" rows with ⋮; the loaded preset is green.
 fn presets(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
-    l.panel(LIST, PANEL, 8.0, None);
+    l.panel(LIST, p.panel, 8.0, None);
     if s.presets.is_empty() {
         l.text(
             Rect::new(LIST.x, LIST.y + 40, LIST.width, 30),
             "Empty Folder",
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
         return;
@@ -962,10 +967,11 @@ const PASTE_ROW_TEXT: Rgb = Rgb(0xdd, 0xdd, 0xdd);
 /// 157 × 45 at (75, 358) and (240, 358). PASTE reads CONTINUE unless the third row is checked
 /// (`0x3a5728`). I: the panel fill and the checked-row look.
 fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
+    let p = l.palette;
     let download = ui.directory.download.is_some();
     let at = |x: i32, y: i32, w: u32, h: u32| Rect::new(164 + x, 22 + y, w, h);
     l.overlay();
-    l.panel(at(0, 0, 472, 435), PANEL, 8.0, None);
+    l.panel(at(0, 0, 472, 435), p.panel, 8.0, None);
     l.text(
         at(24, 20, 424, 32),
         if download {
@@ -974,7 +980,7 @@ fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
             "Choose pasting option"
         },
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Center,
     );
     let setlist = (ui.snapshot.setlists.iter())
@@ -992,7 +998,7 @@ fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
         ),
         Look::Paragraph {
             font: BODY,
-            color: TEXT,
+            color: p.text,
             align: Align::Center,
         },
     );
@@ -1000,7 +1006,7 @@ fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
         at(48, 74 + 2 * line as i32, 376, line),
         format!("{setlist}:"),
         BODY_BOLD,
-        TEXT,
+        p.text,
         Align::Center,
     );
     let fits = ui.empty_slots_fit();
@@ -1027,9 +1033,9 @@ fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
         let b = at(53, 159 + row as i32 * 53, 365, 45);
         let checked = option == choice;
         let (fill, ink) = match (checked, enabled) {
-            (true, _) => (TEXT, ON_ACCENT),
-            (false, true) => (SURFACE, PASTE_ROW_TEXT),
-            (false, false) => (SURFACE, FAINT),
+            (true, _) => (p.text, p.on_accent),
+            (false, true) => (p.surface, p.tone(PASTE_ROW_TEXT)),
+            (false, false) => (p.surface, p.faint),
         };
         l.panel(b, fill, 4.0, None);
         let control = Control::Library(LibraryControl::PasteChoice(option));
@@ -1057,7 +1063,7 @@ fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
                 Look::Glyph {
                     icon: Icon::Check,
                     size: IconSize::Small,
-                    color: ON_ACCENT,
+                    color: p.on_accent,
                 },
             );
         }
@@ -1086,6 +1092,7 @@ fn paste_dialog(ui: &UiState, l: &mut Layout, choice: PasteChoice) {
 /// grey "Filters" header and the versions; at (300, 57) the device types (the x of the
 /// `DEVICE_TYPES` form, `FilterMenuTable` `0x748f68`), scrolled. Both in one pop-up (I).
 fn filter_menu(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     const ROW: u32 = 52;
     const WIDTH: u32 = 231;
     let dir = &ui.directory;
@@ -1106,7 +1113,7 @@ fn filter_menu(ui: &UiState, l: &mut Layout) {
         (types.right() - versions.x) as u32,
         types.height,
     ));
-    l.panel(versions, tetrad_assets::CANVAS, 8.0, None);
+    l.panel(versions, p.canvas, 8.0, None);
     let at =
         |panel: Rect, index: u32| Rect::new(panel.x, panel.y + (index * ROW) as i32, WIDTH, ROW);
     row(
@@ -1121,7 +1128,7 @@ fn filter_menu(ui: &UiState, l: &mut Layout) {
         at(versions, 1).inset(16, 0),
         "Filters",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     for (index, version) in CaptureVersion::ALL.into_iter().enumerate() {
@@ -1134,7 +1141,7 @@ fn filter_menu(ui: &UiState, l: &mut Layout) {
             dir.version == version,
         );
     }
-    l.panel(types, tetrad_assets::CANVAS, 8.0, None);
+    l.panel(types, p.canvas, 8.0, None);
     l.scroll(
         ListId::Choice,
         types,
@@ -1160,6 +1167,7 @@ fn filter_menu(ui: &UiState, l: &mut Layout) {
 /// library and every folder; in a folder REMOVE unlinks them and DELETE also deletes them
 /// from the library (button labels owned, I). Factory items are omitted.
 fn confirm_media_delete(ui: &UiState, l: &mut Layout, kind: MediaKind) {
+    let p = l.palette;
     let checked = ui.directory.multi.clone().unwrap_or_default();
     let items = super::directory::checked_media(&ui.snapshot, &checked);
     let count = items.len();
@@ -1206,18 +1214,18 @@ fn confirm_media_delete(ui: &UiState, l: &mut Layout, kind: MediaKind) {
     };
     l.overlay();
     let panel = Rect::new(100, 90, 600, 300);
-    l.panel(panel, PANEL, 8.0, None);
+    l.panel(panel, p.panel, 8.0, None);
     l.paragraph(
         Rect::new(panel.x + 24, panel.y + 16, panel.width - 48, 52),
         title,
         LARGE_BOLD,
-        TEXT,
+        p.text,
     );
     l.paragraph(
         Rect::new(panel.x + 24, panel.y + 72, panel.width - 48, 140),
         body,
         MEDIUM,
-        MUTED,
+        p.muted,
     );
     let row = panel.bottom() - 68;
     l.button(
@@ -1249,6 +1257,7 @@ fn confirm_media_delete(ui: &UiState, l: &mut Layout, kind: MediaKind) {
 
 /// Bulk delete confirm: "Are you sure you want to remove %1 Preset%2?" (`0x11fb428`).
 fn confirm_delete(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     if let Some(kind) = ui.directory.category.media() {
         return confirm_media_delete(ui, l, kind);
     }
@@ -1259,12 +1268,12 @@ fn confirm_delete(ui: &UiState, l: &mut Layout) {
         .map_or(0, |checked| checked.len());
     l.overlay();
     let panel = Rect::new(160, 120, 480, 240);
-    l.panel(panel, PANEL, 8.0, None);
+    l.panel(panel, p.panel, 8.0, None);
     l.text(
         Rect::new(panel.x + 24, panel.y + 16, panel.width - 48, 28),
         "Delete Presets",
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
@@ -1274,7 +1283,7 @@ fn confirm_delete(ui: &UiState, l: &mut Layout) {
             if count == 1 { "" } else { "s" }
         ),
         MEDIUM,
-        MUTED,
+        p.muted,
     );
     l.button(
         Rect::new(panel.x + 24, panel.bottom() - 68, 200, 48),
@@ -1294,14 +1303,15 @@ fn confirm_delete(ui: &UiState, l: &mut Layout) {
 
 /// Move onto an occupied slot (`0x1e8290`).
 fn confirm_move(l: &mut Layout) {
+    let p = l.palette;
     l.overlay();
     let panel = Rect::new(120, 110, 560, 260);
-    l.panel(panel, PANEL, 8.0, None);
+    l.panel(panel, p.panel, 8.0, None);
     l.text(
         Rect::new(144, 126, 512, 28),
         "You've dropped on an existing preset",
         LARGE_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
@@ -1309,7 +1319,7 @@ fn confirm_move(l: &mut Layout) {
         "Swap - presets will change places with each other.\nOverwrite - will delete previous \
          and leave the one you just dragged over.",
         MEDIUM,
-        MUTED,
+        p.muted,
     );
     let library = |overwrite| Control::Library(LibraryControl::ConfirmMove { overwrite });
     l.button(
@@ -1338,9 +1348,10 @@ fn confirm_move(l: &mut Layout) {
 /// Folder delete (`0x83c6c0`): DELETE FOLDER keeps the items in the library;
 /// "DELETE FOLDER + <ITEMS>" removes them too. Setlists and items use one DELETE.
 fn confirm_directory_delete(ui: &UiState, l: &mut Layout, target: DirectoryDelete) {
+    let p = l.palette;
     l.overlay();
     let panel = Rect::new(120, 110, 560, 260);
-    l.panel(panel, PANEL, 8.0, None);
+    l.panel(panel, p.panel, 8.0, None);
     let folder = match target {
         DirectoryDelete::Folder(id) => ui.snapshot.directory.folders.iter().find(|f| f.id == id),
         _ => None,
@@ -1371,7 +1382,7 @@ fn confirm_directory_delete(ui: &UiState, l: &mut Layout, target: DirectoryDelet
             "Delete this item from the library and all folders?".to_owned()
         }
     };
-    l.paragraph(Rect::new(144, 134, 512, 100), body, MEDIUM, TEXT);
+    l.paragraph(Rect::new(144, 134, 512, 100), body, MEDIUM, p.text);
     l.button(
         Rect::new(144, 294, 130, 48),
         Control::Back,
