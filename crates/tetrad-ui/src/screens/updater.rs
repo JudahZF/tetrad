@@ -4,7 +4,7 @@
 //! Owned: the CorOS buttons name CorOS, so they differ from the Tetrad Updates page
 //! ([`tetrad_layout`]), which updates Tetrad only.
 
-use tetrad_assets::{ACCENT, PANEL, Rgb, TEXT};
+use tetrad_assets::Rgb;
 
 use crate::layout::{ButtonStyle, LARGE, Layout, Look, MEDIUM};
 use crate::render::Align;
@@ -128,18 +128,19 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: Rect) {
 
 /// Title, text, progress and button of `page`. Returns where a second button goes.
 fn draw(l: &mut Layout, pane: Rect, page: &Page, style: ButtonStyle) -> (i32, i32) {
+    let p = l.palette;
     l.text(
         Rect::new(pane.x, pane.y, pane.width, 32),
         page.title,
         LARGE,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
         Rect::new(pane.x, pane.y + 44, pane.width, 150),
         page.body.as_str(),
         MEDIUM,
-        TEXT,
+        p.text,
     );
     let mut y = pane.y + 200;
     if let Some(fraction) = page.progress {
@@ -147,7 +148,7 @@ fn draw(l: &mut Layout, pane: Rect, page: &Page, style: ButtonStyle) -> (i32, i3
             Rect::new(pane.x, y, pane.width, 24),
             format!("{:.0}%", fraction * 100.0),
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Left,
         );
         l.push(
@@ -155,7 +156,7 @@ fn draw(l: &mut Layout, pane: Rect, page: &Page, style: ButtonStyle) -> (i32, i3
             "",
             Look::Progress {
                 fraction,
-                color: ACCENT,
+                color: p.accent,
             },
         );
         y += 60;
@@ -282,20 +283,21 @@ pub(super) fn install_confirm(ui: &UiState, l: &mut Layout) {
 
 /// The panel of the updater questions: title, text, CANCEL and the `primary` answer.
 fn confirm_panel(l: &mut Layout, title: &'static str, body: String, primary: &'static str) {
+    let p = l.palette;
     let panel = Rect::new(160, 120, 480, 240);
-    l.panel(panel, PANEL, 8.0, None);
+    l.panel(panel, p.panel, 8.0, None);
     l.text(
         Rect::new(panel.x + 24, panel.y + 16, panel.width - 48, 28),
         title,
         LARGE,
-        CONFIRM_TITLE,
+        p.tone(CONFIRM_TITLE),
         Align::Left,
     );
     l.paragraph(
         Rect::new(panel.x + 24, panel.y + 60, panel.width - 48, 90),
         body,
         MEDIUM,
-        TEXT,
+        p.text,
     );
     l.button(
         Rect::new(panel.x + 24, panel.bottom() - 68, 200, 45),

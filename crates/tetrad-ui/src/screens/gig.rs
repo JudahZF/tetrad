@@ -8,10 +8,7 @@
 //! copy, mode marks, block glyphs). The scene watermark is the largest face (96 px) instead of
 //! ~190 px.
 
-use tetrad_assets::{
-    ACCENT, CANVAS, Icon, IconSize, MUTED, ON_ACCENT, Rgb, SURFACE, SWATCHES, TEXT, TUNER_IN,
-    TextSize, WARNING, Weight,
-};
+use tetrad_assets::{Icon, IconSize, Rgb, SWATCHES, TUNER_IN, TextSize, Weight};
 
 use super::grid::{capture_badge, preset_title, scene_title};
 use crate::layout::{Layout, Look, SMALL_BOLD, XLARGE_BOLD};
@@ -43,6 +40,7 @@ const IN_TUNE_CENTS: f32 = 3.0;
 const TUNER_SEGMENT: u32 = 171;
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     header(ui, l);
     tuner_bar(&ui.snapshot.tuner, l);
     for (tile, switch) in Footswitch::TILES.into_iter().enumerate() {
@@ -57,7 +55,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             FootswitchMode::Stomp => stomp_tile(ui, l, bounds, tile, switch),
             FootswitchMode::Preset => preset_tile(ui, l, bounds, tile),
             FootswitchMode::Hybrid => {
-                l.panel(bounds, SURFACE, 8.0, None);
+                l.panel(bounds, p.surface, 8.0, None);
                 l.control(bounds, Control::Tile(switch), false, "-", Look::Area);
             }
         }
@@ -65,6 +63,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
 }
 
 fn header(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let s = &ui.snapshot;
     // Stock 105/019: the mode button ends at x 633; hybrid widens it to 98 px.
     let mode = match s.footswitch_mode {
@@ -78,7 +77,7 @@ fn header(ui: &UiState, l: &mut Layout) {
         TITLE,
         false,
     );
-    l.panel(mode, SURFACE, 8.0, None);
+    l.panel(mode, p.surface, 8.0, None);
     let label = s.footswitch_mode.map_or_else(
         || format!("MODE {}", s.mode_id),
         |mode| mode.label().to_owned(),
@@ -88,7 +87,7 @@ fn header(ui: &UiState, l: &mut Layout) {
         Some(FootswitchMode::Hybrid) => {
             mode_glyph(l, s.hybrid.upper, mode.x + 13, mode.y + 9);
             // A thin 16 px grey "+" (019: x 577..592, 2 px strokes, `#777777`).
-            let plus = MUTED.mix(SURFACE, 64);
+            let plus = p.muted.mix(p.surface, 64);
             let (cx, cy) = ((mode.x + 49) as f32, (mode.y + 21) as f32);
             l.line((cx - 8.0, cy), (cx + 8.0, cy), 2.0, plus);
             l.line((cx, cy - 8.0), (cx, cy + 8.0), 2.0, plus);
@@ -99,12 +98,12 @@ fn header(ui: &UiState, l: &mut Layout) {
     }
     // Scene badge (display only; the scenes dropdown is the Grid's).
     let badge = Rect::new(652, 18, 24, 24);
-    l.panel(badge, WARNING, 4.0, None);
+    l.panel(badge, p.warning, 4.0, None);
     l.text(
         badge,
         s.selected_scene.letter().to_string(),
         SMALL_BOLD,
-        ON_ACCENT,
+        p.on_accent,
         Align::Center,
     );
     l.control(
@@ -114,7 +113,7 @@ fn header(ui: &UiState, l: &mut Layout) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: tetrad_assets::PANEL,
+            fill: p.panel,
         },
     );
 }
@@ -122,27 +121,29 @@ fn header(ui: &UiState, l: &mut Layout) {
 /// Live tuner bar `8,60,784,8`: the track alone without a note; with one, a white segment
 /// slides with the detune, and the whole bar turns green in tune (spec §5).
 fn tuner_bar(tuner: &TunerView, l: &mut Layout) {
+    let p = l.palette;
     let bar = Rect::new(8, 60, 784, 8);
     let in_tune = tuner.note.is_some() && tuner.cents.abs() <= IN_TUNE_CENTS;
-    l.panel(bar, if in_tune { TUNER_IN } else { SURFACE }, 4.0, None);
+    l.panel(bar, if in_tune { TUNER_IN } else { p.surface }, 4.0, None);
     if tuner.note.is_some() && !in_tune {
         let travel = (bar.width - TUNER_SEGMENT) as f32;
         let x = bar.x + ((tuner.cents.clamp(-50.0, 50.0) / 100.0 + 0.5) * travel) as i32;
         let segment = Rect::new(x, bar.y, TUNER_SEGMENT, bar.height);
-        l.panel(segment, TEXT, 4.0, None);
+        l.panel(segment, p.text, 4.0, None);
     }
 }
 
 /// Scene tile: EDIT SCENE, SWAP SCENE and COPY SCENE over a faded scene letter and the
 /// centred scene name. The playing scene fills with its colour; the others are tinted.
 fn scene_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let scene = SceneIndex(tile as u8);
     let view = &s.scenes[tile];
     let active = s.selected_scene == scene;
     let enabled = !s.bank_preview_active;
-    let hue = scene_hue(view.raw_color).unwrap_or(ACCENT);
-    let fill = if active { hue } else { hue.mix(CANVAS, 214) };
+    let hue = scene_hue(view.raw_color).unwrap_or(p.accent);
+    let fill = if active { hue } else { hue.mix(p.canvas, 214) };
     l.panel(bounds, fill, 8.0, None);
     // The tool row sits above the scene's own touch area.
     l.control(
@@ -157,18 +158,18 @@ fn scene_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
         scene.letter().to_string(),
         WATERMARK,
         if active {
-            hue.mix(CANVAS, 40)
+            hue.mix(p.canvas, 40)
         } else {
-            hue.mix(SURFACE, 150)
+            hue.mix(p.surface, 150)
         },
         Align::Center,
     );
-    let ink = if active { ON_ACCENT } else { TEXT };
+    let ink = if active { p.on_accent } else { p.text };
     centred_name(l, bounds, &view.label, ink);
     let marks = if active {
-        ON_ACCENT.mix(hue, 60)
+        p.on_accent.mix(hue, 60)
     } else {
-        MUTED
+        p.muted
     };
     let tools = [
         (SceneTool::Edit, Icon::Edit, "EDIT SCENE"),
@@ -225,15 +226,16 @@ fn stomp_hue(s: &UiSnapshot, stomp: &StompView) -> Option<Rgb> {
 /// with its block colour ([`stomp_hue`]). The capture badge of the first block sits on the icon
 /// box ([`capture_badge`]).
 fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: Footswitch) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let stomp = &s.stomps[tile];
     let assigned = !stomp.label.is_empty() || stomp.category.is_some();
-    let hue = stomp_hue(s, stomp).unwrap_or(MUTED);
+    let hue = stomp_hue(s, stomp).unwrap_or(p.muted);
     let engaged = assigned && stomp.engaged;
     let fill = match (assigned, engaged) {
         (true, true) => hue,
-        (true, false) => hue.mix(SURFACE, 228),
-        (false, _) => SURFACE,
+        (true, false) => hue.mix(p.surface, 228),
+        (false, _) => p.surface,
     };
     l.panel(bounds, fill, 8.0, None);
     l.control(
@@ -243,11 +245,11 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
         stomp.label.clone(),
         Look::Area,
     );
-    let ink = if engaged { ON_ACCENT } else { TEXT };
+    let ink = if engaged { p.on_accent } else { p.text };
     let marks = if engaged {
-        ON_ACCENT.mix(hue, 60)
+        p.on_accent.mix(hue, 60)
     } else {
-        MUTED
+        p.muted
     };
     if assigned {
         // Stock 019: a 70 px box with a white glyph. Engaged it is black with a 2 px ring
@@ -256,24 +258,24 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
         // at 40 % hue on a 3 % hue fill, struck through in grey.
         let icon = Rect::new(bounds.x + 12, bounds.y + 12, 70, 70);
         if engaged {
-            l.panel(icon, CANVAS, 14.0, None);
+            l.panel(icon, p.canvas, 14.0, None);
             if stomp.category != Some(ModelCategory::Looper) {
                 l.panel(icon.inset(3, 3), hue, 14.0, None);
-                l.panel(icon.inset(5, 5), CANVAS, 12.0, None);
+                l.panel(icon.inset(5, 5), p.canvas, 12.0, None);
             }
         } else {
             let tile = icon.inset(3, 3);
-            l.panel(icon, fill.mix(CANVAS, 153), 14.0, None);
-            l.panel(tile, hue.mix(CANVAS, 153), 12.0, None);
-            l.panel(tile.inset(2, 2), hue.mix(CANVAS, 247), 10.0, None);
+            l.panel(icon, fill.mix(p.canvas, 153), 14.0, None);
+            l.panel(tile, hue.mix(p.canvas, 153), 12.0, None);
+            l.panel(tile.inset(2, 2), hue.mix(p.canvas, 247), 10.0, None);
         }
         if let Some(glyph_icon) = stomp_glyph(s, stomp) {
-            glyph(l, icon, glyph_icon, IconSize::Large, TEXT);
+            glyph(l, icon, glyph_icon, IconSize::Large, p.text);
         }
         if let Some(position) = stomp.position {
             let index = position.index();
             if s.blocks[index].capture_badge(s.captures[index]) {
-                capture_badge(l, icon, TEXT);
+                capture_badge(l, icon, p.text);
             }
         }
         if !engaged {
@@ -283,7 +285,7 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
                 from,
                 (icon.right() as f32 + 3.0, y),
                 2.0,
-                TEXT.mix(CANVAS, 60),
+                p.text.mix(p.canvas, 60),
             );
         }
         // Manual §3 PARAMETER EDITOR SHORTCUT: the block icon opens its editor.
@@ -335,7 +337,7 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
         name,
         Look::Paragraph {
             font: XLARGE_BOLD,
-            color: if assigned { ink } else { MUTED },
+            color: if assigned { ink } else { p.muted },
             align: Align::Left,
         },
     );
@@ -344,11 +346,12 @@ fn stomp_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize, switch: F
 /// Preset tile: "1A" (bank digit, letter in its slot colour) over the preset name. The
 /// loaded preset fills green. A hybrid preset half shows the bank's first four presets.
 fn preset_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
+    let p = l.palette;
     let s = &ui.snapshot;
     let preset = s.bank.presets.get(ui.preset_offset(tile));
     let active = preset.is_some_and(|preset| s.preset_id == Some(preset.id))
         || s.bank.highlighted == Some(ui.preset_offset(tile) as u8);
-    l.panel(bounds, if active { ACCENT } else { SURFACE }, 8.0, None);
+    l.panel(bounds, if active { p.accent } else { p.surface }, 8.0, None);
     if let Some(preset) = preset {
         l.control(
             bounds,
@@ -358,7 +361,7 @@ fn preset_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
             Look::Area,
         );
     }
-    let ink = if active { ON_ACCENT } else { TEXT };
+    let ink = if active { p.on_accent } else { p.text };
     let bank = (u32::from(s.bank.index) + 1).to_string();
     let id = Rect::new(bounds.x + 16, bounds.y + 6, 120, 52);
     l.text(id, bank.clone(), SLOT_ID, ink, Align::Left);
@@ -367,7 +370,7 @@ fn preset_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
         char::from(b'A' + tile as u8).to_string(),
         SLOT_ID,
         if active {
-            ON_ACCENT
+            p.on_accent
         } else {
             SLOT_COLOURS[tile]
         },
@@ -378,7 +381,7 @@ fn preset_tile(ui: &UiState, l: &mut Layout, bounds: Rect, tile: usize) {
         preset.map_or_else(|| "-".to_owned(), |preset| preset.title.clone()),
         Look::Paragraph {
             font: XLARGE_BOLD,
-            color: if preset.is_some() { ink } else { MUTED },
+            color: if preset.is_some() { ink } else { p.muted },
             align: Align::Left,
         },
     );
@@ -413,12 +416,13 @@ fn scene_hue(raw: u32) -> Option<Rgb> {
 }
 
 fn mode_glyph(l: &mut Layout, mode: FootswitchMode, x: i32, y: i32) {
+    let p = l.palette;
     let icon = match mode {
         FootswitchMode::Preset => Icon::ModePreset,
         FootswitchMode::Scene => Icon::ModeScene,
         FootswitchMode::Stomp | FootswitchMode::Hybrid => Icon::Footswitch,
     };
-    glyph(l, Rect::new(x, y, 24, 24), icon, IconSize::Medium, TEXT);
+    glyph(l, Rect::new(x, y, 24, 24), icon, IconSize::Medium, p.text);
 }
 
 fn glyph(l: &mut Layout, bounds: Rect, icon: Icon, size: IconSize, color: Rgb) {

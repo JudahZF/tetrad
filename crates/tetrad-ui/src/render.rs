@@ -1014,8 +1014,6 @@ pub(crate) fn wrap(text: &str, font: Font, width: f32) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use tetrad_assets::{ACCENT, ON_ACCENT, TEXT};
-
     use super::*;
 
     /// Both veil blends, the vectorized span (one row) and the table (a large area, and
@@ -1148,15 +1146,14 @@ mod tests {
                 width: u32::MAX,
                 height: u32::MAX,
             },
-            ACCENT,
+            Palette::STOCK.accent,
         );
-        assert!(
-            canvas
-                .frame
-                .rgb()
-                .chunks_exact(3)
-                .all(|rgb| rgb == [ACCENT.0, ACCENT.1, ACCENT.2])
-        );
+        assert!(canvas.frame.rgb().chunks_exact(3).all(|rgb| rgb
+            == [
+                Palette::STOCK.accent.0,
+                Palette::STOCK.accent.1,
+                Palette::STOCK.accent.2
+            ]));
         let font = Font::new(TextSize::Px20, Weight::Medium);
         canvas.text(
             Rect {
@@ -1167,7 +1164,7 @@ mod tests {
             },
             "aé🙂long",
             font,
-            TEXT,
+            Palette::STOCK.text,
             Align::Left,
         );
         canvas.round_rect(
@@ -1178,18 +1175,24 @@ mod tests {
                 height: u32::MAX,
             },
             12.0,
-            ON_ACCENT,
+            Palette::STOCK.on_accent,
         );
-        canvas.arc((-50, 900), &ring(40.0, 8.0), 0.0, 360.0, ON_ACCENT);
+        canvas.arc(
+            (-50, 900),
+            &ring(40.0, 8.0),
+            0.0,
+            360.0,
+            Palette::STOCK.on_accent,
+        );
         canvas.arc(
             (i32::MAX, i32::MIN),
             &ring(40.0, 8.0),
             0.0,
             360.0,
-            ON_ACCENT,
+            Palette::STOCK.on_accent,
         );
         assert_eq!(frame.rgb().len(), 800 * 480 * 3);
-        assert_eq!(frame.pixel(799, 479), ACCENT);
+        assert_eq!(frame.pixel(799, 479), Palette::STOCK.accent);
     }
 
     #[test]

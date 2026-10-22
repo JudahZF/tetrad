@@ -5,7 +5,7 @@ use crate::ItemKind;
 
 use std::collections::BTreeMap;
 
-use tetrad_assets::{Icon, Rgb};
+use tetrad_assets::{Icon, Palette, Rgb};
 
 use crate::control::CaptureDevice;
 use crate::settings::{SettingId, SettingValue};
@@ -222,7 +222,7 @@ impl ModelCategory {
     }
 
     /// Plugin tag text colour (`0x002eb7f0`): black on the light category colours, else
-    /// white.
+    /// white. Stock under every theme: the tag sits on a fixed category colour.
     pub fn tag_ink(self) -> Rgb {
         match self {
             Self::GuitarOverdrive
@@ -239,8 +239,8 @@ impl ModelCategory {
             | Self::Utility
             | Self::Pitch
             | Self::Filter
-            | Self::Morph => tetrad_assets::CANVAS,
-            _ => tetrad_assets::TEXT,
+            | Self::Morph => Palette::STOCK.canvas,
+            _ => Palette::STOCK.text,
         }
     }
 
@@ -390,8 +390,8 @@ impl BlockInfo {
     /// parameter (8036, 8039, 18018); Tetrad does not model that.
     pub fn fill(self, capture: Option<CaptureDevice>) -> Rgb {
         match (self.plugin, self.hue(capture)) {
-            (Some(_), Some(hue)) => hue.mix(tetrad_assets::CANVAS, 255 - 76),
-            _ => tetrad_assets::CANVAS,
+            (Some(_), Some(hue)) => hue.mix(Palette::STOCK.canvas, 255 - 76),
+            _ => Palette::STOCK.canvas,
         }
     }
 
@@ -946,7 +946,7 @@ impl DeviceGroup {
         ModelCategory::PICKER
             .into_iter()
             .find(|category| Self::of(*category).is_some_and(|(group, _)| group == self))
-            .map_or(tetrad_assets::ACCENT, ModelCategory::hue)
+            .map_or(Palette::STOCK.accent, ModelCategory::hue)
     }
 }
 
