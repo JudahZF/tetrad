@@ -34,12 +34,14 @@ const FILLS: [(Role, [f32; 3]); 7] = [
     (("accentFill", |p| p.accent_fill), [4.5, 3.0, 4.5]),
 ];
 
-/// The other pairs the screens draw: button labels on the action fill, error text, and
+/// The other pairs the screens draw: button labels on the action fill, error text, danger
+/// button labels on section grey (2.5:1: stock's own REMOVE reads 2.75:1), and
 /// `onAccent`, the ink of every bright fill (accent, badges, the selected paste row, the
 /// error card between text and danger, the muted stomp fallback).
-const PAIRS: [(Role, Role, f32); 7] = [
+const PAIRS: [(Role, Role, f32); 8] = [
     (TEXT, ("action", |p| p.action), 4.5),
     (DANGER, ("background", |p| p.background), 4.5),
+    (DANGER, ("section", |p| p.section), 2.5),
     (ON_ACCENT, ACCENT, 4.5),
     (ON_ACCENT, ("warning", |p| p.warning), 4.5),
     (ON_ACCENT, MUTED, 4.5),
@@ -361,6 +363,10 @@ mod tests {
             (
                 json!({ "id": "x", "name": "X", "colors": { "onAccent": "#ffffff" } }),
                 "onAccent on accent",
+            ),
+            (
+                json!({ "id": "x", "name": "X", "colors": { "section": "#606060", "muted": "#bbbbbb" } }),
+                "danger on section",
             ),
         ] {
             let message = spec(value).unwrap().resolve().unwrap_err().to_string();

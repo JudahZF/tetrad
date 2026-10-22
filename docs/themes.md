@@ -83,7 +83,8 @@ with the reason, but you cannot choose it.
     and on `action`.
   - `muted`: at least 4.5:1 on `background` and 3:1 on the other fills.
   - `accent`: at least 4.5:1 on every fill except `section` (3:1).
-  - `danger`: at least 4.5:1 on `background`.
+  - `danger`: at least 4.5:1 on `background`, and 2.5:1 on `section` (danger buttons; Stock's
+    own reads 2.75:1).
   - `onAccent`: at least 4.5:1 on `accent`, `warning`, `muted`, `text` and `danger`, the bright
     fills it is drawn on.
 - **Id.** 1 to 32 characters of `a-z`, `0-9` and `-`. It must not start with `-`.

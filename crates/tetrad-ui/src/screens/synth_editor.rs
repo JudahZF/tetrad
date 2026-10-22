@@ -57,8 +57,15 @@ fn knob_row(
 }
 
 /// A button that flips parameter `index` (or does another editor action). Lit, it fills with
-/// `fill`, a fixed category colour, so its label takes stock's ink.
-fn button(l: &mut Layout, bounds: Rect, label: &str, control: EditorControl, lit: bool, fill: Rgb) {
+/// `fill` and labels in `ink`: stock's ink on a fixed category colour, the theme's on a role.
+fn button(
+    l: &mut Layout,
+    bounds: Rect,
+    label: &str,
+    control: EditorControl,
+    lit: bool,
+    (fill, ink): (Rgb, Rgb),
+) {
     let p = l.palette;
     l.panel(bounds, if lit { fill } else { p.surface }, 8.0, None);
     l.control(bounds, Control::Editor(control), true, label, Look::Area);
@@ -66,7 +73,7 @@ fn button(l: &mut Layout, bounds: Rect, label: &str, control: EditorControl, lit
         bounds,
         label,
         BODY,
-        if lit { Palette::STOCK.text } else { p.muted },
+        if lit { ink } else { p.muted },
         Align::Center,
     );
 }
@@ -309,7 +316,7 @@ fn multivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
         for (index, label) in ["1", "2"].into_iter().enumerate() {
             let bounds = Rect::new(647 + index as i32 * 70, BODY_TOP + 145, 66, 52);
             let control = EditorControl::Bank(index as u8);
-            button(l, bounds, label, control, index == bank, p.panel);
+            button(l, bounds, label, control, index == bank, (p.panel, p.text));
         }
         card(l, 8, 197, 107, 6.0);
         card(l, 8, 305, 107, 6.0);
@@ -658,7 +665,14 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
                     k => ((k + 1).to_string(), on(ui, 40 + k)),
                 };
                 let control = EditorControl::Toggle(if k == 0 { u16::MAX } else { 40 + k });
-                button(l, bounds, &label, control, lit, SYNTH_RED);
+                button(
+                    l,
+                    bounds,
+                    &label,
+                    control,
+                    lit,
+                    (SYNTH_RED, Palette::STOCK.text),
+                );
             }
         }
         2 => {
@@ -699,7 +713,7 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
                             osc,
                             wave: item as u8,
                         };
-                        button(l, bounds, name, control, lit, fill);
+                        button(l, bounds, name, control, lit, (fill, Palette::STOCK.text));
                     }
                 }
             }
@@ -1014,7 +1028,14 @@ fn parallax(ui: &UiState, l: &mut Layout) {
             for (index, label, x, width) in SECTIONS {
                 let bounds = Rect::new(x, BODY_TOP + 153, width, 40);
                 let control = EditorControl::Toggle(index);
-                button(l, bounds, label, control, on(ui, index), palette.panel);
+                button(
+                    l,
+                    bounds,
+                    label,
+                    control,
+                    on(ui, index),
+                    (palette.panel, palette.text),
+                );
             }
             card(l, 8, 197, 106, 6.0);
             card(l, 8, 306, 106, 6.0);
@@ -1050,7 +1071,7 @@ fn parallax(ui: &UiState, l: &mut Layout) {
                     "Ø",
                     EditorControl::Toggle(phase),
                     on(ui, phase),
-                    palette.surface,
+                    (palette.surface, palette.text),
                 );
                 // Power (`0x820ac4`): the mic is on while its bypass is off.
                 let bounds = Rect::new(x + 316, row, 66, 44);
