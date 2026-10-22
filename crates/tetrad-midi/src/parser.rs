@@ -64,7 +64,8 @@ const fn data_len(status: u8) -> Option<usize> {
     }
 }
 
-fn assemble(status: u8, data: [u8; 2]) -> MidiMessage {
+/// The message for a status from [`data_len`] and its data bytes (seven-bit).
+pub(crate) fn assemble(status: u8, data: [u8; 2]) -> MidiMessage {
     let channel = Channel::from_index(status & 0x0f).expect("low nibble is a channel");
     let [a, b] = data.map(|byte| U7::masked(byte.into()));
     let wide = u16::from(data[0]) | (u16::from(data[1]) << 7);

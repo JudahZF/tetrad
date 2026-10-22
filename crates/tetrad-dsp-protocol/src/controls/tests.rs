@@ -241,24 +241,22 @@ fn signed_parameter_bounds_and_raw_float_bits() {
             }
         }
     }
-    for event in [
-        UsbMidiEvent {
-            code: 1,
-            status: 0x90,
+    // USB-MIDI CINs 0x2..=0xF pass (SysEx end with one byte is 0x5); 0x0, 0x1 and wider
+    // values are refused.
+    for code in [0x0, 0x1, 0x2, 0x5, 0xf, 0x10] {
+        let event = UsbMidiEvent {
+            code,
+            status: 0xf7,
             data: [0, 0],
-        },
-        UsbMidiEvent {
-            code: 15,
-            status: 0xf8,
-            data: [1, 0],
-        },
-    ] {
-        assert!(
-            RequestFrame::new(ControlRequest::UsbMidiOut {
-                delivery: UsbMidiDelivery::Immediate,
-                event
-            })
-            .is_err()
+        };
+        let request = ControlRequest::UsbMidiOut {
+            delivery: UsbMidiDelivery::Immediate,
+            event,
+        };
+        assert_eq!(
+            RequestFrame::new(request).is_ok(),
+            (0x2..=0xf).contains(&code),
+            "{code:#x}"
         );
     }
 }
