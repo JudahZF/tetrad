@@ -947,6 +947,13 @@ impl UiState {
         self.show_wifi_alert(&old);
         self.show_notice();
         self.show_questions();
+        // An application toast shows once, when its id changes.
+        if self.snapshot.toast != old.toast
+            && let Some(toast) = &self.snapshot.toast
+        {
+            let text = toast.text.clone();
+            self.show_toast(text);
+        }
         Ok(())
     }
 

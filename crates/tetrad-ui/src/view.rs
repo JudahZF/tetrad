@@ -2042,6 +2042,10 @@ pub struct UiSnapshot {
     pub extensions: crate::ExtensionsView,
     /// Mappings page (`crate::mappings`).
     pub mappings: crate::MappingsView,
+    /// Remote page (`crate::remote`).
+    pub remote: crate::RemoteView,
+    /// The application's last toast (`crate::remote::ToastView`).
+    pub toast: Option<crate::ToastView>,
     pub updater: UpdaterView,
     pub tetrad_update: TetradUpdateView,
     pub backups: BackupView,
@@ -2230,6 +2234,8 @@ impl Default for UiSnapshot {
             wifi: WifiView::default(),
             extensions: crate::ExtensionsView::default(),
             mappings: crate::MappingsView::default(),
+            remote: crate::RemoteView::default(),
+            toast: None,
             updater: UpdaterView::default(),
             tetrad_update: TetradUpdateView::default(),
             backups: BackupView::default(),

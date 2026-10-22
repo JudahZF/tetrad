@@ -102,6 +102,12 @@ tested = "unit"
 gaps = "Install from the published default repository not yet tested on the unit (staged store only)."
 
 [[capability]]
+id = "remote"
+what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, behind a 4-digit PIN."
+tested = "host"
+gaps = "Not run on the unit yet. IR upload only."
+
+[[capability]]
 id = "owned_dsp_blocks"
 what = "Five SHARC blocks with no stock code (Volume, Gain, Low-High Cut, Simple Gate, Graphic-9), experimental."
 tested = "unit"
