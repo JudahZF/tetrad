@@ -182,6 +182,16 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
     /** Offers a trigger to Mappings; at most 8. Needs the `triggers` capability. */
     declare(trigger: TriggerSpec): void;
   };
+  readonly usb: {
+    /**
+     * Answers messages from a computer over the USB cable (`tetrad-usb ext <id> <json>`).
+     * The handler's return value, as JSON, is the reply; nothing returned replies `null`, and
+     * a throw replies with an error. One handler. Needs the `usb` capability.
+     */
+    onMessage(
+      handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,
+    ): void;
+  };
 }
 
 /** The default export of an extension module. `activate` may return a disposer. */

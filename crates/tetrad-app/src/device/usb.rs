@@ -14,6 +14,7 @@ use tetrad_usb::{
     Answer, FileSize, MAX_CHUNK_BYTES, Op, PROTOCOL, Reassembler, Reply, Report, Request,
 };
 
+use super::extensions::{Outcome, UsbReply};
 use super::platform::{Platform, ServiceBackends};
 use super::ui::UiInput;
 use super::{Device, DeviceError, Effect, SendPolicy, Subsystem};
@@ -39,6 +40,25 @@ impl Default for UsbLink {
             outgoing: VecDeque::new(),
             staging: None,
         }
+    }
+}
+
+impl UsbLink {
+    fn queue(&mut self, reply: &Reply, body: &[u8]) {
+        (self.outgoing).extend(tetrad_usb::reports(0, &tetrad_usb::encode(reply, body)));
+    }
+
+    /// The answer of an extension to an [`Op::Extension`] request.
+    pub(super) fn answer_extension(&mut self, reply: UsbReply) {
+        let answer = match reply.result {
+            Ok(value) => Answer::Extension { value },
+            Err(message) => Answer::Error { message },
+        };
+        let reply = Reply {
+            id: reply.request,
+            answer,
+        };
+        self.queue(&reply, &[]);
     }
 }
 
@@ -70,18 +90,42 @@ impl<P: Platform> Device<P> {
                 return;
             }
         };
-        let (answer, body) = self
-            .usb_answer(request.op, body)
-            .unwrap_or_else(|message| (Answer::Error { message }, Vec::new()));
+        let (answer, body) = match self.usb_answer(request.id, request.op, body) {
+            Ok(Some(answer)) => answer,
+            // An extension answers later (`UsbLink::answer_extension`).
+            Ok(None) => return,
+            Err(message) => (Answer::Error { message }, Vec::new()),
+        };
         let reply = Reply {
             id: request.id,
             answer,
         };
-        (self.usb.outgoing).extend(tetrad_usb::reports(0, &tetrad_usb::encode(&reply, &body)));
+        self.usb.queue(&reply, &body);
     }
 
-    fn usb_answer(&mut self, op: Op, body: &[u8]) -> Result<(Answer, Vec<u8>), String> {
-        Ok(match op {
+    /// The answer to one request, or `None` when it comes later.
+    fn usb_answer(
+        &mut self,
+        id: u32,
+        op: Op,
+        body: &[u8],
+    ) -> Result<Option<(Answer, Vec<u8>)>, String> {
+        if let Op::Extension { extension, message } = op {
+            if self.platform.extensions().is_none() {
+                return Err("extensions do not run in this mode".into());
+            }
+            let mut refused = None;
+            let effects = self.extensions(|extensions, backend, _| {
+                (extensions.usb_message(&extension, id, message, backend)).unwrap_or_else(|e| {
+                    refused = Some(e);
+                    Outcome::default()
+                })
+            });
+            self.apply(Ok::<_, DeviceError>(effects));
+            return refused.map_or(Ok(None), Err);
+        }
+        Ok(Some(match op {
+            Op::Extension { .. } => unreachable!("answered above"),
             Op::Hello => (
                 Answer::Hello {
                     tetrad: env!("CARGO_PKG_VERSION").into(),
@@ -201,7 +245,7 @@ impl<P: Platform> Device<P> {
                 self.apply(Ok::<_, DeviceError>(effects));
                 (Answer::InstallReady { version }, Vec::new())
             }
-        })
+        }))
     }
 
     /// Sends up to `limit` queued reports; a failed send keeps its report first for the next

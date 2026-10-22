@@ -56,6 +56,8 @@ pub enum Capability {
     Storage,
     /// Declare triggers and fire them into Mappings.
     Triggers,
+    /// Answer messages from a computer over the USB cable (`tetrad-usb ext`, docs/usb.md).
+    Usb,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -146,6 +146,12 @@ pub enum Op {
     /// Every file is complete: the device offers the release on its Tetrad Updates page, where
     /// the user starts the install.
     InstallReady,
+    /// A JSON message for the extension with this manifest ID; it needs the `usb` capability.
+    /// The reply is what its `ctx.usb.onMessage` handler returns.
+    Extension {
+        extension: String,
+        message: serde_json::Value,
+    },
 }
 
 /// The reply to the request with the same `id`.
@@ -182,6 +188,10 @@ pub enum Answer {
     },
     InstallReady {
         version: String,
+    },
+    /// What the extension's handler returned.
+    Extension {
+        value: serde_json::Value,
     },
     Error {
         message: String,

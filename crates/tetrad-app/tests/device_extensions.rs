@@ -525,3 +525,69 @@ fn the_native_channel_takes_a_reserved_channel_back() {
             && d.bridges().extensions.reserved_channels() == 0
     });
 }
+
+/// A computer's message over USB (`tetrad-usb ext`) reaches the extension's
+/// `ctx.usb.onMessage`; the handler's return value is the reply. An extension that is not
+/// installed gets an error reply.
+#[test]
+fn a_usb_message_is_answered_by_the_extension() {
+    use tetrad_dsp_protocol::hid::{HEADER_BYTES, REPORT_BYTES};
+    use tetrad_dsp_protocol::responses::{ResponseType, encode};
+    use tetrad_dsp_protocol::{CoreId, DspCore};
+    use tetrad_usb::{Answer, Op, Reassembler, Reply, Request};
+
+    const PONG: &str = r#"export default { activate(ctx) {
+        ctx.usb.onMessage((message) => ({ pong: message.ping }));
+    } };"#;
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let root = media.0.join("tetrad/extensions");
+    let backend = LocalBackend::threads().with_worker(root, repository_with(PONG, &["usb"]));
+    let (mut device, log, _media) = common::boot_extensions(media, backend);
+    while !device.state().splash_dismissed {
+        assert!(device.step().is_none());
+    }
+    install(&mut device);
+
+    let ask = |device: &mut Device<Sim>, id, extension: &str| {
+        let op = Op::Extension {
+            extension: extension.into(),
+            message: json!({ "ping": 7 }),
+        };
+        let rings = &device.platform().clock.rings;
+        for report in tetrad_usb::reports(0, &tetrad_usb::encode(&Request { id, op }, &[])) {
+            common::publish(
+                &mut rings.0.borrow_mut(),
+                CoreId::Dsp(DspCore::Core3),
+                &encode(ResponseType::HidReport, 0, &report),
+            );
+        }
+    };
+    let replies = |log: &common::Log| -> Vec<Reply> {
+        let mut reassembler = Reassembler::new(1 << 16);
+        (log.requests.iter())
+            .filter(|sent| sent.kind() == 0x27)
+            .map(|sent| &sent.frame[HEADER_BYTES..HEADER_BYTES + REPORT_BYTES])
+            .filter(|report| tetrad_usb::is_tetrad(report))
+            .filter_map(|report| reassembler.push(report).unwrap())
+            .map(|(_, message)| tetrad_usb::decode::<Reply>(&message).unwrap().0)
+            .collect()
+    };
+    ask(&mut device, 1, "test.mapper");
+    ask(&mut device, 2, "test.missing");
+    pump(&mut device, "two USB replies", |_| {
+        replies(&log.borrow()).len() == 2
+    });
+    let replies = replies(&log.borrow());
+    let answer = |id| &replies.iter().find(|reply| reply.id == id).unwrap().answer;
+    assert_eq!(
+        answer(1),
+        &Answer::Extension {
+            value: json!({ "pong": 7 })
+        }
+    );
+    assert!(
+        matches!(answer(2), Answer::Error { message } if message.contains("test.missing")),
+        "{:?}",
+        answer(2)
+    );
+}

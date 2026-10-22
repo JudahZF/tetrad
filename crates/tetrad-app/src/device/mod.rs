@@ -2918,6 +2918,9 @@ impl<P: Platform> Device<P> {
         }
         // Declared triggers can change with any extension step.
         self.bridges.mappings.view_stale = true;
+        for reply in outcome.usb_replies {
+            self.usb.answer_extension(reply);
+        }
         let mut effects = outcome.effects;
         for fired in &outcome.triggers {
             let step = (self.bridges.mappings).on_extension(fired, &self.state, self.clock.now());

@@ -50,9 +50,9 @@ gaps = "Gain calibration and the log request are refused. Capture over Cortex Co
 
 [[capability]]
 id = "usb_link"
-what = "The Tetrad link over the USB HID interface, next to Cortex Control: version, screenshot, notices and the install of a signed Tetrad release (docs/usb.md)."
-tested = "host"
-gaps = "Not yet run on a unit; the transport was measured on a unit with a probe build. Shared use with Cortex Control on macOS and Windows is not tested."
+what = "The Tetrad link over the USB HID interface, next to Cortex Control: version, screenshot, notices, the install of a signed Tetrad release, and messages to extensions with the usb capability (docs/usb.md)."
+tested = "unit"
+gaps = "Tested on a unit with Cortex Control 4.1.0 under Proton on Linux; macOS and Windows hosts are not tested. Extension messages are tested on the host only. One tetrad-usb at a time."
 
 [[capability]]
 id = "services"

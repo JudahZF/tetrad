@@ -35,6 +35,15 @@ enum Command {
     /// `tetrad-*.sh` scripts, `tetrad-update.json` and `tetrad-update.json.sig`. Then start the
     /// install on the unit: Settings > System > Tetrad Updates > UPDATE TETRAD.
     Install { dir: PathBuf },
+    /// Send a JSON message to an installed extension with the `usb` capability and print its
+    /// reply.
+    Ext {
+        /// The extension's manifest ID, such as `my.extension`.
+        extension: String,
+        /// A JSON value; default `null`.
+        #[arg(default_value = "null")]
+        message: String,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -45,6 +54,8 @@ enum Error {
     File(PathBuf, std::io::Error),
     #[error("unexpected reply: {0:?}")]
     Reply(Answer),
+    #[error("the message is not JSON: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, Error> {
@@ -70,6 +81,16 @@ fn run(command: Command) -> Result<(), Error> {
             println!("{}", String::from_utf8_lossy(&text));
         }
         Command::Install { dir } => install(&mut link, &dir)?,
+        Command::Ext { extension, message } => {
+            let op = Op::Extension {
+                extension,
+                message: serde_json::from_str(&message)?,
+            };
+            match link.call(op, &[], SHORT)? {
+                (Answer::Extension { value }, _) => println!("{value:#}"),
+                (other, _) => return Err(Error::Reply(other)),
+            }
+        }
     }
     Ok(())
 }

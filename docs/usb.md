@@ -45,6 +45,7 @@ It uses [hidapi](https://github.com/libusb/hidapi). On Linux it needs `libudev` 
 | `tetrad-usb screenshot -o screen.png` | Saves the screen of the unit as a PNG. |
 | `tetrad-usb log` | Prints the recent notices of the unit. |
 | `tetrad-usb install DIR` | Sends a Tetrad release to the unit (see below). |
+| `tetrad-usb ext ID JSON` | Sends a JSON message to an extension and prints its reply (see below). |
 
 ### Install a release over USB
 
@@ -62,6 +63,33 @@ It uses [hidapi](https://github.com/libusb/hidapi). On Linux it needs `libudev` 
 
 Over USB, any signed version installs, an older one too. Nothing installs until you touch
 UPDATE TETRAD on the unit. During a Tetrad or CorOS install, the unit refuses a USB install.
+
+## Custom features: extensions over USB
+
+An [extension](extensions.md) with the `usb` capability can answer messages from a computer.
+This is how you add your own USB features without changing Tetrad:
+
+```ts
+ctx.usb.onMessage(async (message, scope) => {
+  if (message.cmd === "bypass") await scope.controls.toggleBypass(message.binding);
+  return { ok: true };
+});
+```
+
+```sh
+tetrad-usb ext my.extension '{"cmd":"bypass","binding":{…}}'
+```
+
+The handler gets the JSON message and the usual scope, and its return value is the reply. A
+handler that throws replies with an error. The handler has the extension limits: 1 s, then the
+host stops the extension.
+
+## Both at once
+
+Cortex Control and `tetrad-usb` can run at the same time. This was tested on a unit on
+2026-10-22: Cortex Control stayed connected through a 12-minute USB install and changed scenes
+during it. Tetrad sends its reports only between Cortex Control messages. Run one `tetrad-usb`
+at a time: two at once mix their requests.
 
 ## Protocol
 
@@ -99,6 +127,7 @@ body. Each request has an `id`, and its reply has the same `id`.
 | `{"id":4,"op":"install-begin","manifest":"…","signature":"…"}` | — | `{"id":4,"reply":"install-begin","version":"…","files":[{"path":"bin/tetrad","size":…},…]}` | — |
 | `{"id":5,"op":"install-chunk","path":"bin/tetrad","offset":0}` | up to 64 KiB of the file | `{"id":5,"reply":"install-chunk","path":"bin/tetrad","received":65536}` | — |
 | `{"id":6,"op":"install-ready"}` | — | `{"id":6,"reply":"install-ready","version":"…"}` | — |
+| `{"id":7,"op":"extension","extension":"my.extension","message":…}` | — | `{"id":7,"reply":"extension","value":…}` | — |
 
 `manifest` and `signature` are the exact text of `tetrad-update.json` and
 `tetrad-update.json.sig`. The chunks of a file must follow on: `offset` is the `received` value
