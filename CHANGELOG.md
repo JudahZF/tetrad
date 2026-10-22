@@ -14,6 +14,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
   colours, LEDs, the boot menu and Recovery do not change (docs/themes.md).
 - Theme-only extensions: a manifest with `themes` and no capabilities, settings or commands
   packs without a module, and Tetrad runs nothing for it (docs/extensions.md#ship-themes).
+- Remote (Settings → System → Remote): a web page on the unit to add IRs from a browser on the
+  same Wi-Fi, behind a 4-digit PIN that the page shows. The browser converts each WAV or AIFF to
+  the stock IR format (mono, 48 kHz, first 1,024 samples); the unit imports it into the IR
+  saving destination as Cortex Control does. The on/off setting is in
+  `/media/p4/tetrad/remote.json` (docs/remote.md).
+- The application can show a toast (`UiSnapshot::toast`); Remote shows "IR added" with it.
 
 ## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
 

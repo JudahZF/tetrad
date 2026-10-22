@@ -912,6 +912,39 @@ pub struct Sim {
     pub disk_space: Option<tetrad_sys::fs::FsSpace>,
     /// Extension runners and store worker; `None` (default): extensions do not run.
     pub extensions: Option<tetrad_app::device::extensions::LocalBackend>,
+    /// The Remote server; `None` (default): Remote does not run.
+    pub remote: Option<FakeRemote>,
+}
+
+/// A Remote server with no socket: tests push [`Input::Remote`] calls and read the replies.
+#[derive(Debug, Default)]
+pub struct FakeRemote {
+    pub running: bool,
+    /// `start` fails with this reason (a port in use).
+    pub fail: Option<String>,
+    pub replies: Vec<(u64, tetrad_remote::Reply)>,
+    /// PINs made so far; the next PIN is this count plus one, as four digits.
+    pub pins: u32,
+}
+
+impl tetrad_app::device::remote::RemoteBackend for FakeRemote {
+    fn start(&mut self) -> Result<(), String> {
+        if let Some(reason) = &self.fail {
+            return Err(reason.clone());
+        }
+        self.running = true;
+        Ok(())
+    }
+    fn stop(&mut self) {
+        self.running = false;
+    }
+    fn reply(&mut self, id: u64, reply: tetrad_remote::Reply) {
+        self.replies.push((id, reply));
+    }
+    fn new_pin(&mut self) -> Result<String, String> {
+        self.pins += 1;
+        Ok(format!("{:04}", self.pins))
+    }
 }
 
 impl Sim {
@@ -1003,6 +1036,7 @@ impl Sim {
             drill_core0: false,
             disk_space: None,
             extensions: None,
+            remote: None,
         }
     }
 
@@ -1145,6 +1179,9 @@ impl Platform for Sim {
     }
     fn extensions(&mut self) -> Option<&mut dyn tetrad_app::device::extensions::ExtensionBackend> {
         self.extensions.as_mut().map(|backend| backend as _)
+    }
+    fn remote(&mut self) -> Option<&mut dyn tetrad_app::device::remote::RemoteBackend> {
+        self.remote.as_mut().map(|backend| backend as _)
     }
     fn midi_write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         self.clock.log.borrow_mut().midi.push(bytes.to_vec());
@@ -1369,6 +1406,28 @@ pub fn boot_with_files(media: Media, files: MemFiles) -> (Device<Sim>, Rc<RefCel
     }
     let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
     (device, log, media)
+}
+
+/// [`boot`] with `remote`, the media cipher and a wall clock (an IR import needs both), over
+/// the service files `files`.
+#[allow(dead_code)]
+pub fn boot_remote(media: Media, files: MemFiles, remote: FakeRemote) -> (Device<Sim>, Media) {
+    use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
+    let log = Rc::new(RefCell::new(Log::default()));
+    let mut sim = Sim::new(STOCK, &media, &log);
+    sim.services.files = files;
+    for marker in [CAPTURE_CORRUPTION_CHECKED, CAPTURE_CONVERSION_FINISHED] {
+        sim.services.files.put(marker, "");
+    }
+    sim.media_cipher = Some(tetrad_media::factory::DeviceCipher::caller_secret(
+        b"invented",
+    ));
+    sim.wall_clock.set(Some(
+        std::time::UNIX_EPOCH + Duration::from_secs(1_791_635_696),
+    ));
+    sim.remote = Some(remote);
+    let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
+    (device, media)
 }
 
 /// [`boot`] with extension runners on threads and the store under the media root.

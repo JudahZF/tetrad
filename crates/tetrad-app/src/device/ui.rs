@@ -128,6 +128,8 @@ pub enum Handoff {
     Mappings(tetrad_ui::MappingCommand),
     /// Settings → Appearance picked a theme → appearance bridge.
     Theme(tetrad_theme::ThemeId),
+    /// The Remote page switch → `Device::set_remote`.
+    Remote { enabled: bool },
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -780,6 +782,7 @@ impl Ui {
             C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
             C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
             C::SetTheme(id) => vec![Request::Handoff(Handoff::Theme(id))],
+            C::SetRemote { enabled } => vec![Request::Handoff(Handoff::Remote { enabled })],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],
@@ -2267,6 +2270,7 @@ fn notice_title(subsystem: Subsystem) -> &'static str {
         Subsystem::Capture => "Neural Capture",
         Subsystem::Power => "Power",
         Subsystem::Extensions => "Extensions",
+        Subsystem::Remote => "Remote",
     }
 }
 

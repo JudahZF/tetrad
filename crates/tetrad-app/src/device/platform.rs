@@ -168,6 +168,11 @@ pub trait Platform {
     fn extensions(&mut self) -> Option<&mut dyn crate::device::extensions::ExtensionBackend> {
         None
     }
+
+    /// The Remote HTTP server; `None` where Remote does not run.
+    fn remote(&mut self) -> Option<&mut dyn crate::device::remote::RemoteBackend> {
+        None
+    }
 }
 
 /// tetrad-services backends, borrowed together by `services.rs`.
@@ -303,6 +308,8 @@ pub enum Input {
     Service(ServiceNotice),
     /// Extension runner output.
     Extension(crate::device::extensions::ExtensionInput),
+    /// A request of the Remote page (`crate::device::remote`).
+    Remote(tetrad_remote::Call),
     /// The user or the system asked for a power action.
     Power(crate::device::PowerAction),
 }

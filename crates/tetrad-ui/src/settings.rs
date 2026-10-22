@@ -582,6 +582,8 @@ pub enum SettingsPage {
     FactoryReset,
     /// Owned (Tetrad): installed extensions, the catalog and its repositories.
     Extensions,
+    /// Owned (Tetrad): the web page that uploads IRs over Wi-Fi.
+    Remote,
     GlobalBypass,
     SceneBypass,
     StompModeBypass,
@@ -619,8 +621,8 @@ impl SettingsGroup {
     }
 
     /// Pages in stock menu order (`0x791ac`). Owned: Tetrad Updates follows CorOS Updates, so
-    /// the two update pages sit together; Appearance follows Brightness; Extensions ends
-    /// System.
+    /// the two update pages sit together; Appearance follows Brightness; Extensions and
+    /// Remote end System.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -637,6 +639,7 @@ impl SettingsGroup {
                 DeviceStorage,
                 FactoryReset,
                 Extensions,
+                Remote,
             ],
             Self::Device => &[
                 GlobalBypass,
@@ -713,6 +716,7 @@ impl SettingsPage {
             Self::DeviceStorage => "Device Storage",
             Self::FactoryReset => "Factory Reset",
             Self::Extensions => "Extensions",
+            Self::Remote => "Remote",
             Self::GlobalBypass => "Global Bypass",
             Self::SceneBypass => "Scene Bypass Behavior",
             Self::StompModeBypass => "Stomp Mode Bypass",
@@ -731,7 +735,7 @@ impl SettingsPage {
 
     /// Rows for pages that are plain setting lists. Pages with their own layout (account,
     /// backups, Wi-Fi, updates, storage, information, brightness, global bypass, factory
-    /// reset, extensions, about) return an empty list.
+    /// reset, extensions, remote, about) return an empty list.
     pub(crate) fn rows(self) -> &'static [PageRow] {
         use PageRow::*;
         use SettingId as S;
@@ -846,6 +850,7 @@ impl SettingsPage {
             | Self::DeviceStorage
             | Self::FactoryReset
             | Self::Extensions
+            | Self::Remote
             | Self::GlobalBypass
             | Self::AboutContact
             | Self::DeviceInformation

@@ -25,6 +25,7 @@ mod picker;
 mod preset_metadata;
 mod presets;
 mod recovery;
+pub(crate) mod remote;
 mod settings;
 mod settings_presets;
 mod storage;

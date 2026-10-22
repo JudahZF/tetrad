@@ -76,7 +76,7 @@ fn header(l: &mut Layout, x: i32, y: i32, width: u32, title: &str) {
     );
 }
 
-fn divider(l: &mut Layout, row: Rect) {
+pub(super) fn divider(l: &mut Layout, row: Rect) {
     let p = l.palette;
     l.push(
         Rect::new(row.x, row.bottom() - 1, row.width, 1),
@@ -594,7 +594,7 @@ fn detail_part(
 }
 
 /// A row label from x + 16 to `right`, as generic setting rows.
-fn label(l: &mut Layout, row: Rect, right: i32, text: impl Into<String>) {
+pub(super) fn label(l: &mut Layout, row: Rect, right: i32, text: impl Into<String>) {
     let p = l.palette;
     let x = row.x + 16;
     l.text(
@@ -607,7 +607,7 @@ fn label(l: &mut Layout, row: Rect, right: i32, text: impl Into<String>) {
 }
 
 /// A generic toggle row's look: label and the vertical switch at the right end.
-fn switch_row(l: &mut Layout, row: Rect, text: &str, on: Option<bool>) {
+pub(super) fn switch_row(l: &mut Layout, row: Rect, text: &str, on: Option<bool>) {
     let switch = Rect::new(row.right() - 66, row.y, 66, row.height);
     l.push(switch, "", Look::Switch { on });
     label(l, row, switch.x - 8, text);

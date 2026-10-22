@@ -49,6 +49,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         DeviceInformation => Icon::InfoFilled,
         Diagnostics => Icon::PlusBold,
         Extensions => Icon::Plugin,
+        Remote => Icon::Download,
     }
 }
 
@@ -294,6 +295,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::FactoryReset => super::recovery::options(l, body, false),
         SettingsPage::AboutContact => about(l, body),
         SettingsPage::Extensions => super::extensions::layout(ui, l, pane),
+        SettingsPage::Remote => super::remote::layout(ui, l, body),
         // Stock 091 rows (dividers, dropdowns) run 8 px past the text inset, to x 784.
         _ => {
             let area = Rect::new(body.x, body.y, body.width + 8, body.height);

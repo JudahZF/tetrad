@@ -470,6 +470,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
 
 [[package]]
+name = "httparse"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -887,6 +893,7 @@ dependencies = [
  "tetrad-media",
  "tetrad-midi",
  "tetrad-preset",
+ "tetrad-remote",
  "tetrad-services",
  "tetrad-settings",
  "tetrad-storage",
@@ -1109,6 +1116,14 @@ dependencies = [
  "serde",
  "tetrad-core",
  "thiserror",
+]
+
+[[package]]
+name = "tetrad-remote"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "httparse",
+ "serde_json",
 ]
 
 [[package]]

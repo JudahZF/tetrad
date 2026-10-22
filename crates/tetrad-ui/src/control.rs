@@ -956,6 +956,8 @@ pub enum Control {
     Mapping(MappingControl),
     /// Settings → Appearance: pick the theme of row n ([`crate::AppearanceView::themes`]).
     Theme(u16),
+    /// The switch of the Remote page (`screens::remote`).
+    RemoteToggle,
     Updater(UpdaterCommand),
     TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
@@ -1222,6 +1224,10 @@ pub enum UiCommand {
     Mapping(crate::MappingCommand),
     /// Apply and store a theme (Settings → Appearance, owned).
     SetTheme(tetrad_theme::ThemeId),
+    /// The Remote page switch (`crate::remote`).
+    SetRemote {
+        enabled: bool,
+    },
     SelectScene {
         scene: SceneIndex,
     },
@@ -1957,6 +1963,7 @@ impl fmt::Debug for UiCommand {
             C::WifiDisconnect => f.write_str("WifiDisconnect"),
             C::Updater { command } => show!("Updater", command),
             C::TetradUpdate { command } => show!("TetradUpdate", command),
+            C::SetRemote { enabled } => show!("SetRemote", enabled),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),
