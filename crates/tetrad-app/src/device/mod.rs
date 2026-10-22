@@ -38,6 +38,7 @@ pub mod remote;
 pub mod services;
 pub mod ui;
 mod upload;
+mod usb;
 
 pub use upload::UploadRefused;
 
@@ -497,6 +498,7 @@ pub enum Subsystem {
     Power,
     Extensions,
     Remote,
+    Usb,
 }
 
 /// A degraded step or an unsupported request, kept for the UI and the log.
@@ -977,6 +979,8 @@ pub struct Device<P: Platform> {
     last_phases: PhaseTimes,
     /// The costliest unit of each phase of the last [`Self::step`] (bring-up `SLOW` lines).
     probe: probe::Probe,
+    /// The Tetrad link over USB (`usb.rs`).
+    usb: usb::UsbLink,
     /// The Wi-Fi bring-up (`services::Services::start`) succeeded.
     services_up: bool,
     /// [`bringup::RunOptions::STOCK`] for `run`; a bring-up run gates stages and writes.
@@ -1047,6 +1051,7 @@ impl<P: Platform> Device<P> {
             shown_clips: tetrad_ui::GridClips::default(),
             last_phases: PhaseTimes::default(),
             probe: probe::Probe::default(),
+            usb: usb::UsbLink::default(),
             services_up: false,
             options,
             health: bringup::Health::default(),
@@ -1393,6 +1398,7 @@ impl<P: Platform> Device<P> {
         }
         self.probe.enter();
         self.send_control_reports(control::outgoing::FRAMES_PER_PASS);
+        self.send_usb_reports(usb::REPORTS_PER_PASS);
         self.probe.leave(Label::new("send_reports"));
         lap.end(&mut self.last_phases.control);
         self.probe.set_phase(Phase::Views);
@@ -1482,8 +1488,13 @@ impl<P: Platform> Device<P> {
             self.notice(Subsystem::Input, error.to_string());
         }
         self.queue.extend(hal.into_iter().map(Event::Hal));
+        let mut usb = Vec::new();
         while let Some(dsp) = self.dsp.as_mut() {
             match dsp.next_event() {
+                // Tetrad reports never reach the Cortex Control link (`usb.rs`).
+                Ok(Some((_, DspEvent::HidReport(report)))) if tetrad_usb::is_tetrad(&report.0) => {
+                    usb.push(report.0);
+                }
                 Ok(Some((_, DspEvent::HidReport(report)))) => {
                     self.queue.push_back(Event::Control(Box::new(report.0)));
                 }
@@ -1517,6 +1528,9 @@ impl<P: Platform> Device<P> {
                     break;
                 }
             }
+        }
+        for report in usb {
+            self.usb_report(&report);
         }
         let mut input = Vec::new();
         if let Err(error) = self.platform.poll_input(&mut input) {

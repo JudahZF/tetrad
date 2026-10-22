@@ -1,8 +1,9 @@
 //! Owned (Tetrad): the Tetrad Updates page. The check and the install of a newer Tetrad
 //! release run on the bulk worker ([`tetrad_services::updater::tetrad`]); a good install
-//! restarts the unit. CorOS does not change.
+//! restarts the unit. CorOS does not change. A release can also come over USB
+//! (`device/usb.rs`): it is offered here, and UPDATE TETRAD on the unit installs it.
 
-use tetrad_services::updater::tetrad::{self, Offer};
+use tetrad_services::updater::tetrad::{self, Manifest, Offer, Source};
 use tetrad_ui::{TetradUpdateState, TetradUpdateView};
 
 use super::*;
@@ -60,6 +61,34 @@ impl Services {
             progress: None,
         };
         Ok(vec![Effect::Service(ServiceJob::TetradInstall(offer))])
+    }
+
+    /// A USB install may stage its files: no Tetrad or CorOS install and no CorOS download
+    /// runs, since each of them writes p4.
+    pub fn usb_staging_allowed(&self) -> Result<(), ServiceError> {
+        if self.tetrad_installing() {
+            return Err(ServiceError::NotReady("a Tetrad install is running"));
+        }
+        if self.installing() || self.updater.state == UpdaterState::DownloadingData {
+            return Err(ServiceError::NotReady("a CorOS update is running"));
+        }
+        Ok(())
+    }
+
+    /// The release that `tetrad-usb install` pushed is on p4 as `.part` files: UPDATE TETRAD
+    /// installs it.
+    pub fn offer_usb_update(&mut self, manifest: Manifest) -> Result<Vec<Effect>, ServiceError> {
+        self.usb_staging_allowed()?;
+        let offer = Offer {
+            source: Source::Usb,
+            manifest,
+        };
+        let text = format!(
+            "Tetrad {} from USB: Settings > System > Tetrad Updates > UPDATE TETRAD",
+            offer.version()
+        );
+        self.tetrad = TetradUpdate::Available(offer);
+        Ok(vec![notice(text)])
     }
 
     /// A Tetrad install runs: no CorOS install may start.

@@ -49,6 +49,12 @@ tested = "unit"
 gaps = "Gain calibration and the log request are refused. Capture over Cortex Control is not tested."
 
 [[capability]]
+id = "usb_link"
+what = "The Tetrad link over the USB HID interface, next to Cortex Control: version, screenshot, notices and the install of a signed Tetrad release (docs/usb.md)."
+tested = "host"
+gaps = "Not yet run on a unit; the transport was measured on a unit with a probe build. Shared use with Cortex Control on macOS and Windows is not tested."
+
+[[capability]]
 id = "services"
 what = "Wi-Fi, DHCP, time, internet checks, cloud sign-in, downloads and uploads, local and cloud backups."
 tested = "unit"

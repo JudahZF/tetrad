@@ -12,6 +12,12 @@
 //! the new binary supports the running CorOS (`tetrad run --check`), then move the files into
 //! place and arm the binary (`tetrad-launcher.sh arm`). A failure before the move removes the
 //! `.part` files and keeps the old Tetrad.
+//!
+//! A release can also come over USB ([`Source::Usb`], `docs/usb.md`): `tetrad-usb install`
+//! pushes the same signed manifest and files, the device writes each file as its `.part` and
+//! offers the release on the Tetrad Updates page. [`install`] then runs the same checks; only
+//! the download is skipped. Over USB any signed version installs, older ones too, because the
+//! user starts the install on the unit.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -108,12 +114,12 @@ pub struct Manifest {
 
 impl Manifest {
     /// Checks `signature` over the exact `json` bytes with the base64 `key`, then parses and
-    /// checks the manifest for the release of `version`.
+    /// checks the manifest; with `version`, it must be the manifest of that release.
     pub fn verify(
         json: &[u8],
         signature: &[u8],
         key: &str,
-        version: &Version,
+        version: Option<&Version>,
     ) -> Result<Self, TetradUpdateError> {
         let bad = TetradUpdateError::Signature;
         let decode = |text: &[u8]| {
@@ -128,10 +134,12 @@ impl Manifest {
         Self::parse(json, version)
     }
 
-    fn parse(json: &[u8], version: &Version) -> Result<Self, TetradUpdateError> {
+    fn parse(json: &[u8], version: Option<&Version>) -> Result<Self, TetradUpdateError> {
         let bad = |text: String| TetradUpdateError::Manifest(text);
         let manifest: Self = serde_json::from_slice(json).map_err(|e| bad(e.to_string()))?;
-        if &manifest.version != version {
+        if let Some(version) = version
+            && &manifest.version != version
+        {
             return Err(bad(format!("version {}, not {version}", manifest.version)));
         }
         if !manifest.files.keys().map(String::as_str).eq(FILES) {
@@ -157,10 +165,19 @@ impl Manifest {
     }
 }
 
-/// A newer release that the device can install.
+/// Where the files of an [`Offer`] come from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// The assets of this GitHub release tag.
+    Release(String),
+    /// Already on p4 as `.part` files ([`part`]), pushed over USB.
+    Usb,
+}
+
+/// A release that the device can install.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
-    pub tag: String,
+    pub source: Source,
     pub manifest: Manifest,
 }
 
@@ -168,11 +185,11 @@ impl Offer {
     pub fn version(&self) -> &Version {
         &self.manifest.version
     }
+}
 
-    fn url(&self, path: &str) -> String {
-        let name = path.rsplit('/').next().unwrap_or(path);
-        asset_url(&self.tag, name)
-    }
+/// The release asset name of a manifest path: its file name.
+pub fn asset_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 fn asset_url(tag: &str, name: &str) -> String {
@@ -246,15 +263,19 @@ pub fn check(
     };
     let json = get(http, asset_url(&tag, MANIFEST), MAX_MANIFEST_BYTES)?;
     let signature = get(http, asset_url(&tag, SIGNATURE), MAX_SIGNATURE_BYTES)?;
-    let manifest = Manifest::verify(&json, &signature, RELEASE_KEY, &version)?;
-    Ok(Some(Offer { tag, manifest }))
+    let manifest = Manifest::verify(&json, &signature, RELEASE_KEY, Some(&version))?;
+    Ok(Some(Offer {
+        source: Source::Release(tag),
+        manifest,
+    }))
 }
 
 fn home(path: &str) -> PathBuf {
     Path::new(HOME).join(path)
 }
 
-fn part(path: &str) -> PathBuf {
+/// Where a file of an update is staged before the install moves it into place.
+pub fn part(path: &str) -> PathBuf {
     home(&format!("{path}.part"))
 }
 
@@ -279,7 +300,8 @@ fn run(runner: &mut impl CommandRunner, command: &Command) -> Result<(), TetradU
     }
 }
 
-/// Downloads, checks, installs and arms `offer`. The caller restarts the unit after `Ok`.
+/// Downloads (unless it came over USB), checks, installs and arms `offer`. The caller restarts
+/// the unit after `Ok`.
 pub fn install(
     http: &mut impl HttpClient,
     files: &mut impl Files,
@@ -316,17 +338,20 @@ fn stage(
     offer: &Offer,
 ) -> Result<(), TetradUpdateError> {
     for (path, entry) in &offer.manifest.files {
-        let url = offer.url(path);
         let dest = part(path);
-        let request = HttpRequest::new(Method::Get, url.as_str(), Route::Product, FILE_TIMEOUT)
-            .header("User-Agent", "Tetrad")
-            .follow_redirects();
-        let status = (http.download(&request, &dest)).map_err(|error| TetradUpdateError::Http {
-            url: url.clone(),
-            error,
-        })?;
-        if !(200..300).contains(&status) {
-            return Err(TetradUpdateError::Status { url, status });
+        if let Source::Release(tag) = &offer.source {
+            let url = asset_url(tag, asset_name(path));
+            let request = HttpRequest::new(Method::Get, url.as_str(), Route::Product, FILE_TIMEOUT)
+                .header("User-Agent", "Tetrad")
+                .follow_redirects();
+            let status =
+                (http.download(&request, &dest)).map_err(|error| TetradUpdateError::Http {
+                    url: url.clone(),
+                    error,
+                })?;
+            if !(200..300).contains(&status) {
+                return Err(TetradUpdateError::Status { url, status });
+            }
         }
         if files.size(&dest)? != Some(entry.size) {
             return Err(TetradUpdateError::Size(path.clone()));
@@ -435,7 +460,7 @@ mod tests {
         const KEY: &str = "Ju0bZNj0CZi5eGkhrfTVlboFRqfIyg0qcvOaFKkT/4A=";
         const SIG: &[u8] = b"ZVpvi73G+v7iydeEufUWZxrA+kojyoEI3ekuU0MnBNFtuO8DjaAv8fwGYK+mMUaBl62YfakhhJCCkSlM/qSpAA==\n";
         let json = br#"{"version":"1.2.3"}"#;
-        let signed = |json: &[u8], key| Manifest::verify(json, SIG, key, &v("1.2.3"));
+        let signed = |json: &[u8], key| Manifest::verify(json, SIG, key, Some(&v("1.2.3")));
         // The signature holds; the fixture has no files, so the manifest check fails next.
         assert!(matches!(
             signed(json, KEY),
@@ -450,7 +475,7 @@ mod tests {
             signed(json, RELEASE_KEY),
             Err(TetradUpdateError::Signature(_))
         ));
-        let garbage = Manifest::verify(json, b"%%", KEY, &v("1.2.3"));
+        let garbage = Manifest::verify(json, b"%%", KEY, None);
         assert!(matches!(garbage, Err(TetradUpdateError::Signature(_))));
     }
 
@@ -461,24 +486,26 @@ mod tests {
         let json = |version: &str, files: &serde_json::Value| {
             serde_json::json!({ "version": version, "files": files }).to_string()
         };
-        assert!(Manifest::parse(json("0.2.0", &files).as_bytes(), &v("0.2.0")).is_ok());
-        assert!(Manifest::parse(json("0.2.1", &files).as_bytes(), &v("0.2.0")).is_err());
+        assert!(Manifest::parse(json("0.2.0", &files).as_bytes(), Some(&v("0.2.0"))).is_ok());
+        assert!(Manifest::parse(json("0.2.1", &files).as_bytes(), Some(&v("0.2.0"))).is_err());
+        // Over USB the version is free: the user starts the install on the unit.
+        assert!(Manifest::parse(json("0.1.0", &files).as_bytes(), None).is_ok());
         let mut extra = files.clone();
         extra["../../etc/init.d/S80drvinit"] = files["bin/tetrad"].clone();
-        assert!(Manifest::parse(json("0.2.0", &extra).as_bytes(), &v("0.2.0")).is_err());
+        assert!(Manifest::parse(json("0.2.0", &extra).as_bytes(), Some(&v("0.2.0"))).is_err());
         let mut missing = files.clone();
         missing
             .as_object_mut()
             .unwrap()
             .remove("launcher/tetrad-update.sh");
-        assert!(Manifest::parse(json("0.2.0", &missing).as_bytes(), &v("0.2.0")).is_err());
+        assert!(Manifest::parse(json("0.2.0", &missing).as_bytes(), Some(&v("0.2.0"))).is_err());
     }
 
     fn offer(binary: &[u8], script: &[u8]) -> Offer {
         let json = serde_json::json!({ "version": "0.2.0", "files": files_json(binary, script) });
         Offer {
-            tag: "v0.2.0".into(),
-            manifest: Manifest::parse(json.to_string().as_bytes(), &v("0.2.0")).unwrap(),
+            source: Source::Release("v0.2.0".into()),
+            manifest: Manifest::parse(json.to_string().as_bytes(), Some(&v("0.2.0"))).unwrap(),
         }
     }
 
@@ -523,6 +550,32 @@ mod tests {
         assert_eq!(
             http.requests[0].url,
             "https://github.com/JudahZF/tetrad/releases/download/v0.2.0/tetrad"
+        );
+    }
+
+    /// A USB offer installs the `.part` files already on p4 with the same checks, and never
+    /// touches the network.
+    #[test]
+    fn a_usb_offer_installs_the_pushed_parts() {
+        let files = MemFiles::default();
+        files.put("/media/p4/tetrad/bin/tetrad.part", "new-elf");
+        for name in ["tetrad-launch.sh", "tetrad-launcher.sh", "tetrad-update.sh"] {
+            files.put(&format!("/media/p4/tetrad/launcher/{name}.part"), "sh");
+        }
+        let mut http = ScriptedHttp::sharing(files.clone());
+        let mut runner = ScriptedRunner::default();
+        checks(&mut runner, 0);
+        runner.expect_ok("sh /media/p4/tetrad/launcher/tetrad-launcher.sh arm");
+        let offer = Offer {
+            source: Source::Usb,
+            ..offer(b"new-elf", b"sh")
+        };
+        install(&mut http, &mut files.clone(), &mut runner, &offer).unwrap();
+        assert!(runner.is_done());
+        assert!(http.requests.is_empty());
+        assert_eq!(
+            files.get("/media/p4/tetrad/bin/tetrad").as_deref(),
+            Some(&b"new-elf"[..])
         );
     }
 

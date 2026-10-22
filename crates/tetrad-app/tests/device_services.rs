@@ -6750,7 +6750,7 @@ fn power_requests_wait_for_the_restore_extract() {
 #[test]
 fn a_tetrad_update_installs_arms_and_restarts() {
     use tetrad_extensions::catalog::sha256_hex;
-    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer};
+    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer, Source};
     use tetrad_ui::{TetradUpdateCommand, TetradUpdateState, UiCommand};
     let mut services = Services::new();
     let mut b = Backends::default();
@@ -6779,7 +6779,7 @@ fn a_tetrad_update_installs_arms_and_restarts() {
         ("launcher/tetrad-update.sh", entry(b"sh")),
     ];
     let offer = Offer {
-        tag: "v99.0.0".into(),
+        source: Source::Release("v99.0.0".into()),
         manifest: Manifest {
             version: "99.0.0".parse().unwrap(),
             files: files.map(|(path, entry)| (path.to_owned(), entry)).into(),

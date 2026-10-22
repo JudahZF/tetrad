@@ -2271,6 +2271,7 @@ fn notice_title(subsystem: Subsystem) -> &'static str {
         Subsystem::Power => "Power",
         Subsystem::Extensions => "Extensions",
         Subsystem::Remote => "Remote",
+        Subsystem::Usb => "USB",
     }
 }
 

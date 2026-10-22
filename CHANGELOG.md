@@ -20,6 +20,10 @@ All notable changes to Tetrad are in this file. The version numbers follow
   saving destination as Cortex Control does. The on/off setting is in
   `/media/p4/tetrad/remote.json` (docs/remote.md).
 - The application can show a toast (`UiSnapshot::toast`); Remote shows "IR added" with it.
+- Tetrad over USB (docs/usb.md): the `tetrad-usb` tool shows the Tetrad version, saves a
+  screenshot, prints the recent notices and sends a signed Tetrad release to the unit over the
+  USB cable. UPDATE TETRAD on the unit then installs it. The link shares the HID interface with
+  Cortex Control.
 
 ## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
 
