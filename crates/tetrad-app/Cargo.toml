@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 qc-format.workspace = true
+qcdsp.workspace = true
 tetrad-catalog.workspace = true
 tetrad-control.workspace = true
 tetrad-core.workspace = true

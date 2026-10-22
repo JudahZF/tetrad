@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use qc_format::{blob::Section, diff::DiffFile};
 use qcdsp::{
-    Block, Processor,
+    Block, Channels, Processor,
     device::{
         Generated, Layout, VolumeTemplate,
         template::{STOCK_INIT, STOCK_PARCELS},
@@ -181,8 +181,10 @@ fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
         examples::envelope_filter().unwrap(),
         examples::micro_synth(examples::Voicing::Guitar).unwrap(),
         examples::micro_synth(examples::Voicing::Bass).unwrap(),
+        examples::saturator().unwrap(),
     ];
     for block in blocks {
+        let mono = block.channels() == Channels::Mono;
         for byte_state in [false, true] {
             let mut h = Harness::new(&block, byte_state);
             h.call(h.generated.entries.init, 0, 0, true);
@@ -235,9 +237,18 @@ fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
                             .map
                             .write(base + scale * sample as u32, input.to_bits())
                             .unwrap();
+                        // A mono block computes channel A and writes it to both channels.
+                        if mono && channel == 1 {
+                            return f32::NAN;
+                        }
                         twins[channel].process_sample(input)
                     })
                 });
+                let expected = if mono {
+                    [expected[0], expected[0]]
+                } else {
+                    expected
+                };
                 h.call(h.generated.entries.process, IO, 0, false);
                 for (channel, samples) in expected.iter().enumerate() {
                     let (base, scale) = if channel == 0 {

@@ -1,0 +1,17 @@
+{
+  "id": "tetrad.nam",
+  "name": "Neural Amp Modeler",
+  "version": "0.1.0",
+  "description": "Plays Neural Amp Modeler LSTM models (.nam files) as DSP blocks. Copy .nam files to the extension's asset folder; each file becomes a block in the Guitar Amplifier list.",
+  "api": 2,
+  "capabilities": ["blocks"],
+  "blocks": [
+    {
+      "id": "amp",
+      "name": "NAM",
+      "category": "guitar_amplifier",
+      "generated": true,
+      "asset": { "label": "NAM model", "extensions": [".nam"] }
+    }
+  ]
+}

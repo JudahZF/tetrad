@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "blob_name": "soft_clip",
+  "name": "Simple Drive",
+  "category": "guitar_overdrive",
+  "parameters": [
+    {
+      "name": "Drive",
+      "min": 0.0,
+      "max": 10.0,
+      "default": 2.0
+    },
+    {
+      "name": "Level",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    }
+  ],
+  "states": [],
+  "delays": [],
+  "nodes": [
+    {
+      "op": "input"
+    },
+    {
+      "op": "parameter",
+      "index": 0
+    },
+    {
+      "op": "parameter",
+      "index": 1
+    },
+    {
+      "op": "constant",
+      "value": -1.0
+    },
+    {
+      "op": "constant",
+      "value": 1.0
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 0,
+      "rhs": 1
+    },
+    {
+      "op": "binary",
+      "kind": "max",
+      "lhs": 5,
+      "rhs": 3
+    },
+    {
+      "op": "binary",
+      "kind": "min",
+      "lhs": 6,
+      "rhs": 4
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 7,
+      "rhs": 7
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 8,
+      "rhs": 7
+    },
+    {
+      "op": "constant",
+      "value": 1.5
+    },
+    {
+      "op": "constant",
+      "value": 0.5
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 7,
+      "rhs": 10
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 9,
+      "rhs": 11
+    },
+    {
+      "op": "binary",
+      "kind": "sub",
+      "lhs": 12,
+      "rhs": 13
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 14,
+      "rhs": 2
+    }
+  ],
+  "output": 15
+}

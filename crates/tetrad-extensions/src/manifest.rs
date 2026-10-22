@@ -1,14 +1,18 @@
-//! The extension manifest: identity, API level, capabilities, settings and command labels.
+//! The extension manifest: identity, API level, capabilities, settings, command labels and
+//! DSP blocks.
 //!
 //! A manifest is authored as `tetrad-extension.json` and travels inside every package. The
-//! host trusts nothing in it until [`Manifest::validate`] passes.
+//! host trusts nothing in it until [`Manifest::validate`] passes. API 2 adds `blocks`; an API 1
+//! manifest cannot use them.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// The extension API level this host runs.
-pub const API_VERSION: u32 = 1;
+/// The newest extension API level this host runs.
+pub const API_VERSION: u32 = 2;
+/// The oldest extension API level this host still runs.
+pub const MIN_API_VERSION: u32 = 1;
 
 pub const MAX_ID: usize = 64;
 pub const MAX_NAME: usize = 48;
@@ -16,6 +20,11 @@ pub const MAX_DESCRIPTION: usize = 280;
 pub const MAX_SETTINGS: usize = 16;
 pub const MAX_COMMANDS: usize = 16;
 pub const MAX_OPTIONS: usize = 32;
+pub const MAX_BLOCKS: usize = 16;
+/// Most file extensions of one block asset.
+pub const MAX_ASSET_EXTENSIONS: usize = 8;
+/// Longest asset file extension, the dot included.
+pub const MAX_ASSET_EXTENSION: usize = 16;
 /// Longest setting key, setting label, option label, command ID and command label.
 pub const MAX_LABEL: usize = 32;
 
@@ -36,6 +45,10 @@ pub struct Manifest {
     /// registered ID without an entry here shows its ID as the label.
     #[serde(default)]
     pub commands: Vec<CommandSpec>,
+    /// DSP blocks (API 2). Skipped when empty, so an API 1 manifest stays readable by older
+    /// hosts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<BlockSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -48,6 +61,8 @@ pub enum Capability {
     Storage,
     /// Declare triggers and fire them into Mappings.
     Triggers,
+    /// Provide generated blocks: build qcdsp IR from an asset file at run time (API 2).
+    Blocks,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -93,6 +108,38 @@ pub struct CommandSpec {
     pub label: String,
 }
 
+/// A DSP block. Tetrad validates its qcdsp IR and compiles it to SHARC code; the IR's name,
+/// blob name and category are replaced from this entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BlockSpec {
+    /// 1..=[`MAX_LABEL`] characters of `[a-z0-9-]`, unique in the manifest.
+    pub id: String,
+    /// Display name, 1..=[`MAX_LABEL`] characters.
+    pub name: String,
+    pub category: qcdsp::Category,
+    /// `false`: the package holds the IR. `true`: the extension builds the IR at run time
+    /// from an asset file (`ctx.blocks.provide`); needs the `blocks` capability and a module.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub generated: bool,
+    /// The asset file a generated block is built from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<AssetSpec>,
+    /// The stock model ID written in presets for stock CorOS; `None` uses Tetrad's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<u32>,
+}
+
+/// The files a user can choose for a generated block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssetSpec {
+    /// What the file is, such as "NAM model"; 1..=[`MAX_LABEL`] characters.
+    pub label: String,
+    /// 1..=[`MAX_ASSET_EXTENSIONS`] lowercase extensions with the dot, such as `.nam`.
+    pub extensions: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ManifestError {
     #[error(
@@ -103,11 +150,13 @@ pub enum ManifestError {
     Name,
     #[error("description must be at most {MAX_DESCRIPTION} characters")]
     Description,
-    #[error("API {0} is not supported; this host runs API {API_VERSION}")]
+    #[error("API {0} is not supported; this host runs API {MIN_API_VERSION} to {API_VERSION}")]
     Api(u32),
+    #[error("{1} needs API {0}")]
+    NeedsApi(u32, &'static str),
     #[error("capability {0:?} is listed twice")]
     DuplicateCapability(Capability),
-    #[error("at most {MAX_SETTINGS} settings and {MAX_COMMANDS} commands")]
+    #[error("at most {MAX_SETTINGS} settings, {MAX_COMMANDS} commands and {MAX_BLOCKS} blocks")]
     TooMany,
     #[error(
         "setting key {0:?} must be 1..={MAX_LABEL} characters of [A-Za-z0-9_], starting with a letter"
@@ -121,6 +170,8 @@ pub enum ManifestError {
     Setting(String, &'static str),
     #[error("command ID {0:?} must be 1..={MAX_LABEL} characters of [a-z0-9-]")]
     CommandId(String),
+    #[error("block {0:?}: {1}")]
+    Block(String, &'static str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -140,15 +191,21 @@ impl Manifest {
         if self.description.chars().count() > MAX_DESCRIPTION {
             return Err(ManifestError::Description);
         }
-        if self.api != API_VERSION {
+        if !(MIN_API_VERSION..=API_VERSION).contains(&self.api) {
             return Err(ManifestError::Api(self.api));
+        }
+        if self.api < 2 && (!self.blocks.is_empty() || self.has(Capability::Blocks)) {
+            return Err(ManifestError::NeedsApi(2, "blocks"));
         }
         for (i, capability) in self.capabilities.iter().enumerate() {
             if self.capabilities[..i].contains(capability) {
                 return Err(ManifestError::DuplicateCapability(*capability));
             }
         }
-        if self.settings.len() > MAX_SETTINGS || self.commands.len() > MAX_COMMANDS {
+        if self.settings.len() > MAX_SETTINGS
+            || self.commands.len() > MAX_COMMANDS
+            || self.blocks.len() > MAX_BLOCKS
+        {
             return Err(ManifestError::TooMany);
         }
         for (i, setting) in self.settings.iter().enumerate() {
@@ -158,13 +215,7 @@ impl Manifest {
             }
         }
         for (i, command) in self.commands.iter().enumerate() {
-            let id_ok = !command.id.is_empty()
-                && command.id.len() <= MAX_LABEL
-                && command
-                    .id
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-            if !id_ok {
+            if !short_id_ok(&command.id) {
                 return Err(ManifestError::CommandId(command.id.clone()));
             }
             if !label_ok(&command.label, MAX_LABEL) {
@@ -174,7 +225,17 @@ impl Manifest {
                 return Err(ManifestError::Duplicate(command.id.clone()));
             }
         }
+        for (i, block) in self.blocks.iter().enumerate() {
+            block.validate(self.has(Capability::Blocks))?;
+            if self.blocks[..i].iter().any(|b| b.id == block.id) {
+                return Err(ManifestError::Duplicate(block.id.clone()));
+            }
+        }
         Ok(())
+    }
+
+    pub fn block(&self, id: &str) -> Option<&BlockSpec> {
+        self.blocks.iter().find(|b| b.id == id)
     }
 
     pub fn has(&self, capability: Capability) -> bool {
@@ -272,6 +333,57 @@ impl SettingSpec {
             }
         }
     }
+}
+
+impl BlockSpec {
+    fn validate(&self, capability: bool) -> Result<(), ManifestError> {
+        let fail = |reason| Err(ManifestError::Block(self.id.clone(), reason));
+        if !short_id_ok(&self.id) {
+            return fail("the ID must be 1..=32 characters of [a-z0-9-]");
+        }
+        if !label_ok(&self.name, MAX_LABEL) {
+            return fail("the name must be 1..=32 characters");
+        }
+        if self.generated && !capability {
+            return fail("a generated block needs the blocks capability");
+        }
+        let Some(asset) = &self.asset else {
+            return Ok(());
+        };
+        if !self.generated {
+            return fail("only a generated block has an asset");
+        }
+        if !label_ok(&asset.label, MAX_LABEL) {
+            return fail("the asset label must be 1..=32 characters");
+        }
+        if !(1..=MAX_ASSET_EXTENSIONS).contains(&asset.extensions.len()) {
+            return fail("an asset needs 1..=8 file extensions");
+        }
+        for (i, extension) in asset.extensions.iter().enumerate() {
+            let ok = extension.len() <= MAX_ASSET_EXTENSION
+                && extension.strip_prefix('.').is_some_and(|rest| {
+                    !rest.is_empty()
+                        && rest
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                });
+            if !ok {
+                return fail("asset extensions are a dot and 1..=15 characters of [a-z0-9]");
+            }
+            if asset.extensions[..i].contains(extension) {
+                return fail("asset extensions must be unique");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Command and block IDs: 1..=[`MAX_LABEL`] characters of `[a-z0-9-]`.
+pub(crate) fn short_id_ok(id: &str) -> bool {
+    (1..=MAX_LABEL).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// Namespaced ID: two or more `.`-separated segments of `[a-z0-9-]`, at most [`MAX_ID`].
@@ -375,7 +487,72 @@ mod tests {
         m.settings[1].key = "channel".into();
         assert!(matches!(m.validate(), Err(ManifestError::Duplicate(_))));
         let mut m = manifest();
+        m.api = 3;
+        assert_eq!(m.validate(), Err(ManifestError::Api(3)));
+    }
+
+    fn block(extra: serde_json::Value) -> BlockSpec {
+        let mut spec = json!({"id": "amp", "name": "Amp", "category": "guitar_amplifier"});
+        spec.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(spec).unwrap()
+    }
+
+    #[test]
+    fn block_rules() {
+        let mut m = manifest();
         m.api = 2;
-        assert_eq!(m.validate(), Err(ManifestError::Api(2)));
+        m.capabilities.push(Capability::Blocks);
+        let asset = json!({"label": "NAM model", "extensions": [".nam"]});
+        m.blocks = vec![
+            block(json!({})),
+            block(json!({"id": "nam", "generated": true, "asset": asset, "placeholder": 1001})),
+        ];
+        m.validate().unwrap();
+
+        let mut api1 = m.clone();
+        api1.api = 1;
+        assert_eq!(api1.validate(), Err(ManifestError::NeedsApi(2, "blocks")));
+        let mut duplicate = m.clone();
+        duplicate.blocks[1].id = "amp".into();
+        assert!(matches!(
+            duplicate.validate(),
+            Err(ManifestError::Duplicate(_))
+        ));
+        let mut too_many = m.clone();
+        too_many.blocks = (0..=MAX_BLOCKS)
+            .map(|i| block(json!({"id": format!("b{i}")})))
+            .collect();
+        assert_eq!(too_many.validate(), Err(ManifestError::TooMany));
+
+        let refused = [
+            (json!({"id": "Amp"}), true),
+            (json!({"name": ""}), true),
+            (json!({"generated": true}), false),
+            (
+                json!({"asset": {"label": "File", "extensions": [".nam"]}}),
+                true,
+            ),
+            (
+                json!({"generated": true, "asset": {"label": "File", "extensions": []}}),
+                true,
+            ),
+            (
+                json!({"generated": true, "asset": {"label": "File", "extensions": ["nam"]}}),
+                true,
+            ),
+            (
+                json!({"generated": true, "asset": {"label": "File", "extensions": [".NAM"]}}),
+                true,
+            ),
+        ];
+        for (extra, capability) in refused {
+            let spec = block(extra.clone());
+            assert!(
+                matches!(spec.validate(capability), Err(ManifestError::Block(..))),
+                "{extra}"
+            );
+        }
     }
 }

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -984,6 +984,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             };
             match view {
                 "ext-detail" => open(&mut ui, 0),
+                "ext-blocks" => open(&mut ui, 4),
                 "ext-detail-mid" => {
                     open(&mut ui, 0);
                     ui.handle_input(InputEvent::PointerDown { x: 500, y: 440 });
@@ -2633,6 +2634,7 @@ fn extensions_fixture() -> ExtensionsView {
         commands: Vec::new(),
         settings: Vec::new(),
         status_lines: Vec::new(),
+        blocks: Vec::new(),
         log: Vec::new(),
     };
     let setting = |key: &str, label: &str, value| ExtensionSetting {
@@ -2684,6 +2686,7 @@ fn extensions_fixture() -> ExtensionsView {
             "14 mappings loaded".into(),
             "Last message: CC 64 = 127".into(),
         ],
+        blocks: Vec::new(),
         log: (0..14)
             .map(|n| {
                 format!(
@@ -2708,12 +2711,31 @@ fn extensions_fixture() -> ExtensionsView {
             .into(),
     ));
     faulted.log = vec!["started".into(), "uncaught TypeError in onScene".into()];
+    let block = |name: &str, detail: &str, ready| ExtensionBlock {
+        name: name.into(),
+        detail: detail.into(),
+        ready,
+    };
+    let nam = InstalledExtension {
+        description: "Plays Neural Amp Modeler LSTM models (.nam files) as DSP blocks.".into(),
+        blocks: vec![
+            block("NAM Plexi Crunch", "Guitar Amplifier · 31% DSP", true),
+            block("NAM Bassman", "Guitar Amplifier · 44% DSP", true),
+            block(
+                "NAM Rectifier",
+                "Rectifier.nam is a WaveNet model; this version plays LSTM models only",
+                false,
+            ),
+        ],
+        ..installed("nam", "Neural Amp Modeler", ExtensionState::Running)
+    };
     ExtensionsView {
         installed: vec![
             mapper,
             looper,
             faulted,
             installed("tap-lights", "Tap Lights", ExtensionState::Disabled),
+            nam,
         ],
         available: vec![
             AvailableExtension {

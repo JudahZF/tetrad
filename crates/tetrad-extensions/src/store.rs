@@ -8,14 +8,17 @@
 //! catalogs/<source>.json, <source>.sig         verified catalog bytes, re-verified on load
 //! packages/<source>/<id>/<version>.tetradext   immutable package
 //! packages/<source>/<id>/<version>.mjs         its module, the file the runner starts
+//!                                              (a blocks-only package has none)
 //! installed/<source>~<id>.json                 installation record
 //! config/<source>~<id>.json                    settings object
 //! kv/<source>~<id>.json                        extension storage object
+//! blocks/<source>~<id>/<block>/<variant>.json  generated block IR (a cache)
 //! ```
 //!
-//! `<source>` is [`SourceId::dir_name`]. A removed installation keeps its config and storage.
+//! `<source>` is [`SourceId::dir_name`]. A removed installation keeps its config and storage;
+//! its generated IR is deleted.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -37,6 +40,10 @@ pub const MAX_KV_KEY: usize = 128;
 /// Largest config file; a config is at most 16 small settings.
 const MAX_CONFIG_BYTES: usize = 16 * 1024;
 const MAX_RECORD_BYTES: usize = 64 * 1024;
+/// Largest generated IR file. The IR arrives in one protocol frame.
+const MAX_IR_BYTES: usize = crate::protocol::MAX_FRAME;
+/// Longest variant name of generated IR.
+pub const MAX_VARIANT: usize = 48;
 const TEMP_SUFFIX: &str = ".tmp";
 
 /// One installation: an extension ID from one source.
@@ -104,6 +111,21 @@ pub struct Release {
     /// Fingerprint of the key that signed the catalog it came from.
     pub signer: String,
     pub manifest: Manifest,
+    /// The package has a module to run. A blocks-only package has none.
+    #[serde(default = "records_before_blocks_have_a_module")]
+    pub has_module: bool,
+}
+
+fn records_before_blocks_have_a_module() -> bool {
+    true
+}
+
+/// One cached result of a generated block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeneratedIr {
+    pub block: String,
+    pub variant: String,
+    pub ir: qcdsp::Block,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -153,6 +175,12 @@ pub enum StoreError {
     },
     #[error("storage is over its limit: {0}")]
     Limit(&'static str),
+    #[error(
+        "{0:?} is not a block ID ([a-z0-9-]{{1,32}}) or a variant name ([A-Za-z0-9 ._-]{{1,48}}, not starting with '.')"
+    )]
+    BadName(String),
+    #[error("block IR: {0}")]
+    Ir(#[from] qcdsp::Error),
 }
 
 type Result<T> = std::result::Result<T, StoreError>;
@@ -226,9 +254,16 @@ impl Store {
             .join(format!("{}.json", key.file_stem()))
     }
 
-    /// The module file to start the runner with.
-    pub fn module_path(&self, installed: &Installed) -> PathBuf {
-        self.module_file(&installed.key, &installed.current.version)
+    fn generated_dir(&self, key: &InstallKey) -> PathBuf {
+        self.root.join("blocks").join(key.file_stem())
+    }
+
+    /// The module file to start the runner with; `None` for a blocks-only package.
+    pub fn module_path(&self, installed: &Installed) -> Option<PathBuf> {
+        let release = &installed.current;
+        release
+            .has_module
+            .then(|| self.module_file(&installed.key, &release.version))
     }
 
     /// Reads everything, re-verifying cached catalogs against pinned keys and installed
@@ -335,6 +370,21 @@ impl Store {
     }
 
     fn check_release(&self, key: &InstallKey, release: &Release) -> Result<()> {
+        match self.read_package(key, release)?.module {
+            Some(module) => self.write_module(key, &release.version, &module),
+            None => Ok(()),
+        }
+    }
+
+    /// The static block IR of the current version, by block ID.
+    pub fn blocks(&self, installed: &Installed) -> Result<BTreeMap<String, qcdsp::Block>> {
+        Ok(self
+            .read_package(&installed.key, &installed.current)?
+            .blocks)
+    }
+
+    /// Reads a release's package and checks it against the recorded SHA-256.
+    fn read_package(&self, key: &InstallKey, release: &Release) -> Result<Package> {
         let path = self.package_path(key, &release.version);
         let bytes = read_bounded(&path, crate::package::MAX_PACKAGE)?.ok_or_else(|| {
             StoreError::Corrupt {
@@ -348,8 +398,7 @@ impl Store {
                 reason: "package SHA-256 does not match the record".into(),
             });
         }
-        let package = Package::decode(&bytes)?;
-        self.write_module(key, &release.version, &package.module)
+        Ok(Package::decode(&bytes)?)
     }
 
     /// Writes the module file unless it already holds `module`.
@@ -454,12 +503,15 @@ impl Store {
             Some(_) => {}
             None => write_atomic(&path, package_bytes)?,
         }
-        self.write_module(&key, &entry.version, &package.module)?;
+        if let Some(module) = &package.module {
+            self.write_module(&key, &entry.version, module)?;
+        }
 
         let release = Release {
             version: entry.version.clone(),
             sha256: entry.asset.sha256.clone(),
             signer: signer.fingerprint(),
+            has_module: package.module.is_some(),
             manifest: package.manifest,
         };
         let installed = match self.installed(&key)? {
@@ -521,19 +573,85 @@ impl Store {
         Ok(installed)
     }
 
-    /// Removes the record and every package of the installation. Config and storage stay.
+    /// Removes the record, every package and the generated IR of the installation. Config
+    /// and storage stay.
     pub fn remove(&self, key: &InstallKey) -> Result<()> {
         let record = self.record_path(key);
         if !record.exists() {
             return Err(StoreError::NotInstalled(key.clone()));
         }
         remove_file(&record)?;
-        let dir = self.package_dir(key);
-        match fs::remove_dir_all(&dir) {
-            Ok(()) => sync_dir(dir.parent().unwrap_or(&self.root)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(io_error(&dir)(e)),
+        remove_dir(&self.package_dir(key))?;
+        remove_dir(&self.generated_dir(key))
+    }
+
+    fn generated_path(&self, key: &InstallKey, block: &str, variant: &str) -> Result<PathBuf> {
+        if !manifest::short_id_ok(block) {
+            return Err(StoreError::BadName(block.to_owned()));
         }
+        if !variant_ok(variant) {
+            return Err(StoreError::BadName(variant.to_owned()));
+        }
+        Ok(self
+            .generated_dir(key)
+            .join(block)
+            .join(format!("{variant}.json")))
+    }
+
+    /// Caches the IR an extension built for `block` from the asset named `variant`.
+    pub fn save_generated(
+        &self,
+        key: &InstallKey,
+        block: &str,
+        variant: &str,
+        ir: &qcdsp::Block,
+    ) -> Result<()> {
+        let path = self.generated_path(key, block, variant)?;
+        let json = ir.to_json()?;
+        if json.len() > MAX_IR_BYTES {
+            return Err(StoreError::Limit("block IR is over 4 MiB"));
+        }
+        write_atomic(&path, json.as_bytes())
+    }
+
+    /// Every cached IR of the installation, sorted by block and variant. An entry that does
+    /// not read or validate is skipped: build it again from its asset.
+    pub fn generated(&self, key: &InstallKey) -> Result<Vec<GeneratedIr>> {
+        let mut entries = Vec::new();
+        for block_dir in sorted_entries(&self.generated_dir(key))? {
+            let block = block_dir.file_name().and_then(|n| n.to_str());
+            let Some(block) = block.filter(|b| manifest::short_id_ok(b)) else {
+                continue;
+            };
+            for path in sorted_entries(&block_dir)? {
+                let variant = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .filter(|v| variant_ok(v));
+                let Some(variant) = variant else {
+                    continue;
+                };
+                let ir = read_bounded(&path, MAX_IR_BYTES)
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .and_then(|json| qcdsp::Block::from_json(&json).ok());
+                if let Some(ir) = ir {
+                    entries.push(GeneratedIr {
+                        block: block.to_owned(),
+                        variant: variant.to_owned(),
+                        ir,
+                    });
+                }
+            }
+        }
+        Ok(entries)
+    }
+
+    /// Deletes one cached IR. A missing entry is not an error.
+    pub fn remove_generated(&self, key: &InstallKey, block: &str, variant: &str) -> Result<()> {
+        remove_file(&self.generated_path(key, block, variant)?)
     }
 
     fn remove_release_files(&self, key: &InstallKey, version: &Version) -> Result<()> {
@@ -673,6 +791,35 @@ fn remove_file(path: &Path) -> Result<()> {
     }
 }
 
+fn remove_dir(dir: &Path) -> Result<()> {
+    match fs::remove_dir_all(dir) {
+        Ok(()) => sync_dir(dir.parent().expect("store paths have a parent")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_error(dir)(e)),
+    }
+}
+
+/// `[A-Za-z0-9 ._-]{1,48}`, not starting with `.`: no hidden, temporary or `..` names.
+pub fn variant_ok(variant: &str) -> bool {
+    (1..=MAX_VARIANT).contains(&variant.len())
+        && !variant.starts_with('.')
+        && variant
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b' ' | b'.' | b'_' | b'-'))
+}
+
+/// The entries of `dir`, sorted; none when it does not exist.
+fn sorted_entries(dir: &Path) -> Result<Vec<PathBuf>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_error(dir)(e)),
+    };
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    paths.sort();
+    Ok(paths)
+}
+
 fn json_files(dir: &Path, problems: &mut Vec<String>) -> Vec<PathBuf> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -752,21 +899,28 @@ mod tests {
     }
 
     fn release(version: &str) -> (CatalogEntry, Vec<u8>) {
-        let package = Package {
+        entry_for(&Package {
             manifest: serde_json::from_value(json!({
                 "id": "tetrad.test", "name": "Test", "version": version, "api": 1,
                 "settings": [{"key": "on", "label": "On", "kind": "toggle", "default": true}]
             }))
             .unwrap(),
-            module: format!("export default {{ activate() {{}} }}; // {version}"),
-        };
+            module: Some(format!(
+                "export default {{ activate() {{}} }}; // {version}"
+            )),
+            blocks: BTreeMap::new(),
+        })
+    }
+
+    fn entry_for(package: &Package) -> (CatalogEntry, Vec<u8>) {
         let bytes = package.encode().unwrap();
+        let m = &package.manifest;
         let entry = CatalogEntry {
-            id: "tetrad.test".into(),
-            name: "Test".into(),
-            version: version.parse().unwrap(),
+            id: m.id.clone(),
+            name: m.name.clone(),
+            version: m.version.clone(),
             description: String::new(),
-            api: 1,
+            api: m.api,
             asset: Asset {
                 tag: "t".into(),
                 name: package.file_name(),
@@ -795,7 +949,7 @@ mod tests {
 
         let installed = store.install(&source(), &key(), &v1, &b1).unwrap();
         assert!(installed.enabled && installed.previous.is_none());
-        let module = fs::read_to_string(store.module_path(&installed)).unwrap();
+        let module = fs::read_to_string(store.module_path(&installed).unwrap()).unwrap();
         assert!(module.ends_with("// 1.0.0"));
 
         store.set_enabled(&installed.key, false).unwrap();
@@ -873,7 +1027,7 @@ mod tests {
         let installed = store.install(&source(), &key(), &entry, &bytes).unwrap();
 
         // A lost module file is rewritten; a stale temp file is deleted.
-        fs::remove_file(store.module_path(&installed)).unwrap();
+        fs::remove_file(store.module_path(&installed).unwrap()).unwrap();
         let temp = dir.0.join("installed").join(".x.json.tmp");
         fs::write(&temp, b"partial").unwrap();
         // A corrupt kv file starts empty; an unverifiable catalog is skipped.
@@ -885,7 +1039,7 @@ mod tests {
 
         let state = store.load();
         assert_eq!(state.installed.len(), 1);
-        assert!(store.module_path(&installed).exists());
+        assert!(store.module_path(&installed).unwrap().exists());
         assert!(!temp.exists());
         assert!(state.kv[&installed.key].is_empty());
         assert!(state.catalogs.is_empty());
@@ -894,6 +1048,73 @@ mod tests {
         // A changed package fails its recorded SHA-256 and is not loaded.
         fs::write(store.package_path(&installed.key, &entry.version), b"x").unwrap();
         assert!(store.load().installed.is_empty());
+    }
+
+    #[test]
+    fn blocks_only_install_and_generated_cache() {
+        let dir = TempDir::new();
+        let store = Store::open(&dir.0).unwrap();
+        let (entry, bytes) = entry_for(&Package {
+            manifest: serde_json::from_value(json!({
+                "id": "tetrad.blocks", "name": "Blocks", "version": "1.0.0", "api": 2,
+                "blocks": [{"id": "gain", "name": "Gain", "category": "utility"}]
+            }))
+            .unwrap(),
+            module: None,
+            blocks: BTreeMap::from([("gain".into(), qcdsp::examples::gain().unwrap())]),
+        });
+        let installed = store.install(&source(), &key(), &entry, &bytes).unwrap();
+        assert_eq!(store.module_path(&installed), None, "nothing to run");
+        assert_eq!(
+            store.blocks(&installed).unwrap().keys().collect::<Vec<_>>(),
+            ["gain"]
+        );
+        let state = store.load();
+        assert!(state.problems.is_empty(), "{:?}", state.problems);
+        assert_eq!(state.installed, std::slice::from_ref(&installed));
+
+        let key = &installed.key;
+        let ir = qcdsp::examples::saturator().unwrap();
+        store
+            .save_generated(key, "nam", "Plexi Crunch_2.1", &ir)
+            .unwrap();
+        store.save_generated(key, "nam", "Clean", &ir).unwrap();
+        for (block, variant) in [
+            ("nam", "../x"),
+            ("nam", ".hidden"),
+            ("nam", ""),
+            ("../x", "a"),
+        ] {
+            assert!(
+                matches!(
+                    store.save_generated(key, block, variant, &ir),
+                    Err(StoreError::BadName(_))
+                ),
+                "{block}/{variant}"
+            );
+        }
+        // An entry that no longer validates is skipped, not fatal.
+        fs::write(store.generated_dir(key).join("nam/Broken.json"), b"{").unwrap();
+        let names = |store: &Store| -> Vec<String> {
+            let generated = store.generated(key).unwrap();
+            generated
+                .iter()
+                .map(|g| format!("{}/{}", g.block, g.variant))
+                .collect()
+        };
+        assert_eq!(names(&store), ["nam/Clean", "nam/Plexi Crunch_2.1"]);
+        assert_eq!(
+            store.generated(key).unwrap()[0].ir.channels(),
+            qcdsp::Channels::Mono
+        );
+
+        store.remove_generated(key, "nam", "Clean").unwrap();
+        assert_eq!(names(&store), ["nam/Plexi Crunch_2.1"]);
+        store.remove(key).unwrap();
+        assert!(
+            !store.generated_dir(key).exists(),
+            "remove deletes generated IR"
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! `tetrad-ext`: desktop and CI tooling for Tetrad extensions: scaffold, type-check and
-//! bundle, package, and sign a repository catalog.
+//! bundle, package, sign a repository catalog, and estimate and preview DSP blocks.
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
 use std::io::{Read, Write};
@@ -24,7 +25,15 @@ use tetrad_extensions::sdk::SDK_DECLARATIONS;
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
 const MANIFEST_FILE: &str = "tetrad-extension.json";
+const ENTRY: &str = "src/index.ts";
 const BUNDLE: &str = "dist/index.mjs";
+/// `blocks/<id>.qcdsp.json`: the IR of each static block.
+const BLOCKS_DIR: &str = "blocks";
+const BLOCK_SUFFIX: &str = ".qcdsp.json";
+/// Modeled SHARC+ steps in one 32-sample call on one core (450 MHz at 48 kHz).
+const STEPS_PER_CALL: f64 = 300_000.0;
+/// qcdsp over-reports generated work by this factor.
+const CPU_SAFETY: f64 = 2.0;
 const SIGNING_KEY_FILE: &str = "signing.key";
 const TYPESCRIPT_VERSION: &str = "7.0.2";
 const ESBUILD_VERSION: &str = "0.28.2";
@@ -53,6 +62,9 @@ enum Cmd {
         name: String,
         #[arg(long)]
         id: String,
+        /// Also scaffold a static DSP block, `blocks/gain.qcdsp.json`.
+        #[arg(long)]
+        blocks: bool,
         dir: PathBuf,
     },
     /// Write the SDK declarations (`tetrad.d.ts`).
@@ -60,9 +72,11 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Type-check with tsc, then bundle `src/index.ts` to `dist/index.mjs` with esbuild.
+    /// Type-check with tsc, then bundle `src/index.ts` to `dist/index.mjs` with esbuild (only
+    /// when `src/index.ts` exists), and validate `blocks/<id>.qcdsp.json` of every static block.
     Build { dir: PathBuf },
-    /// Pack `tetrad-extension.json` and `dist/index.mjs` into a `.tetradext` file.
+    /// Pack `tetrad-extension.json`, `dist/index.mjs` (when there is a module) and the static
+    /// block IR into a `.tetradext` file.
     Package {
         dir: PathBuf,
         #[arg(long)]
@@ -78,8 +92,24 @@ enum Cmd {
         #[arg(long)]
         tag: String,
     },
-    /// Validate a package and print its manifest.
+    /// Validate a package and print its manifest, with a device estimate of each static block.
     Check { file: PathBuf },
+    /// Run a static block of a package on a WAV file with qcdsp's host reference. Writes 32-bit
+    /// float mono at the input's sample rate.
+    Preview {
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        block: String,
+        /// 16-bit PCM or 32-bit float WAV; channels are mixed to mono.
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        /// A parameter in DSP units, `NAME=VALUE`; repeat for more.
+        #[arg(long = "set", value_name = "NAME=VALUE")]
+        set: Vec<String>,
+    },
     /// Development: build an on-device store at `--store` (copy it to
     /// `/media/p4/tetrad/extensions`) with `--source` trusted, its signed catalog cached and
     /// the newest version of every extension in `<repo-dir>` installed, through the same
@@ -98,12 +128,24 @@ enum Cmd {
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Cmd::Keygen { out } => keygen(&out),
-        Cmd::Init { name, id, dir } => init(&name, &id, &dir),
+        Cmd::Init {
+            name,
+            id,
+            blocks,
+            dir,
+        } => init(&name, &id, blocks, &dir),
         Cmd::Sdk { out } => write(&out, SDK_DECLARATIONS),
         Cmd::Build { dir } => build(&dir),
         Cmd::Package { dir, out } => package(&dir, &out),
         Cmd::Catalog { repo_dir, key, tag } => catalog(&repo_dir, &key, &tag),
         Cmd::Check { file } => check(&file),
+        Cmd::Preview {
+            package,
+            block,
+            input,
+            output,
+            set,
+        } => preview(&package, &block, &input, &output, &set),
         Cmd::Stage {
             repo_dir,
             source,
@@ -164,8 +206,8 @@ fn public_key(key: &SigningKey) -> Result<PublicKey> {
     Ok(PublicKey::from_bytes(key.verifying_key().as_bytes())?)
 }
 
-fn init(name: &str, id: &str, dir: &Path) -> Result {
-    let manifest: Manifest = serde_json::from_value(serde_json::json!({
+fn init(name: &str, id: &str, blocks: bool, dir: &Path) -> Result {
+    let mut manifest: Manifest = serde_json::from_value(serde_json::json!({
         "id": id,
         "name": name,
         "version": "0.1.0",
@@ -175,6 +217,12 @@ fn init(name: &str, id: &str, dir: &Path) -> Result {
         "settings": [],
         "commands": [{ "id": "hello", "label": "Say hello" }],
     }))?;
+    let gain = blocks.then(qcdsp::examples::gain).transpose()?;
+    if gain.is_some() {
+        manifest.blocks = vec![serde_json::from_value(serde_json::json!({
+            "id": "gain", "name": "Gain", "category": "utility"
+        }))?];
+    }
     manifest.validate()?;
     if dir.exists() && fs::read_dir(dir)?.next().is_some() {
         return Err(format!("{} is not empty", dir.display()).into());
@@ -202,6 +250,9 @@ fn init(name: &str, id: &str, dir: &Path) -> Result {
     ];
     for (file, contents) in files {
         write(&dir.join(file), contents)?;
+    }
+    if let Some(gain) = gain {
+        write(&block_path(dir, "gain"), gain.to_json()? + "\n")?;
     }
     println!(
         "created {}; next: cd {0} && npm install && tetrad-ext build .",
@@ -249,21 +300,52 @@ export default extension;
 "#;
 
 fn build(dir: &Path) -> Result {
-    run(dir, &["tsc", "-p", ".", "--noEmit"])?;
-    run(
-        dir,
-        &[
-            "esbuild",
-            "src/index.ts",
-            "--bundle",
-            "--format=esm",
-            "--platform=neutral",
-            "--target=es2020",
-            &format!("--outfile={BUNDLE}"),
-        ],
-    )?;
-    println!("built {}", dir.join(BUNDLE).display());
+    let manifest = read_manifest(dir)?;
+    if dir.join(ENTRY).exists() {
+        run(dir, &["tsc", "-p", ".", "--noEmit"])?;
+        run(
+            dir,
+            &[
+                "esbuild",
+                ENTRY,
+                "--bundle",
+                "--format=esm",
+                "--platform=neutral",
+                "--target=es2020",
+                &format!("--outfile={BUNDLE}"),
+            ],
+        )?;
+        println!("built {}", dir.join(BUNDLE).display());
+    }
+    for id in read_blocks(dir, &manifest)?.keys() {
+        println!("checked {}", block_path(dir, id).display());
+    }
     Ok(())
+}
+
+fn read_manifest(dir: &Path) -> Result<Manifest> {
+    let manifest: Manifest = serde_json::from_slice(&read(&dir.join(MANIFEST_FILE))?)
+        .map_err(|e| format!("{MANIFEST_FILE}: {e}"))?;
+    manifest
+        .validate()
+        .map_err(|e| format!("{MANIFEST_FILE}: {e}"))?;
+    Ok(manifest)
+}
+
+fn block_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(BLOCKS_DIR).join(format!("{id}{BLOCK_SUFFIX}"))
+}
+
+/// The validated IR of every static block of `manifest`.
+fn read_blocks(dir: &Path, manifest: &Manifest) -> Result<BTreeMap<String, qcdsp::Block>> {
+    let mut blocks = BTreeMap::new();
+    for spec in manifest.blocks.iter().filter(|b| !b.generated) {
+        let path = block_path(dir, &spec.id);
+        let block = qcdsp::Block::from_json(&String::from_utf8(read(&path)?)?)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        blocks.insert(spec.id.clone(), block);
+    }
+    Ok(blocks)
 }
 
 /// Runs a locally installed npm tool in `dir`; on failure the error carries its output.
@@ -288,10 +370,21 @@ fn run(dir: &Path, args: &[&str]) -> Result {
 }
 
 fn package(dir: &Path, out: &Path) -> Result {
-    let manifest: Manifest = serde_json::from_slice(&read(&dir.join(MANIFEST_FILE))?)
-        .map_err(|e| format!("{MANIFEST_FILE}: {e}"))?;
-    let module = String::from_utf8(read(&dir.join(BUNDLE))?)?;
-    let bytes = Package { manifest, module }.encode()?;
+    let manifest = read_manifest(dir)?;
+    let module = if dir.join(BUNDLE).exists() {
+        Some(String::from_utf8(read(&dir.join(BUNDLE))?)?)
+    } else if dir.join(ENTRY).exists() {
+        return Err(format!("{} is missing; run `tetrad-ext build` first", BUNDLE).into());
+    } else {
+        None
+    };
+    let blocks = read_blocks(dir, &manifest)?;
+    let bytes = Package {
+        manifest,
+        module,
+        blocks,
+    }
+    .encode()?;
     write(out, &bytes)?;
     println!("{} ({} bytes)", out.display(), bytes.len());
     Ok(())
@@ -390,12 +483,138 @@ fn check(file: &Path) -> Result {
     for c in &m.commands {
         println!("  command {} \"{}\"", c.id, c.label);
     }
+    for spec in &m.blocks {
+        let category = serde_json::to_value(spec.category)?;
+        let category = category.as_str().unwrap_or_default();
+        print!("  block {} \"{}\" ({category}", spec.id, spec.name);
+        if let Some(asset) = &spec.asset {
+            print!(
+                ", generated from {} {}",
+                asset.label,
+                asset.extensions.join(" ")
+            );
+        } else if spec.generated {
+            print!(", generated");
+        }
+        println!(")");
+        if let Some(block) = package.blocks.get(&spec.id) {
+            println!("    {}", estimate(block)?);
+        }
+    }
     println!(
         "  module {} bytes, package {} bytes, sha256 {}",
-        package.module.len(),
+        package.module.as_ref().map_or(0, String::len),
         bytes.len(),
         sha256_hex(&bytes)
     );
+    Ok(())
+}
+
+/// The block's shape and its device cost from qcdsp's code generator. CPU is an estimate.
+fn estimate(block: &qcdsp::Block) -> Result<String> {
+    let (layout, generated) = qcdsp::device::generate(block)?;
+    let cpu = generated.cycles_per_call as f64 / STEPS_PER_CALL * 100.0 * CPU_SAFETY;
+    let channels = match block.channels() {
+        qcdsp::Channels::Mono => "mono",
+        qcdsp::Channels::Stereo => "stereo",
+    };
+    Ok(format!(
+        "IR {}, {channels}, parameters {}; state {} bytes, {} code parcels, {} cycles per call, \
+         CPU {cpu:.1}%",
+        block.version(),
+        block.parameters().len(),
+        layout.bytes(),
+        generated.parcels.len(),
+        generated.cycles_per_call,
+    ))
+}
+
+fn preview(package_path: &Path, id: &str, input: &Path, output: &Path, set: &[String]) -> Result {
+    let package = Package::decode(&read(package_path)?)?;
+    let block = match package.manifest.block(id) {
+        None => return Err(format!("the package has no block {id:?}").into()),
+        Some(spec) if spec.generated => {
+            return Err(format!("{id} is generated at run time; the package has no IR").into());
+        }
+        Some(_) => package.blocks[id].clone(),
+    };
+    let mut processor = qcdsp::Processor::new(block.clone())?;
+    for assignment in set {
+        let (name, value) = assignment
+            .split_once('=')
+            .ok_or_else(|| format!("--set {assignment:?}: use NAME=VALUE"))?;
+        let index = block
+            .parameters()
+            .iter()
+            .position(|p| p.name.eq_ignore_ascii_case(name.trim()))
+            .ok_or_else(|| format!("{id} has no parameter {name:?}"))?;
+        let value: f32 = value
+            .trim()
+            .parse()
+            .map_err(|_| format!("--set {assignment:?}: not a number"))?;
+        processor.set_parameter(index, value)?;
+    }
+
+    let mut reader =
+        hound::WavReader::open(input).map_err(|e| format!("{}: {e}", input.display()))?;
+    let spec = reader.spec();
+    let channels = usize::from(spec.channels);
+    if channels == 0 {
+        return Err(format!("{}: no channels", input.display()).into());
+    }
+    let samples: Vec<f32> = match (spec.sample_format, spec.bits_per_sample) {
+        (hound::SampleFormat::Float, 32) => reader
+            .samples::<f32>()
+            .collect::<std::result::Result<_, _>>()?,
+        (hound::SampleFormat::Int, 16) => reader
+            .samples::<i16>()
+            .map(|s| s.map(|s| f32::from(s) / 32768.0))
+            .collect::<std::result::Result<_, _>>()?,
+        (format, bits) => {
+            return Err(format!(
+                "{}: {bits}-bit {format:?} is not supported; use 16-bit PCM or 32-bit float",
+                input.display()
+            )
+            .into());
+        }
+    };
+    if spec.sample_rate != 48_000 {
+        eprintln!(
+            "warning: {} Hz input; the Quad Cortex runs blocks at 48000 Hz",
+            spec.sample_rate
+        );
+    }
+    let mut mono: Vec<f32> = samples
+        .chunks_exact(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect();
+    processor.process_in_place(&mut mono);
+
+    let mut writer = hound::WavWriter::create(
+        output,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: spec.sample_rate,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        },
+    )
+    .map_err(|e| format!("{}: {e}", output.display()))?;
+    for &sample in &mono {
+        writer.write_sample(sample)?;
+    }
+    writer.finalize()?;
+    // `max` skips NaN, so check finiteness on its own.
+    let peak = mono.iter().fold(0f32, |peak, s| peak.max(s.abs()));
+    println!(
+        "{} ({} samples at {} Hz, peak {peak:.3})",
+        output.display(),
+        mono.len(),
+        spec.sample_rate
+    );
+    if mono.iter().any(|s| !s.is_finite()) {
+        eprintln!("warning: the output has NaN or infinite samples");
+    }
     Ok(())
 }
 

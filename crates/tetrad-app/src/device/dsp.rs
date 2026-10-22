@@ -67,9 +67,11 @@ use tetrad_settings::general::GlobalBypassRows;
 
 use crate::tempo::{ResendPlan, ResendStep};
 
+use super::community::CommunityBlobs;
 use super::owned::{InstallError, OWNED_CORE, OwnedBlobs, OwnedLoad};
 use super::platform::{DspFile, Marker, Platform, Soc2Pair};
 use super::services::{Licences, PluginStatus};
+use qcdsp::device::VolumeTemplate;
 
 /// Stock pause between the deploy mute and the run-list clear (c-dsp §6, `0x585464`).
 pub const DEPLOY_SETTLE: Duration = Duration::from_millis(20);
@@ -403,6 +405,10 @@ pub struct Dsp<P: Platform> {
     /// Owned blobs that replace stock model blobs at deploy ([`super::owned::install`]);
     /// empty by default.
     pub(super) owned: OwnedBlobs,
+    /// (O) Generated community blobs by local model ID ([`super::community::install`]).
+    pub(super) community: CommunityBlobs,
+    /// (O) The stock Volume framework of community blocks, read once ([`Self::volume_template`]).
+    template: Option<VolumeTemplate>,
     /// Plugin licences ([`Self::set_licences`]): a Grid block with a ModelRepo `plugin_id` that
     /// is not [`PluginStatus::Active`] deploys bypassed (`0x00521c84`, `0x005280d8`). `None`
     /// (the default): no gate.
@@ -552,6 +558,8 @@ pub fn boot<P: Platform>(platform: &mut P, variant: Variant) -> Result<Booted<P>
             fault_muted: false,
             ungated: UNMUTED,
             owned: OwnedBlobs::default(),
+            community: CommunityBlobs::default(),
+            template: None,
             blobs: Default::default(),
             licences: None,
         },
@@ -1401,6 +1409,32 @@ impl<P: Platform> Dsp<P> {
         Ok(variant)
     }
 
+    /// (O) The stock Volume blob of this unit and its records for transport cores 1..=3: the
+    /// framework of every community block (`qcdsp::device::VolumeTemplate`). qcdsp refuses a
+    /// blob that is not the Volume blob of a supported CorOS build.
+    pub(super) fn volume_template(
+        &mut self,
+        platform: &mut P,
+    ) -> Result<&VolumeTemplate, DspError> {
+        const VOLUME: &str = "volume";
+        if self.template.is_none() {
+            self.core_blob(platform, DspCore::Core0, VOLUME)?;
+            let plain = self.blobs.base[VOLUME].to_bytes()?;
+            let mut diffs = Vec::with_capacity(3);
+            for core in [DspCore::Core1, DspCore::Core2, DspCore::Core3] {
+                self.core_blob(platform, core, VOLUME)?;
+                let file = self.blobs.diffs[core as usize].as_ref();
+                let diff = file.and_then(|file| file.get(VOLUME)).cloned();
+                diffs.push(diff.ok_or(tetrad_dsp_host::blob::BlobError::MissingDiff(core))?);
+            }
+            let diffs: [_; 3] = diffs.try_into().expect("three transport cores");
+            let template = VolumeTemplate::new(&plain, diffs)
+                .map_err(|error| DspError::Feature(format!("community blocks: {error}")))?;
+            self.template = Some(template);
+        }
+        Ok(self.template.as_ref().expect("set above"))
+    }
+
     fn core_loads(&mut self, platform: &mut P, push: Push) -> Result<Vec<CoreLoad>, DspError> {
         let mut cores = Vec::new();
         for core_plan in &push.plan.cores {
@@ -1410,6 +1444,10 @@ impl<P: Platform> Dsp<P> {
             let core = DspCore::try_from(core_plan.core.index() as u8)?;
             let mut blobs = Vec::with_capacity(core_plan.blobs.len());
             for load in &core_plan.blobs {
+                if let Some(community) = self.community.load(core, load.model.0) {
+                    blobs.push(community?);
+                    continue;
+                }
                 if let Some(owned) = self.owned.load(core, load.model.0) {
                     let detail = match &owned {
                         OwnedLoad::Owned(model, _) => format!("owned {model} loads on {core:?}"),

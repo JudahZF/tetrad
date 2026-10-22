@@ -3,6 +3,31 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- DSP blocks in extensions (experimental): a package can bring qcdsp graphs. Tetrad validates
+  each graph, compiles it on the unit against the stock Volume framework of the unit's own
+  firmware and deploys it like a stock model, on any DSP core. The blocks show in the block
+  list of their category and on the extension's page with their CPU. A package never brings DSP
+  machine code (docs/extensions.md, "DSP blocks").
+- Presets with DSP blocks: a save writes the package's stock placeholder in the slot (default:
+  Gain at 0 dB) and a record in the Tetrad field 7002. Stock CorOS loads and plays the
+  placeholder; Tetrad puts the DSP block back when it is installed.
+- Extension API 2: `blocks` in the manifest, the `blocks` capability, `ctx.blocks.provide` and
+  `ctx.blocks.builder()` to build a block from an asset file, package format 2 (up to 4 MiB),
+  a 32 MiB JavaScript heap. `tetrad-ext init --blocks`, `check` (block CPU and memory) and
+  `preview` (run a block on a WAV file).
+- Neural Amp Modeler 0.1.0: plays NAM LSTM models from `/media/p4/tetrad/assets/tetrad.nam/`
+  as Guitar Amplifier blocks. Its graph matches NeuralAmpModelerCore within 2e-3.
+- qcdsp IR 2: `div`, `recip`, `tanh`, `sigmoid` and mono blocks.
+
+### Changed
+
+- qcdsp's CPU estimate counts instructions (one per cycle) instead of 16-bit parcels; the
+  catalogue figure still doubles it.
+
 ## [0.1.0-alpha.3](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.3) (2026-10-20)
 
 ### Added

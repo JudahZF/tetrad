@@ -39,6 +39,7 @@ tetrad-blocks = { path = "crates/tetrad-blocks" }
 tetrad-firmware = { path = "crates/tetrad-firmware" }
 tetrad-extensions = { path = "crates/tetrad-extensions" }
 qc-format = { path = "qcdsp/crates/qc-format" }
+qcdsp = { path = "qcdsp/crates/qcdsp" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2"

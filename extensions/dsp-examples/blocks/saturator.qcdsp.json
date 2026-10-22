@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "blob_name": "saturator",
+  "name": "Saturator",
+  "category": "guitar_overdrive",
+  "channels": "mono",
+  "parameters": [
+    {
+      "name": "Drive",
+      "min": 1.0,
+      "max": 40.0,
+      "default": 8.0
+    },
+    {
+      "name": "Bias",
+      "min": 0.0,
+      "max": 0.5,
+      "default": 0.1
+    },
+    {
+      "name": "Level",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    }
+  ],
+  "states": [],
+  "delays": [],
+  "nodes": [
+    {
+      "op": "input"
+    },
+    {
+      "op": "parameter",
+      "index": 0
+    },
+    {
+      "op": "parameter",
+      "index": 1
+    },
+    {
+      "op": "parameter",
+      "index": 2
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 0,
+      "rhs": 1
+    },
+    {
+      "op": "binary",
+      "kind": "add",
+      "lhs": 4,
+      "rhs": 2
+    },
+    {
+      "op": "tanh",
+      "input": 5
+    },
+    {
+      "op": "tanh",
+      "input": 2
+    },
+    {
+      "op": "binary",
+      "kind": "sub",
+      "lhs": 6,
+      "rhs": 7
+    },
+    {
+      "op": "tanh",
+      "input": 1
+    },
+    {
+      "op": "binary",
+      "kind": "div",
+      "lhs": 8,
+      "rhs": 9
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 10,
+      "rhs": 3
+    }
+  ],
+  "output": 11
+}

@@ -292,6 +292,11 @@ pub struct Ui {
 }
 
 impl Ui {
+    /// Rebuilds the picker's model list at the next frame (the catalog changed).
+    pub(super) fn invalidate_models(&mut self) {
+        self.models = None;
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

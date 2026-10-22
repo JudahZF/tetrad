@@ -51,7 +51,7 @@ the stock SHARC DSP firmware that is on the unit.
 | `tetrad-dsp-protocol` | DSP message codecs |
 | `tetrad-control` | Cortex Control link: report framing, payload codecs, the dispatcher |
 | `tetrad-midi` | MIDI receive and transmit, assignments, clock, program changes |
-| `tetrad-extensions` | Extension runner (QuickJS), host protocol, manifests, packages, signed catalogs, the on-device store, the TypeScript SDK |
+| `tetrad-extensions` | Extension runner (QuickJS), host protocol, manifests, packages (with DSP block graphs), signed catalogs, the on-device store, the TypeScript SDK and its block builder |
 | `tetrad-extension-cli` | `tetrad-ext`: scaffold, build, package, sign and stage extensions |
 | `tetrad-services` | Wi-Fi, DHCP, time, internet checks, updater and cloud clients |
 | `tetrad-settings` | Global settings in the stock Qt INI format |
@@ -103,6 +103,18 @@ the stock SHARC DSP firmware that is on the unit.
    framebuffer), LED writes, file writes, service jobs.
 8. **Power action.** On restart or power off, `tetrad-watchdog` gives the stock teardown order.
    `tetrad` exits 0.
+
+## DSP blocks from extensions
+
+A package can bring DSP blocks as qcdsp graphs (owned). `tetrad-app` `device/community.rs`
+compiles each one with `qcdsp::device::build` against the stock Volume blob and its per-core
+records, which `Dsp::volume_template` reads from the unit's own firmware files. The block gets
+a local model ID at the top of its category band (`tetrad_catalog::community`) and a spec that
+the engine, the picker and the editor use like a stock spec. At deploy, `Dsp::core_loads`
+sends the generated blob for each core through the stock `BlobLoad` path. A preset write
+(`preset::exported`) puts each block's stock placeholder in its slot and a record in field 7002
+(`tetrad_preset::community`); `preset::prepare` restores it. When the set of blocks changes,
+the loaded preset leaves with the old catalog and is recalled with the new one.
 
 ## Wi-Fi recovery
 

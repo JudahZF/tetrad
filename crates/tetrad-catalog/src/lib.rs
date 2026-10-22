@@ -6,6 +6,7 @@
 //! retains its attributes and original XML so opaque fields remain available.
 
 mod blobs;
+pub mod community;
 pub mod owned;
 mod spec;
 mod xml;

@@ -10,6 +10,7 @@
 //! typed edits as one transaction and keeps the original bytes when nothing changes.
 #![forbid(unsafe_code)]
 
+pub mod community;
 mod create;
 mod diagnostic;
 mod edit;
@@ -83,6 +84,8 @@ pub enum Error {
     Unsupported(&'static str),
     #[error("model ID {0} is not in the catalog")]
     UnknownModel(u32),
+    #[error("invalid Tetrad community block records: {0}")]
+    CommunityRecords(String),
     #[error(transparent)]
     Core(#[from] tetrad_core::Error),
 }

@@ -284,8 +284,8 @@ impl<P: Platform> Device<P> {
         let landed = self.poll_stored_downloads();
         // The extensions view is built only after a step reached that bridge (each build
         // cost ~250 µs a pass on the QC); else the old view moves over.
-        let extensions =
-            take(&mut self.bridges.extensions.view_stale).then(|| self.bridges.extensions.view());
+        let extensions = take(&mut self.bridges.extensions.view_stale)
+            .then(|| self.bridges.extensions.view(&self.state.community));
         let declared = &self.bridges.extensions;
         let mappings =
             (self.bridges.mappings).view_if_changed(&self.state, || declared.declared_triggers());

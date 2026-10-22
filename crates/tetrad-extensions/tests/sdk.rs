@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use tetrad_extensions::protocol::{ErrorCode, MidiEvent, Pair, Site};
+use tetrad_extensions::protocol::{ErrorCode, MidiEvent, PUBLISH_BLOCK, Pair, Site};
 use tetrad_extensions::sdk::SDK_DECLARATIONS;
 
 const PRELUDE: &str = include_str!("../src/prelude.js");
@@ -29,7 +29,8 @@ fn prelude_members() -> Vec<&'static str> {
     names
 }
 
-/// Host method names such as `controls.set`, from the prelude's string literals.
+/// Host method names such as `controls.set`, from the prelude's string literals. The prelude
+/// itself calls [`PUBLISH_BLOCK`]; extensions never see it.
 fn prelude_methods() -> Vec<&'static str> {
     PRELUDE
         .split('"')
@@ -42,6 +43,7 @@ fn prelude_methods() -> Vec<&'static str> {
                     && s.chars().all(|c| c.is_ascii_alphabetic() || c == '.')
             })
         })
+        .filter(|s| *s != PUBLISH_BLOCK)
         .collect()
 }
 
@@ -61,6 +63,9 @@ fn every_prelude_member_is_declared() {
         "reserveChannel",
         "onChange",
         "ui",
+        "provide",
+        "updateDelay",
+        "finish",
     ] {
         assert!(members.contains(&expected), "parser missed {expected}");
     }

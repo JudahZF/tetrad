@@ -72,6 +72,10 @@ impl Unknown {
 /// does not know it and keeps it as an unknown field when it saves.
 pub const TETRAD_MAPPINGS_FIELD: u32 = 7001;
 
+/// Owned (Tetrad): the preset field that holds the community block records (UTF-8 JSON, see
+/// [`crate::community`]). Stock does not know it and keeps it as an unknown field when it saves.
+pub const TETRAD_BLOCKS_FIELD: u32 = 7002;
+
 /// A protobuf map that keeps stored entry order. A repeated key keeps its
 /// first position and its last value, as the stock map parser keeps one entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,6 +323,20 @@ impl Preset {
     }
 
     /// Stock serializer layout. Byte-identical to stock for canonical input.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.encode(&mut out);
+        out
+    }
+}
+
+impl Model {
+    /// Bounded parse of one `Model` message with stock parser semantics.
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        Self::decode_message(&wire::parse_as(bytes, Limits::default(), "Model")?)
+    }
+
+    /// Stock serializer layout of one `Model` message. Unknown fields are kept.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode(&mut out);

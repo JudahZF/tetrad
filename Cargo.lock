@@ -868,6 +868,7 @@ dependencies = [
  "libc",
  "md-5",
  "qc-format",
+ "qcdsp",
  "rusqlite",
  "serde",
  "serde_json",
@@ -933,6 +934,7 @@ version = "0.1.0-alpha.3"
 dependencies = [
  "libc",
  "qc-format",
+ "qcdsp",
  "serde",
  "tetrad-blocks",
  "tetrad-core",
@@ -1023,6 +1025,8 @@ dependencies = [
  "base64",
  "clap",
  "ed25519-dalek",
+ "hound",
+ "qcdsp",
  "serde_json",
  "tetrad-extensions",
 ]
@@ -1033,6 +1037,7 @@ version = "0.1.0-alpha.3"
 dependencies = [
  "base64",
  "ed25519-dalek",
+ "qcdsp",
  "rquickjs",
  "semver",
  "serde",
@@ -1103,7 +1108,9 @@ dependencies = [
 name = "tetrad-preset"
 version = "0.1.0-alpha.3"
 dependencies = [
+ "base64",
  "serde",
+ "serde_json",
  "tetrad-core",
  "thiserror",
 ]

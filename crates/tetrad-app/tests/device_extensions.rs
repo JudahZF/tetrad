@@ -93,7 +93,8 @@ fn repository_with(module: &str, capabilities: &[&str]) -> Web {
     });
     let package = Package {
         manifest: serde_json::from_value(manifest).unwrap(),
-        module: module.into(),
+        module: Some(module.into()),
+        blocks: Default::default(),
     }
     .encode()
     .unwrap();
@@ -145,7 +146,7 @@ fn boot(media: Media, web: Web) -> (Device<Sim>, Media) {
 }
 
 fn view(device: &Device<Sim>) -> ExtensionsView {
-    device.bridges().extensions.view()
+    device.bridges().extensions.view(&device.state().community)
 }
 
 /// Steps the device (runners and the store worker are real threads) until `done` holds.
@@ -350,7 +351,10 @@ impl Bridge {
             version: "1.0.0".into(),
             description: String::new(),
             source: SOURCE.into(),
-            module,
+            module: Some(module),
+            blocks: Vec::new(),
+            block_irs: Default::default(),
+            generated: Default::default(),
             capabilities: Capabilities {
                 midi_receive: true,
                 triggers,
@@ -523,4 +527,155 @@ fn the_native_channel_takes_a_reserved_channel_back() {
         matches!(state_of(d), Some(ExtensionState::Faulted(_)))
             && d.bridges().extensions.reserved_channels() == 0
     });
+}
+
+/// Builds a `tanh` shaper from each `.curve` asset (its text is the drive); throws on "bad" and
+/// never returns on "loop".
+const SHAPER: &str = r#"
+export default {
+  activate(ctx) {
+    ctx.blocks.provide("shape", (asset) => {
+      if (asset.text.trim() === "bad") throw new Error("bad curve");
+      if (asset.text.trim() === "loop") for (;;) {}
+      const dsp = ctx.blocks.builder();
+      const out = dsp.tanh(dsp.mul(dsp.input(), dsp.constant(Number(asset.text))));
+      return dsp.finish(out);
+    });
+  },
+};
+"#;
+
+/// The DSP blocks of an installation: its static block, one generated block per asset file
+/// (other files are left out), a logged build error for a file the provider refuses, and a
+/// block that goes when its file goes.
+#[test]
+fn installations_offer_static_blocks_and_one_block_per_asset() {
+    use tetrad_extensions::manifest::{AssetSpec, BlockSpec};
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (device, _log, media) = common::boot(media);
+    let root = media.0.join("tetrad/extensions");
+    let mut backend = LocalBackend::threads().with_worker(root, Web::default());
+    let mut extensions = Extensions::new();
+    let assets = media.0.join("tetrad/assets/test.shaper");
+    std::fs::create_dir_all(&assets).unwrap();
+    for (file, text) in [
+        ("soft.curve", "2"),
+        ("hard.curve", "8"),
+        ("broken.curve", "bad"),
+        ("loop.curve", "loop"),
+        ("notes.txt", "1"),
+    ] {
+        std::fs::write(assets.join(file), text).unwrap();
+    }
+    let module = media.0.join("shaper.mjs");
+    std::fs::write(&module, SHAPER).unwrap();
+    let block = |id: &str, name: &str, generated: bool| BlockSpec {
+        id: id.into(),
+        name: name.into(),
+        category: qcdsp::Category::GuitarOverdrive,
+        generated,
+        asset: generated.then(|| AssetSpec {
+            label: "Curve".into(),
+            extensions: vec![".curve".into()],
+        }),
+        placeholder: None,
+    };
+    let key = format!("{SOURCE}:test.shaper");
+    let installation = Installation {
+        key: key.clone(),
+        id: "test.shaper".into(),
+        name: "Shaper".into(),
+        version: "1.0.0".into(),
+        description: String::new(),
+        source: SOURCE.into(),
+        module: Some(module),
+        blocks: vec![block("gain", "Gain", false), block("shape", "Shaper", true)],
+        block_irs: [("gain".to_string(), qcdsp::examples::gain().unwrap())].into(),
+        generated: Default::default(),
+        capabilities: Capabilities {
+            blocks: true,
+            ..Capabilities::default()
+        },
+        config: json!({}),
+        storage: Default::default(),
+        enabled: true,
+    };
+    let outcome = extensions.set_installations(vec![installation], &mut backend);
+    assert!(outcome.community_changed);
+    let pump = |extensions: &mut Extensions,
+                backend: &mut LocalBackend,
+                what: &str,
+                done: &dyn Fn(&Extensions) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !done(extensions) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            let mut inputs = Vec::new();
+            backend.drain(&mut inputs);
+            for input in inputs {
+                if let Input::Extension(input) = input {
+                    extensions.on_input(input, device.state(), None, backend);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let keys = |extensions: &Extensions| {
+        let mut keys: Vec<String> = (extensions.community_sources().into_iter())
+            .map(|source| format!("{} = {}", source.key, source.name))
+            .collect();
+        keys.sort();
+        keys
+    };
+    let error = |extensions: &Extensions| {
+        (extensions.log(&key).into_iter()).find(|line| line.contains("bad curve"))
+    };
+    // "loop" runs past the build time limit: the runner faults once, and after RETRY that file
+    // is not built again while the others are.
+    pump(&mut extensions, &mut backend, "the build fault", &|e| {
+        matches!(e.state(&key), Some(RunState::Faulted(_)))
+    });
+    extensions.retry(&key, &mut backend);
+    pump(
+        &mut extensions,
+        &mut backend,
+        "both asset blocks and the error",
+        &|e| keys(e).len() == 3 && error(e).is_some(),
+    );
+    assert_eq!(
+        extensions.state(&key),
+        Some(&RunState::Running),
+        "loop.curve did not run again"
+    );
+    assert_eq!(
+        keys(&extensions),
+        [
+            format!("{key}/gain = Gain"),
+            format!("{key}/shape#hard = Shaper hard"),
+            format!("{key}/shape#soft = Shaper soft"),
+        ]
+    );
+    let soft = (extensions.community_sources().into_iter())
+        .find(|source| source.key.ends_with("#soft"))
+        .unwrap();
+    let mut processor = qcdsp::Processor::new(soft.ir).unwrap();
+    assert!((processor.process_sample(0.25) - 0.5_f32.tanh()).abs() < 1e-4);
+    let line = error(&extensions).unwrap();
+    assert!(line.contains("shape (broken)"), "{line}");
+
+    // A file that goes takes its block with it at the next start.
+    std::fs::remove_file(assets.join("hard.curve")).unwrap();
+    assert!(
+        extensions
+            .set_enabled(&key, false, &mut backend)
+            .community_changed
+    );
+    assert!(
+        extensions.community_sources().is_empty(),
+        "a disabled package offers no block"
+    );
+    extensions.set_enabled(&key, true, &mut backend);
+    pump(&mut extensions, &mut backend, "the removed asset", &|e| {
+        keys(e).len() == 2
+    });
+    assert!(keys(&extensions).iter().all(|key| !key.contains("#hard")));
 }
