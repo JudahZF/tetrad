@@ -192,8 +192,11 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
         button,
         changelog: false,
     };
-    let installing = matches!(u.state, S::Installing { .. });
-    if !u.online && !installing {
+    let local = matches!(
+        u.state,
+        S::Installing { .. } | S::Available { usb: true, .. } | S::Failed { usb: true, .. }
+    );
+    if !u.online && !local {
         return page(
             "No Internet connection",
             "Your Quad Cortex is currently offline. Connect to Wi-Fi\nand try again.".into(),
@@ -217,10 +220,15 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
             format!("Tetrad {current} is the newest release.\n\n{only_tetrad}"),
             check,
         ),
-        S::Available { version } => page(
+        S::Available { version, usb } => page(
             "Tetrad update available",
             format!(
-                "Tetrad: {current} → {version}\n\nTetrad downloads the update, checks it and restarts\nyour Quad Cortex. CorOS does not change."
+                "Tetrad: {current} → {version}\n\n{} the update, checks it and restarts\nyour Quad Cortex. CorOS does not change.",
+                if *usb {
+                    "The update came over USB. Tetrad"
+                } else {
+                    "Tetrad downloads"
+                }
             ),
             install,
         ),
@@ -234,7 +242,14 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
                 None,
             )
         },
-        S::Failed { error, retry } => page(
+        S::Failed {
+            error, usb: true, ..
+        } => page(
+            "The Tetrad update has failed.",
+            format!("{error}\n\nSend the release again over USB (tetrad-usb install)."),
+            None,
+        ),
+        S::Failed { error, retry, .. } => page(
             "The Tetrad update has failed.",
             format!("{error}\n\nPlease try again."),
             if retry.is_some() { install } else { check },
@@ -394,11 +409,13 @@ mod tests {
             S::UpToDate,
             S::Available {
                 version: "0.2.0".into(),
+                usb: false,
             },
             installing.clone(),
             S::Failed {
                 error: "HTTP 404".into(),
                 retry: Some("0.2.0".into()),
+                usb: false,
             },
         ];
         for state in states {
@@ -413,6 +430,7 @@ mod tests {
         let available = tetrad_page(&view(
             S::Available {
                 version: "0.2.0".into(),
+                usb: false,
             },
             true,
         ));
@@ -428,6 +446,28 @@ mod tests {
             tetrad_page(&view(S::Idle, false)).title,
             "No Internet connection"
         );
+        // A release that came over USB is on the unit already: it installs offline.
+        let usb = |usb| S::Available {
+            version: "0.2.0".into(),
+            usb,
+        };
+        assert_eq!(tetrad_page(&view(usb(false), false)).button, None);
+        assert_eq!(
+            tetrad_page(&view(usb(true), false)).button,
+            available.button
+        );
+        // A failed USB install shows its error offline too, with no retry.
+        let failed = tetrad_page(&view(
+            S::Failed {
+                error: "bin/tetrad: the SHA-256 does not match".into(),
+                retry: None,
+                usb: true,
+            },
+            false,
+        ));
+        assert_eq!(failed.title, "The Tetrad update has failed.");
+        assert!(failed.body.contains("SHA-256") && failed.body.contains("over USB"));
+        assert_eq!(failed.button, None);
     }
 
     /// `0x42483c`: DOWNLOAD UPDATE asks first only off the official channel; PROCEED sends

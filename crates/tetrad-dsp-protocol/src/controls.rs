@@ -160,11 +160,10 @@ impl ControlRequest {
             Self::OutputEqualizerParameter { parameter, .. } if parameter > 27 => {
                 Err(Error::Invalid("output equalizer parameter"))
             }
-            Self::UsbMidiOut { event, .. }
-                if ![9, 11, 12, 15].contains(&event.code)
-                    || (event.code == 15 && (event.status != 0xf8 || event.data != [0, 0])) =>
-            {
-                Err(Error::Invalid("observed USB MIDI event"))
+            // (C) USB probe 2026-10-22: the SOC2 firmware forwards every USB-MIDI CIN
+            // 0x2..=0xF byte for byte; 0x0 and 0x1 are reserved by the USB MIDI 1.0 spec.
+            Self::UsbMidiOut { event, .. } if !(0x2..=0xf).contains(&event.code) => {
+                Err(Error::Invalid("USB MIDI code index number"))
             }
             _ => Ok(()),
         }

@@ -20,6 +20,14 @@ All notable changes to Tetrad are in this file. The version numbers follow
   saving destination as Cortex Control does. The on/off setting is in
   `/media/p4/tetrad/remote.json` (docs/remote.md).
 - The application can show a toast (`UiSnapshot::toast`); Remote shows "IR added" with it.
+- Tetrad over USB (docs/usb.md): the `tetrad-usb` tool shows the Tetrad version, saves a
+  screenshot, prints the recent notices and sends a signed Tetrad release to the unit over the
+  USB cable. UPDATE TETRAD on the unit then installs it, also without the internet. The link
+  shares the HID interface with Cortex Control; both run at the same time.
+- Extensions: the `usb` capability and `ctx.usb.onMessage` answer JSON messages from a computer
+  (`tetrad-usb ext`), so an extension can add its own USB features.
+- USB MIDI sends and receives every MIDI kind, SysEx included. Before, only CC, PC and the clock
+  went out over USB.
 
 ## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
 

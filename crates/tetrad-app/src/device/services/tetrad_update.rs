@@ -1,8 +1,9 @@
 //! Owned (Tetrad): the Tetrad Updates page. The check and the install of a newer Tetrad
 //! release run on the bulk worker ([`tetrad_services::updater::tetrad`]); a good install
-//! restarts the unit. CorOS does not change.
+//! restarts the unit. CorOS does not change. A release can also come over USB
+//! (`device/usb.rs`): it is offered here, and UPDATE TETRAD on the unit installs it.
 
-use tetrad_services::updater::tetrad::{self, Offer};
+use tetrad_services::updater::tetrad::{self, Manifest, Offer, Source};
 use tetrad_ui::{TetradUpdateState, TetradUpdateView};
 
 use super::*;
@@ -21,10 +22,12 @@ pub(super) enum TetradUpdate {
         offer: Offer,
         progress: Option<f32>,
     },
-    /// `offer`: the release that UPDATE TETRAD tries again.
+    /// `offer`: the release that UPDATE TETRAD tries again. `usb`: a USB release failed and
+    /// must be sent again.
     Failed {
         error: String,
         offer: Option<Offer>,
+        usb: bool,
     },
 }
 
@@ -62,12 +65,52 @@ impl Services {
         Ok(vec![Effect::Service(ServiceJob::TetradInstall(offer))])
     }
 
+    /// A USB install may stage its files: no Tetrad or CorOS install and no CorOS download
+    /// runs, since each of them writes p4.
+    pub fn usb_staging_allowed(&self) -> Result<(), ServiceError> {
+        if self.tetrad_installing() {
+            return Err(ServiceError::NotReady("a Tetrad install is running"));
+        }
+        if self.installing() || self.updater.state == UpdaterState::DownloadingData {
+            return Err(ServiceError::NotReady("a CorOS update is running"));
+        }
+        Ok(())
+    }
+
+    /// The release that `tetrad-usb install` pushed is on p4 as `.part` files: UPDATE TETRAD
+    /// installs it.
+    pub fn offer_usb_update(&mut self, manifest: Manifest) -> Result<Vec<Effect>, ServiceError> {
+        self.usb_staging_allowed()?;
+        let offer = Offer {
+            source: Source::Usb,
+            manifest,
+        };
+        let text = format!(
+            "Tetrad {} from USB: Settings > System > Tetrad Updates > UPDATE TETRAD",
+            offer.version()
+        );
+        self.tetrad = TetradUpdate::Available(offer);
+        Ok(vec![notice(text)])
+    }
+
     /// A Tetrad install runs: no CorOS install may start.
     pub(super) fn tetrad_installing(&self) -> bool {
         matches!(self.tetrad, TetradUpdate::Installing { .. })
     }
 
+    /// A new USB upload replaces the `.part` files: an earlier USB offer must not install
+    /// them any more.
+    pub fn withdraw_usb_offer(&mut self) {
+        if matches!(&self.tetrad, TetradUpdate::Available(offer) if offer.source == Source::Usb) {
+            self.tetrad = TetradUpdate::Idle;
+        }
+    }
+
     pub(super) fn tetrad_checked(&mut self, result: Result<Option<Offer>, String>) -> Vec<Effect> {
+        // A USB offer or an install that started since the check owns the state now.
+        if self.tetrad != TetradUpdate::Checking {
+            return Vec::new();
+        }
         let (state, text) = match result {
             Ok(Some(offer)) => {
                 let text = format!("Tetrad {} available", offer.version());
@@ -79,7 +122,12 @@ impl Services {
             ),
             Err(error) => {
                 let text = format!("Tetrad update check failed: {error}");
-                (TetradUpdate::Failed { error, offer: None }, text)
+                let state = TetradUpdate::Failed {
+                    error,
+                    offer: None,
+                    usb: false,
+                };
+                (state, text)
             }
         };
         self.tetrad = state;
@@ -104,10 +152,11 @@ impl Services {
             }
             Err(error) => {
                 let text = format!("Tetrad update failed: {error}");
-                self.tetrad = TetradUpdate::Failed {
-                    error,
-                    offer: Some(offer),
-                };
+                // A failed install removes the `.part` files, so a USB release must be
+                // pushed again; a GitHub release downloads again on retry.
+                let usb = offer.source == Source::Usb;
+                let offer = (!usb).then_some(offer);
+                self.tetrad = TetradUpdate::Failed { error, offer, usb };
                 vec![notice(text)]
             }
         }
@@ -130,14 +179,16 @@ impl Services {
             TetradUpdate::UpToDate => TetradUpdateState::UpToDate,
             TetradUpdate::Available(offer) => TetradUpdateState::Available {
                 version: offer.version().to_string(),
+                usb: offer.source == Source::Usb,
             },
             TetradUpdate::Installing { offer, progress } => TetradUpdateState::Installing {
                 version: offer.version().to_string(),
                 progress: *progress,
             },
-            TetradUpdate::Failed { error, offer } => TetradUpdateState::Failed {
+            TetradUpdate::Failed { error, offer, usb } => TetradUpdateState::Failed {
                 error: error.clone(),
                 retry: offer.as_ref().map(|offer| offer.version().to_string()),
+                usb: *usb,
             },
         };
         TetradUpdateView {

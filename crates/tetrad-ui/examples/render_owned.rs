@@ -1741,6 +1741,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                         state: if view == "tetrad-update" {
                             TetradUpdateState::Available {
                                 version: "0.1.0-alpha.4".into(),
+                                usb: false,
                             }
                         } else {
                             TetradUpdateState::Installing {

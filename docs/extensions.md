@@ -97,8 +97,8 @@ tetrad-ext package --out ../packages .
 }
 ```
 
-Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage` and
-`triggers`. The host refuses every call that needs a capability the manifest does not list.
+Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`,
+`triggers` and `usb`. The host refuses every call that needs a capability the manifest does not list.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`).
 
@@ -142,6 +142,7 @@ The full API, with comments, is in `tetrad.d.ts` (`tetrad-ext sdk` writes it):
 | `ctx.controls.list`, `ctx.controls.onChange` | `scope.storage.get`, `set`, `delete` |
 | `ctx.lifecycle.onRunning`, `onPresetLoaded` | `scope.ui.setStatus` |
 | `ctx.storage.get`, `ctx.triggers.declare`, `ctx.log/warn/error` | `scope.triggers.fire` |
+| `ctx.usb.onMessage` (its return value is the reply; see [usb.md](usb.md)) | |
 
 `ctx.controls.list` and `ctx.storage.get` work only during `activate`; handlers use their
 scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail

@@ -60,6 +60,8 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Remote.** Add IRs from a browser on the same Wi-Fi: open the address the unit shows
   (Settings → System → Remote), enter the PIN and drop the files. See
   [docs/remote.md](docs/remote.md).
+- **Tetrad over USB.** The `tetrad-usb` tool takes screenshots and sends a Tetrad release
+  over the USB cable. See [docs/usb.md](docs/usb.md).
 - **Tetrad updates.** Update Tetrad from the touchscreen (Settings → System → Tetrad Updates).
   CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates).
 - **CorOS updates.** Update CorOS from the touchscreen (Settings → System → CorOS Updates). Tetrad
