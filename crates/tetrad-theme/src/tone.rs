@@ -8,7 +8,7 @@ use crate::{Palette, Rgb};
 const GREY_CHROMA: u8 = 12;
 
 /// The grey roles from dark to light, as stock orders them by luma.
-fn ramp(p: &Palette) -> [Rgb; 11] {
+const fn ramp(p: &Palette) -> [Rgb; 11] {
     [
         p.canvas,
         p.background,
@@ -28,9 +28,21 @@ fn ramp(p: &Palette) -> [Rgb; 11] {
 const HUES: [fn(&Palette) -> Rgb; 4] = [|p| p.accent, |p| p.danger, |p| p.warning, |p| p.action];
 
 /// Rec. 601 luma.
-fn luma(c: Rgb) -> u8 {
+const fn luma(c: Rgb) -> u8 {
     ((77 * c.0 as u32 + 150 * c.1 as u32 + 29 * c.2 as u32 + 128) >> 8) as u8
 }
+
+/// Luma of each stock grey role, in [`ramp`] order.
+const STOCK_LUMA: [u8; 11] = {
+    let ramp = ramp(&Palette::STOCK);
+    let mut out = [0; 11];
+    let mut i = 0;
+    while i < ramp.len() {
+        out[i] = luma(ramp[i]);
+        i += 1;
+    }
+    out
+};
 
 fn chroma(c: Rgb) -> u8 {
     c.0.max(c.1).max(c.2) - c.0.min(c.1).min(c.2)
@@ -92,7 +104,7 @@ impl Palette {
 
     /// The grey of this palette at stock luma `level`, between the two grey roles around it.
     fn grey(&self, level: u8) -> Rgb {
-        let stock = ramp(&Self::STOCK).map(luma);
+        let stock = STOCK_LUMA;
         let mine = ramp(self);
         let upper = stock
             .iter()

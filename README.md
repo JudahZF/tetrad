@@ -47,6 +47,9 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Mappings.** One page (⋮ → Mappings) for what footswitches, pedals, MIDI messages and
   extensions do: scenes, presets, tuner, tap tempo, Looper, block bypass and parameters, and
   Send MIDI. See [docs/mappings.md](docs/mappings.md).
+- **Themes.** Choose the colours of the UI in Settings → System → Appearance: Stock, Stage
+  High Contrast, Slate, Ember, or your own theme files and extension themes. See
+  [docs/themes.md](docs/themes.md).
 - **Extensions.** Install small TypeScript programs from signed GitHub repositories
   (Settings → System → Extensions), such as MIDI Mapper for a second MIDI channel. See
   [docs/extensions.md](docs/extensions.md).

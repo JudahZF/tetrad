@@ -140,7 +140,7 @@ fn categories(ui: &UiState, l: &mut Layout) {
                 tile(
                     l,
                     tile_rect(row),
-                    Some(group.hue()),
+                    Some(group.hue(&p)),
                     fill,
                     Mark::Group(group),
                 );
@@ -221,7 +221,7 @@ fn rail(ui: &UiState, l: &mut Layout) {
                 tile(
                     l,
                     tile_rect(row),
-                    selected.then(|| group.hue()),
+                    selected.then(|| group.hue(&p)),
                     p.canvas,
                     Mark::Group(group),
                 );

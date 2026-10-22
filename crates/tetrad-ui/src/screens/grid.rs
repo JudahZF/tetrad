@@ -681,7 +681,7 @@ fn block_look(
         hue: s
             .occupied(position)
             .then(|| info.hue(capture).unwrap_or(p.muted)),
-        fill: info.fill(capture),
+        fill: info.fill(capture, p),
         icon: info.icon(capture),
         bypassed: s.cell(position).bypassed,
         selected,

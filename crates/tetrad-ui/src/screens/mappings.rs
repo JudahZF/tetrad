@@ -101,7 +101,7 @@ fn block_tile(l: &mut Layout, s: &UiSnapshot, position: GridPosition, bounds: Re
     let p = l.palette;
     let (info, capture) = (s.blocks[position.index()], s.captures[position.index()]);
     l.panel(bounds, info.hue(capture).unwrap_or(p.muted), 8.0, None);
-    l.panel(bounds.inset(2, 2), info.fill(capture), 6.0, None);
+    l.panel(bounds.inset(2, 2), info.fill(capture, &p), 6.0, None);
     if let Some(icon) = info.icon(capture) {
         let size = match bounds.width {
             40.. => IconSize::Medium,

@@ -1,5 +1,5 @@
 //! Render a caller-owned synthetic state to binary PPM on stdout, or write the README
-//! images (`readme <dir>`) as PNG. All names and values are synthetic; nothing comes from
+//! images (`readme <dir>`) or a few views in every built-in theme (`themes <dir>`) as PNG. All names and values are synthetic; nothing comes from
 //! stock firmware or presets.
 use std::error::Error;
 use std::io::{self, Write};
@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|appearance";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -313,6 +313,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
         },
     };
     settings_extras(&mut s);
+    s.appearance.themes = theme_rows("stock");
     Ok(s)
 }
 
@@ -472,8 +473,76 @@ const README: [(&str, &str); 5] = [
     ("looper", "looper"),
 ];
 
+/// Views `themes <dir>` draws in each built-in theme.
+const THEMED: [&str; 6] = ["grid", "params", "gig", "presets", "settings", "appearance"];
+
 fn usage() -> Box<dyn Error> {
-    format!("usage: render_owned [{VIEWS}] [out.png] | render_owned readme <dir>").into()
+    format!(
+        "usage: render_owned [{VIEWS}] [out.png] | render_owned readme <dir> | render_owned themes <dir>"
+    )
+    .into()
+}
+
+/// Settings → Appearance rows: the built-in themes, a theme file, one that fails its checks,
+/// and an extension theme.
+fn theme_rows(selected: &str) -> Vec<ThemeRow> {
+    use tetrad_theme::{BUILTINS, ThemeId, builtin};
+    let mut rows: Vec<ThemeRow> = (BUILTINS.iter())
+        .map(|theme| ThemeRow {
+            id: ThemeId::Builtin(theme.id.into()),
+            name: theme.name.into(),
+            source: "Built-in".into(),
+            palette: Ok(theme.palette),
+            selected: theme.id == selected,
+        })
+        .collect();
+    let mut midnight = builtin("slate").map(|t| t.palette).unwrap_or_default();
+    midnight.background = tetrad_theme::Rgb::hex(0x0d1020);
+    midnight.accent = tetrad_theme::Rgb::hex(0x7aa2f7);
+    rows.push(ThemeRow {
+        id: ThemeId::File("midnight".into()),
+        name: "Midnight".into(),
+        source: "Theme file midnight.json".into(),
+        palette: Ok(midnight),
+        selected: false,
+    });
+    rows.push(ThemeRow {
+        id: ThemeId::File("daylight".into()),
+        name: "Daylight".into(),
+        source: "Theme file daylight.json".into(),
+        palette: Err("background must be dark: Tetrad themes are dark only".into()),
+        selected: false,
+    });
+    let mut dusk = builtin("ember").map(|t| t.palette).unwrap_or_default();
+    dusk.accent = tetrad_theme::Rgb::hex(0xff8fab);
+    rows.push(ThemeRow {
+        id: ThemeId::from("ext:judah.dusk-pack/dusk".to_owned()),
+        name: "Dusk".into(),
+        source: "Dusk Themes".into(),
+        palette: Ok(dusk),
+        selected: false,
+    });
+    rows
+}
+
+/// Writes [`THEMED`] in each built-in theme to `dir` as `<theme>-<view>.png`.
+fn themes(dir: &Path) -> Result<(), Box<dyn Error>> {
+    for theme in &tetrad_theme::BUILTINS {
+        for view in THEMED {
+            let mut snapshot = UiSnapshot {
+                dirty: false,
+                ..fixture()?
+            };
+            snapshot.appearance = AppearanceView {
+                palette: theme.palette,
+                themes: theme_rows(theme.id),
+            };
+            let frame = render(view, snapshot)?;
+            let image = png(WIDTH, HEIGHT, PngColour::Rgb, frame.rgb()).ok_or("bad frame size")?;
+            std::fs::write(dir.join(format!("{}-{view}.png", theme.id)), image)?;
+        }
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -482,6 +551,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         [] => "grid",
         [view] => view.as_str(),
         [mode, dir] if mode == "readme" => return readme(Path::new(dir)),
+        [mode, dir] if mode == "themes" => return themes(Path::new(dir)),
         // One view as PNG, for looking at a page.
         [view, file] if file.ends_with(".png") => {
             let frame = render(view, fixture()?)?;
@@ -1927,9 +1997,10 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 activate(&mut ui, Control::Mode(ModeControl::Add));
             }
         }
-        "brightness" | "bypass" | "scene-bypass" | "factory" | "about" => {
+        "brightness" | "bypass" | "scene-bypass" | "factory" | "about" | "appearance" => {
             let page = match view {
                 "brightness" => SettingsPage::Brightness,
+                "appearance" => SettingsPage::Appearance,
                 "bypass" => SettingsPage::GlobalBypass,
                 "scene-bypass" => SettingsPage::SceneBypass,
                 "factory" => SettingsPage::FactoryReset,
@@ -2651,6 +2722,7 @@ fn extensions_fixture() -> ExtensionsView {
         settings: Vec::new(),
         status_lines: Vec::new(),
         log: Vec::new(),
+        themes: Vec::new(),
     };
     let setting = |key: &str, label: &str, value| ExtensionSetting {
         key: key.into(),

@@ -3,6 +3,18 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Themes (Settings → System → Appearance): pick the UI colours. The built-in themes are Stock
+  (the default, pixel for pixel the old look), Stage High Contrast, Slate and Ember. Tetrad
+  also reads theme files from `/media/p4/tetrad/themes/`, and extensions can add themes in
+  their manifest. Themes are dark only and must pass contrast checks. Block colours, scene
+  colours, LEDs, the boot menu and Recovery do not change (docs/themes.md).
+- Theme-only extensions: a manifest with `themes` and no capabilities, settings or commands
+  packs without a module, and Tetrad runs nothing for it (docs/extensions.md#ship-themes).
+
 ## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
 
 ### Added

@@ -37,6 +37,8 @@ pub struct InstalledExtension {
     pub status_lines: Vec<String>,
     /// The newest log lines, oldest first.
     pub log: Vec<String>,
+    /// Names of the themes it adds to Settings → Appearance.
+    pub themes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

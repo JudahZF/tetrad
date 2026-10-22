@@ -385,13 +385,13 @@ impl BlockInfo {
     }
 
     /// Stock tile fill (`0x002eb624`): a plugin block's colour at alpha 0.3 over the black
-    /// tile (`3d-worship-v5`: amp `#4a0c08`, cab `#18184a`), else black. The 76/255 weight
-    /// reproduces both measured 565 pixels; 77 does not. Stock also tints some models by a
-    /// parameter (8036, 8039, 18018); Tetrad does not model that.
-    pub fn fill(self, capture: Option<CaptureDevice>) -> Rgb {
+    /// tile (`3d-worship-v5`: amp `#4a0c08`, cab `#18184a`), else the tile (canvas). The
+    /// 76/255 weight reproduces both measured 565 pixels; 77 does not. Stock also tints some
+    /// models by a parameter (8036, 8039, 18018); Tetrad does not model that.
+    pub fn fill(self, capture: Option<CaptureDevice>, p: &Palette) -> Rgb {
         match (self.plugin, self.hue(capture)) {
-            (Some(_), Some(hue)) => hue.mix(Palette::STOCK.canvas, 255 - 76),
-            _ => Palette::STOCK.canvas,
+            (Some(_), Some(hue)) => hue.mix(p.canvas, 255 - 76),
+            _ => p.canvas,
         }
     }
 
@@ -941,12 +941,12 @@ impl DeviceGroup {
     }
 
     /// Tile border colour: the stock colour of the group's categories; Plugins
-    /// is green (shot 076).
-    pub fn hue(self) -> Rgb {
+    /// is the accent (stock green, shot 076).
+    pub fn hue(self, p: &Palette) -> Rgb {
         ModelCategory::PICKER
             .into_iter()
             .find(|category| Self::of(*category).is_some_and(|(group, _)| group == self))
-            .map_or(Palette::STOCK.accent, ModelCategory::hue)
+            .map_or(p.accent, ModelCategory::hue)
     }
 }
 

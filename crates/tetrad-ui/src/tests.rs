@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 
 use crate::*;
+use tetrad_assets::Palette;
 
 fn center(ui: &UiState, control: Control) -> (i32, i32) {
     let bounds = ui
@@ -1890,13 +1891,13 @@ fn preset_save_keyboard_has_the_stock_header_and_field() {
     assert_eq!(item("CLOSE").control, Some(Control::Key(Key::Cancel)));
     assert_eq!(
         panel_at(Rect::new(114, 19, 2, 21)),
-        Some((tetrad_assets::PANEL, None))
+        Some((Palette::STOCK.panel, None))
     );
     assert!(panel_at(Rect::new(124, 8, 179, 44)).is_some(), "folder");
     assert_eq!(item("NAME").bounds, Rect::new(311, 8, 76, 44));
     assert_eq!(
         panel_at(Rect::new(311, 8, 76, 44)),
-        Some((tetrad_assets::ACCENT_FILL, Some(tetrad_assets::ACCENT)))
+        Some((Palette::STOCK.accent_fill, Some(Palette::STOCK.accent)))
     );
     assert_eq!(item("METADATA").bounds, Rect::new(395, 8, 66, 44));
     let forward = item("FORWARD");
@@ -1905,7 +1906,7 @@ fn preset_save_keyboard_has_the_stock_header_and_field() {
     assert!(!forward.enabled, "a 2-character name cannot go forward");
     assert_eq!(
         panel_at(Rect::new(40, 97, 720, 74)),
-        Some((tetrad_assets::BACKGROUND, None))
+        Some((Palette::STOCK.background, None))
     );
     assert!(
         (layout.items.iter()).all(|item| !item.label.starts_with("Characters left")
@@ -2359,7 +2360,7 @@ fn tempo_page_marks_midi_clock_out() {
         .insert(SettingId::MidiClockOut, SettingValue::Choice(0));
     let mut ui = ui_with(snapshot.clone());
     ui.navigate(Screen::Tempo);
-    assert_eq!(color_of(&ui, "120"), Some(tetrad_assets::ACCENT));
+    assert_eq!(color_of(&ui, "120"), Some(Palette::STOCK.accent));
     assert!(
         !ui.layout()
             .items
@@ -2370,7 +2371,7 @@ fn tempo_page_marks_midi_clock_out() {
         .settings
         .insert(SettingId::MidiClockOut, SettingValue::Choice(1));
     ui.set_snapshot(snapshot).unwrap();
-    assert_eq!(color_of(&ui, "120"), Some(tetrad_assets::DANGER));
+    assert_eq!(color_of(&ui, "120"), Some(Palette::STOCK.danger));
     assert!(
         ui.layout()
             .items
@@ -2415,7 +2416,7 @@ fn available_update_dots_the_menu_and_settings() {
             .iter()
             .filter(|item| {
                 item.visible().is_some()
-                    && matches!(item.look, crate::layout::Look::Dot { color } if color == tetrad_assets::ACCENT)
+                    && matches!(item.look, crate::layout::Look::Dot { color } if color == Palette::STOCK.accent)
             })
             .count()
     };
@@ -2537,10 +2538,10 @@ fn the_open_scene_dropdown_has_no_pencil_and_greys_the_header_badge() {
     // Badge at +10 in the 44 px button; (2, 2) inside it is fill, left of it is the button.
     let (badge, frame) = ((menu.x + 12, menu.y + 12), (menu.x + 5, menu.y + 22));
     let pixel = |ui: &UiState, (x, y): (i32, i32)| ui.render().pixel(x as u32, y as u32);
-    assert_eq!(pixel(&ui, badge), tetrad_assets::WARNING);
+    assert_eq!(pixel(&ui, badge), Palette::STOCK.warning);
     activate(&mut ui, Control::SceneMenu);
-    assert_eq!(pixel(&ui, badge), tetrad_assets::FAINT);
-    assert_eq!(pixel(&ui, frame), tetrad_assets::CANVAS);
+    assert_eq!(pixel(&ui, badge), Palette::STOCK.faint);
+    assert_eq!(pixel(&ui, frame), Palette::STOCK.canvas);
     assert!(
         ui.hit_regions()
             .iter()
@@ -3656,12 +3657,12 @@ fn tempo_beat_accents_draw_the_stock_marks() {
     let frame = ui.render();
     // Beat centres x = 208 + 128·i, y 213; marks at y 189 and 237.
     let at = |x, y| frame.pixel(x, y);
-    assert_eq!(at(208, 189), tetrad_assets::SECTION, "mark above beat 1");
-    assert_eq!(at(208, 237), tetrad_assets::CANVAS);
-    assert_eq!(at(336, 213), tetrad_assets::CANVAS, "black beat 2");
-    assert_eq!(at(464, 237), tetrad_assets::SECTION, "mark below beat 3");
-    assert_eq!(at(592, 213), tetrad_assets::SECTION, "plain beat 4");
-    assert_eq!(at(592, 189), tetrad_assets::CANVAS);
+    assert_eq!(at(208, 189), Palette::STOCK.section, "mark above beat 1");
+    assert_eq!(at(208, 237), Palette::STOCK.canvas);
+    assert_eq!(at(336, 213), Palette::STOCK.canvas, "black beat 2");
+    assert_eq!(at(464, 237), Palette::STOCK.section, "mark below beat 3");
+    assert_eq!(at(592, 213), Palette::STOCK.section, "plain beat 4");
+    assert_eq!(at(592, 189), Palette::STOCK.canvas);
 }
 
 /// Looper X after "Reassign": tile n shows the action stored for footswitch n, and picking a
@@ -3764,10 +3765,7 @@ fn grid_draws_the_plugin_tag_and_fill_on_a_plugin_block_only() {
     assert_eq!(tags[0].0, tag);
     assert!(matches!(
         tags[0].1,
-        crate::layout::Look::Text {
-            color: tetrad_assets::TEXT,
-            ..
-        }
+        crate::layout::Look::Text { color, .. } if color == Palette::STOCK.text
     ));
     assert!(items.iter().any(|item| item.bounds == tag
         && matches!(
@@ -3777,7 +3775,7 @@ fn grid_draws_the_plugin_tag_and_fill_on_a_plugin_block_only() {
                 ..
             }
         )));
-    assert_eq!(tile(1).1, tetrad_assets::CANVAS);
+    assert_eq!(tile(1).1, Palette::STOCK.canvas);
 }
 
 /// Census #2: a new device notice opens the MessageDialog once; while another modal shows
@@ -4044,12 +4042,12 @@ fn knob_arc_colour_follows_scene_and_expression_assignment() {
     };
     assert_eq!(arc(snapshot.clone()), ModelCategory::GuitarAmp.hue());
     snapshot.parameters[0].scene = true;
-    assert_eq!(arc(snapshot.clone()), tetrad_assets::TEXT);
+    assert_eq!(arc(snapshot.clone()), Palette::STOCK.text);
     snapshot.expression = vec![ExpressionLink {
         pedal: ExpressionPedal::Exp1,
         target: ExpressionTarget::Parameter(4),
     }];
-    assert_eq!(arc(snapshot), tetrad_assets::ACCENT);
+    assert_eq!(arc(snapshot), Palette::STOCK.accent);
 }
 
 /// Census #5 (`0x3b5424`): in Stomp mode the editor's footswitch button opens "Assign
@@ -6306,7 +6304,7 @@ fn usb_statistics_show_the_device_values_in_the_stock_colours() {
             .collect::<Vec<_>>()
     };
     let dashes = color(&ui, "---");
-    assert!(!dashes.is_empty() && dashes.iter().all(|c| *c == tetrad_assets::TEXT));
+    assert!(!dashes.is_empty() && dashes.iter().all(|c| *c == Palette::STOCK.text));
     let mut s = ui.snapshot.clone();
     let mut values: [UsbValue; 21] = std::array::from_fn(|index| UsbValue {
         text: format!("v{index}"),
@@ -6358,12 +6356,7 @@ fn device_storage_restore_sends_the_quarantined_capture() {
         },
     ];
     let mut ui = ui_with(s);
-    activate(&mut ui, Control::OpenMainMenu);
-    activate(&mut ui, Control::Menu(MenuAction::Settings));
-    activate(&mut ui, Control::Setting(SettingControl::Groups));
-    activate(&mut ui, Control::Choose(1));
-    let page = SettingsPage::DeviceStorage;
-    activate(&mut ui, Control::Setting(SettingControl::Page(page)));
+    ui.navigate(Screen::Settings(SettingsPage::DeviceStorage));
     let restore = Control::RestoreCapture(0);
     assert!(ui.hit_regions().iter().any(|r| r.control == restore));
     assert_eq!(
@@ -6971,13 +6964,13 @@ fn open_block_editor_dims_the_header_and_grid_to_stock_level() {
     for (x, y) in [(20, 120), (658, 24)] {
         assert_eq!(
             open.pixel(x, y),
-            closed.pixel(x, y).mix(tetrad_assets::CANVAS, 123),
+            closed.pixel(x, y).mix(Palette::STOCK.canvas, 123),
             "dimmed at ({x}, {y})"
         );
     }
     assert_eq!(
         open.pixel(730, 210),
-        tetrad_assets::PANEL,
+        Palette::STOCK.panel,
         "the ✓ key is not dimmed"
     );
 }
@@ -7116,18 +7109,18 @@ fn selected_tile_has_a_six_pixel_ring_in_its_hue() {
     let frame = ui_with(selected_overdrive()).render();
     let hue = ModelCategory::GuitarOverdrive
         .hue()
-        .mix(tetrad_assets::CANVAS, 123);
+        .mix(Palette::STOCK.canvas, 123);
     for x in 69..=74 {
         assert_eq!(frame.pixel(x, 140), hue, "ring at x {x}");
     }
     assert_eq!(
         frame.pixel(75, 140),
-        tetrad_assets::CANVAS,
+        Palette::STOCK.canvas,
         "inside the ring"
     );
     assert_eq!(
         frame.pixel(68, 140),
-        tetrad_assets::CANVAS,
+        Palette::STOCK.canvas,
         "outside the tile"
     );
 }
@@ -7142,12 +7135,12 @@ fn block_editor_keys_use_the_stock_fill_and_a_24_px_scene_badge() {
     assert_eq!(frame.pixel(660, 210), idle, "bypass key");
     assert_eq!(
         frame.pixel(556, 226),
-        tetrad_assets::WARNING,
+        Palette::STOCK.warning,
         "badge left edge"
     );
     assert_eq!(
         frame.pixel(579, 226),
-        tetrad_assets::WARNING,
+        Palette::STOCK.warning,
         "badge right edge"
     );
     assert_eq!(frame.pixel(555, 226), idle, "left of the badge");
@@ -7302,13 +7295,13 @@ fn a_utility_block_draws_the_stock_fan_at_32_px() {
     assert_eq!((x, y), (599, 131), "stock glyph box");
     let frame = ui.render();
     let at = |dx: i32, dy: i32| frame.pixel((x + dx) as u32, (y + dy) as u32);
-    assert_eq!(at(5, 9), tetrad_assets::TEXT, "handle");
-    assert_eq!(at(4, 27), tetrad_assets::TEXT, "ball");
+    assert_eq!(at(5, 9), Palette::STOCK.text, "handle");
+    assert_eq!(at(4, 27), Palette::STOCK.text, "ball");
     let blade = at(12, 12);
     assert!((100..180).contains(&blade.0), "grey blade {blade:?}");
     assert_eq!(
         at(22, 22),
-        tetrad_assets::CANVAS,
+        Palette::STOCK.canvas,
         "the wrench shaft is gone"
     );
 }
@@ -7372,7 +7365,7 @@ fn sidechain_marks_draw_as_stock_on_the_grid() {
     s.sidechain.inputs[0] = true;
     let frame = ui_with(s).render();
     let at = |x: u32, y: u32| frame.pixel(x, y);
-    let (white, black) = (tetrad_assets::TEXT, tetrad_assets::CANVAS);
+    let (white, black) = (Palette::STOCK.text, Palette::STOCK.canvas);
     // "In 1" source, glyph box (46, 139): rim on the tile, square, dot, ▶; the cable from x 64.
     assert_eq!(
         [
@@ -7382,7 +7375,7 @@ fn sidechain_marks_draw_as_stock_on_the_grid() {
             at(55, 147),
             at(64, 147)
         ],
-        [black, white, black, black, tetrad_assets::CABLE]
+        [black, white, black, black, Palette::STOCK.cable]
     );
     // Row 1 column 7 sink, glyph box (579, 139): rim cuts the cable, ▶, square, dot.
     assert_eq!(
@@ -7397,7 +7390,7 @@ fn sidechain_marks_draw_as_stock_on_the_grid() {
     );
     // Bypassed row 3 column 2 sink, glyph box (151, 327): grey square, the cable through the ▶.
     assert_eq!(at(160, 330), white.mix(black, 204));
-    assert_eq!(at(153, 334), tetrad_assets::CABLE);
+    assert_eq!(at(153, 334), Palette::STOCK.cable);
 }
 
 /// Stock `0x427db4` strokes a block tile with `drawRoundedRect(13, 13)` on the pen's centre
@@ -7416,8 +7409,8 @@ fn block_tile_corners_use_the_stock_radius() {
         .bounds;
     let frame = ui.render();
     let at = |dy: i32| frame.pixel(slot.x as u32 + 3, (slot.y + 3 + dy) as u32);
-    assert_eq!(at(8), tetrad_assets::CANVAS);
-    assert_ne!(at(9), tetrad_assets::CANVAS);
+    assert_eq!(at(8), Palette::STOCK.canvas);
+    assert_ne!(at(9), Palette::STOCK.canvas);
     assert_ne!(at(13), tetrad_assets::block::DRIVE);
     assert_eq!(at(14), tetrad_assets::block::DRIVE);
 }
@@ -7454,22 +7447,22 @@ fn a_capture_block_shows_its_device_type_and_the_badge() {
     assert_eq!(at(&frame, 0, 32), tetrad_assets::block::DRIVE, "outline");
     assert_eq!(
         at(&frame, 31, 34),
-        tetrad_assets::TEXT,
+        Palette::STOCK.text,
         "the pedal's big knob"
     );
     // Badge disc at tile (−5, 47): a bright stripe of its right half.
-    assert_eq!(at(&frame, 9, 55), tetrad_assets::TEXT, "badge");
+    assert_eq!(at(&frame, 9, 55), Palette::STOCK.text, "badge");
     let (dim, ..) = render(Some(CaptureDevice::Pedal), true);
     assert_eq!(
         at(&dim, 9, 55),
-        tetrad_assets::TEXT.mix(tetrad_assets::CANVAS, 208)
+        Palette::STOCK.text.mix(Palette::STOCK.canvas, 208)
     );
     let (plain, ..) = render(None, false);
     assert_eq!(at(&plain, 0, 32), tetrad_assets::block::NEUTRAL);
-    assert_eq!(at(&plain, 9, 55), tetrad_assets::CANVAS, "no badge");
+    assert_eq!(at(&plain, 9, 55), Palette::STOCK.canvas, "no badge");
     assert_ne!(
         at(&plain, 31, 34),
-        tetrad_assets::TEXT,
+        Palette::STOCK.text,
         "NC.png has no knob there"
     );
 }
@@ -7589,15 +7582,15 @@ fn gig_stomp_shows_the_capture_type_badge() {
     };
     let badged = render(Some(CaptureDevice::Pedal));
     let plain = render(None);
-    assert_eq!(badged.pixel(228, 158), tetrad_assets::CANVAS, "badge disc");
+    assert_eq!(badged.pixel(228, 158), Palette::STOCK.canvas, "badge disc");
     assert_ne!(
         plain.pixel(228, 158),
-        tetrad_assets::CANVAS,
+        Palette::STOCK.canvas,
         "no badge without a device type"
     );
     // The striped glyph is white in the disc, below the block glyph (which ends at y 143).
     let striped = |frame: &Frame| {
-        (222..240).any(|x| (144..158).any(|y| frame.pixel(x, y) == tetrad_assets::TEXT))
+        (222..240).any(|x| (144..158).any(|y| frame.pixel(x, y) == Palette::STOCK.text))
     };
     assert!(striped(&badged), "striped glyph");
     assert!(!striped(&plain), "no glyph without a device type");
@@ -7728,7 +7721,7 @@ fn a_parallel_path_draws_junction_cables_and_fades_path_b_ports() {
     };
     let ui = ui_with(s);
     let frame = ui.render();
-    let cable = |x, y| frame.pixel(x, y) == tetrad_assets::CABLE;
+    let cable = |x, y| frame.pixel(x, y) == Palette::STOCK.cable;
     // Junction cables between the rows (centres y 147 and 241).
     for y in [160, 194, 228] {
         assert!(cable(60, y) && cable(61, y), "split cable at y {y}");
@@ -7750,10 +7743,10 @@ fn a_parallel_path_draws_junction_cables_and_fades_path_b_ports() {
     let faded = tetrad_assets::Rgb(0x18, 0x18, 0x18);
     assert_eq!(frame.pixel(30, 241), faded);
     assert_eq!(frame.pixel(770, 241), faded);
-    assert_eq!(frame.pixel(12, 241), tetrad_assets::CANVAS);
+    assert_eq!(frame.pixel(12, 241), Palette::STOCK.canvas);
     assert_ne!(
         frame.pixel(12, 335),
-        tetrad_assets::CANVAS,
+        Palette::STOCK.canvas,
         "row 3 keeps its tile"
     );
     assert!(!shows(
@@ -7845,7 +7838,7 @@ fn royal_blood_grid() -> UiSnapshot {
 #[test]
 fn split_cables_from_inner_gaps_detour_to_path_b_ends() {
     let frame = ui_with(royal_blood_grid()).render();
-    let cable = |x, y| frame.pixel(x, y) == tetrad_assets::CABLE;
+    let cable = |x, y| frame.pixel(x, y) == Palette::STOCK.cable;
     let vertical = |x, ys: [u32; 3]| ys.into_iter().all(|y| cable(x - 1, y) && cable(x, y));
     let horizontal = |y, xs: [u32; 3]| xs.into_iter().all(|x| cable(x, y - 1) && cable(x, y));
     // Rows 1–2: split at gap 2 (x 228), no mix: row 2 keeps its own `Row 3` port.
@@ -7894,23 +7887,23 @@ fn cables_stop_short_of_ports_and_active_blocks_and_cross_bypassed_ones() {
     s.grid[cell(0, 1).index()].bypassed = true;
     let frame = ui_with(s).render();
     let cable = |x| {
-        frame.pixel(x, 147) == tetrad_assets::CABLE && frame.pixel(x, 146) == tetrad_assets::CABLE
+        frame.pixel(x, 147) == Palette::STOCK.cable && frame.pixel(x, 146) == Palette::STOCK.cable
     };
-    let cut = |x| frame.pixel(x, 147) != tetrad_assets::CABLE;
+    let cut = |x| frame.pixel(x, 147) != Palette::STOCK.cable;
     for x in [54, 65, 136, 151, 155, 186, 218, 222, 747] {
         assert!(cable(x), "cable at x {x}");
     }
     for x in [52, 53, 66, 68, 133, 135, 748, 749] {
         assert!(cut(x), "gap at x {x}");
     }
-    assert_eq!(frame.pixel(749, 120), tetrad_assets::CANVAS);
+    assert_eq!(frame.pixel(749, 120), Palette::STOCK.canvas);
     assert_ne!(
         frame.pixel(750, 120),
-        tetrad_assets::CANVAS,
+        Palette::STOCK.canvas,
         "Multi Out tile from x 750"
     );
-    assert_ne!(frame.pixel(793, 120), tetrad_assets::CANVAS);
-    assert_eq!(frame.pixel(794, 120), tetrad_assets::CANVAS);
+    assert_ne!(frame.pixel(793, 120), Palette::STOCK.canvas);
+    assert_eq!(frame.pixel(794, 120), Palette::STOCK.canvas);
 }
 
 /// Stock bypassed block editor (`0x4b5918`, `sl-1` against `b4-stock1`): the parameter cells
@@ -7947,7 +7940,7 @@ fn a_bypassed_block_editor_dims_its_cells_and_shows_the_bypassed_glyph() {
     ));
     let label = (18..60)
         .flat_map(|x| (268..282).map(move |y| (x, y)))
-        .find(|&(x, y)| active.pixel(x, y) == tetrad_assets::TEXT)
+        .find(|&(x, y)| active.pixel(x, y) == Palette::STOCK.text)
         .expect("a label pixel");
     assert!(near(
         bypassed.pixel(label.0, label.1),
@@ -7965,18 +7958,18 @@ fn a_bypassed_block_editor_dims_its_cells_and_shows_the_bypassed_glyph() {
     assert_eq!(bypassed.pixel(685, 221), idle, "inside the ring");
     assert_eq!(bypassed.pixel(676, 224), idle, "the cut");
     for x in [673, 685, 696] {
-        assert_eq!(bypassed.pixel(x, 225), tetrad_assets::TEXT, "bar at x {x}");
-        assert_eq!(bypassed.pixel(x, 226), tetrad_assets::TEXT, "bar at x {x}");
+        assert_eq!(bypassed.pixel(x, 225), Palette::STOCK.text, "bar at x {x}");
+        assert_eq!(bypassed.pixel(x, 226), Palette::STOCK.text, "bar at x {x}");
     }
     assert_eq!(bypassed.pixel(672, 225), idle);
     assert_ne!(active.pixel(677, 221), hue, "active: the power glyph");
     assert_eq!(bypassed.pixel(660, 210), idle, "keys are not dimmed");
-    assert_eq!(bypassed.pixel(730, 210), tetrad_assets::PANEL);
+    assert_eq!(bypassed.pixel(730, 210), Palette::STOCK.panel);
     // One row of cells, dividers up to the last cell.
     let page = active.pixel(400, 400);
     assert_eq!(active.pixel(400, 362), crate::widgets::CARD);
     assert_eq!(active.pixel(400, 363), page);
-    assert_eq!(active.pixel(478, 300), tetrad_assets::DIVIDER);
+    assert_eq!(active.pixel(478, 300), Palette::STOCK.divider);
     assert_eq!(active.pixel(635, 300), crate::widgets::CARD);
 }
 
@@ -8046,7 +8039,7 @@ fn block_editor_draws_a_cell_only_for_each_parameter() {
     ] {
         assert_eq!(
             frame.pixel(x, y),
-            tetrad_assets::DIVIDER,
+            Palette::STOCK.divider,
             "divider at ({x}, {y})"
         );
     }
@@ -8057,7 +8050,7 @@ fn block_editor_draws_a_cell_only_for_each_parameter() {
             "card at ({x}, {y})"
         );
     }
-    assert_eq!(frame.pixel(400, 364), tetrad_assets::DIVIDER, "row gap");
+    assert_eq!(frame.pixel(400, 364), Palette::STOCK.divider, "row gap");
     assert_eq!(frame.pixel(400, 365), crate::widgets::CARD, "row 2");
 }
 
@@ -8101,7 +8094,7 @@ fn mode_button_shows_the_midi_glyph_while_the_preset_has_midi_out() {
     );
     let frame = midi.render();
     let (cx, cy) = (box_.x as u32 + 12, box_.y as u32 + 11);
-    let white = |x: u32, y: u32| frame.pixel(x, y) == tetrad_assets::TEXT;
+    let white = |x: u32, y: u32| frame.pixel(x, y) == Palette::STOCK.text;
     assert!(white(cx, cy) && white(cx, cy + 6) && white(cx - 10, cy));
     assert!(!white(cx, cy - 7), "top pin hole");
     assert!(
@@ -8127,12 +8120,12 @@ fn capture_two_blocks_draw_the_stock_inner_ring() {
     };
     let two = frame(14_001);
     let ring = two.pixel(356, 116);
-    let inner = ring.mix(tetrad_assets::CANVAS, 102);
+    let inner = ring.mix(Palette::STOCK.canvas, 102);
     for y in [120, 121, 172, 173] {
         assert_eq!(two.pixel(356, y), inner, "inner ring at y {y}");
     }
     for y in [118, 123, 170, 175] {
-        assert_eq!(two.pixel(356, y), tetrad_assets::CANVAS, "black at y {y}");
+        assert_eq!(two.pixel(356, y), Palette::STOCK.canvas, "black at y {y}");
     }
-    assert_eq!(frame(14_000).pixel(356, 120), tetrad_assets::CANVAS);
+    assert_eq!(frame(14_000).pixel(356, 120), Palette::STOCK.canvas);
 }

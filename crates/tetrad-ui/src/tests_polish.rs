@@ -1,6 +1,7 @@
 //! Pixel-fidelity checks against the stock QC shots (gap census A10).
 
 use crate::*;
+use tetrad_assets::Palette;
 
 fn ui_with(snapshot: UiSnapshot) -> UiState {
     let mut ui = UiState::new();
@@ -215,7 +216,7 @@ fn grid_input_port_draws_the_input_gate_meter() {
     assert!((116..=119).all(|y| orange(20, y)));
     assert!((21..=40).all(|x| orange(x, 117)));
     let pad = frame.pixel(30, 140);
-    assert!(frame.pixel(18, 117).0 < pad.0 && frame.pixel(19, 117) == tetrad_assets::CANVAS);
+    assert!(frame.pixel(18, 117).0 < pad.0 && frame.pixel(19, 117) == Palette::STOCK.canvas);
     // In 2: no meter.
     assert!((203..=279).all(|y| (8..=51).all(|x| !lit(x, y))));
 }

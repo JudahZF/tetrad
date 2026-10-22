@@ -1883,6 +1883,11 @@ impl Extensions {
                     settings,
                     status_lines: self.status_lines(key).to_vec(),
                     log: self.log(key),
+                    themes: manifest
+                        .themes
+                        .iter()
+                        .map(|theme| theme.name.clone())
+                        .collect(),
                 }
             })
             .collect();

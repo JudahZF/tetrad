@@ -422,6 +422,10 @@ fn parts(extension: &InstalledExtension, width: u32) -> Vec<Part<'_>> {
         parts.push(Part::Header("Commands"));
         parts.extend((0..extension.commands.len()).step_by(2).map(Part::Commands));
     }
+    if !extension.themes.is_empty() {
+        parts.push(Part::Header("Themes (Settings → Appearance)"));
+        parts.extend(extension.themes.iter().map(|name| Part::StatusLine(name)));
+    }
     if !extension.status_lines.is_empty() {
         parts.push(Part::Header("Status"));
         parts.extend(
@@ -1116,6 +1120,7 @@ pub(crate) mod tests {
             settings: Vec::new(),
             status_lines: Vec::new(),
             log: Vec::new(),
+            themes: Vec::new(),
         };
         let mapper = InstalledExtension {
             update: Some("1.1.0".into()),

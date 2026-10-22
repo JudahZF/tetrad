@@ -1,6 +1,7 @@
-//! Visual assets: the stock colour tokens, IBM Plex Sans text (vendored OFL
-//! font, rasterized at runtime) and owned line icons. No stock image, icon or
-//! font byte from the device is used.
+//! Visual assets: the fixed data colours (block categories, scene swatches), IBM Plex Sans
+//! text (vendored OFL font, rasterized at runtime) and owned line icons. No stock image, icon
+//! or font byte from the device is used. Chrome colours are theme roles
+//! ([`tetrad_theme::Palette`], re-exported as [`Palette`]).
 #![forbid(unsafe_code)]
 
 mod device_art;
@@ -13,27 +14,6 @@ pub use icon::{Icon, IconSize, icon};
 pub use raster::Mask;
 
 pub use tetrad_theme::{Palette, Rgb};
-
-// Chrome colours are theme roles now (`tetrad_theme::Palette`); screens read them from their
-// `Layout`. These aliases of the stock values go once every screen reads the palette.
-pub const BACKGROUND: Rgb = Palette::STOCK.background;
-pub const CANVAS: Rgb = Palette::STOCK.canvas;
-pub const PANEL: Rgb = Palette::STOCK.panel;
-pub const SURFACE: Rgb = Palette::STOCK.surface;
-pub const ROW_SELECTED: Rgb = Palette::STOCK.row_selected;
-pub const SECTION: Rgb = Palette::STOCK.section;
-pub const DIVIDER: Rgb = Palette::STOCK.divider;
-pub const TEXT: Rgb = Palette::STOCK.text;
-pub const MUTED: Rgb = Palette::STOCK.muted;
-pub const FAINT: Rgb = Palette::STOCK.faint;
-pub const ACCENT: Rgb = Palette::STOCK.accent;
-pub const ACCENT_FILL: Rgb = Palette::STOCK.accent_fill;
-pub const ON_ACCENT: Rgb = Palette::STOCK.on_accent;
-pub const ACTION: Rgb = Palette::STOCK.action;
-pub const DANGER: Rgb = Palette::STOCK.danger;
-pub const WARNING: Rgb = Palette::STOCK.warning;
-pub const SCROLLBAR: Rgb = Palette::STOCK.scrollbar;
-pub const CABLE: Rgb = Palette::STOCK.cable;
 
 // Fixed colours: data, not chrome. Themes do not change them.
 

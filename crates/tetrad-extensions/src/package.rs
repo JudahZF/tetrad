@@ -138,6 +138,21 @@ mod tests {
         assert!(matches!(empty.encode(), Err(PackageError::EmptyModule)));
     }
 
+    /// The theme pack fixture, the example in docs/extensions.md, packs without a module.
+    #[test]
+    fn theme_pack_fixture_packs() {
+        let manifest: Manifest = serde_json::from_str(include_str!(
+            "../../../extensions/fixtures/theme-pack/tetrad-extension.json"
+        ))
+        .unwrap();
+        assert!(manifest.data_only());
+        let pack = Package {
+            manifest,
+            module: String::new(),
+        };
+        assert_eq!(Package::decode(&pack.encode().unwrap()).unwrap(), pack);
+    }
+
     /// A theme pack can never run code or ask for access: without a module it must add
     /// themes and nothing else, and a bad theme fails the whole package.
     #[test]

@@ -10,7 +10,7 @@ use crate::{Control, Rect, ThemeRow, UiState};
 const ROW: u32 = 60;
 const SWATCH: u32 = 22;
 const SWATCH_GAP: u32 = 8;
-const NOTE: u32 = 40;
+const NOTE: u32 = 52;
 
 pub(crate) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
     let p = l.palette;
