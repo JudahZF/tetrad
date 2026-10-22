@@ -193,7 +193,14 @@ fn stop_frees_the_port_while_a_client_waits() {
     client.write_all(b"GET / HTTP/1.1\r\n").unwrap();
     // Time for the thread to take the connection and wait for the rest.
     std::thread::sleep(Duration::from_millis(300));
+    let stopping = Instant::now();
     drop(server);
+    // Bounded by the accept poll, not the 10 s connection deadline.
+    assert!(
+        stopping.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        stopping.elapsed()
+    );
     Server::start(address).expect("the port is free when drop returns");
     // The waiting client was closed, not left until its deadline.
     client
