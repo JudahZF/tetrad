@@ -5,7 +5,7 @@
 //! faders, page 2 the `EqPanel` (`0x81dd9c`) with HPF, LPF, OUTPUT (and Q on Nolly) over a
 //! graph with "H" and "L" nodes. Graph, tabs and card are shared with `global_eq.rs`.
 
-use tetrad_assets::{BACKGROUND, FAINT, IconSize, MUTED, PANEL, Rgb, SURFACE, TEXT, block};
+use tetrad_assets::{IconSize, Rgb, block};
 
 use super::global_eq::{self, Band, Node, Shape};
 use super::model_editor::{BODY_TOP, ModelEditor, parameter};
@@ -39,7 +39,7 @@ const FADER_PITCH: i32 = 88;
 const FADER_WIDTH: u32 = 72;
 const FADER_TRACK: Rect = Rect::new(0, BODY_TOP + 52, 40, 356);
 /// Fader colour (`0x2c6984`: `#0a74e0`).
-const FADER_FILL: Rgb = Rgb(0x0a, 0x74, 0xe0);
+const FADER_FILL: Rgb = block::EQ;
 /// `EqPanel` strip 784 × 107 at (8, 7) and graph 800 × 297 at (0, 115).
 const STRIP: Rect = Rect::new(8, BODY_TOP + 7, 784, 107);
 const PANEL_GRAPH: Rect = Rect::new(0, BODY_TOP + 115, WIDTH, 297);
@@ -105,6 +105,7 @@ fn tab(ui: &UiState, bands: u8) -> u8 {
 }
 
 pub(super) fn eq(ui: &UiState, l: &mut Layout, bands: u8, output: u16) {
+    let background = l.palette.background;
     let tab = tab(ui, bands);
     let curve: Vec<Band> = (0..bands).filter_map(|b| band(ui, b)).collect();
     let nodes: Vec<Node> = (0..bands)
@@ -125,7 +126,7 @@ pub(super) fn eq(ui: &UiState, l: &mut Layout, bands: u8, output: u16) {
     l.push(
         Rect::new(0, global_eq::GRAPH.bottom(), WIDTH, 170),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(background),
     );
     for index in 0..=bands {
         let label = if index == bands {
@@ -209,8 +210,9 @@ fn knob_cell(l: &mut Layout, bounds: Rect, p: &ParameterView, label: &str, enabl
 pub(super) fn filter_type_selector(ui: &UiState, l: &mut Layout, parameter_index: u16) {
     let current = parameter(ui, parameter_index)
         .map(|p| ((position(p) * 4.0 + 1e-3).floor() as usize).min(4));
+    let p = l.palette;
     l.popover(TYPE_TABLE);
-    l.panel(TYPE_TABLE, BACKGROUND, 8.0, None);
+    l.panel(TYPE_TABLE, p.background, 8.0, None);
     for (index, shape) in Shape::BLOCK_ORDER.into_iter().enumerate() {
         let row = Rect::new(
             TYPE_TABLE.x,
@@ -219,7 +221,7 @@ pub(super) fn filter_type_selector(ui: &UiState, l: &mut Layout, parameter_index
             TYPE_ROW as u32,
         );
         if current == Some(index) {
-            l.panel(row.inset(4, 4), SURFACE, 6.0, None);
+            l.panel(row.inset(4, 4), p.surface, 6.0, None);
         }
         l.control(
             row,
@@ -234,14 +236,14 @@ pub(super) fn filter_type_selector(ui: &UiState, l: &mut Layout, parameter_index
             Look::Glyph {
                 icon: shape.icon(),
                 size: IconSize::Small,
-                color: TEXT,
+                color: p.text,
             },
         );
         l.text(
             Rect::new(row.x + 48, row.y, row.width - 56, row.height),
             shape.label(),
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
     }
@@ -266,7 +268,12 @@ fn fader_db(y: i32) -> f32 {
 }
 
 pub(super) fn graphic(ui: &UiState, l: &mut Layout, nolly: bool) {
-    l.push(Rect::new(0, BODY_TOP, WIDTH, 420), "", Look::Fill(PANEL));
+    let palette = l.palette;
+    l.push(
+        Rect::new(0, BODY_TOP, WIDTH, 420),
+        "",
+        Look::Fill(palette.panel),
+    );
     if ui.param_page == 1 {
         graphic_panel(ui, l, nolly);
         return;
@@ -280,14 +287,14 @@ pub(super) fn graphic(ui: &UiState, l: &mut Layout, nolly: bool) {
             Rect::new(column.x, BODY_TOP + 8, FADER_WIDTH, 20),
             p.label.clone(),
             CAPTION,
-            MUTED,
+            palette.muted,
             Align::Center,
         );
         l.text(
             Rect::new(column.x, BODY_TOP + 26, FADER_WIDTH, 20),
             p.value.clone(),
             CAPTION,
-            TEXT,
+            palette.text,
             Align::Center,
         );
         let track = Rect::new(
@@ -296,7 +303,7 @@ pub(super) fn graphic(ui: &UiState, l: &mut Layout, nolly: bool) {
             FADER_TRACK.width,
             FADER_TRACK.height,
         );
-        l.panel(track, BACKGROUND, 6.0, None);
+        l.panel(track, palette.background, 6.0, None);
         let centre = track.y + track.height as i32 / 2;
         let level = (centre as f32 - (position(p) - 0.5) * track.height as f32).round() as i32;
         let (top, bottom) = (level.min(centre), level.max(centre));
@@ -311,7 +318,7 @@ pub(super) fn graphic(ui: &UiState, l: &mut Layout, nolly: bool) {
         l.push(
             Rect::new(track.x - 6, centre, track.width + 12, 1),
             "",
-            Look::Fill(FAINT),
+            Look::Fill(palette.faint),
         );
         l.control(
             Rect::new(column.x, track.y - 8, FADER_WIDTH, track.height + 16),
@@ -330,12 +337,13 @@ pub(super) fn graphic(ui: &UiState, l: &mut Layout, nolly: bool) {
 /// over the response graph. I: the page split (stock pages `+0x138`; encoder page 2 turns
 /// HPF, LPF, OUTPUT, Q, `0x2c6184`).
 fn graphic_panel(ui: &UiState, l: &mut Layout, nolly: bool) {
+    let palette = l.palette;
     l.push(
         Rect::new(0, BODY_TOP, WIDTH, 420),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(palette.background),
     );
-    l.panel(STRIP, PANEL, 8.0, None);
+    l.panel(STRIP, palette.panel, 8.0, None);
     let knobs: &[u16] = if nolly {
         &[HPF, LPF, GEQ_OUTPUT, GEQ_Q]
     } else {
@@ -347,7 +355,7 @@ fn graphic_panel(ui: &UiState, l: &mut Layout, nolly: bool) {
             l.push(
                 Rect::new(x - 1, STRIP.y + 15, 1, 78),
                 "",
-                Look::Fill(BACKGROUND),
+                Look::Fill(palette.background),
             );
         }
         if let Some(p) = parameter(ui, index) {

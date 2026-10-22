@@ -4,10 +4,7 @@
 //! `0x632684`, 30001) and Parallax (`ParallaxModelEditor` `0x639444`, 3008). Stock geometry,
 //! knob tables and encoder tables; the graphs, buttons and icons are owned drawings.
 
-use tetrad_assets::{
-    BACKGROUND, CANVAS, FAINT, Icon, IconSize, MUTED, PANEL, ROW_SELECTED, Rgb, SECTION, SURFACE,
-    TEXT, TextSize, Weight,
-};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb, TextSize, Weight, block};
 
 use super::fx_editor::{knob, point, position, tab_bar};
 use super::model_editor::{BODY_TOP, ModelEditor, mini_knob, parameter};
@@ -38,7 +35,8 @@ fn hal(knob: KnobIndex) -> usize {
 }
 
 fn card(l: &mut Layout, x: i32, y: i32, height: u32, radius: f32) {
-    l.panel(Rect::new(x, BODY_TOP + y, 784, height), PANEL, radius, None);
+    let panel = l.palette.panel;
+    l.panel(Rect::new(x, BODY_TOP + y, 784, height), panel, radius, None);
 }
 
 /// A row of knobs at body `y` in the stock columns.
@@ -60,22 +58,24 @@ fn knob_row(
 
 /// A button that flips parameter `index` (or does another editor action).
 fn button(l: &mut Layout, bounds: Rect, label: &str, control: EditorControl, lit: bool, fill: Rgb) {
-    l.panel(bounds, if lit { fill } else { SURFACE }, 8.0, None);
+    let p = l.palette;
+    l.panel(bounds, if lit { fill } else { p.surface }, 8.0, None);
     l.control(bounds, Control::Editor(control), true, label, Look::Area);
     l.text(
         bounds,
         label,
         BODY,
-        if lit { TEXT } else { MUTED },
+        if lit { p.text } else { p.muted },
         Align::Center,
     );
 }
 
 pub(super) fn body(ui: &UiState, l: &mut Layout, editor: ModelEditor, hue: Rgb) {
+    let p = l.palette;
     l.push(
         Rect::new(0, BODY_TOP, WIDTH, 420),
         "",
-        Look::Fill(BACKGROUND),
+        Look::Fill(p.background),
     );
     match editor {
         ModelEditor::Minivoicer => minivoicer(ui, l, hue),
@@ -151,6 +151,7 @@ fn mini_page(ui: &UiState) -> usize {
 /// Body 800 × 224 (`0x60c43c`): two `#2e2e2e` radius 8 cards at (8, 0) and (8, 109), knobs
 /// at y 7 and 116.
 fn minivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
+    let p = l.palette;
     card(l, 8, 0, 107, 8.0);
     card(l, 8, 109, 107, 8.0);
     let page = MINI_PAGES[mini_page(ui)].map(|index| index.and_then(|i| mini_swap(ui, i)));
@@ -165,7 +166,7 @@ fn minivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
         {
             let text = |dy: i32, text: String| (Rect::new(489, BODY_TOP + y + dy, 80, 21), text);
             for (bounds, text) in [text(0, label.into()), text(69, mini_note(note))] {
-                l.text(bounds, text, BODY, TEXT, Align::Left);
+                l.text(bounds, text, BODY, p.text, Align::Left);
             }
         }
     }
@@ -193,8 +194,8 @@ const MULTI_TABS: [&str; 5] = ["SETTINGS", "VOICE 1", "VOICE 2", "VOICE 3", "VOI
 /// `#ffd236`, the DI stem `#ff7000`; points `#ababab` on, `#616161` off (`0x3b61d8`).
 const GRAPH_W: f32 = 760.0;
 const GRAPH_H: f32 = 196.0;
-const STEM_VOICE: Rgb = Rgb(0xff, 0xd2, 0x36);
-const STEM_DI: Rgb = Rgb(0xff, 0x70, 0x00);
+const STEM_VOICE: Rgb = block::PITCH;
+const STEM_DI: Rgb = block::DRIVE;
 const POINT_ON: Rgb = Rgb(0xab, 0xab, 0xab);
 
 fn level_pan(ui: &UiState) -> bool {
@@ -301,12 +302,13 @@ fn multi_place(ui: &UiState, v: u16) -> (f32, f32) {
 /// tab card at (8, 305). Global (page 2, I: stock switches with a host button): bank tabs
 /// 136 × 52 at (647, 145), upper and lower cards at y 197 and 305.
 fn multivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
+    let p = l.palette;
     if ui.param_page == 1 {
         let bank = usize::from(ui.editor_bank.min(1));
         for (index, label) in ["1", "2"].into_iter().enumerate() {
             let bounds = Rect::new(647 + index as i32 * 70, BODY_TOP + 145, 66, 52);
             let control = EditorControl::Bank(index as u8);
-            button(l, bounds, label, control, index == bank, PANEL);
+            button(l, bounds, label, control, index == bank, p.panel);
         }
         card(l, 8, 197, 107, 6.0);
         card(l, 8, 305, 107, 6.0);
@@ -322,7 +324,11 @@ fn multivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
         &[64, 129, 194]
     };
     for &y in lines {
-        l.push(Rect::new(8, BODY_TOP + y, 784, 1), "", Look::Fill(SURFACE));
+        l.push(
+            Rect::new(8, BODY_TOP + y, 784, 1),
+            "",
+            Look::Fill(p.surface),
+        );
     }
     let tab = multi_tab(ui);
     let selected = tab.checked_sub(1);
@@ -338,16 +344,16 @@ fn multivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
         let stem = if v == 4 { STEM_DI } else { STEM_VOICE };
         let (top, bottom) = (y.min(baseline), y.max(baseline));
         let bar = Rect::new(x as i32 - 8, top as i32, 16, (bottom - top).max(1.0) as u32);
-        l.push(bar, "", Look::Fill(if live { stem } else { FAINT }));
+        l.push(bar, "", Look::Fill(if live { stem } else { p.faint }));
         let label = if v == 4 {
             "DI".to_owned()
         } else {
             (v + 1).to_string()
         };
         let dot = Rect::new(x as i32 - 20, y as i32 - 20, 40, 40);
-        let fill = if live { POINT_ON } else { FAINT };
+        let fill = if live { p.tone(POINT_ON) } else { p.faint };
         l.push(dot, "", Look::Dot { color: fill });
-        l.text(dot, label.clone(), BODY, CANVAS, Align::Center);
+        l.text(dot, label.clone(), BODY, p.canvas, Align::Center);
         if Some(usize::from(v)) == selected {
             point(l, (x as i32, y as i32), &label, true, live);
         }
@@ -363,8 +369,8 @@ fn multivoicer(ui: &UiState, l: &mut Layout, hue: Rgb) {
 
 // --- Overlord Synth --------------------------------------------------------------------
 
-const SYNTH_RED: Rgb = Rgb(0xe4, 0x4a, 0x5d);
-const SYNTH_PURPLE: Rgb = Rgb(0x69, 0x54, 0xff);
+const SYNTH_RED: Rgb = block::SYNTH;
+const SYNTH_PURPLE: Rgb = block::CAB;
 const CATEGORIES: [&str; 4] = ["GLOBAL & AMP", "ARPEGGIATOR", "OSCILLATOR", "FILTER"];
 /// Knobs per category in HAL order (`0x11e7b10`, `0x11e7b38`, `0x11e7b60`, `0x11e7b88`);
 /// slot s sits at (8 + 157 · (s % 5), 125 or 233) (`0x630140`).
@@ -420,11 +426,11 @@ const SYNTH_KNOBS: [[Option<u16>; 10]; 4] = [
 ];
 /// Knob colours: category 0 slots 7, 8 red; arpeggiator all red; oscillator slots 0, 1, 5
 /// red and 3, 4, 9 purple; filter slots 0..4 red; others white (`0x155e800`…).
-fn synth_hue(category: usize, slot: usize) -> Rgb {
+fn synth_hue(p: &Palette, category: usize, slot: usize) -> Rgb {
     match (category, slot) {
         (0, 7 | 8) | (1, _) | (2, 0 | 1 | 5) | (3, 0..=4) => SYNTH_RED,
         (2, 3 | 4 | 9) => SYNTH_PURPLE,
-        _ => TEXT,
+        _ => p.text,
     }
 }
 
@@ -480,6 +486,7 @@ fn envelope(ui: &UiState, l: &mut Layout) {
     let Some(p) = parameter(ui, 32) else {
         return;
     };
+    let palette = l.palette;
     let graph = envelope_graph();
     let u = position(ui, 32);
     let (width, height) = (graph.width as f32, graph.height as f32 - 6.0);
@@ -503,25 +510,25 @@ fn envelope(ui: &UiState, l: &mut Layout) {
         Rect::new(graph.x + caption_x, graph.y + 27, 160, 52),
         caption,
         Font::new(TextSize::Px40, Weight::Medium),
-        PANEL,
+        palette.panel,
         Align::Left,
     );
     let dragger = Rect::new(graph.x + x, graph.y + 1, 96, 114);
     l.push(
         Rect::new(dragger.x + 28, dragger.y, 40, dragger.height),
         "",
-        Look::Fill(CANVAS),
+        Look::Fill(palette.canvas),
     );
     l.panel(
         Rect::new(dragger.x + 32, dragger.y + 4, 32, dragger.height - 8),
-        SURFACE,
+        palette.surface,
         8.0,
         None,
     );
     // Owned grip in place of `env_dragger.png`.
     for dx in [44.0, 50.0] {
         let (gx, gy) = (dragger.x as f32 + dx, dragger.y as f32 + 47.0);
-        l.line((gx, gy), (gx, gy + 20.0), 2.0, MUTED);
+        l.line((gx, gy), (gx, gy + 20.0), 2.0, palette.muted);
     }
     let control = Control::Editor(EditorControl::Point(0));
     l.control(dragger, control, true, p.label.clone(), Look::Area);
@@ -557,6 +564,7 @@ fn filter(ui: &UiState, l: &mut Layout) {
     let Some(p) = parameter(ui, 25) else {
         return;
     };
+    let palette = l.palette;
     let graph = filter_graph();
     let (top, bottom) = (graph.y as f32, graph.bottom() as f32);
     for decade in [10.0f32, 100.0, 1_000.0, 10_000.0] {
@@ -568,9 +576,9 @@ fn filter(ui: &UiState, l: &mut Layout) {
             let x = filter_x(graph, hz);
             let major = step == 1;
             let (width, color) = if major {
-                (2.0, ROW_SELECTED)
+                (2.0, palette.row_selected)
             } else {
-                (1.0, SURFACE)
+                (1.0, palette.surface)
             };
             l.line((x, top), (x, bottom), width, color);
             if major {
@@ -580,7 +588,7 @@ fn filter(ui: &UiState, l: &mut Layout) {
                     _ => "10k",
                 };
                 let bounds = Rect::new(x as i32 + 8, graph.y, 32, 16);
-                l.text(bounds, label, CAPTION, SECTION, Align::Left);
+                l.text(bounds, label, CAPTION, palette.section, Align::Left);
             }
         }
     }
@@ -589,7 +597,7 @@ fn filter(ui: &UiState, l: &mut Layout) {
         (graph.x as f32, middle),
         (graph.right() as f32, middle),
         1.0,
-        SURFACE,
+        palette.surface,
     );
     let cutoff = cutoff_hz(position(ui, 25));
     let poles = (position(ui, 24) * 3.0).round() as u8 + 1;
@@ -608,7 +616,7 @@ fn filter(ui: &UiState, l: &mut Layout) {
     let live = synth_live(ui, 25);
     let x = filter_x(graph, cutoff) as i32;
     let dot = Rect::new(x - 20, middle as i32 - 20, 40, 40);
-    let color = if live { TEXT } else { FAINT };
+    let color = if live { palette.text } else { palette.faint };
     l.push(dot, "", Look::Dot { color });
     let hit = Rect::new(x - 27, middle as i32 - 27, 54, 54);
     let control = Control::Editor(EditorControl::Point(1));
@@ -619,6 +627,7 @@ fn filter(ui: &UiState, l: &mut Layout) {
 /// knobs, and the four category buttons 192 × 72 at y 340 (`0x62f80c`). GLOBAL shows the
 /// envelope graph, FILTER the filter graph.
 fn monosynth(ui: &UiState, l: &mut Layout) {
+    let palette = l.palette;
     let category = synth_category(ui);
     card(l, 8, 118, 106, 6.0);
     card(l, 8, 226, 106, 6.0);
@@ -630,7 +639,7 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
                 l,
                 bounds,
                 p,
-                synth_hue(category, slot),
+                synth_hue(&palette, category, slot),
                 synth_live(ui, p.index),
             );
         }
@@ -640,7 +649,7 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
             // NOTES header and the eight note buttons (`0x630c4c`); ROOT stays on.
             card(l, 8, 0, 24, 8.0);
             let header = Rect::new(16, BODY_TOP, 200, 24);
-            l.text(header, "NOTES", BODY, TEXT, Align::Left);
+            l.text(header, "NOTES", BODY, palette.text, Align::Left);
             for k in 0..8u16 {
                 let bounds = Rect::new(8 + 100 * k as i32, BODY_TOP + 48, 84, 46);
                 let (label, lit) = match k {
@@ -654,7 +663,11 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
         2 => {
             // Oscillator grids (`0x6312e4`): item 0 the OSC button, 1..7 the waves.
             const WAVES: [&str; 8] = ["", "SIN", "TRI", "SAW", "SQR", "PUL", "WHT", "PNK"];
-            l.push(Rect::new(400, BODY_TOP, 1, 110), "", Look::Fill(PANEL));
+            l.push(
+                Rect::new(400, BODY_TOP, 1, 110),
+                "",
+                Look::Fill(palette.panel),
+            );
             for (osc, base_x, fill) in [(0u8, 8, SYNTH_RED), (1, 405, SYNTH_PURPLE)] {
                 let (active, wave) = if osc == 0 { (9, 10) } else { (14, 15) };
                 let current = (position(ui, wave) * 6.0).round() as usize + 1;
@@ -665,7 +678,7 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
                     if item == 0 {
                         // `0x630f84`: "OSC n" at (11, 5), the wave readout at (11, 27).
                         let lit = on(ui, active);
-                        l.panel(bounds, if lit { fill } else { SURFACE }, 8.0, None);
+                        l.panel(bounds, if lit { fill } else { palette.surface }, 8.0, None);
                         let label = format!("OSC {}", osc + 1);
                         let control = Control::Editor(EditorControl::Toggle(active));
                         l.control(bounds, control, true, label.clone(), Look::Area);
@@ -674,12 +687,12 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
                             top,
                             label,
                             BODY,
-                            if lit { TEXT } else { MUTED },
+                            if lit { palette.text } else { palette.muted },
                             Align::Left,
                         );
                         let readout = Rect::new(x + 11, BODY_TOP + y + 27, 70, 18);
                         let text = if lit { WAVES[current] } else { "OFF" };
-                        l.text(readout, text, CAPTION, TEXT, Align::Left);
+                        l.text(readout, text, CAPTION, palette.text, Align::Left);
                     } else {
                         let lit = on(ui, active) && item == current;
                         let control = EditorControl::Wave {
@@ -698,20 +711,24 @@ fn monosynth(ui: &UiState, l: &mut Layout) {
         let bounds = Rect::new(8 + 198 * index as i32, BODY_TOP + 340, 192, 72);
         l.panel(
             bounds,
-            if index == category { SYNTH_RED } else { PANEL },
+            if index == category {
+                SYNTH_RED
+            } else {
+                palette.panel
+            },
             8.0,
             None,
         );
         let control = Control::Editor(EditorControl::Tab(index as u8));
         l.control(bounds, control, true, *label, Look::Area);
         let text = Rect::new(bounds.x + 8, bounds.y + 8, 176, 21);
-        l.text(text, *label, BODY, TEXT, Align::Left);
+        l.text(text, *label, BODY, palette.text, Align::Left);
     }
 }
 
 // --- Parallax --------------------------------------------------------------------------
 
-const PARALLAX_BLUE: Rgb = Rgb(0x87, 0xda, 0xff);
+const PARALLAX_BLUE: Rgb = block::FILTER;
 /// Page 0 encoders (`0x153f670`, E is the GAIN REDUCTION meter), page 1 (`0x153f6c0`),
 /// page 2 (`0x153f6f0`), HAL order.
 const PARALLAX_KNOBS: [[Option<u16>; 10]; 3] = [
@@ -779,6 +796,7 @@ fn parallax_power(band: u16, hz: f32, corner: f32) -> f32 {
 /// Response curves (`0x4fe148`, `0x3b4cf4`): band power P = |H|² · g with g = 10^(level/20),
 /// y = 1 − 20 log₁₀(P) · H / 60 (−60..0 dB). On bands draw `#616161`, their sum white.
 fn parallax_curves(ui: &UiState, l: &mut Layout, height: f32) {
+    let p = l.palette;
     let bands: Vec<(u16, f32, f32)> = (0..3u16)
         .filter(|&band| on(ui, 34 + band))
         .map(|band| {
@@ -804,7 +822,7 @@ fn parallax_curves(ui: &UiState, l: &mut Layout, height: f32) {
         }
     };
     for &(band, corner, gain) in &bands {
-        curve(l, &|hz| parallax_power(band, hz, corner) * gain, FAINT);
+        curve(l, &|hz| parallax_power(band, hz, corner) * gain, p.faint);
     }
     if !bands.is_empty() {
         let sum = |hz: f32| {
@@ -812,20 +830,21 @@ fn parallax_curves(ui: &UiState, l: &mut Layout, height: f32) {
                 .map(|&(band, corner, gain)| parallax_power(band, hz, corner) * gain)
                 .sum()
         };
-        curve(l, &sum, TEXT);
+        curve(l, &sum, p.text);
     }
 }
 
 /// The resize button 66 × 44 at (723, 97), (723, 296) in resize mode, with owned arrows in
 /// place of `resize_arrows_out.png` / `_in.png`.
 fn parallax_resize(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let expanded = ui.editor_expanded;
     let bounds = Rect::new(723, BODY_TOP + if expanded { 296 } else { 97 }, 66, 44);
-    l.panel(bounds, SURFACE, 8.0, None);
+    l.panel(bounds, p.surface, 8.0, None);
     let control = Control::Editor(EditorControl::Resize);
     l.control(bounds, control, true, "RESIZE", Look::Area);
     let (x, y) = (bounds.x as f32 + 21.0, bounds.y as f32 + 10.0);
-    l.line((x + 4.0, y + 20.0), (x + 20.0, y + 4.0), 2.0, TEXT);
+    l.line((x + 4.0, y + 20.0), (x + 20.0, y + 4.0), 2.0, p.text);
     // Arrow heads at the ends (out) or at the middle (in).
     let heads = if expanded {
         [(x + 10.0, y + 14.0, 1.0), (x + 14.0, y + 10.0, -1.0)]
@@ -833,14 +852,15 @@ fn parallax_resize(ui: &UiState, l: &mut Layout) {
         [(x + 4.0, y + 20.0, -1.0), (x + 20.0, y + 4.0, 1.0)]
     };
     for (hx, hy, sign) in heads {
-        l.line((hx, hy), (hx - 7.0 * sign, hy), 2.0, TEXT);
-        l.line((hx, hy), (hx, hy + 7.0 * sign), 2.0, TEXT);
+        l.line((hx, hy), (hx - 7.0 * sign, hy), 2.0, p.text);
+        l.line((hx, hy), (hx, hy + 7.0 * sign), 2.0, p.text);
     }
 }
 
 /// A resize mode control (stock presentation mode 2, not traced): owned label, value and
 /// a level bar; a section off dims it (`0x63411c`) but it still turns.
 fn compact_knob(ui: &UiState, l: &mut Layout, cell: Rect, p: &crate::ParameterView) {
+    let palette = l.palette;
     let live = parallax_live(ui, p.index);
     let control = Control::Editor(EditorControl::Knob(p.index));
     l.control(cell, control, true, p.label.clone(), Look::Area);
@@ -849,16 +869,21 @@ fn compact_knob(ui: &UiState, l: &mut Layout, cell: Rect, p: &crate::ParameterVi
         line,
         p.label.clone(),
         BODY,
-        if live { TEXT } else { FAINT },
+        if live { palette.text } else { palette.faint },
         Align::Left,
     );
-    l.text(line, p.value.clone(), BODY, MUTED, Align::Right);
+    l.text(line, p.value.clone(), BODY, palette.muted, Align::Right);
     let track = Rect::new(line.x, cell.y + 36, line.width, 8);
-    l.panel(track, SURFACE, 4.0, None);
+    l.panel(track, palette.surface, 4.0, None);
     let fill = (position(ui, p.index).clamp(0.0, 1.0) * track.width as f32).round() as u32;
     if fill > 0 {
         let bar = Rect::new(track.x, track.y, fill, track.height);
-        l.panel(bar, if live { PARALLAX_BLUE } else { FAINT }, 4.0, None);
+        l.panel(
+            bar,
+            if live { PARALLAX_BLUE } else { palette.faint },
+            4.0,
+            None,
+        );
     }
 }
 
@@ -870,13 +895,14 @@ fn parallax_meter(ui: &UiState, l: &mut Layout) {
     let Some(p) = parameter(ui, 41) else {
         return;
     };
+    let palette = l.palette;
     let live = on(ui, 34);
     let level = match ui.snapshot.editor_meters.get(&41) {
         Some(&level) if live => level,
         _ => 1.0,
     };
     let cell = Rect::new(COLUMNS[0], BODY_TOP + 313, KNOB_W, KNOB_H);
-    let color = if live { TEXT } else { FAINT };
+    let color = if live { palette.text } else { palette.faint };
     l.text(
         Rect::new(cell.x + 10, cell.y, 147, 23),
         p.label.clone(),
@@ -885,11 +911,16 @@ fn parallax_meter(ui: &UiState, l: &mut Layout) {
         Align::Left,
     );
     let track = Rect::new(cell.x + 12, cell.y + 44, 133, 12);
-    l.panel(track, SURFACE, 4.0, None);
+    l.panel(track, palette.surface, 4.0, None);
     let fill = (level.clamp(0.0, 1.0) * track.width as f32).round() as u32;
     if fill > 0 {
         let bar = Rect::new(track.x, track.y, fill, track.height);
-        l.panel(bar, if live { PARALLAX_BLUE } else { FAINT }, 4.0, None);
+        l.panel(
+            bar,
+            if live { PARALLAX_BLUE } else { palette.faint },
+            4.0,
+            None,
+        );
     }
 }
 
@@ -933,13 +964,14 @@ fn parallax_live(ui: &UiState, index: u16) -> bool {
 /// button and two knob rows at y 204 and 313 (resize mode: the tall graph and three compact
 /// knobs); Cab the two mic panels' knobs, phase and power; EQ six faders 124 × 404.
 fn parallax(ui: &UiState, l: &mut Layout) {
+    let palette = l.palette;
     match ui.param_page.min(2) {
         0 => {
             let height = parallax_graph_h(ui);
             for decade in [100.0, 1_000.0, 10_000.0] {
                 let x = parallax_x(decade);
                 let line = Rect::new(x as i32, BODY_TOP, 1, height as u32);
-                l.push(line, "", Look::Fill(SURFACE));
+                l.push(line, "", Look::Fill(palette.surface));
             }
             parallax_curves(ui, l, height);
             for (band, label) in ["L", "M", "H"].into_iter().enumerate() {
@@ -964,17 +996,19 @@ fn parallax(ui: &UiState, l: &mut Layout) {
                     }
                 }
                 for x in [265, 532] {
-                    l.push(Rect::new(x, BODY_TOP + 369, 2, 22), "", Look::Fill(SURFACE));
+                    let divider = Rect::new(x, BODY_TOP + 369, 2, 22);
+                    l.push(divider, "", Look::Fill(palette.surface));
                 }
                 return;
             }
             for x in [320, 476] {
-                l.push(Rect::new(x, BODY_TOP + 162, 2, 22), "", Look::Fill(SURFACE));
+                let divider = Rect::new(x, BODY_TOP + 162, 2, 22);
+                l.push(divider, "", Look::Fill(palette.surface));
             }
             for (index, label, x, width) in SECTIONS {
                 let bounds = Rect::new(x, BODY_TOP + 153, width, 40);
                 let control = EditorControl::Toggle(index);
-                button(l, bounds, label, control, on(ui, index), PANEL);
+                button(l, bounds, label, control, on(ui, index), palette.panel);
             }
             card(l, 8, 197, 106, 6.0);
             card(l, 8, 306, 106, 6.0);
@@ -996,11 +1030,11 @@ fn parallax(ui: &UiState, l: &mut Layout) {
                 (8, [19, 18, 16, 17], 20, 14),
                 (401, [27, 26, 24, 25], 28, 22),
             ] {
-                l.panel(Rect::new(x, BODY_TOP, 390, 413), PANEL, 8.0, None);
+                l.panel(Rect::new(x, BODY_TOP, 390, 413), palette.panel, 8.0, None);
                 for (k, index) in knobs.into_iter().enumerate() {
                     if let Some(p) = parameter(ui, index) {
                         let cell = Rect::new(x + 2 + 97 * k as i32, BODY_TOP + 13, 96, 68);
-                        mini_knob(l, cell, p, TEXT);
+                        mini_knob(l, cell, p, palette.text);
                     }
                 }
                 let row = BODY_TOP + 361;
@@ -1010,14 +1044,18 @@ fn parallax(ui: &UiState, l: &mut Layout) {
                     "Ø",
                     EditorControl::Toggle(phase),
                     on(ui, phase),
-                    SURFACE,
+                    palette.surface,
                 );
                 // Power (`0x820ac4`): the mic is on while its bypass is off.
                 let bounds = Rect::new(x + 316, row, 66, 44);
-                l.panel(bounds, SURFACE, 8.0, None);
+                l.panel(bounds, palette.surface, 8.0, None);
                 let control = Control::Editor(EditorControl::Toggle(power));
                 l.control(bounds, control, true, "MIC ON", Look::Area);
-                let color = if on(ui, power) { FAINT } else { TEXT };
+                let color = if on(ui, power) {
+                    palette.faint
+                } else {
+                    palette.text
+                };
                 let glyph = Look::Glyph {
                     icon: Icon::Power,
                     size: IconSize::Medium,
@@ -1032,12 +1070,12 @@ fn parallax(ui: &UiState, l: &mut Layout) {
                     continue;
                 };
                 let bounds = Rect::new(8 + 132 * k as i32, BODY_TOP + 8, 124, 404);
-                l.panel(bounds, PANEL, 8.0, None);
+                l.panel(bounds, palette.panel, 8.0, None);
                 let track = Rect::new(bounds.x + 52, bounds.y + 29, 20, 326);
-                l.panel(track, SURFACE, 4.0, None);
+                l.panel(track, palette.surface, 4.0, None);
                 let fill = (position(ui, index) * 326.0) as u32;
                 let bar = Rect::new(track.x, track.bottom() - fill as i32, 20, fill.max(1));
-                l.panel(bar, TEXT, 4.0, None);
+                l.panel(bar, palette.text, 4.0, None);
                 l.control(
                     bounds,
                     Control::Editor(EditorControl::Knob(index)),
@@ -1049,14 +1087,14 @@ fn parallax(ui: &UiState, l: &mut Layout) {
                     Rect::new(bounds.x, bounds.y + 360, 124, 20),
                     p.label.clone(),
                     CAPTION,
-                    TEXT,
+                    palette.text,
                     Align::Center,
                 );
                 l.text(
                     Rect::new(bounds.x, bounds.y + 380, 124, 20),
                     p.value.clone(),
                     CAPTION,
-                    MUTED,
+                    palette.muted,
                     Align::Center,
                 );
             }
