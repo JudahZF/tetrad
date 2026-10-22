@@ -7,8 +7,8 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 
 - **MIDI Mapper** reserves a second MIDI channel and offers it as a trigger on the
   [Mappings](mappings.md) page.
-- **Neural Amp Modeler** plays Neural Amp Modeler (NAM) LSTM models and small WaveNet models
-  as amp blocks.
+- **Neural Amp Modeler** plays Neural Amp Modeler (NAM) LSTM and WaveNet models, including the
+  NAM trainer's nano, feather and lite sizes, as amp blocks.
 
 - [Use extensions](#use-extensions)
 - [DSP blocks](#dsp-blocks)
@@ -99,8 +99,8 @@ and [Mappings](mappings.md).
 
 ### Neural Amp Modeler
 
-Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the LSTM type, and
-WaveNet models that are smaller than the NAM trainer's sizes.
+Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the LSTM and WaveNet
+types, up to the NAM trainer's **lite** size.
 
 1. Install **Neural Amp Modeler** from the default repository: on a Tetrad build with DSP
    blocks, open Settings → System → Extensions, push **REFRESH** and install it.
@@ -113,9 +113,19 @@ WaveNet models that are smaller than the NAM trainer's sizes.
 Each block has an **Input** and an **Output** level (0 to 4, 1 is unchanged). The model runs in
 mono: both channels get its output. The page of the extension says why a file did not load.
 Models must be for 48 kHz. Each block runs on one DSP core, so a model must fit in one core's
-CPU: on the test unit a 2-layer LSTM with 6 units uses about 60% of a core. The WaveNet sizes of
-the NAM trainer (nano, feather, lite, standard) need more CPU than one core has, so the
-extension refuses them with their size. Smaller custom WaveNets play.
+CPU and memory. On the test unit:
+
+| Model | CPU of one core | DSP memory |
+| --- | --- | --- |
+| LSTM, 2 layers of 6 | about 60% | small |
+| WaveNet nano | below 25% | 57 KB |
+| WaveNet feather | about 48% | 115 KB |
+| WaveNet lite | about 75% | 129 KB |
+
+Lite needs most of a core: put it in a row whose core is otherwise light, or the preset does not
+fit (as with a heavy stock amp). The trainer's **standard** size needs more DSP memory than one
+core has, so Tetrad refuses it; its page says so. Gated WaveNets (not made by the trainer) play
+only when they are small.
 
 ## Write an extension
 
@@ -285,6 +295,15 @@ ctx.blocks.provide("drive", (asset) => {
 The builder has the operations above, plus `state(initial)`, `delay(samples)`,
 `updateState`, `updateDelay` and `mono()` (compute one channel and copy it: half the CPU).
 Tetrad validates every graph and replaces its name and category from the manifest.
+
+For convolutional models, `dsp.network()` starts a **network** (qcdsp IR 3): vector operations
+on channel buffers that run before the graph, over a whole 32-sample call on the DSP. `input()`
+is the block input; `buffer(channels)`, `gain(buffer, parameter)`, `conv(input, output, {kernel,
+dilation, weights, bias, accumulate})` (a causal dilated convolution; kernel 1 is a dense layer),
+`activation(buffer, "tanh" | "hardtanh" | "relu")`, `add` and `copy` build it, and
+`output(buffer)` returns its output as a signal for the graph. A block with a network is mono.
+The DSP code computes two output channels per instruction (SIMD); Neural Amp Modeler's WaveNets
+use it (`extensions/nam/src/wavenet.ts`).
 
 Limits of one block: 65 536 nodes (24 576 after `tanh` and the other approximations expand),
 256 parameters, and 4096 states and delay lines. Up to 32 KB of state and delay memory lives in
