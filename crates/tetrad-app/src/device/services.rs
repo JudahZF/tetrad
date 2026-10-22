@@ -67,6 +67,7 @@ use tetrad_services::updater::install::{
 };
 use tetrad_services::updater::paths;
 use tetrad_services::updater::state::{UpdaterState, UpdaterStatus};
+use tetrad_services::updater::tetrad::{self, Offer};
 use tetrad_services::wifi::events::{
     STOCK_ASSOCIATION_TIMEOUT_MS, WifiAction, WifiNotice, WifiStatus as LinkStatus,
 };
@@ -78,8 +79,8 @@ use tetrad_settings::permanent::CloudDomain as SavedDomain;
 use tetrad_storage::stock::{DownloadKind, StockDb};
 
 use tetrad_ui::{
-    BackupItem, BackupView, CaptureQuestion, DeviceAction, UiCommand as ViewCommand,
-    UpdaterCommand, UpdaterView, WifiAlert, WifiNetwork, WifiView,
+    BackupItem, BackupView, CaptureQuestion, DeviceAction, TetradUpdateCommand,
+    UiCommand as ViewCommand, UpdaterCommand, UpdaterView, WifiAlert, WifiNetwork, WifiView,
 };
 use tetrad_watchdog::power::RestartReason;
 
@@ -97,6 +98,7 @@ mod net;
 mod products;
 mod runs;
 mod store;
+mod tetrad_update;
 mod updater;
 mod uploads;
 mod worker;
@@ -203,6 +205,10 @@ pub enum ServiceJob {
     Cloud(Handoff<CloudJob>),
     /// Backup packaging, transfer or restore ([`tetrad_services::backup`]).
     Backup(BackupJob),
+    /// Owned: the newest Tetrad release ([`tetrad::check`]).
+    TetradCheck,
+    /// Owned: a Tetrad release downloaded, checked, installed and armed ([`tetrad::install`]).
+    TetradInstall(Offer),
 }
 
 /// The platform worker a job runs on. A platform with workers runs each lane on its own
@@ -227,7 +233,11 @@ impl ServiceJob {
         match self {
             Self::Dhcp(_) | Self::Internet(_) => Lane::System,
             Self::Cloud(_) => Lane::Cloud,
-            Self::Download(_) | Self::Install | Self::Backup(_) => Lane::Bulk,
+            Self::Download(_)
+            | Self::Install
+            | Self::Backup(_)
+            | Self::TetradCheck
+            | Self::TetradInstall(_) => Lane::Bulk,
         }
     }
 }
@@ -246,6 +256,8 @@ pub enum ServiceNotice {
     Install(Result<InstallOutcome, JobError>),
     Cloud(Handoff<CloudReply>),
     Backup(Result<BackupDone, JobError>),
+    TetradChecked(Result<Option<Offer>, String>),
+    TetradInstalled(Result<(), String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -283,6 +295,8 @@ impl ServiceJob {
             Self::Download(_) => ServiceNotice::Download(Err(stopped)),
             Self::Install => ServiceNotice::Install(Err(stopped)),
             Self::Backup(_) => ServiceNotice::Backup(Err(stopped)),
+            Self::TetradCheck => ServiceNotice::TetradChecked(Err(stopped.to_string())),
+            Self::TetradInstall(_) => ServiceNotice::TetradInstalled(Err(stopped.to_string())),
             Self::Cloud(job) => ServiceNotice::Cloud(Handoff::new(
                 job.take().map_or_else(CloudReply::gone, CloudJob::lost),
             )),
@@ -315,6 +329,8 @@ pub struct Services {
     licence: Option<LicenceStep>,
     apply: Option<LicenceApply>,
     updater: Updater,
+    /// Owned: the Tetrad Updates page.
+    tetrad: tetrad_update::TetradUpdate,
     /// NTP result and the device time it was taken at; the only wall clock.
     wall: Option<(i64, Duration)>,
     update_check_due: bool,
@@ -520,6 +536,7 @@ impl Services {
                 status: UpdaterStatus::None,
                 offer: None,
             },
+            tetrad: Default::default(),
             wall: None,
             update_check_due: false,
             reported_status: UpdaterStatus::None,
@@ -757,6 +774,8 @@ impl Services {
             ServiceNotice::Install(result) => self.installed(result),
             ServiceNotice::Cloud(reply) => self.cloud_done(&mut io, settings, reply.take(), now),
             ServiceNotice::Backup(result) => self.backup_done(io.files, settings, result, now),
+            ServiceNotice::TetradChecked(result) => self.tetrad_checked(result),
+            ServiceNotice::TetradInstalled(result) => self.tetrad_installed(result),
         }
         .into_iter()
         .chain(self.due_check(io.files, settings, now))
@@ -788,6 +807,7 @@ impl Services {
         effects.extend(self.due_check(io.files, settings, now));
         effects.extend(self.backup_poll_due(settings, now));
         effects.extend(self.progress(io.files)?);
+        self.tetrad_progress(io.files)?;
         Ok(effects)
     }
 
@@ -857,6 +877,10 @@ impl Services {
                 }
                 UpdaterCommand::Install => self.install(),
                 UpdaterCommand::CancelDownload => Ok(self.cancel_download()),
+            },
+            C::TetradUpdate { command } => match command {
+                TetradUpdateCommand::Check => Ok(self.check_tetrad_update()),
+                TetradUpdateCommand::Install => self.install_tetrad_update(),
             },
             C::CloudLogin { email, password } => {
                 self.sign_in(backends, settings, &email, &password, now)

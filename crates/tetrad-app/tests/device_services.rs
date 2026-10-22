@@ -6744,3 +6744,106 @@ fn power_requests_wait_for_the_restore_extract() {
     let library = device.state().library.as_ref();
     assert!(library.is_some_and(|library| library.database.is_some()));
 }
+
+/// Tetrad Updates: CHECK TETRAD finds a newer release, UPDATE TETRAD installs and arms it and
+/// restarts the unit. While it runs, a CorOS install is refused.
+#[test]
+fn a_tetrad_update_installs_arms_and_restarts() {
+    use tetrad_extensions::catalog::sha256_hex;
+    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer};
+    use tetrad_ui::{TetradUpdateCommand, TetradUpdateState, UiCommand};
+    let mut services = Services::new();
+    let mut b = Backends::default();
+    b.http = ScriptedHttp::sharing(b.files.clone());
+    let mut settings = settings();
+    let command = |command| UiCommand::TetradUpdate { command };
+
+    // CHECK TETRAD goes to the worker; its signed manifest is tested in tetrad-services, so
+    // the check result comes in directly here.
+    let check = (services.on_ui(
+        &mut b,
+        command(TetradUpdateCommand::Check),
+        &mut settings,
+        ms(0),
+    ))
+    .unwrap();
+    assert_eq!(check, [Effect::Service(ServiceJob::TetradCheck)]);
+    let entry = |body: &[u8]| FileEntry {
+        size: body.len() as u64,
+        sha256: sha256_hex(body),
+    };
+    let files = [
+        ("bin/tetrad", entry(b"elf")),
+        ("launcher/tetrad-launch.sh", entry(b"sh")),
+        ("launcher/tetrad-launcher.sh", entry(b"sh")),
+        ("launcher/tetrad-update.sh", entry(b"sh")),
+    ];
+    let offer = Offer {
+        tag: "v99.0.0".into(),
+        manifest: Manifest {
+            version: "99.0.0".parse().unwrap(),
+            files: files.map(|(path, entry)| (path.to_owned(), entry)).into(),
+        },
+    };
+    let checked = ServiceNotice::TetradChecked(Ok(Some(offer)));
+    services
+        .on_notice(&mut b, checked, &mut settings, ms(0))
+        .unwrap();
+    assert_eq!(
+        services.tetrad_update_view().state,
+        TetradUpdateState::Available {
+            version: "99.0.0".into()
+        }
+    );
+
+    let install = services
+        .on_ui(
+            &mut b,
+            command(TetradUpdateCommand::Install),
+            &mut settings,
+            ms(10),
+        )
+        .unwrap();
+    services
+        .on_notice(
+            &mut b,
+            ServiceNotice::Download(Ok(())),
+            &mut settings,
+            ms(10),
+        )
+        .unwrap();
+    assert!(
+        services.install().is_err(),
+        "no CorOS install during a Tetrad install"
+    );
+    assert_eq!(
+        services.download().unwrap_err().to_string(),
+        "a Tetrad update is installing"
+    );
+
+    for body in ["elf", "sh", "sh", "sh"] {
+        b.http.respond(200, body);
+    }
+    let parts = [
+        "bin/tetrad",
+        "launcher/tetrad-launch.sh",
+        "launcher/tetrad-launcher.sh",
+        "launcher/tetrad-update.sh",
+    ]
+    .map(|path| format!("/media/p4/tetrad/{path}.part"));
+    b.runner
+        .expect_ok(&format!("chmod 755 {}", parts.join(" ")));
+    for part in &parts[1..] {
+        b.runner.expect_ok(&format!("sh -n {part}"));
+    }
+    b.runner
+        .expect_ok("/media/p4/tetrad/bin/tetrad.part run --check")
+        .expect_ok("sh /media/p4/tetrad/launcher/tetrad-launcher.sh arm");
+    let done = settle(&mut services, &mut b, &mut settings, install, ms(20));
+    assert!(b.runner.is_done(), "{:?}", b.runner.lines());
+    assert!(done.contains(&Effect::Power(PowerAction::Restart(RestartReason::Direct))));
+    assert_eq!(
+        b.files.get("/media/p4/tetrad/bin/tetrad").as_deref(),
+        Some(&b"elf"[..])
+    );
+}

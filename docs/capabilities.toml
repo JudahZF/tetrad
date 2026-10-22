@@ -6,7 +6,7 @@
 # gaps: what is missing or not tested. README.md, "Known gaps", has the full list.
 
 schema_version = 2
-release = "0.1.0-alpha.3"
+release = "0.1.0-alpha.4"
 coros = ["4.1.0", "4.1.1"]
 
 [[capability]]
@@ -78,6 +78,12 @@ tested = "unit"
 gaps = "Tested from 4.1.0 to 4.1.1 only. A roll back to the other root partition is not tested."
 
 [[capability]]
+id = "tetrad_updates"
+what = "Settings → Tetrad Updates: downloads the newest Tetrad release from GitHub, checks its Ed25519-signed manifest, the SHA-256 values and the CorOS support, arms it and restarts. CorOS does not change."
+tested = "host"
+gaps = "Not tested on a unit. The release key is a CI secret, so the signature does not protect against a change to the release workflow."
+
+[[capability]]
 id = "installer"
 what = "scripts/install.sh: install, update, status, disable, enable and uninstall over root SSH, and the move of a zen-rs installation to Tetrad."
 tested = "host"
@@ -100,6 +106,12 @@ id = "dsp_extension_blocks"
 what = "qcdsp graphs from extension packages, compiled on the unit against the stock Volume framework and deployed like stock models; presets keep a stock placeholder and a record; Neural Amp Modeler builds NAM LSTM models."
 tested = "host"
 gaps = "No audio test on a unit. CPU figures are modelled (one cycle per instruction, doubled), not measured. WaveNet NAM models need the kernel heap (more than 32 KB of state per block). Cortex Control gets the placeholder in whole presets; its partial grid pushes still carry the local model ID. A new or changed block compiles on the device loop (cached; at most 24 576 nodes after expansion)."
+
+[[capability]]
+id = "remote"
+what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, behind a 4-digit PIN."
+tested = "host"
+gaps = "Not run on the unit yet. IR upload only."
 
 [[capability]]
 id = "owned_dsp_blocks"

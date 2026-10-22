@@ -198,6 +198,11 @@ impl UiState {
                 self.overlay = Some(Overlay::Confirm(Confirm::InstallUpdate));
             }
             Control::Updater(command) => return vec![UiCommand::Updater { command }],
+            Control::TetradUpdate(command) => return vec![UiCommand::TetradUpdate { command }],
+            Control::RemoteToggle => {
+                let enabled = !snapshot.remote.enabled;
+                return vec![UiCommand::SetRemote { enabled }];
+            }
             Control::ShowChangelog => {
                 let body = snapshot.updater.changelog.clone();
                 self.reset_scroll(ListId::Changelog);

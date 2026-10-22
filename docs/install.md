@@ -134,7 +134,10 @@ running:  Tetrad
 
 ## 5. Update Tetrad
 
-When you have a new release or a new build:
+From the touchscreen: Settings → System → Tetrad Updates, then CHECK TETRAD and UPDATE TETRAD. The
+unit needs Wi-Fi. This does not change CorOS. See [updates.md](updates.md#tetrad-updates).
+
+From the computer, when you have a new release or a new build:
 
 ```sh
 scripts/install.sh --host qc update
@@ -152,7 +155,7 @@ nothing. The old Tetrad stays and the unit restarts.
 
 | How you update CorOS | Result |
 | --- | --- |
-| In Tetrad: Settings, Device Updates, UPDATE | The new CorOS keeps the boot hook and your SSH keys. The first boot runs stock CorOS one time, so it can make its factory files. Then the unit restarts by itself and Tetrad starts. |
+| In Tetrad: Settings, CorOS Updates, UPDATE COROS | The new CorOS keeps the boot hook and your SSH keys. The first boot runs stock CorOS one time, so it can make its factory files. Then the unit restarts by itself and Tetrad starts. |
 | In stock CorOS | The new CorOS has no boot hook. The unit starts stock CorOS. Your files in `/media/p4/tetrad` stay. Your SSH keys can be gone after this update; then get root SSH access again. Run `scripts/install.sh enable` to add the hook again. |
 | Tetrad refuses the update (error code 220) | Run `disable`, restart, update in stock CorOS, then run `enable`. |
 
@@ -230,7 +233,7 @@ stays on the unit and is never changed.
 | `/media/p4/tetrad/bin/tetrad` | The Tetrad binary. | `uninstall --yes` |
 | `/media/p4/tetrad/launcher/tetrad-launch.sh` | The boot launcher. It picks the UI of each boot. | `uninstall --yes` |
 | `/media/p4/tetrad/launcher/tetrad-launcher.sh` | The tool for `status`, `arm`, `disarm`, `chooser`, `install-hook`, `remove-hook`. | `uninstall --yes` |
-| `/media/p4/tetrad/launcher/tetrad-update.sh` | The CorOS installer that Tetrad runs for Device Updates. It keeps the hook and your SSH keys on the new CorOS. | `uninstall --yes` |
+| `/media/p4/tetrad/launcher/tetrad-update.sh` | The CorOS installer that Tetrad runs for CorOS Updates. It keeps the hook and your SSH keys on the new CorOS. | `uninstall --yes` |
 | `/media/p4/tetrad/launcher/select` | The md5 of the selected binary (written by `arm`). | `disable` |
 | `/etc/init.d/S80drvinit` | Two lines: in place of `./ZenUI`, init runs `sh tetrad-launch.sh` if that file exists and parses. The tool changes the file only when its md5 is a known value, writes the new file beside it, checks the md5, and then renames it into place. | `uninstall` (or `remove-hook`) |
 

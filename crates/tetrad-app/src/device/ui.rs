@@ -126,6 +126,8 @@ pub enum Handoff {
     Extensions(tetrad_ui::ExtensionCommand),
     /// Mappings page requests → mappings bridge.
     Mappings(tetrad_ui::MappingCommand),
+    /// The Remote page switch → `Device::set_remote`.
+    Remote { enabled: bool },
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -782,6 +784,7 @@ impl Ui {
         match command {
             C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
             C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
+            C::SetRemote { enabled } => vec![Request::Handoff(Handoff::Remote { enabled })],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],
@@ -1489,6 +1492,7 @@ impl Ui {
             | C::WifiForget { .. }
             | C::WifiDisconnect
             | C::Updater { .. }
+            | C::TetradUpdate { .. }
             | C::CreateBackup { .. }
             | C::RenameBackup { .. }
             | C::RestoreBackup { .. }
@@ -2268,6 +2272,7 @@ fn notice_title(subsystem: Subsystem) -> &'static str {
         Subsystem::Capture => "Neural Capture",
         Subsystem::Power => "Power",
         Subsystem::Extensions => "Extensions",
+        Subsystem::Remote => "Remote",
     }
 }
 

@@ -30,6 +30,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         SendReport => Icon::Bug,
         Connection => Icon::Wifi,
         Updates => Icon::Sync,
+        TetradUpdates => Icon::Download,
         SwapTempoTuner => Icon::Swap,
         Brightness => Icon::Brightness,
         PowerFunctions => Icon::Bolt,
@@ -48,6 +49,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         DeviceInformation => Icon::InfoFilled,
         Diagnostics => Icon::PlusBold,
         Extensions => Icon::Plugin,
+        Remote => Icon::Download,
     }
 }
 
@@ -205,6 +207,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
     l.panel(MENU, PANEL, 8.0, None);
     let pages = menu_pages(ui, group);
     let update = ui.snapshot.updater.available_version.is_some();
+    let tetrad_update = matches!(
+        ui.snapshot.tetrad_update.state,
+        TetradUpdateState::Available { .. }
+    );
     let extension_update = (ui.snapshot.extensions.installed.iter()).any(|e| e.update.is_some());
     l.scroll(
         ListId::SettingsMenu,
@@ -230,8 +236,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
                     None,
                 );
                 // Stock marks Updates with an 8 px green dot while an update is available.
-                // Owned: Extensions carries the same dot while an extension has an update.
+                // Owned: Tetrad Updates and Extensions carry the same dot while a Tetrad
+                // release or an extension update is available.
                 if (*entry == SettingsPage::Updates && update)
+                    || (*entry == SettingsPage::TetradUpdates && tetrad_update)
                     || (*entry == SettingsPage::Extensions && extension_update)
                 {
                     l.push(
@@ -249,6 +257,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
     // its section titles and Diagnostics pages carry their own.
     let own_title = match page {
         SettingsPage::Updates
+        | SettingsPage::TetradUpdates
         | SettingsPage::Backups
         | SettingsPage::DeviceInformation
         | SettingsPage::Connection => true,
@@ -273,6 +282,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::Backups => super::storage::backups(ui, l, pane),
         SettingsPage::Connection => super::wifi::layout(ui, l, PANE),
         SettingsPage::Updates => super::updater::layout(ui, l, pane),
+        SettingsPage::TetradUpdates => super::updater::tetrad_layout(ui, l, pane),
         SettingsPage::DeviceStorage => super::storage::layout(ui, l, body),
         SettingsPage::DeviceInformation => super::support::information(ui, l, PANE),
         SettingsPage::Licenses => super::support::licences(ui, l, PANE),
@@ -282,6 +292,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::FactoryReset => super::recovery::options(l, body, false),
         SettingsPage::AboutContact => about(l, body),
         SettingsPage::Extensions => super::extensions::layout(ui, l, pane),
+        SettingsPage::Remote => super::remote::layout(ui, l, body),
         // Stock 091 rows (dividers, dropdowns) run 8 px past the text inset, to x 784.
         _ => {
             let area = Rect::new(body.x, body.y, body.width + 8, body.height);
@@ -1059,8 +1070,8 @@ mod tests {
         );
     }
 
-    /// Shot 034 / spec I: "Power On Mode" is a mini page. The QC System menu omits it, so
-    /// Factory Reset shows without a scroll.
+    /// Shot 034 / spec I: "Power On Mode" is a mini page; the QC System menu omits it.
+    /// Owned: Tetrad Updates follows CorOS Updates.
     #[test]
     fn power_on_mode_is_listed_on_the_mini_only() {
         let page = |page| Control::Setting(SettingControl::Page(page));
@@ -1074,9 +1085,9 @@ mod tests {
             ui.navigate(Screen::Settings(SettingsPage::Brightness));
             let listed: Vec<Control> = ui.hit_regions().iter().map(|r| r.control).collect();
             assert_eq!(listed.contains(&page(SettingsPage::PowerOnMode)), mini);
-            if !mini {
-                assert!(listed.contains(&page(SettingsPage::FactoryReset)));
-            }
+            let at = |p| listed.iter().position(|c| *c == page(p));
+            let updates = at(SettingsPage::Updates).expect("CorOS Updates");
+            assert_eq!(at(SettingsPage::TetradUpdates), Some(updates + 1));
         }
     }
 

@@ -1475,6 +1475,38 @@ pub struct UpdaterView {
     pub stock_after_install: bool,
 }
 
+/// Owned (Tetrad): the Tetrad Updates page. A Tetrad update changes only the Tetrad files on
+/// p4; CorOS stays as it is.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TetradUpdateView {
+    /// The running Tetrad.
+    pub current_version: String,
+    pub state: TetradUpdateState,
+    /// Internet reachable.
+    pub online: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum TetradUpdateState {
+    #[default]
+    Idle,
+    Checking,
+    UpToDate,
+    Available {
+        version: String,
+    },
+    /// `progress`: the share of the new binary on p4, `0.0..=1.0`.
+    Installing {
+        version: String,
+        progress: Option<f32>,
+    },
+    /// `retry`: the version UPDATE TETRAD tries again; `None`: check again.
+    Failed {
+        error: String,
+        retry: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum UpdateChannel {
     #[default]
@@ -2010,7 +2042,12 @@ pub struct UiSnapshot {
     pub extensions: crate::ExtensionsView,
     /// Mappings page (`crate::mappings`).
     pub mappings: crate::MappingsView,
+    /// Remote page (`crate::remote`).
+    pub remote: crate::RemoteView,
+    /// The application's last toast (`crate::remote::ToastView`).
+    pub toast: Option<crate::ToastView>,
     pub updater: UpdaterView,
+    pub tetrad_update: TetradUpdateView,
     pub backups: BackupView,
     /// A backup restore owns the user data: the stock loading overlay covers every view and
     /// takes every touch until the device restarts (`0x81b74c`, text from `0x3fba64`).
@@ -2197,7 +2234,10 @@ impl Default for UiSnapshot {
             wifi: WifiView::default(),
             extensions: crate::ExtensionsView::default(),
             mappings: crate::MappingsView::default(),
+            remote: crate::RemoteView::default(),
+            toast: None,
             updater: UpdaterView::default(),
+            tetrad_update: TetradUpdateView::default(),
             backups: BackupView::default(),
             restoring: false,
             account: AccountView::default(),

@@ -57,8 +57,13 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
   browse files, make backups and update CorOS.
 - **Wi-Fi and cloud.** Sign in, download and upload presets, and back up to the cloud or to the
   unit.
-- **CorOS updates.** Update CorOS from the touchscreen (Settings → System → Updates). Tetrad stays
-  installed. See [docs/updates.md](docs/updates.md).
+- **Remote.** Add IRs from a browser on the same Wi-Fi: open the address the unit shows
+  (Settings → System → Remote), enter the PIN and drop the files. See
+  [docs/remote.md](docs/remote.md).
+- **Tetrad updates.** Update Tetrad from the touchscreen (Settings → System → Tetrad Updates).
+  CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates).
+- **CorOS updates.** Update CorOS from the touchscreen (Settings → System → CorOS Updates). Tetrad
+  stays installed. See [docs/updates.md](docs/updates.md).
 - **Neural Capture.** The capture screens and steps are there. Capture training on the unit is
   not tested.
 
@@ -141,6 +146,7 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
 - The boot selector has no settings page. Use `tetrad-launcher.sh chooser on|off`.
 - Mappings cannot yet load a chosen preset, set a tempo value, send MIDI from a MIDI trigger
   or a global mapping, or run system actions from an expression pedal.
+- Remote is not tested on the unit yet. It uploads IRs only.
 
 The changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 

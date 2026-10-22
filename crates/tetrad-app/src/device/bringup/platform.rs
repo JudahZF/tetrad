@@ -1181,6 +1181,8 @@ fn service_kind(notice: &ServiceNotice) -> &'static str {
         ServiceNotice::Install(_) => "update install result",
         ServiceNotice::Cloud(_) => "cloud reply",
         ServiceNotice::Backup(_) => "backup result",
+        ServiceNotice::TetradChecked(_) => "Tetrad update check result",
+        ServiceNotice::TetradInstalled(_) => "Tetrad update install result",
     }
 }
 

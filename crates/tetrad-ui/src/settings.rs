@@ -570,6 +570,8 @@ pub enum SettingsPage {
     Backups,
     Connection,
     Updates,
+    /// Owned (Tetrad): updates Tetrad itself; [`Self::Updates`] updates CorOS.
+    TetradUpdates,
     Brightness,
     PowerFunctions,
     PowerOnMode,
@@ -578,6 +580,8 @@ pub enum SettingsPage {
     FactoryReset,
     /// Owned (Tetrad): installed extensions, the catalog and its repositories.
     Extensions,
+    /// Owned (Tetrad): the web page that uploads IRs over Wi-Fi.
+    Remote,
     GlobalBypass,
     SceneBypass,
     StompModeBypass,
@@ -614,7 +618,8 @@ impl SettingsGroup {
         }
     }
 
-    /// Pages in stock menu order (`0x791ac`); Extensions is owned and ends System.
+    /// Pages in stock menu order (`0x791ac`). Owned: Tetrad Updates follows CorOS Updates, so
+    /// the two update pages sit together; Extensions and Remote end System.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -622,6 +627,7 @@ impl SettingsGroup {
             Self::System => &[
                 Connection,
                 Updates,
+                TetradUpdates,
                 Brightness,
                 PowerFunctions,
                 PowerOnMode,
@@ -629,6 +635,7 @@ impl SettingsGroup {
                 DeviceStorage,
                 FactoryReset,
                 Extensions,
+                Remote,
             ],
             Self::Device => &[
                 GlobalBypass,
@@ -694,7 +701,9 @@ impl SettingsPage {
             Self::MyAccount => "My Account",
             Self::Backups => "Backups",
             Self::Connection => "Connection",
-            Self::Updates => "Updates",
+            // Owned: stock "Updates", named for what it updates beside Tetrad Updates.
+            Self::Updates => "CorOS Updates",
+            Self::TetradUpdates => "Tetrad Updates",
             Self::Brightness => "Brightness",
             Self::PowerFunctions => "Power Functions",
             Self::PowerOnMode => "Power On Mode",
@@ -702,6 +711,7 @@ impl SettingsPage {
             Self::DeviceStorage => "Device Storage",
             Self::FactoryReset => "Factory Reset",
             Self::Extensions => "Extensions",
+            Self::Remote => "Remote",
             Self::GlobalBypass => "Global Bypass",
             Self::SceneBypass => "Scene Bypass Behavior",
             Self::StompModeBypass => "Stomp Mode Bypass",
@@ -720,7 +730,7 @@ impl SettingsPage {
 
     /// Rows for pages that are plain setting lists. Pages with their own layout (account,
     /// backups, Wi-Fi, updates, storage, information, brightness, global bypass, factory
-    /// reset, extensions, about) return an empty list.
+    /// reset, extensions, remote, about) return an empty list.
     pub(crate) fn rows(self) -> &'static [PageRow] {
         use PageRow::*;
         use SettingId as S;
@@ -829,10 +839,12 @@ impl SettingsPage {
             | Self::Backups
             | Self::Connection
             | Self::Updates
+            | Self::TetradUpdates
             | Self::Brightness
             | Self::DeviceStorage
             | Self::FactoryReset
             | Self::Extensions
+            | Self::Remote
             | Self::GlobalBypass
             | Self::AboutContact
             | Self::DeviceInformation

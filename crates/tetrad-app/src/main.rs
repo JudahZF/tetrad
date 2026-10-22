@@ -717,6 +717,7 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
     // device logs through `Platform::log`, which ignores write errors.
     let mut platform = LinuxPlatform::open()?;
     platform.enable_extensions()?;
+    platform.enable_remote();
     let device = tetrad_app::device::Device::start_with(platform, RunOptions::STOCK)?;
     if let Some(started) = args.started
         && device.dsp().is_some()

@@ -1,6 +1,8 @@
-//! Updates page (manual §10 System › Updates). Titles, texts and buttons follow the stock page:
-//! state view `0x42522c`, status view `0x426034`, offline view `0x42501c`, buttons `0x426e08`,
-//! download confirmation `0x42483c`. "%1" is the product name, "Quad Cortex".
+//! CorOS Updates page (manual §10 System › Updates). Titles, texts and buttons follow the stock
+//! page: state view `0x42522c`, status view `0x426034`, offline view `0x42501c`, buttons
+//! `0x426e08`, download confirmation `0x42483c`. "%1" is the product name, "Quad Cortex".
+//! Owned: the CorOS buttons name CorOS, so they differ from the Tetrad Updates page
+//! ([`tetrad_layout`]), which updates Tetrad only.
 
 use tetrad_assets::{ACCENT, PANEL, Rgb, TEXT};
 
@@ -50,7 +52,7 @@ pub(super) fn page(u: &UpdaterView) -> Page {
         (UpdaterState::Idle, UpdaterStatus::NewVersionDownloaded) => page(
             "Update ready",
             "The latest update is ready to install.\nWe recommend you backup your Quad Cortex before\ninstalling.",
-            Some(("UPDATE", Control::Updater(UpdaterCommand::Install))),
+            Some(("UPDATE COROS", Control::Updater(UpdaterCommand::Install))),
         ),
         (UpdaterState::Idle, UpdaterStatus::NoNewVersion) => page(
             "Up to date",
@@ -67,11 +69,11 @@ pub(super) fn page(u: &UpdaterView) -> Page {
             Page {
                 changelog: available,
                 ..page(
-                    "Device Updates",
+                    "CorOS Updates",
                     &body,
                     if available {
                         Some((
-                            "DOWNLOAD UPDATE",
+                            "DOWNLOAD COROS",
                             Control::Updater(UpdaterCommand::CheckAndDownload),
                         ))
                     } else {
@@ -112,6 +114,20 @@ pub(super) fn page(u: &UpdaterView) -> Page {
 /// frame look (settings spec §1): 20 px regular title, white help text, inset buttons.
 pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: Rect) {
     let page = page(&ui.snapshot.updater);
+    let (x, y) = draw(l, pane, &page, ButtonStyle::Inset);
+    if page.changelog {
+        l.button(
+            Rect::new(x, y, 219, 45),
+            Control::ShowChangelog,
+            !ui.snapshot.updater.changelog.is_empty(),
+            "SEE WHAT'S NEW",
+            ButtonStyle::Inset,
+        );
+    }
+}
+
+/// Title, text, progress and button of `page`. Returns where a second button goes.
+fn draw(l: &mut Layout, pane: Rect, page: &Page, style: ButtonStyle) -> (i32, i32) {
     l.text(
         Rect::new(pane.x, pane.y, pane.width, 32),
         page.title,
@@ -121,7 +137,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: Rect) {
     );
     l.paragraph(
         Rect::new(pane.x, pane.y + 44, pane.width, 150),
-        page.body,
+        page.body.as_str(),
         MEDIUM,
         TEXT,
     );
@@ -144,25 +160,96 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: Rect) {
         );
         y += 60;
     }
-    let bottom = pane.bottom() - 45;
+    let y = (pane.bottom() - 45).max(y);
     if let Some((label, control)) = page.button {
-        l.button(
-            Rect::new(pane.x, bottom.max(y), 219, 45),
-            control,
-            true,
-            label,
-            ButtonStyle::Inset,
+        l.button(Rect::new(pane.x, y, 219, 45), control, true, label, style);
+    }
+    (pane.x + 235, y)
+}
+
+/// Owned (Tetrad): what the Tetrad Updates page shows. It names Tetrad in every title and
+/// button, and says that CorOS does not change.
+pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
+    use TetradUpdateState as S;
+    let current = if u.current_version.is_empty() {
+        "-"
+    } else {
+        u.current_version.as_str()
+    };
+    let check = Some((
+        "CHECK TETRAD",
+        Control::TetradUpdate(TetradUpdateCommand::Check),
+    ));
+    let install = Some((
+        "UPDATE TETRAD",
+        Control::TetradUpdate(TetradUpdateCommand::Install),
+    ));
+    let page = |title, body: String, button| Page {
+        title,
+        body,
+        progress: None,
+        button,
+        changelog: false,
+    };
+    let installing = matches!(u.state, S::Installing { .. });
+    if !u.online && !installing {
+        return page(
+            "No Internet connection",
+            "Your Quad Cortex is currently offline. Connect to Wi-Fi\nand try again.".into(),
+            None,
         );
     }
-    if page.changelog {
-        l.button(
-            Rect::new(pane.x + 235, bottom.max(y), 219, 45),
-            Control::ShowChangelog,
-            !ui.snapshot.updater.changelog.is_empty(),
-            "SEE WHAT'S NEW",
-            ButtonStyle::Inset,
-        );
+    let only_tetrad = "A Tetrad update changes only Tetrad. CorOS does not change.";
+    match &u.state {
+        S::Idle => page(
+            "Tetrad Updates",
+            format!("Your Quad Cortex is currently running\nTetrad: {current}\n\n{only_tetrad}"),
+            check,
+        ),
+        S::Checking => page(
+            "Checking for Tetrad updates",
+            "Checking for a new Tetrad release...".into(),
+            None,
+        ),
+        S::UpToDate => page(
+            "Tetrad is up to date",
+            format!("Tetrad {current} is the newest release.\n\n{only_tetrad}"),
+            check,
+        ),
+        S::Available { version } => page(
+            "Tetrad update available",
+            format!(
+                "Tetrad: {current} → {version}\n\nTetrad downloads the update, checks it and restarts\nyour Quad Cortex. CorOS does not change."
+            ),
+            install,
+        ),
+        S::Installing { version, progress } => Page {
+            progress: Some(progress.unwrap_or(0.0)),
+            ..page(
+                "Updating Tetrad",
+                format!(
+                    "Installing Tetrad {version}. Do not turn off your\nQuad Cortex. It restarts when the update is installed."
+                ),
+                None,
+            )
+        },
+        S::Failed { error, retry } => page(
+            "The Tetrad update has failed.",
+            format!("{error}\n\nPlease try again."),
+            if retry.is_some() { install } else { check },
+        ),
     }
+}
+
+/// Owned (Tetrad): the Tetrad Updates page. Its button is the blue primary button; the CorOS
+/// page keeps the stock black buttons.
+pub(super) fn tetrad_layout(ui: &UiState, l: &mut Layout, pane: Rect) {
+    draw(
+        l,
+        pane,
+        &tetrad_page(&ui.snapshot.tetrad_update),
+        ButtonStyle::Primary,
+    );
 }
 
 /// Stock "Download update" title colour (`#FE5948`, string table).
@@ -268,12 +355,12 @@ mod tests {
             "The update procedure has failed."
         );
         let available = page(&view(S::Idle, T::NewVersionAvailable, true));
-        assert_eq!(available.title, "Device Updates");
+        assert_eq!(available.title, "CorOS Updates");
         assert!(available.body.contains("CorOS: 4.2.0") && available.changelog);
         assert_eq!(
             available.button,
             Some((
-                "DOWNLOAD UPDATE",
+                "DOWNLOAD COROS",
                 Control::Updater(UpdaterCommand::CheckAndDownload)
             ))
         );
@@ -282,7 +369,62 @@ mod tests {
         assert_eq!(downloading.button.map(|(label, _)| label), Some("CANCEL"));
         assert_eq!(
             page(&view(S::Idle, T::NewVersionDownloaded, true)).button,
-            Some(("UPDATE", Control::Updater(UpdaterCommand::Install)))
+            Some(("UPDATE COROS", Control::Updater(UpdaterCommand::Install)))
+        );
+    }
+
+    /// The Tetrad page names Tetrad in every title and button, so it never reads as the CorOS
+    /// page; an offline unit still shows a running install.
+    #[test]
+    fn tetrad_page_names_tetrad_not_coros() {
+        use TetradUpdateState as S;
+        let view = |state, online| TetradUpdateView {
+            current_version: "0.1.0".into(),
+            state,
+            online,
+        };
+        let installing = S::Installing {
+            version: "0.2.0".into(),
+            progress: Some(0.5),
+        };
+        let states = [
+            S::Idle,
+            S::UpToDate,
+            S::Available {
+                version: "0.2.0".into(),
+            },
+            installing.clone(),
+            S::Failed {
+                error: "HTTP 404".into(),
+                retry: Some("0.2.0".into()),
+            },
+        ];
+        for state in states {
+            let page = tetrad_page(&view(state.clone(), true));
+            assert!(page.title.contains("Tetrad"), "{state:?}");
+            if let Some((label, _)) = page.button {
+                assert!(label.ends_with("TETRAD"), "{state:?}");
+            }
+            let coros = page.button.map(|(_, c)| matches!(c, Control::Updater(_)));
+            assert_ne!(coros, Some(true), "{state:?}");
+        }
+        let available = tetrad_page(&view(
+            S::Available {
+                version: "0.2.0".into(),
+            },
+            true,
+        ));
+        assert_eq!(
+            available.button,
+            Some((
+                "UPDATE TETRAD",
+                Control::TetradUpdate(TetradUpdateCommand::Install)
+            ))
+        );
+        assert_eq!(tetrad_page(&view(installing, false)).progress, Some(0.5));
+        assert_eq!(
+            tetrad_page(&view(S::Idle, false)).title,
+            "No Internet connection"
         );
     }
 

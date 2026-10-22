@@ -7,6 +7,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Added
 
+- Remote (Settings → System → Remote): a web page on the unit to add IRs from a browser on the
+  same Wi-Fi, behind a 4-digit PIN that the page shows. The browser converts each WAV or AIFF to
+  the stock IR format (mono, 48 kHz, first 1,024 samples); the unit imports it into the IR
+  saving destination as Cortex Control does. The on/off setting is in
+  `/media/p4/tetrad/remote.json` (docs/remote.md).
+- The application can show a toast (`UiSnapshot::toast`); Remote shows "IR added" with it.
 - DSP blocks in extensions (experimental): a package can bring qcdsp graphs. Tetrad validates
   each graph, compiles it on the unit against the stock Volume framework of the unit's own
   firmware and deploys it like a stock model, on any DSP core. The blocks show in the block
@@ -21,12 +27,31 @@ All notable changes to Tetrad are in this file. The version numbers follow
   `preview` (run a block on a WAV file).
 - Neural Amp Modeler 0.1.0: plays NAM LSTM models from `/media/p4/tetrad/assets/tetrad.nam/`
   as Guitar Amplifier blocks. Its graph matches NeuralAmpModelerCore within 2e-3.
+- DSP Examples 0.1.0: seven qcdsp example blocks (gain, two drives, tremolo, slapback,
+  envelope filter, micro synth) to try DSP blocks on a unit.
 - qcdsp IR 2: `div`, `recip`, `tanh`, `sigmoid` and mono blocks.
 
 ### Changed
 
 - qcdsp's CPU estimate counts instructions (one per cycle) instead of 16-bit parcels; the
   catalogue figure still doubles it.
+
+## [0.1.0-alpha.4](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.4) (2026-10-22)
+
+### Added
+
+- Tetrad Updates (Settings → System → Tetrad Updates): CHECK TETRAD finds the newest Tetrad
+  release on GitHub, and UPDATE TETRAD downloads it, checks the Ed25519 signature of its
+  manifest, the SHA-256 values and the CorOS support, arms it and restarts the unit. CorOS does
+  not change. The page follows CorOS Updates in Settings → System (docs/updates.md).
+- Releases publish `tetrad-update.json`, its signature (secret `TETRAD_RELEASE_KEY`) and the
+  three launcher scripts for Tetrad Updates. The release workflow stops when the tag is not the
+  version in `Cargo.toml` or the secret is not the pinned release key.
+
+### Changed
+
+- The stock Updates page is now CorOS Updates, and its buttons are DOWNLOAD COROS and UPDATE
+  COROS, so they differ from UPDATE TETRAD.
 
 ## [0.1.0-alpha.3](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.3) (2026-10-20)
 

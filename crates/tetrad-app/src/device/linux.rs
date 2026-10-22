@@ -1254,6 +1254,8 @@ pub struct LinuxPlatform {
     /// Extension runner processes (`tetrad extension-runner`); `None` until
     /// [`Self::enable_extensions`].
     extensions: Option<crate::device::extensions::LocalBackend>,
+    /// The Remote HTTP server; `None` until [`Self::enable_remote`].
+    remote: Option<LinuxRemote>,
 }
 
 impl LinuxPlatform {
@@ -1280,6 +1282,12 @@ impl LinuxPlatform {
             crate::device::extensions::LocalBackend::processes(program).with_worker(root, fetch),
         );
         Ok(())
+    }
+
+    /// Lets the Remote page run (its port opens when the user turns Remote on). Only the `run`
+    /// program does this; bring-up never opens a listening port.
+    pub fn enable_remote(&mut self) {
+        self.remote = Some(LinuxRemote::default());
     }
 
     /// Explicit hardware opt-in. Sets the comm name `ZenUI`, then opens the HAL, MIDI UART,
@@ -1329,6 +1337,7 @@ impl LinuxPlatform {
             clock_out: None,
             supplicant_monitor: true,
             extensions: None,
+            remote: None,
         };
         for detail in failures {
             platform.note(detail);
@@ -1462,6 +1471,15 @@ impl Platform for LinuxPlatform {
         if let Some(extensions) = &mut self.extensions {
             extensions.drain(out);
         }
+        if let Some(server) = self
+            .remote
+            .as_mut()
+            .and_then(|remote| remote.server.as_mut())
+        {
+            let mut calls = Vec::new();
+            server.drain(&mut calls);
+            out.extend(calls.into_iter().map(Input::Remote));
+        }
         if self.supplicant_monitor {
             self.services.supplicant.poll_events();
         }
@@ -1549,6 +1567,12 @@ impl Platform for LinuxPlatform {
         self.extensions
             .as_mut()
             .map(|backend| backend as &mut dyn crate::device::extensions::ExtensionBackend)
+    }
+
+    fn remote(&mut self) -> Option<&mut dyn crate::device::remote::RemoteBackend> {
+        self.remote
+            .as_mut()
+            .map(|backend| backend as &mut dyn crate::device::remote::RemoteBackend)
     }
 
     fn forget_display(&mut self) {
@@ -1711,5 +1735,48 @@ mod tests {
                 services::JobError::WorkerStopped
             )))]
         );
+    }
+}
+
+/// The Remote server on all interfaces, port [`tetrad_remote::PORT`]; `server` is `Some`
+/// while Remote is on.
+#[derive(Default)]
+pub struct LinuxRemote {
+    server: Option<tetrad_remote::Server>,
+}
+
+impl crate::device::remote::RemoteBackend for LinuxRemote {
+    fn start(&mut self) -> Result<(), String> {
+        use std::net::{Ipv4Addr, SocketAddr};
+        if self.server.is_some() {
+            return Ok(());
+        }
+        let port = tetrad_remote::PORT;
+        let server = tetrad_remote::Server::start(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
+            .map_err(|error| match error.kind() {
+                io::ErrorKind::AddrInUse => format!("Port {port} is in use"),
+                _ => format!("Port {port}: {error}"),
+            })?;
+        self.server = Some(server);
+        Ok(())
+    }
+
+    fn stop(&mut self) {
+        self.server = None;
+    }
+
+    fn reply(&mut self, id: u64, reply: tetrad_remote::Reply) {
+        if let Some(server) = &mut self.server {
+            server.reply(id, reply);
+        }
+    }
+
+    fn new_pin(&mut self) -> Result<String, String> {
+        use std::io::Read;
+        let mut bytes = [0; 4];
+        File::open("/dev/urandom")
+            .and_then(|mut random| random.read_exact(&mut bytes))
+            .map_err(|error| format!("no random PIN: {error}"))?;
+        Ok(format!("{:04}", u32::from_le_bytes(bytes) % 10_000))
     }
 }

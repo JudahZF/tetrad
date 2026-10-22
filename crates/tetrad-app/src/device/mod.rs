@@ -34,6 +34,7 @@ pub mod platform;
 mod power;
 pub mod preset;
 mod probe;
+pub mod remote;
 pub mod services;
 pub mod ui;
 mod upload;
@@ -149,6 +150,8 @@ pub enum Event {
     Extensions(tetrad_ui::ExtensionCommand),
     /// A Mappings page request from outside the UI (tests, automation).
     Mappings(tetrad_ui::MappingCommand),
+    /// A request of the Remote page (`remote`).
+    Remote(tetrad_remote::Call),
     Shutdown(PowerAction),
 }
 
@@ -493,6 +496,7 @@ pub enum Subsystem {
     Capture,
     Power,
     Extensions,
+    Remote,
 }
 
 /// A degraded step or an unsupported request, kept for the UI and the log.
@@ -945,6 +949,7 @@ pub struct Bridges {
     pub capture: capture::Capture,
     pub extensions: extensions::Extensions,
     pub mappings: mappings::Mappings,
+    pub remote: remote::Remote,
 }
 
 pub struct Device<P: Platform> {
@@ -1025,6 +1030,7 @@ impl<P: Platform> Device<P> {
                 capture,
                 extensions: extensions::Extensions::new(),
                 mappings: mappings::Mappings::default(),
+                remote: remote::Remote::default(),
             },
             state: State::new(product, hal_platform, settings),
             platform,
@@ -1525,6 +1531,7 @@ impl<P: Platform> Device<P> {
                 Input::Touch(sample) => Event::UiInput(ui::UiInput::Touch(sample)),
                 Input::Service(notice) => Event::Service(notice),
                 Input::Extension(input) => Event::Extension(input),
+                Input::Remote(call) => Event::Remote(call),
                 Input::Power(_) if held => return None,
                 Input::Power(action) => Event::Shutdown(action),
             })
@@ -1607,6 +1614,10 @@ impl<P: Platform> Device<P> {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
             Event::Mappings(command) => self.mapping_command(command),
+            Event::Remote(call) => {
+                self.remote_call(call);
+                Vec::new()
+            }
             Event::Extension(input) => {
                 let native = self.bridges.midi.native_channel();
                 self.extensions(|extensions, backend, state| {
@@ -2099,6 +2110,10 @@ impl<P: Platform> Device<P> {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
             ui::Handoff::Mappings(command) => self.mapping_command(command),
+            ui::Handoff::Remote { enabled } => {
+                self.set_remote(enabled);
+                Vec::new()
+            }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,
             // r16-capture MR 2: through `nc2_input`, so saves and the meter timer sync run.
             ui::Handoff::Nc2DialogShown => {
