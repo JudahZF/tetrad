@@ -2,7 +2,7 @@
 //!
 //! [`install`] compiles each [`Source`] against the stock Volume framework of this unit
 //! (`qcdsp::device::build`; the Volume blob and its per-core records come from the unit's own
-//! firmware files, see [`super::dsp::Dsp::volume_template`]), gives it a local model ID and
+//! firmware files, see `Dsp::volume_template`), gives it a local model ID and
 //! puts its spec in the catalog (`tetrad_catalog::community`). The deploy then loads the
 //! generated blob through the stock `BlobLoad` path ([`CommunityBlobs::load`]): no file, no
 //! blob key. Tetrad compiles the IR itself, so a package never brings SHARC code. A block
