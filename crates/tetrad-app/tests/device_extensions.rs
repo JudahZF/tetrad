@@ -359,6 +359,7 @@ impl Bridge {
             config: json!({}),
             storage: Default::default(),
             enabled: true,
+            data_only: false,
         };
         let key = installation.key.clone();
         let mut installations: Vec<Installation> = (self.extensions.keys())

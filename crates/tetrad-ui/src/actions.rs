@@ -160,6 +160,14 @@ impl UiState {
             Control::Wifi(WifiControl::Scan) => return vec![UiCommand::WifiScan],
             Control::Extension(control) => return self.extension_control(control),
             Control::Mapping(control) => return self.mapping_control(control),
+            Control::Theme(index) => {
+                let themes = &self.snapshot.appearance.themes;
+                return (themes.get(usize::from(index)))
+                    .filter(|theme| theme.palette.is_ok() && !theme.selected)
+                    .map(|theme| UiCommand::SetTheme(theme.id.clone()))
+                    .into_iter()
+                    .collect();
+            }
             Control::Wifi(WifiControl::DomainSettings) => {
                 self.wifi_domains = true;
                 return Vec::new();

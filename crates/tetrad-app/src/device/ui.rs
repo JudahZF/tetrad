@@ -126,6 +126,8 @@ pub enum Handoff {
     Extensions(tetrad_ui::ExtensionCommand),
     /// Mappings page requests → mappings bridge.
     Mappings(tetrad_ui::MappingCommand),
+    /// Settings → Appearance picked a theme → appearance bridge.
+    Theme(tetrad_theme::ThemeId),
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -777,6 +779,7 @@ impl Ui {
         match command {
             C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
             C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
+            C::SetTheme(id) => vec![Request::Handoff(Handoff::Theme(id))],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],

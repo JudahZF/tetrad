@@ -264,6 +264,8 @@ pub struct Installation {
     pub config: Json,
     pub storage: BTreeMap<String, Json>,
     pub enabled: bool,
+    /// Adds themes and nothing else (`Manifest::data_only`): no runner starts for it.
+    pub data_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -493,6 +495,11 @@ impl Extensions {
             return;
         };
         if slot.session.is_some() || !slot.installation.enabled {
+            return;
+        }
+        // A theme pack has nothing to run; enabled, its themes are in use.
+        if slot.installation.data_only {
+            slot.state = RunState::Running;
             return;
         }
         let activate = HostMessage::Activate {
@@ -1788,6 +1795,24 @@ impl Extensions {
             .collect()
     }
 
+    /// Themes of the enabled installations, for Settings → Appearance; `None` until the store
+    /// is read.
+    pub fn themes(&self) -> Option<Vec<super::appearance::ExtensionThemes>> {
+        let repositories = &self.repositories;
+        repositories.loaded.then(|| {
+            (repositories.records.values())
+                .filter(|record| record.installed.enabled)
+                .map(|record| &record.installed.current.manifest)
+                .filter(|manifest| !manifest.themes.is_empty())
+                .map(|manifest| super::appearance::ExtensionThemes {
+                    extension: manifest.id.clone(),
+                    name: manifest.name.clone(),
+                    themes: manifest.themes.clone(),
+                })
+                .collect()
+        })
+    }
+
     /// Everything the Extensions pages show.
     pub fn view(&self) -> ExtensionsView {
         let repositories = &self.repositories;
@@ -1936,5 +1961,6 @@ fn installation(loaded: &Loaded) -> Installation {
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),
         enabled: loaded.installed.enabled,
+        data_only: manifest.data_only(),
     }
 }

@@ -10,14 +10,14 @@ mod builtin;
 mod spec;
 mod tone;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub use builtin::{BUILTINS, Builtin, builtin};
 pub use spec::{MAX_ID, MAX_NAME, ThemeError, ThemeId, ThemeSpec, check, contrast};
 
 /// Opaque RGB colour. Theme files write it as `#rrggbb`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-#[serde(try_from = "String")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
@@ -51,6 +51,12 @@ impl TryFrom<String> for Rgb {
     }
 }
 
+impl From<Rgb> for String {
+    fn from(color: Rgb) -> Self {
+        color.to_string()
+    }
+}
+
 impl std::fmt::Display for Rgb {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
@@ -62,7 +68,8 @@ impl std::fmt::Display for Rgb {
 macro_rules! palette {
     ($($(#[$doc:meta])* $role:ident = $stock:literal,)*) => {
         /// The chrome colours of one theme. Screens read them from their `Layout`.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
         pub struct Palette {
             $($(#[$doc])* pub $role: Rgb,)*
         }
@@ -75,10 +82,10 @@ macro_rules! palette {
 
         /// The roles a theme sets, by their camelCase names. Missing roles come from the
         /// theme's base.
-        #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
         pub struct Colors {
-            $(#[serde(default)] pub $role: Option<Rgb>,)*
+            $(#[serde(default, skip_serializing_if = "Option::is_none")] pub $role: Option<Rgb>,)*
         }
 
         impl Colors {

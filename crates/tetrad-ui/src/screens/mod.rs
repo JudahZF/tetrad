@@ -1,5 +1,6 @@
 //! Per-screen layout builders and the shared chrome (top bars, toasts).
 
+mod appearance;
 mod capture;
 mod capture_browser;
 mod directory;

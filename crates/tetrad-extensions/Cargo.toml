@@ -16,6 +16,7 @@ sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tetrad-theme.workspace = true
 
 [lints]
 workspace = true

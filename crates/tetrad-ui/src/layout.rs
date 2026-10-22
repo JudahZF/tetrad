@@ -67,6 +67,8 @@ pub(crate) enum ListId {
     SettingsPresets,
     /// Cab editor IR table of mic n (`CabsimPanel` `+0x13c`).
     CabIrs(u8),
+    /// Settings → Appearance theme rows.
+    Themes,
 }
 
 /// The picker drawer veil: 65 % of `#636763`; black becomes `#404340`, white `#999b99`

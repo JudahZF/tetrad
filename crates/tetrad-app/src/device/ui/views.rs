@@ -35,6 +35,8 @@ pub struct SettingsViews {
     pub extensions: tetrad_ui::ExtensionsView,
     /// Mappings page (`mappings::Mappings::view`).
     pub mappings: tetrad_ui::MappingsView,
+    /// The palette and Settings → Appearance (`appearance::Appearance::view`).
+    pub appearance: tetrad_ui::AppearanceView,
     /// `Control::cloud_route` is set: the cloud is usable without Wi-Fi (re-r44 §3).
     pub control_online: bool,
     /// Cortex Control's link for the cloud dialog (whatever the cloud route).
@@ -97,6 +99,7 @@ pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
     snapshot.wifi = views.wifi.clone();
     snapshot.extensions = views.extensions.clone();
     snapshot.mappings = views.mappings.clone();
+    snapshot.appearance = views.appearance.clone();
     snapshot.control_online = views.control_online;
     snapshot.control_link = views.control_link;
     snapshot.updater = UpdaterView {
@@ -204,6 +207,11 @@ impl<P: Platform> Device<P> {
         let quarantine = (self.bridges.ui.take_quarantine_stale()
             || (screen == storage && self.state.views.screen != storage))
             .then(|| self.quarantine());
+        // Theme files copied over while Tetrad runs show up when Appearance opens.
+        let appearance_page = Screen::Settings(SettingsPage::Appearance);
+        if screen == appearance_page && self.state.views.screen != appearance_page {
+            self.read_theme_files();
+        }
         if screen != self.state.views.screen {
             self.state.views.screen = screen;
             let services = self.platform.services();
@@ -288,6 +296,15 @@ impl<P: Platform> Device<P> {
         // cost ~250 µs a pass on the QC); else the old view moves over.
         let extensions =
             take(&mut self.bridges.extensions.view_stale).then(|| self.bridges.extensions.view());
+        // Extension themes follow the installed extensions.
+        if extensions.is_some()
+            && let Some(themes) = self.bridges.extensions.themes()
+            && let Some(notice) = self.bridges.appearance.set_extensions(themes)
+        {
+            self.notice(super::super::Subsystem::Ui, notice);
+        }
+        let appearance =
+            take(&mut self.bridges.appearance.view_stale).then(|| self.bridges.appearance.view());
         let declared = &self.bridges.extensions;
         let mappings =
             (self.bridges.mappings).view_if_changed(&self.state, || declared.declared_triggers());
@@ -323,6 +340,7 @@ impl<P: Platform> Device<P> {
             wifi: services.wifi_view(),
             extensions: Default::default(),
             mappings: Default::default(),
+            appearance: Default::default(),
             control_online: control.cloud_route().is_some(),
             control_link: match (control.connected(), control.online()) {
                 (_, true) => tetrad_ui::ControlLinkState::Online,
@@ -376,6 +394,13 @@ impl<P: Platform> Device<P> {
             }
             None => take(&mut old.mappings),
         };
+        let appearance = match appearance {
+            Some(view) => {
+                changed |= view != old.appearance;
+                view
+            }
+            None => take(&mut old.appearance),
+        };
         // Rows read again are compared; unchanged rows move over with no copy.
         let quarantine = match quarantine {
             Some(rows) => {
@@ -405,6 +430,7 @@ impl<P: Platform> Device<P> {
         old.usb_statistics = None;
         old.extensions = Default::default();
         old.mappings = Default::default();
+        old.appearance = Default::default();
         changed |= views != *old;
         views.cloud = cloud;
         views.downloads_cycle = downloads_cycle;
@@ -412,6 +438,7 @@ impl<P: Platform> Device<P> {
         views.usb_statistics = usb_statistics;
         views.extensions = extensions;
         views.mappings = mappings;
+        views.appearance = appearance;
         *old = views;
         self.present |= changed;
     }

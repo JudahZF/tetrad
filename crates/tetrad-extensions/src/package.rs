@@ -1,5 +1,6 @@
 //! The `.tetradext` package: one UTF-8 JSON document with the manifest and one bundled,
-//! self-contained ES module.
+//! self-contained ES module. A data-only package ([`Manifest::data_only`]) may leave the
+//! module out.
 
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +15,8 @@ pub const PACKAGE_SUFFIX: &str = ".tetradext";
 #[derive(Debug, Clone, PartialEq)]
 pub struct Package {
     pub manifest: Manifest,
-    /// ES module source whose default export has `activate(ctx)`.
+    /// ES module source whose default export has `activate(ctx)`; empty in a data-only
+    /// package.
     pub module: String,
 }
 
@@ -23,6 +25,7 @@ pub struct Package {
 struct Envelope {
     format: u32,
     manifest: Manifest,
+    #[serde(default)]
     module: String,
 }
 
@@ -43,7 +46,7 @@ pub enum PackageError {
     Json(#[from] serde_json::Error),
     #[error("manifest: {0}")]
     Manifest(#[from] ManifestError),
-    #[error("the package has no module source")]
+    #[error("the package has no module source, and its manifest is not data-only")]
     EmptyModule,
 }
 
@@ -87,7 +90,7 @@ impl Package {
 
     fn validate(&self) -> Result<(), PackageError> {
         self.manifest.validate()?;
-        if self.module.trim().is_empty() {
+        if self.module.trim().is_empty() && !self.manifest.data_only() {
             return Err(PackageError::EmptyModule);
         }
         Ok(())
@@ -97,6 +100,7 @@ impl Package {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::ManifestError;
     use serde_json::json;
 
     fn package() -> Package {
@@ -132,5 +136,46 @@ mod tests {
             ..p
         };
         assert!(matches!(empty.encode(), Err(PackageError::EmptyModule)));
+    }
+
+    /// A theme pack can never run code or ask for access: without a module it must add
+    /// themes and nothing else, and a bad theme fails the whole package.
+    #[test]
+    fn data_only_packages_carry_themes_and_nothing_else() {
+        let decode = |manifest: serde_json::Value| {
+            let bytes = serde_json::to_vec(&json!({ "format": 1, "manifest": manifest })).unwrap();
+            Package::decode(&bytes)
+        };
+        let dusk = json!({ "id": "dusk", "name": "Dusk", "colors": { "accent": "#ff8fab" } });
+        let base = json!({ "id": "judah.dusk-pack", "name": "Dusk", "version": "1.0.0", "api": 1 });
+        let with = |extra: serde_json::Value| {
+            let mut manifest = base.clone();
+            manifest
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            manifest
+        };
+
+        let pack = decode(with(json!({ "themes": [dusk] }))).unwrap();
+        assert!(pack.manifest.data_only());
+        assert_eq!(pack.module, "");
+        assert_eq!(Package::decode(&pack.encode().unwrap()).unwrap(), pack);
+
+        let capability = with(json!({ "themes": [dusk], "capabilities": ["midiSend"] }));
+        assert!(matches!(decode(capability), Err(PackageError::EmptyModule)));
+        assert!(matches!(
+            decode(base.clone()),
+            Err(PackageError::EmptyModule)
+        ));
+        let light = json!({ "id": "day", "name": "Day", "colors": { "background": "#ffffff" } });
+        assert!(matches!(
+            decode(with(json!({ "themes": [light] }))),
+            Err(PackageError::Manifest(ManifestError::Theme(..)))
+        ));
+        assert!(matches!(
+            decode(with(json!({ "themes": [dusk, dusk] }))),
+            Err(PackageError::Manifest(ManifestError::Duplicate(_)))
+        ));
     }
 }

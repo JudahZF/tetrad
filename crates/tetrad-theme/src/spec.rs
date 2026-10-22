@@ -50,13 +50,13 @@ pub enum ThemeError {
 /// { "id": "midnight", "name": "Midnight", "base": "stock",
 ///   "colors": { "accent": "#7aa2f7", "panel": "#1f2335" } }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThemeSpec {
     pub id: String,
     pub name: String,
     /// The built-in theme that gives every role `colors` does not set; Stock when absent.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
     pub colors: Colors,
 }

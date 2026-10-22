@@ -891,6 +891,7 @@ dependencies = [
  "tetrad-settings",
  "tetrad-storage",
  "tetrad-sys",
+ "tetrad-theme",
  "tetrad-ui",
  "tetrad-watchdog",
  "thiserror",
@@ -1039,6 +1040,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tetrad-theme",
  "thiserror",
 ]
 
