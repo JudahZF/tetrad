@@ -2142,6 +2142,29 @@ pub struct UiSnapshot {
     /// Captures the corruption check moved out of the library (O: stock deletes them), in
     /// quarantine order. Device Storage lists them with RESTORE.
     pub quarantine: Vec<QuarantineRow>,
+    /// The active palette and the themes of Settings → Appearance (owned).
+    pub appearance: AppearanceView,
+}
+
+/// Settings → Appearance (owned): the active palette and the themes to pick from.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AppearanceView {
+    /// The active theme's colours. Recovery and the boot menu stay stock.
+    pub palette: tetrad_theme::Palette,
+    /// Built-in themes first, then theme files, then extension themes.
+    pub themes: Vec<ThemeRow>,
+}
+
+/// One theme on the Appearance page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeRow {
+    pub id: tetrad_theme::ThemeId,
+    pub name: String,
+    /// Where it comes from: "Built-in", "Theme file" or the extension's name.
+    pub source: String,
+    /// Its colours, or why it failed its checks (it cannot be picked then).
+    pub palette: Result<tetrad_theme::Palette, String>,
+    pub selected: bool,
 }
 
 /// A capture in the Tetrad quarantine table (O, review r23 K5).
@@ -2273,6 +2296,7 @@ impl Default for UiSnapshot {
             editor_meters: BTreeMap::new(),
             voice_notes: [None; 2],
             quarantine: Vec::new(),
+            appearance: AppearanceView::default(),
         }
     }
 }

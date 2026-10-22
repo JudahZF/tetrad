@@ -902,6 +902,7 @@ name = "tetrad-assets"
 version = "0.1.0-alpha.4"
 dependencies = [
  "fontdue",
+ "tetrad-theme",
  "ttf-parser",
 ]
 
@@ -1180,11 +1181,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetrad-theme"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "tetrad-ui"
 version = "0.1.0-alpha.4"
 dependencies = [
  "flate2",
  "tetrad-assets",
+ "tetrad-theme",
  "thiserror",
 ]
 

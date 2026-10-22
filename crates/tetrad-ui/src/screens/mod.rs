@@ -34,7 +34,7 @@ mod updater;
 mod vd_presets;
 mod wifi;
 
-use tetrad_assets::{FAINT, Icon, ON_ACCENT, SURFACE, TEXT, WARNING};
+use tetrad_assets::{FAINT, Icon, ON_ACCENT, Palette, SURFACE, TEXT, WARNING};
 
 use crate::layout::{BODY_BOLD, ButtonStyle, LARGE_BOLD, Layout, Look, MEDIUM_BOLD};
 use crate::render::{Align, WIDTH};
@@ -60,8 +60,13 @@ pub(crate) const STRIP_Y: i32 = TOP_BAR + 1;
 pub(crate) const STRIP_HEIGHT: u32 = 44;
 
 pub(crate) fn layout(ui: &UiState) -> Layout {
-    let mut l = Layout::default();
     let screen = ui.screen();
+    // Recovery stays stock, so a bad theme cannot make it unreadable.
+    let palette = match screen {
+        Screen::Recovery => Palette::STOCK,
+        _ => ui.snapshot.appearance.palette,
+    };
+    let mut l = Layout::new(palette);
     // Gig View and the Directory have their own headers (manual §3, §5).
     // The Grid draws its own stock header (`grid::header`).
     if screen.is_main()

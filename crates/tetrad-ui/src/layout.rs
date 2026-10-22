@@ -1,7 +1,7 @@
 //! Display list: the single layout source for drawing, hit testing and
 //! semantic activation. Screens append items; overlays start a new layer.
 
-use tetrad_assets::{Icon, IconSize, Rgb, TextSize, Weight};
+use tetrad_assets::{Icon, IconSize, Palette, Rgb, TextSize, Weight};
 
 use crate::render::{Align, Font};
 use crate::{Control, ParameterKind, Rect};
@@ -292,8 +292,11 @@ impl Scroller {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Layout {
+    /// The colours every builder draws with: the active theme, or stock on Recovery and the
+    /// boot menu.
+    pub palette: Palette,
     pub items: Vec<Item>,
     /// First item of the topmost (interactive) layer.
     pub layer: usize,
@@ -302,6 +305,16 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+    pub fn new(palette: Palette) -> Self {
+        Self {
+            palette,
+            items: Vec::new(),
+            layer: 0,
+            scrollers: Vec::new(),
+            clip: None,
+        }
+    }
+
     pub fn push(&mut self, bounds: Rect, label: impl Into<String>, look: Look) {
         self.add(bounds, None, true, label.into(), look);
     }

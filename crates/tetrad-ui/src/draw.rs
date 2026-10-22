@@ -1123,7 +1123,7 @@ mod tests {
     use super::{opaque_cover, split_unit, uncovered};
     use crate::Rect;
     use crate::layout::{Layout, Look};
-    use tetrad_assets::{PANEL, TEXT};
+    use tetrad_assets::{PANEL, Palette, TEXT};
 
     /// A redraw starts at the fills that cover the rectangle together (side by side, or one
     /// over all of it), and an item shows only where later fills leave it open; a fill with
@@ -1131,7 +1131,7 @@ mod tests {
     #[test]
     fn opaque_cover_finds_fills_that_cover_the_rectangle() {
         let full = Rect::new(0, 0, 800, 480);
-        let mut l = Layout::default();
+        let mut l = Layout::new(Palette::STOCK);
         l.push(full, "", Look::Fill(PANEL));
         l.push(Rect::new(0, 0, 400, 480), "", Look::Fill(PANEL));
         l.push(Rect::new(100, 0, 700, 480), "", Look::Fill(PANEL));

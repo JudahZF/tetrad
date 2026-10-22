@@ -889,7 +889,7 @@ fn junctions(l: &mut Layout, pair: PairView, rows: RowPair, (upper, lower): (f32
 /// The grid region alone (no header, editor or scene menu), for the offscreen preset render
 /// ([`UiState::preset_grid`]).
 pub(crate) fn offscreen(ui: &UiState) -> Layout {
-    let mut l = Layout::default();
+    let mut l = Layout::new(ui.snapshot.appearance.palette);
     let viewport = Rect::new(0, HEADER, WIDTH, (HEIGHT as i32 - HEADER) as u32);
     l.clipped(viewport, |l| grid(ui, l, HEADER));
     l

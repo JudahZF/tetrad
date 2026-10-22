@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 flate2.workspace = true
 tetrad-assets.workspace = true
+tetrad-theme.workspace = true
 thiserror.workspace = true
 
 [lints]

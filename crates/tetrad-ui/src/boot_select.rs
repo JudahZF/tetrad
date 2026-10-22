@@ -3,7 +3,7 @@
 //! [`crate::UiState`] screen: the selector runs before either UI, with no snapshot, no navigation
 //! and no state other than [`BootMenu`]. Layout is owned.
 
-use tetrad_assets::{CANVAS, FAINT, MUTED, TEXT};
+use tetrad_assets::{CANVAS, FAINT, MUTED, Palette, TEXT};
 
 use crate::Rect;
 use crate::layout::{BODY, ButtonStyle, CAPTION, LARGE, Layout, Look, MEDIUM, XLARGE_BOLD};
@@ -60,7 +60,8 @@ pub struct BootMenu<'a> {
 
 impl BootMenu<'_> {
     pub fn render(&self) -> Frame {
-        let mut l = Layout::default();
+        // Always stock: the boot menu shows before Tetrad reads its settings.
+        let mut l = Layout::new(Palette::STOCK);
         l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(CANVAS));
         let line = |y, height| Rect::new(0, y, WIDTH, height);
         l.text(
@@ -94,9 +95,12 @@ impl BootMenu<'_> {
         );
         l.text(line(448, 18), self.version, CAPTION, FAINT, Align::Center);
         let mut frame = Frame::new();
-        crate::draw::paint_region(&mut Canvas::new(&mut frame), &l.items, FULL, |item| {
-            (item, false)
-        });
+        crate::draw::paint_region(
+            &mut Canvas::new(&mut frame, l.palette),
+            &l.items,
+            FULL,
+            |item| (item, false),
+        );
         frame
     }
 }
