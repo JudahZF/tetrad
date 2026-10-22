@@ -1484,6 +1484,7 @@ impl Ui {
             | C::WifiForget { .. }
             | C::WifiDisconnect
             | C::Updater { .. }
+            | C::TetradUpdate { .. }
             | C::CreateBackup { .. }
             | C::RenameBackup { .. }
             | C::RestoreBackup { .. }

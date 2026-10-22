@@ -54,8 +54,10 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
   browse files, make backups and update CorOS.
 - **Wi-Fi and cloud.** Sign in, download and upload presets, and back up to the cloud or to the
   unit.
-- **CorOS updates.** Update CorOS from the touchscreen (Settings → System → Updates). Tetrad stays
-  installed. See [docs/updates.md](docs/updates.md).
+- **Tetrad updates.** Update Tetrad from the touchscreen (Settings → System → Tetrad Updates).
+  CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates).
+- **CorOS updates.** Update CorOS from the touchscreen (Settings → System → CorOS Updates). Tetrad
+  stays installed. See [docs/updates.md](docs/updates.md).
 - **Neural Capture.** The capture screens and steps are there. Capture training on the unit is
   not tested.
 

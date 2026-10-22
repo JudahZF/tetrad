@@ -570,6 +570,8 @@ pub enum SettingsPage {
     Backups,
     Connection,
     Updates,
+    /// Owned (Tetrad): updates Tetrad itself; [`Self::Updates`] updates CorOS.
+    TetradUpdates,
     Brightness,
     PowerFunctions,
     PowerOnMode,
@@ -614,7 +616,8 @@ impl SettingsGroup {
         }
     }
 
-    /// Pages in stock menu order (`0x791ac`); Extensions is owned and ends System.
+    /// Pages in stock menu order (`0x791ac`). Owned: Tetrad Updates follows CorOS Updates, so
+    /// the two update pages sit together; Extensions ends System.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -622,6 +625,7 @@ impl SettingsGroup {
             Self::System => &[
                 Connection,
                 Updates,
+                TetradUpdates,
                 Brightness,
                 PowerFunctions,
                 PowerOnMode,
@@ -694,7 +698,9 @@ impl SettingsPage {
             Self::MyAccount => "My Account",
             Self::Backups => "Backups",
             Self::Connection => "Connection",
-            Self::Updates => "Updates",
+            // Owned: stock "Updates", named for what it updates beside Tetrad Updates.
+            Self::Updates => "CorOS Updates",
+            Self::TetradUpdates => "Tetrad Updates",
             Self::Brightness => "Brightness",
             Self::PowerFunctions => "Power Functions",
             Self::PowerOnMode => "Power On Mode",
@@ -829,6 +835,7 @@ impl SettingsPage {
             | Self::Backups
             | Self::Connection
             | Self::Updates
+            | Self::TetradUpdates
             | Self::Brightness
             | Self::DeviceStorage
             | Self::FactoryReset

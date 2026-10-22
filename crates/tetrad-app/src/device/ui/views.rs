@@ -40,6 +40,7 @@ pub struct SettingsViews {
     /// Cortex Control's link for the cloud dialog (whatever the cloud route).
     pub control_link: tetrad_ui::ControlLinkState,
     pub updater: UpdaterView,
+    pub tetrad_update: tetrad_ui::TetradUpdateView,
     pub backups: BackupView,
     /// `Device::restore_hold`: the restore overlay shows.
     pub restoring: bool,
@@ -102,6 +103,7 @@ pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
         current_version,
         ..views.updater.clone()
     };
+    snapshot.tetrad_update = views.tetrad_update.clone();
     snapshot.backups = views.backups.clone();
     snapshot.restoring = views.restoring;
     snapshot.storage = views.storage;
@@ -328,6 +330,7 @@ impl<P: Platform> Device<P> {
                 (false, false) => tetrad_ui::ControlLinkState::Disconnected,
             },
             updater: services.updater_view(),
+            tetrad_update: services.tetrad_update_view(),
             backups: services.backup_view(),
             restoring: self.restore_hold(),
             storage: StorageView::default(),

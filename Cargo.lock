@@ -1125,9 +1125,11 @@ name = "tetrad-services"
 version = "0.1.0-alpha.3"
 dependencies = [
  "base64",
+ "ed25519-dalek",
  "flate2",
  "hmac",
  "pbkdf2",
+ "semver",
  "serde",
  "serde_json",
  "sha1",

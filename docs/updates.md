@@ -1,4 +1,14 @@
-# CorOS updates on a unit with Tetrad
+# Updates on a unit with Tetrad
+
+Tetrad has two update pages in Settings → System, one below the other. They update different
+things:
+
+| Page | Button | What it updates | What stays |
+| --- | --- | --- | --- |
+| **Tetrad Updates** | UPDATE TETRAD (blue) | Tetrad: its binary and launcher scripts on p4 | CorOS, the boot hook, your presets |
+| **CorOS Updates** | DOWNLOAD COROS, UPDATE COROS (black) | CorOS: the other root partition | Tetrad, the boot hook, your SSH keys |
+
+See [Tetrad updates](#tetrad-updates) for the Tetrad page. The rest of this file is about CorOS.
 
 Tetrad can download and install a CorOS update on the unit, with no computer. The install keeps
 the Tetrad boot hook and your SSH keys on the new CorOS.
@@ -24,11 +34,11 @@ the boot hook and any SSH key that you added.
 
 ## What Tetrad does
 
-In Tetrad, Settings → System → Updates works as stock: CHECK, DOWNLOAD UPDATE and UPDATE. Cortex Control
-can also start the install.
+In Tetrad, Settings → System → CorOS Updates works as stock: CHECK, DOWNLOAD COROS and UPDATE
+COROS (stock: DOWNLOAD UPDATE and UPDATE). Cortex Control can also start the install.
 
 1. **Version check.** Tetrad reads the offered version from the first line of the release notes.
-   When Tetrad has no complete firmware profile for that version, UPDATE first asks: "Tetrad does
+   When Tetrad has no complete firmware profile for that version, UPDATE COROS first asks: "Tetrad does
    not support CorOS X yet. The update keeps Tetrad, but the Quad Cortex starts stock CorOS until
    Tetrad supports CorOS X." CANCEL sends nothing. INSTALL continues. Cortex Control does not
    ask.
@@ -114,3 +124,48 @@ known: when a new root does not boot, only this manual step brings the old one b
 Tested: the full CorOS 4.1.0 to 4.1.1 update from the touchscreen on one unit, and the installer
 in a QEMU virtual machine with a synthetic package and the real 4.1.1 package. Bring-up runs
 (`tetrad bringup`) refuse every update download and install.
+
+## Tetrad updates
+
+Settings → System → Tetrad Updates updates Tetrad from its GitHub releases, with no computer.
+CorOS does not change. The page shows the running Tetrad version.
+
+1. **CHECK TETRAD.** Tetrad reads the release list of `JudahZF/tetrad` from the GitHub API. It
+   takes the newest release that is newer than the running version and has the asset
+   `tetrad-update.json`. A stable Tetrad takes only stable releases. A pre-release Tetrad also
+   takes pre-releases. Drafts do not count.
+2. **The manifest.** `tetrad-update.json` gives the version and, for each of the four files
+   (`bin/tetrad` and the three launcher scripts), its size and SHA-256. Tetrad first checks
+   `tetrad-update.json.sig`, the Ed25519 signature of the manifest, against the release key that
+   is built into Tetrad (`RELEASE_KEY` in `crates/tetrad-services/src/updater/tetrad.rs`). It
+   refuses a manifest with a bad signature, another version or another list of files.
+3. **UPDATE TETRAD.** Tetrad does the steps of `scripts/install.sh update` on the unit:
+   1. It downloads each file over HTTPS from the release to `/media/p4/tetrad/<path>.part`, and
+      checks its size and SHA-256. The progress bar shows the binary download.
+   2. It checks that the scripts parse (`sh -n`) and that the new binary supports the running
+      CorOS (`tetrad run --check` exits 0).
+   3. It moves the files into place and runs `tetrad-launcher.sh arm`. The new binary gets three
+      new starts, as after `install.sh update`.
+   4. It restarts the unit.
+
+When a check in steps 1 or 2 fails, Tetrad deletes the `.part` files and the old Tetrad stays.
+The page shows the reason, and UPDATE TETRAD tries again. When `arm` fails after the move, the
+md5 in `select` is the old one, so the unit starts stock CorOS until `tetrad-launcher.sh arm` runs.
+
+A Tetrad update and a CorOS update never run at the same time. Bring-up runs (`tetrad bringup`)
+refuse UPDATE TETRAD.
+
+The release workflow (`.github/workflows/release.yml`) publishes `tetrad-update.json`, its
+signature and the three scripts with each release. It signs with the repository secret
+`TETRAD_RELEASE_KEY` (an Ed25519 key in PEM). It stops when the tag is not `v` and the version
+in `Cargo.toml`, when the secret is missing, or when the secret is not the key that
+`RELEASE_KEY` pins. Releases up to 0.1.0-alpha.3 have no manifest and no Tetrad Updates page:
+install the first release with this page with `scripts/install.sh update`.
+
+Trust: the signed manifest pins the SHA-256 of each file, so a release asset that was changed
+after the build does not install. The private key is only in the repository secret, so a person
+who can change the release workflow can also sign. To change the key: put the new public key in
+`RELEASE_KEY` and the new private key in the secret. Units with the old key refuse the new
+releases, so install the first release with the new key with `scripts/install.sh update`.
+
+Tested: on the host, with scripted HTTP and commands. Not tested on a unit yet.
