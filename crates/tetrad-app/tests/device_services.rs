@@ -6848,3 +6848,46 @@ fn a_tetrad_update_installs_arms_and_restarts() {
         Some(&b"elf"[..])
     );
 }
+
+/// A release offered over USB owns the Tetrad Updates state: a check that finishes later does
+/// not replace it, and a new USB upload withdraws it (its `.part` files are being replaced).
+#[test]
+fn a_usb_offer_survives_a_late_check_and_a_new_upload_withdraws_it() {
+    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer, Source};
+    use tetrad_ui::{TetradUpdateCommand, TetradUpdateState, UiCommand};
+    let mut services = Services::new();
+    let mut b = Backends::default();
+    let mut settings = settings();
+    let manifest = |version: &str| Manifest {
+        version: version.parse().unwrap(),
+        files: [(
+            "bin/tetrad".to_owned(),
+            FileEntry {
+                size: 3,
+                sha256: "0".repeat(64),
+            },
+        )]
+        .into(),
+    };
+    let check = UiCommand::TetradUpdate {
+        command: TetradUpdateCommand::Check,
+    };
+    services.on_ui(&mut b, check, &mut settings, ms(0)).unwrap();
+    services.offer_usb_update(manifest("0.1.0")).unwrap();
+    let late = Offer {
+        source: Source::Release("v99.0.0".into()),
+        manifest: manifest("99.0.0"),
+    };
+    let checked = ServiceNotice::TetradChecked(Ok(Some(late)));
+    services
+        .on_notice(&mut b, checked, &mut settings, ms(5))
+        .unwrap();
+    let usb = TetradUpdateState::Available {
+        version: "0.1.0".into(),
+        usb: true,
+    };
+    assert_eq!(services.tetrad_update_view().state, usb);
+
+    services.withdraw_usb_offer();
+    assert_eq!(services.tetrad_update_view().state, TetradUpdateState::Idle);
+}

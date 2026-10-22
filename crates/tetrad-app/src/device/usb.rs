@@ -166,7 +166,13 @@ impl<P: Platform> Device<P> {
                 manifest,
                 signature,
             } => {
+                // As every update install in bring-up (`RunOptions::refusal`), but `.part` files
+                // only, so `--persist` allows it.
+                if self.options.is_bringup() && !self.options.persist {
+                    return Err("USB staging writes p4: bring-up needs --persist".into());
+                }
                 (self.bridges.services.usb_staging_allowed()).map_err(|e| e.to_string())?;
+                self.bridges.services.withdraw_usb_offer();
                 let manifest =
                     Manifest::verify(manifest.as_bytes(), signature.as_bytes(), RELEASE_KEY, None)
                         .map_err(|e| e.to_string())?;
@@ -196,6 +202,11 @@ impl<P: Platform> Device<P> {
                 (answer, Vec::new())
             }
             Op::InstallChunk { path, offset } => {
+                // An install that started since install-begin owns the `.part` files.
+                if let Err(error) = self.bridges.services.usb_staging_allowed() {
+                    self.usb.staging = None;
+                    return Err(error.to_string());
+                }
                 let staging = self.usb.staging.as_mut().ok_or("no install-begin")?;
                 let size = (staging.manifest.files.get(&path))
                     .ok_or_else(|| format!("{path} is not in the manifest"))?

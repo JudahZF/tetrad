@@ -96,7 +96,19 @@ impl Services {
         matches!(self.tetrad, TetradUpdate::Installing { .. })
     }
 
+    /// A new USB upload replaces the `.part` files: an earlier USB offer must not install
+    /// them any more.
+    pub fn withdraw_usb_offer(&mut self) {
+        if matches!(&self.tetrad, TetradUpdate::Available(offer) if offer.source == Source::Usb) {
+            self.tetrad = TetradUpdate::Idle;
+        }
+    }
+
     pub(super) fn tetrad_checked(&mut self, result: Result<Option<Offer>, String>) -> Vec<Effect> {
+        // A USB offer or an install that started since the check owns the state now.
+        if self.tetrad != TetradUpdate::Checking {
+            return Vec::new();
+        }
         let (state, text) = match result {
             Ok(Some(offer)) => {
                 let text = format!("Tetrad {} available", offer.version());

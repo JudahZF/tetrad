@@ -103,3 +103,32 @@ fn an_unsigned_install_is_refused() {
     assert!(error(begin).contains("tetrad-update.json.sig"), "{begin:?}");
     assert_eq!(error(chunk), "no install-begin");
 }
+
+/// A bring-up run writes p4 only with `--persist`: USB staging is refused before any file
+/// changes, as every update install is in bring-up.
+#[test]
+fn bring_up_refuses_usb_staging_without_persist() {
+    let options = tetrad_app::device::bringup::RunOptions {
+        log_dir: Some(std::env::temp_dir()),
+        persist: false,
+        ..tetrad_app::device::bringup::RunOptions::STOCK
+    };
+    let (mut device, log, _media) = common::boot_with(common::Media::new([]), options);
+    let mark = log.borrow().requests.len();
+    ask(
+        &mut device,
+        1,
+        Op::InstallBegin {
+            manifest: "{}".into(),
+            signature: "AAAA".into(),
+        },
+    );
+    let replies = replies(&log.borrow(), mark);
+    let [(reply, _)] = &replies[..] else {
+        panic!("one reply: {replies:?}");
+    };
+    assert!(
+        matches!(&reply.answer, Answer::Error { message } if message.contains("--persist")),
+        "{reply:?}"
+    );
+}
