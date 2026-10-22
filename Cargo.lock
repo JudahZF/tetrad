@@ -859,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-app"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "base64",
  "clap",
@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-assets"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "fontdue",
  "ttf-parser",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-blocks"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "qc-format",
  "tetrad-dsp-host",
@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-capture"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "serde_json",
  "sha2",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-catalog"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "libc",
  "qc-format",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-cli"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "clap",
  "libc",
@@ -967,7 +967,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-control"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "tetrad-core",
  "tetrad-preset",
@@ -978,14 +978,14 @@ dependencies = [
 
 [[package]]
 name = "tetrad-core"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "tetrad-dsp-host"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "qc-format",
  "sha2",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-dsp-protocol"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "thiserror",
  "zeroize",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-engine"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "tetrad-catalog",
  "tetrad-core",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-extension-cli"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "base64",
  "clap",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-extensions"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1043,21 +1043,21 @@ dependencies = [
 
 [[package]]
 name = "tetrad-firmware"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "tetrad-hal"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "tetrad-library"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "serde_json",
  "sha2",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-loader"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "tetrad-firmware",
  "thiserror",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-media"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "md-5",
  "qc-format",
@@ -1094,14 +1094,14 @@ dependencies = [
 
 [[package]]
 name = "tetrad-midi"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "tetrad-preset"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "serde",
  "tetrad-core",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-runtime"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "tetrad-blocks",
  "tetrad-dsp-host",
@@ -1122,7 +1122,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-services"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1140,7 +1140,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-settings"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "thiserror",
  "zeroize",
@@ -1148,7 +1148,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-sharc"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "qc-asm",
  "qc-format",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-storage"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "md-5",
  "rusqlite",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-sys"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "libc",
  "tetrad-dsp-host",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-ui"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "flate2",
  "tetrad-assets",
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "tetrad-watchdog"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "tetrad-hal",
  "tetrad-runtime",
