@@ -6750,6 +6750,7 @@ fn power_requests_wait_for_the_restore_extract() {
 #[test]
 fn a_tetrad_update_installs_arms_and_restarts() {
     use tetrad_extensions::catalog::sha256_hex;
+    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer};
     use tetrad_ui::{TetradUpdateCommand, TetradUpdateState, UiCommand};
     let mut services = Services::new();
     let mut b = Backends::default();
@@ -6757,17 +6758,8 @@ fn a_tetrad_update_installs_arms_and_restarts() {
     let mut settings = settings();
     let command = |command| UiCommand::TetradUpdate { command };
 
-    let entry = |body: &[u8]| serde_json::json!({ "size": body.len(), "sha256": sha256_hex(body) });
-    let manifest = serde_json::json!({ "version": "99.0.0", "files": {
-        "bin/tetrad": entry(b"elf"),
-        "launcher/tetrad-launch.sh": entry(b"sh"),
-        "launcher/tetrad-launcher.sh": entry(b"sh"),
-        "launcher/tetrad-update.sh": entry(b"sh"),
-    }});
-    let releases = serde_json::json!([{ "tag_name": "v99.0.0", "assets": [{ "name": "tetrad-update.json" }] }]);
-    b.http
-        .respond(200, releases.to_string())
-        .respond(200, manifest.to_string());
+    // CHECK TETRAD goes to the worker; its signed manifest is tested in tetrad-services, so
+    // the check result comes in directly here.
     let check = (services.on_ui(
         &mut b,
         command(TetradUpdateCommand::Check),
@@ -6775,7 +6767,28 @@ fn a_tetrad_update_installs_arms_and_restarts() {
         ms(0),
     ))
     .unwrap();
-    settle(&mut services, &mut b, &mut settings, check, ms(0));
+    assert_eq!(check, [Effect::Service(ServiceJob::TetradCheck)]);
+    let entry = |body: &[u8]| FileEntry {
+        size: body.len() as u64,
+        sha256: sha256_hex(body),
+    };
+    let files = [
+        ("bin/tetrad", entry(b"elf")),
+        ("launcher/tetrad-launch.sh", entry(b"sh")),
+        ("launcher/tetrad-launcher.sh", entry(b"sh")),
+        ("launcher/tetrad-update.sh", entry(b"sh")),
+    ];
+    let offer = Offer {
+        tag: "v99.0.0".into(),
+        manifest: Manifest {
+            version: "99.0.0".parse().unwrap(),
+            files: files.map(|(path, entry)| (path.to_owned(), entry)).into(),
+        },
+    };
+    let checked = ServiceNotice::TetradChecked(Ok(Some(offer)));
+    services
+        .on_notice(&mut b, checked, &mut settings, ms(0))
+        .unwrap();
     assert_eq!(
         services.tetrad_update_view().state,
         TetradUpdateState::Available {

@@ -461,8 +461,11 @@ fn menus_use_stock_labels_in_stock_order() {
         .filter(|r| matches!(r.control, Control::Setting(SettingControl::Page(_))))
         .map(|r| r.label)
         .collect();
-    // Owned: the stock "Updates" page names CorOS, beside Tetrad Updates.
-    assert_eq!(pages[..3], ["Connection", "CorOS Updates", "Brightness"]);
+    // Owned: the stock "Updates" page names CorOS, and Tetrad Updates follows it.
+    assert_eq!(
+        pages[..3],
+        ["Connection", "CorOS Updates", "Tetrad Updates"]
+    );
 }
 
 /// Manual §4: a tap on the Looper X block opens its full-screen view (the block is selected,

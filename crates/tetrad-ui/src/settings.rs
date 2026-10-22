@@ -616,8 +616,8 @@ impl SettingsGroup {
         }
     }
 
-    /// Pages in stock menu order (`0x791ac`). Owned pages end System, so the stock rows keep
-    /// their places: Extensions, then Tetrad Updates.
+    /// Pages in stock menu order (`0x791ac`). Owned: Tetrad Updates follows CorOS Updates, so
+    /// the two update pages sit together; Extensions ends System.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -625,6 +625,7 @@ impl SettingsGroup {
             Self::System => &[
                 Connection,
                 Updates,
+                TetradUpdates,
                 Brightness,
                 PowerFunctions,
                 PowerOnMode,
@@ -632,7 +633,6 @@ impl SettingsGroup {
                 DeviceStorage,
                 FactoryReset,
                 Extensions,
-                TetradUpdates,
             ],
             Self::Device => &[
                 GlobalBypass,

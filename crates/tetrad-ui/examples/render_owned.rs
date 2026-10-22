@@ -1702,12 +1702,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 activate(&mut ui, Control::Setting(SettingControl::Groups));
                 activate(&mut ui, Control::Choose(1));
             }
-            // Tetrad Updates is below the fold of the System list.
-            if page == SettingsPage::TetradUpdates {
-                ui.show(Screen::Settings(page));
-            } else {
-                activate(&mut ui, Control::Setting(SettingControl::Page(page)));
-            }
+            activate(&mut ui, Control::Setting(SettingControl::Page(page)));
             match view {
                 "update-confirm" => {
                     activate(&mut ui, Control::Updater(UpdaterCommand::CheckAndDownload));

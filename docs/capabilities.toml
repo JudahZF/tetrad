@@ -79,9 +79,9 @@ gaps = "Tested from 4.1.0 to 4.1.1 only. A roll back to the other root partition
 
 [[capability]]
 id = "tetrad_updates"
-what = "Settings → Tetrad Updates: downloads the newest Tetrad release from GitHub, checks its SHA-256 values and CorOS support, arms it and restarts. CorOS does not change."
+what = "Settings → Tetrad Updates: downloads the newest Tetrad release from GitHub, checks its Ed25519-signed manifest, the SHA-256 values and the CorOS support, arms it and restarts. CorOS does not change."
 tested = "host"
-gaps = "Not tested on a unit. No signature check: the trust is HTTPS and the GitHub releases of JudahZF/tetrad."
+gaps = "Not tested on a unit. The release key is a CI secret, so the signature does not protect against a change to the release workflow."
 
 [[capability]]
 id = "installer"

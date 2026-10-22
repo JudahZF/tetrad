@@ -4,7 +4,10 @@
 //!
 //! A release that the device can install has the asset [`MANIFEST`]: the version and the size
 //! and SHA-256 of each file in [`FILES`]. Each file is also an asset, named by its file name.
-//! [`install`] makes the same steps as `scripts/install.sh update`: write each file as
+//! [`SIGNATURE`] is the Ed25519 signature of the exact manifest bytes by the release key: the
+//! release workflow signs with the `TETRAD_RELEASE_KEY` secret, and the device checks it with
+//! [`RELEASE_KEY`] before it reads the manifest. So a release asset changed after the build
+//! does not install. [`install`] makes the same steps as `scripts/install.sh update`: write each file as
 //! `<path>.part`, check its size and SHA-256, check that the scripts parse (`sh -n`) and that
 //! the new binary supports the running CorOS (`tetrad run --check`), then move the files into
 //! place and arm the binary (`tetrad-launcher.sh arm`). A failure before the move removes the
@@ -14,6 +17,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use ed25519_dalek::{Signature, VerifyingKey};
 use semver::Version;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -27,6 +33,11 @@ use crate::http::{HttpClient, HttpError, HttpRequest, Method, Route};
 pub const REPOSITORY: &str = "JudahZF/tetrad";
 /// The release asset that makes a release installable on the device.
 pub const MANIFEST: &str = "tetrad-update.json";
+/// The base64 Ed25519 signature of [`MANIFEST`].
+pub const SIGNATURE: &str = "tetrad-update.json.sig";
+/// The base64 Ed25519 key that signs releases. The release workflow checks that its secret
+/// key matches this value. A new key needs one install with `scripts/install.sh`.
+pub const RELEASE_KEY: &str = "M4g350Lncizx/83Q9fJVpFZ9oiHvkr/1/2D5fiB8I2o=";
 /// The Tetrad folder on the user data partition.
 pub const HOME: &str = "/media/p4/tetrad";
 /// The files of an update, relative to [`HOME`], in sorted order. A manifest lists exactly
@@ -44,6 +55,7 @@ const LAUNCHER: &str = "launcher/tetrad-launcher.sh";
 const RELEASES_PER_PAGE: u8 = 30;
 const MAX_RELEASES_BYTES: usize = 4 << 20;
 const MAX_MANIFEST_BYTES: usize = 64 << 10;
+const MAX_SIGNATURE_BYTES: usize = 1 << 10;
 const MAX_BINARY_BYTES: u64 = 64 << 20;
 const MAX_SCRIPT_BYTES: u64 = 256 << 10;
 const API_TIMEOUT: Duration = Duration::from_secs(30);
@@ -59,6 +71,8 @@ pub enum TetradUpdateError {
     TooLarge { url: String, max: usize },
     #[error("the release list is not valid: {0}")]
     Releases(String),
+    #[error("{SIGNATURE}: {0}")]
+    Signature(&'static str),
     #[error("{MANIFEST} is not valid: {0}")]
     Manifest(String),
     #[error("{0}: the size does not match {MANIFEST}")]
@@ -93,8 +107,28 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    /// Parses and checks a manifest for the release of `version`.
-    pub fn parse(json: &[u8], version: &Version) -> Result<Self, TetradUpdateError> {
+    /// Checks `signature` over the exact `json` bytes with the base64 `key`, then parses and
+    /// checks the manifest for the release of `version`.
+    pub fn verify(
+        json: &[u8],
+        signature: &[u8],
+        key: &str,
+        version: &Version,
+    ) -> Result<Self, TetradUpdateError> {
+        let bad = TetradUpdateError::Signature;
+        let decode = |text: &[u8]| {
+            let text = std::str::from_utf8(text).map_err(|_| bad("not UTF-8"))?;
+            BASE64.decode(text.trim()).map_err(|_| bad("not base64"))
+        };
+        let key: [u8; 32] = (decode(key.as_bytes())?.try_into()).map_err(|_| bad("bad key"))?;
+        let key = VerifyingKey::from_bytes(&key).map_err(|_| bad("bad key"))?;
+        let signature =
+            Signature::from_slice(&decode(signature)?).map_err(|_| bad("not 64 bytes"))?;
+        (key.verify_strict(json, &signature)).map_err(|_| bad("does not match the release key"))?;
+        Self::parse(json, version)
+    }
+
+    fn parse(json: &[u8], version: &Version) -> Result<Self, TetradUpdateError> {
         let bad = |text: String| TetradUpdateError::Manifest(text);
         let manifest: Self = serde_json::from_slice(json).map_err(|e| bad(e.to_string()))?;
         if &manifest.version != version {
@@ -211,7 +245,8 @@ pub fn check(
         return Ok(None);
     };
     let json = get(http, asset_url(&tag, MANIFEST), MAX_MANIFEST_BYTES)?;
-    let manifest = Manifest::parse(&json, &version)?;
+    let signature = get(http, asset_url(&tag, SIGNATURE), MAX_SIGNATURE_BYTES)?;
+    let manifest = Manifest::verify(&json, &signature, RELEASE_KEY, &version)?;
     Ok(Some(Offer { tag, manifest }))
 }
 
@@ -388,6 +423,33 @@ mod tests {
             "launcher/tetrad-launcher.sh": entry(script),
             "launcher/tetrad-update.sh": entry(script),
         })
+    }
+
+    /// A signature that `openssl pkeyutl -sign -rawin` made (as the release workflow does)
+    /// verifies; a changed manifest, another key or a bad encoding does not. The fixture key
+    /// was thrown away after it signed.
+    #[test]
+    fn manifest_signature_matches_openssl() {
+        const KEY: &str = "Ju0bZNj0CZi5eGkhrfTVlboFRqfIyg0qcvOaFKkT/4A=";
+        const SIG: &[u8] = b"ZVpvi73G+v7iydeEufUWZxrA+kojyoEI3ekuU0MnBNFtuO8DjaAv8fwGYK+mMUaBl62YfakhhJCCkSlM/qSpAA==\n";
+        let json = br#"{"version":"1.2.3"}"#;
+        let signed = |json: &[u8], key| Manifest::verify(json, SIG, key, &v("1.2.3"));
+        // The signature holds; the fixture has no files, so the manifest check fails next.
+        assert!(matches!(
+            signed(json, KEY),
+            Err(TetradUpdateError::Manifest(_))
+        ));
+        let changed = br#"{"version":"1.2.4"}"#;
+        assert!(matches!(
+            signed(changed, KEY),
+            Err(TetradUpdateError::Signature(_))
+        ));
+        assert!(matches!(
+            signed(json, RELEASE_KEY),
+            Err(TetradUpdateError::Signature(_))
+        ));
+        let garbage = Manifest::verify(json, b"%%", KEY, &v("1.2.3"));
+        assert!(matches!(garbage, Err(TetradUpdateError::Signature(_))));
     }
 
     /// The manifest must name exactly the update files, for the release's own version.

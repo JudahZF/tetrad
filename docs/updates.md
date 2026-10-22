@@ -1,6 +1,7 @@
 # Updates on a unit with Tetrad
 
-Tetrad has two update pages in Settings → System. They update different things:
+Tetrad has two update pages in Settings → System, one below the other. They update different
+things:
 
 | Page | Button | What it updates | What stays |
 | --- | --- | --- | --- |
@@ -134,8 +135,10 @@ CorOS does not change. The page shows the running Tetrad version.
    `tetrad-update.json`. A stable Tetrad takes only stable releases. A pre-release Tetrad also
    takes pre-releases. Drafts do not count.
 2. **The manifest.** `tetrad-update.json` gives the version and, for each of the four files
-   (`bin/tetrad` and the three launcher scripts), its size and SHA-256. Tetrad refuses a manifest
-   with another version or another list of files.
+   (`bin/tetrad` and the three launcher scripts), its size and SHA-256. Tetrad first checks
+   `tetrad-update.json.sig`, the Ed25519 signature of the manifest, against the release key that
+   is built into Tetrad (`RELEASE_KEY` in `crates/tetrad-services/src/updater/tetrad.rs`). It
+   refuses a manifest with a bad signature, another version or another list of files.
 3. **UPDATE TETRAD.** Tetrad does the steps of `scripts/install.sh update` on the unit:
    1. It downloads each file over HTTPS from the release to `/media/p4/tetrad/<path>.part`, and
       checks its size and SHA-256. The progress bar shows the binary download.
@@ -152,13 +155,17 @@ md5 in `select` is the old one, so the unit starts stock CorOS until `tetrad-lau
 A Tetrad update and a CorOS update never run at the same time. Bring-up runs (`tetrad bringup`)
 refuse UPDATE TETRAD.
 
-The release workflow (`.github/workflows/release.yml`) publishes `tetrad-update.json` and the
-three scripts with each release. It stops when the tag is not `v` and the version in
-`Cargo.toml`. Releases up to 0.1.0-alpha.3 have no manifest and no Tetrad Updates page:
+The release workflow (`.github/workflows/release.yml`) publishes `tetrad-update.json`, its
+signature and the three scripts with each release. It signs with the repository secret
+`TETRAD_RELEASE_KEY` (an Ed25519 key in PEM). It stops when the tag is not `v` and the version
+in `Cargo.toml`, when the secret is missing, or when the secret is not the key that
+`RELEASE_KEY` pins. Releases up to 0.1.0-alpha.3 have no manifest and no Tetrad Updates page:
 install the first release with this page with `scripts/install.sh update`.
 
-Trust: the files come over HTTPS from the GitHub releases of `JudahZF/tetrad`. The SHA-256 values
-come from the same release, so they find a damaged download, not a changed release. There is no
-signature check.
+Trust: the signed manifest pins the SHA-256 of each file, so a release asset that was changed
+after the build does not install. The private key is only in the repository secret, so a person
+who can change the release workflow can also sign. To change the key: put the new public key in
+`RELEASE_KEY` and the new private key in the secret. Units with the old key refuse the new
+releases, so install the first release with the new key with `scripts/install.sh update`.
 
 Tested: on the host, with scripted HTTP and commands. Not tested on a unit yet.

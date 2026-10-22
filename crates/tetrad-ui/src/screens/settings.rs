@@ -1068,8 +1068,8 @@ mod tests {
         );
     }
 
-    /// Shot 034 / spec I: "Power On Mode" is a mini page. The QC System menu omits it, so
-    /// Factory Reset shows without a scroll.
+    /// Shot 034 / spec I: "Power On Mode" is a mini page; the QC System menu omits it.
+    /// Owned: Tetrad Updates follows CorOS Updates.
     #[test]
     fn power_on_mode_is_listed_on_the_mini_only() {
         let page = |page| Control::Setting(SettingControl::Page(page));
@@ -1083,9 +1083,9 @@ mod tests {
             ui.navigate(Screen::Settings(SettingsPage::Brightness));
             let listed: Vec<Control> = ui.hit_regions().iter().map(|r| r.control).collect();
             assert_eq!(listed.contains(&page(SettingsPage::PowerOnMode)), mini);
-            if !mini {
-                assert!(listed.contains(&page(SettingsPage::FactoryReset)));
-            }
+            let at = |p| listed.iter().position(|c| *c == page(p));
+            let updates = at(SettingsPage::Updates).expect("CorOS Updates");
+            assert_eq!(at(SettingsPage::TetradUpdates), Some(updates + 1));
         }
     }
 

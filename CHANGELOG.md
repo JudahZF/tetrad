@@ -8,10 +8,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
 ### Added
 
 - Tetrad Updates (Settings → System → Tetrad Updates): CHECK TETRAD finds the newest Tetrad
-  release on GitHub, and UPDATE TETRAD downloads it, checks the SHA-256 values and the CorOS
-  support, arms it and restarts the unit. CorOS does not change (docs/updates.md).
-- Releases publish `tetrad-update.json` and the three launcher scripts for Tetrad Updates. The
-  release workflow stops when the tag is not the version in `Cargo.toml`.
+  release on GitHub, and UPDATE TETRAD downloads it, checks the Ed25519 signature of its
+  manifest, the SHA-256 values and the CorOS support, arms it and restarts the unit. CorOS does
+  not change. The page follows CorOS Updates in Settings → System (docs/updates.md).
+- Releases publish `tetrad-update.json`, its signature (secret `TETRAD_RELEASE_KEY`) and the
+  three launcher scripts for Tetrad Updates. The release workflow stops when the tag is not the
+  version in `Cargo.toml` or the secret is not the pinned release key.
 
 ### Changed
 

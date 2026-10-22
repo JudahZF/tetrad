@@ -14,6 +14,7 @@ hmac = { workspace = true, features = ["zeroize"] }
 pbkdf2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ed25519-dalek.workspace = true
 semver = { workspace = true, features = ["serde"] }
 sha1.workspace = true
 # The HMAC inner and outer states are SHA-256 cores derived from the signing key. Only the
