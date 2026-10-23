@@ -25,6 +25,10 @@ Open **Settings → System → Extensions** (the last row).
 1. Tap **REFRESH**. Tetrad reads the catalog of every trusted repository.
 2. Under **Available**, tap an extension, then **INSTALL**.
 
+Install an extension from one repository only. If it is already installed from another
+repository, its row says **Also installed from** that repository. Two installations add the
+same blocks and themes twice and both run their code: turn one off, or remove it.
+
 Installed extensions start at every boot. They do not need the network after they are
 installed.
 

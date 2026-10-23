@@ -99,6 +99,9 @@ pub struct AvailableExtension {
     pub name: String,
     pub version: String,
     pub description: String,
+    /// `owner/repo` of an installation of the same extension from another source: both would
+    /// add the same blocks, themes and handlers.
+    pub installed_from: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

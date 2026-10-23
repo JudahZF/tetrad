@@ -335,9 +335,18 @@ fn available_row(
     );
     let x = row.x + 16;
     let width = (install.x - 12 - x) as u32;
+    // A second installation from another source doubles its blocks: the warning takes the
+    // description's line.
+    let note = match &extension.installed_from {
+        Some(source) => (
+            format!("Also installed from {}", source_label(view, source)),
+            p.warning,
+        ),
+        None => (extension.description.clone(), p.muted),
+    };
     let lines = [
         (8, 22, extension.name.clone(), BODY, p.text),
-        (31, 18, extension.description.clone(), CAPTION, p.muted),
+        (31, 18, note.0, CAPTION, note.1),
         (
             50,
             18,
@@ -1194,6 +1203,7 @@ pub(crate) mod tests {
                 name: "Strobe".into(),
                 version: "0.1.0".into(),
                 description: String::new(),
+                installed_from: None,
             }],
             sources: vec![source(DEFAULT, true), source(OTHER, false)],
             pending_trust: None,

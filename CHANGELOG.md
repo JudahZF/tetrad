@@ -7,6 +7,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Added
 
+- Settings → System → Extensions warns when an extension is already installed from another
+  repository: its Available row says "Also installed from …", and the install message asks to
+  turn one off. Two installations add the same blocks and themes twice.
 - Themes (Settings → System → Appearance): pick the UI colours. The built-in themes are Stock
   (the default, pixel for pixel the old look), Stage High Contrast, Slate and Ember. Tetrad
   also reads theme files from `/media/p4/tetrad/themes/`, and extensions can add themes in

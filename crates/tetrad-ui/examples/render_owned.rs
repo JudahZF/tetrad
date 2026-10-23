@@ -2845,6 +2845,7 @@ fn extensions_fixture() -> ExtensionsView {
                 name: "Strobe Tuner".into(),
                 version: "0.4.1".into(),
                 description: "A strobe view for the tuner screen with cents history.".into(),
+                installed_from: None,
             },
             AvailableExtension {
                 source: "night-owl/footswitch-tools".into(),
@@ -2854,6 +2855,7 @@ fn extensions_fixture() -> ExtensionsView {
                 description: "Assign a second action to a double tap on any footswitch, \
                     with per-preset overrides."
                     .into(),
+                installed_from: None,
             },
         ],
         sources: vec![

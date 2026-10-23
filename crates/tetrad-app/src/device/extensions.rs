@@ -460,6 +460,26 @@ struct Repositories {
     status: Option<String>,
 }
 
+impl Repositories {
+    /// The source of an installation of `id` from a source other than `source`.
+    fn installed_elsewhere(&self, source: &SourceId, id: &str) -> Option<&SourceId> {
+        (self.records.values())
+            .map(|record| &record.installed.key)
+            .find(|key| key.id == id && &key.source != source)
+            .map(|key| &key.source)
+    }
+
+    /// "Default" for the default repository, as the pages name it; any other its `owner/repo`.
+    fn label(&self, source: &SourceId) -> String {
+        let default = (self.sources.iter()).any(|s| s.default && &s.source == source);
+        if default {
+            "Default".into()
+        } else {
+            source.to_string()
+        }
+    }
+}
+
 impl Extensions {
     pub fn new() -> Self {
         Self::default()
@@ -2035,8 +2055,17 @@ impl Extensions {
             }
             JobResult::Installed(Ok(loaded)) => {
                 let manifest = &loaded.installed.current.manifest;
-                repositories.status =
-                    Some(format!("Installed {} {}", manifest.name, manifest.version));
+                let key = &loaded.installed.key;
+                let installed = format!("Installed {} {}", manifest.name, manifest.version);
+                repositories.status = Some(
+                    match repositories.installed_elsewhere(&key.source, &key.id) {
+                        Some(other) => format!(
+                            "{installed}, also from {}: turn one off",
+                            repositories.label(other)
+                        ),
+                        None => installed,
+                    },
+                );
                 repositories
                     .records
                     .insert(loaded.installed.key.to_string(), *loaded);
@@ -2412,6 +2441,9 @@ impl Extensions {
                         name: entry.name.clone(),
                         version: entry.version.to_string(),
                         description: entry.description.clone(),
+                        installed_from: repositories
+                            .installed_elsewhere(&source.source, &entry.id)
+                            .map(ToString::to_string),
                     })
                     .collect::<Vec<_>>()
             })
