@@ -73,8 +73,9 @@ Tetrad stops an extension that goes past a limit.
 ## DSP blocks
 
 > [!WARNING]
-> DSP blocks are experimental. On the test unit, the example and NAM blocks play exactly as
-> their host references, but each new block is new code on the DSP. Try it at a low volume.
+> DSP blocks are experimental. On the test unit, the output of the example and NAM blocks is
+> within 2e-6 of their host references, but each new block is new code on the DSP. Try it at a
+> low volume.
 
 A package can bring DSP blocks. When the extension is installed and **Enabled**, Tetrad
 compiles its blocks for the DSP, and each block shows in the block list of its category, like a
@@ -101,7 +102,8 @@ and [Mappings](mappings.md).
 Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the LSTM type, and
 WaveNet models that are smaller than the NAM trainer's sizes.
 
-1. Install **Neural Amp Modeler** (Settings → System → Extensions).
+1. Install **Neural Amp Modeler** from the default repository: on a Tetrad build with DSP
+   blocks, open Settings → System → Extensions, push **REFRESH** and install it.
 2. Copy your `.nam` files to `/media/p4/tetrad/assets/tetrad.nam/` on the unit, for example
    with `scp "Plexi.nam" qc:/media/p4/tetrad/assets/tetrad.nam/`. Tetrad makes the folder at
    the first start. A file name can have letters, digits, spaces, `.`, `_` and `-`.
@@ -266,8 +268,10 @@ store for stock CorOS (default: the stock Gain block, 16005). A package has at m
 
 **A generated block** (`"generated": true`, capability `blocks`) is built by the extension from
 a file. Add `"asset": { "label": "NAM model", "extensions": [".nam"] }`: Tetrad reads each such
-file from `/media/p4/tetrad/assets/<extension id>/` (3 MiB at most, UTF-8 text) and asks the
-extension for its graph. Each file becomes a block named after the block and the file.
+file from `/media/p4/tetrad/assets/<extension id>/` and asks the extension for its graph. Each
+file becomes a block named after the block and the file. A file is UTF-8 text of 3 MiB at most,
+and at most 4 MiB less 16 KiB as a JSON string (a control character takes 6 bytes there). A file
+whose name matches the extensions of more than one block builds each of these blocks.
 
 ```ts
 ctx.blocks.provide("drive", (asset) => {

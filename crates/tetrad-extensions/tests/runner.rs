@@ -583,6 +583,27 @@ fn a_failing_provider_publishes_its_error() {
     assert!(error.contains("another block builder"), "{error}");
 }
 
+/// A parameter whose range is empty as f32 (1 and 1 + 1e-9) would normalise to 0/0 on the
+/// unit: the builder refuses it.
+#[test]
+fn an_empty_parameter_range_is_refused() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const b = ctx.blocks.builder();
+              return b.finish(b.mul(b.input(), b.parameter("Gain", 1, 1 + 1e-9, 1)));
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(2, ""));
+    let BuildOutcome::Error(error) = published(&mut h, 2).outcome else {
+        panic!("an empty range was accepted")
+    };
+    assert!(error.contains("min < max"), "{error}");
+}
+
 #[test]
 fn block_builds_get_the_longer_budget() {
     let spin = "const end = Date.now() + 200; while (Date.now() < end) {}";

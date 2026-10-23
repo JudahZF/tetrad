@@ -143,8 +143,9 @@
         }
         const [lo, hi, value] = [f32("min", min), f32("max", max), f32("default", initial)];
         const [flo, fhi, fvalue] = [lo, hi, value].map(Math.fround);
-        if (flo > fhi || fvalue < flo || fvalue > fhi || !Number.isFinite(Math.fround(fhi - flo))) {
-          throw new RangeError(`parameter ${name} needs min <= default <= max`);
+        // min < max as f32: the unit divides by max - min.
+        if (!(flo < fhi) || fvalue < flo || fvalue > fhi || !Number.isFinite(Math.fround(fhi - flo))) {
+          throw new RangeError(`parameter ${name} needs min < max and min <= default <= max`);
         }
         if (parameters.some((p) => p.name === name)) throw new Error(`parameter ${name} exists`);
         if (parameters.length >= MAX_PARAMETERS) {

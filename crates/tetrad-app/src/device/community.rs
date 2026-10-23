@@ -8,7 +8,7 @@
 //! blob key. Tetrad compiles the IR itself, so a package never brings SHARC code. A block
 //! can only change the audio in its own slot.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use qc_format::{blob::ModuleBlob, diff::DiffRecord};
 use qcdsp::device::VolumeTemplate;
@@ -30,6 +30,8 @@ pub struct Source {
     pub category: qcdsp::Category,
     /// The manifest's stock placeholder; `None` or an unusable model gives the stock Gain.
     pub placeholder: Option<u32>,
+    /// Validated: the package decode, the `blocks.publish` check and the generated cache all
+    /// call `qcdsp::Block::validate`.
     pub ir: qcdsp::Block,
 }
 
@@ -105,9 +107,12 @@ pub struct Compiled {
 
 /// Compiles `sources` (with `template`, or reports every new block as not ready without one)
 /// and replaces the community models of `specs`. `cache` holds the last result by key: an
-/// unchanged source reuses its blob and spec, and a key keeps its model ID for as long as it
-/// is installed, so undo frames and mappings stay valid. A new key gets a stable hash ID in its
-/// category ([`community::local_id`]).
+/// unchanged source reuses its blob and spec.
+///
+/// Model IDs follow from the set of keys alone: [`community::local_id`] probes in key order,
+/// past stock IDs and the IDs of earlier keys, whether or not a block builds. Mappings and undo
+/// frames hold model IDs, so a restart gives each key the ID it had before. Only a new key whose
+/// hash collides moves the ID of a key that sorts after it.
 pub fn install(
     sources: &[Source],
     template: Option<&VolumeTemplate>,
@@ -118,38 +123,33 @@ pub fn install(
     let mut sources: Vec<&Source> = sources.iter().collect();
     sources.sort_by(|a, b| a.key.cmp(&b.key));
     sources.dedup_by(|a, b| a.key == b.key);
-    let mut previous = std::mem::take(cache);
-    // Keys that stay keep their IDs: reserve them before a new key probes.
-    let reserved: BTreeMap<u32, &str> = (sources.iter())
-        .filter_map(|source| Some((previous.get(&source.key)?.spec.id, source.key.as_str())))
+    let mut assigned = BTreeSet::new();
+    let ids: Vec<Option<u32>> = (sources.iter())
+        .map(|source| {
+            let taken = |id| specs.models.contains_key(&id) || assigned.contains(&id);
+            let id = community::local_id(source.category.id(), &source.key, taken)?;
+            assigned.insert(id);
+            Some(id)
+        })
         .collect();
+    let mut previous = std::mem::take(cache);
     let mut blobs = CommunityBlobs::default();
     let mut statuses = Vec::with_capacity(sources.len());
-    for source in sources {
+    for (source, id) in sources.into_iter().zip(ids) {
         let fingerprint = fingerprint(std::slice::from_ref(source));
-        let kept = previous
-            .remove(&source.key)
-            .filter(|compiled| compiled.fingerprint == fingerprint);
-        let id = reserved
-            .iter()
-            .find(|(_, key)| **key == source.key)
-            .map(|(&id, _)| id);
-        let compiled = match (kept, template) {
-            (Some(compiled), _) => Ok(compiled),
-            (None, None) => Err("the DSP firmware files are not available".to_string()),
-            (None, Some(template)) => {
-                let taken = |id: u32| {
-                    specs.models.contains_key(&id)
-                        || reserved.get(&id).is_some_and(|key| *key != source.key)
-                };
-                build(source, template, specs, id, taken)
-                    .map(|(spec, built)| Compiled {
-                        fingerprint,
-                        spec,
-                        built,
-                    })
-                    .map_err(|error| error.to_string())
-            }
+        let kept = (previous.remove(&source.key))
+            .filter(|compiled| compiled.fingerprint == fingerprint && Some(compiled.spec.id) == id);
+        let compiled = match (kept, template, id) {
+            (Some(compiled), ..) => Ok(compiled),
+            (None, None, _) => Err("the DSP firmware files are not available".to_string()),
+            (None, Some(_), None) => Err(BuildError::NoId.to_string()),
+            (None, Some(template), Some(id)) => build(source, template, specs, id)
+                .map(|(spec, built)| Compiled {
+                    fingerprint,
+                    spec,
+                    built,
+                })
+                .map_err(|error| error.to_string()),
         };
         let mut status = Status {
             key: source.key.clone(),
@@ -178,18 +178,13 @@ fn build(
     source: &Source,
     template: &VolumeTemplate,
     specs: &Specs,
-    id: Option<u32>,
-    taken: impl Fn(u32) -> bool,
+    id: u32,
 ) -> Result<(ModelSpec, Built), BuildError> {
+    // `validate` bounds the expanded size of a block, so this expansion is bounded too.
     let nodes = source.ir.expanded().node_count();
     if nodes > MAX_COMPILED_NODES {
         return Err(BuildError::TooLarge(nodes));
     }
-    let category = source.category.id();
-    let id = match id.filter(|&id| id / 1000 == category) {
-        Some(id) => id,
-        None => community::local_id(category, &source.key, taken).ok_or(BuildError::NoId)?,
-    };
     // The blob name holds the ID and an IR hash: a changed block never reuses the blob that
     // the deploy kept for its old version.
     let ir = source.ir.to_json()?;
@@ -500,16 +495,25 @@ mod tests {
         let (_, again) = install(&sources, None, &mut specs, &mut cache);
         let sat = again.iter().find(|s| s.key == "a/b:c/sat").unwrap();
         assert_eq!(sat.model, Some(id), "the cached block needs no compile");
-        // A new key whose hash takes the saturator's ID probes past it: the old key keeps it.
+        // A new key whose hash takes the saturator's ID: the key that sorts first gets it, and
+        // after a restart (an empty cache) every key has the ID it had live.
         let mut more = sources.to_vec();
         let thief = (0..10_000)
             .map(|n| format!("a/b:c/a{n}"))
             .find(|key| community::local_id(0, key, |_| false) == Some(id))
             .unwrap();
         more.push(source(&thief, qcdsp::examples::saturator().unwrap()));
-        let (_, third) = install(&more, Some(&template), &mut specs, &mut cache);
-        let status = |key: &str| third.iter().find(|s| s.key == key).unwrap().model;
-        assert_eq!(status("a/b:c/sat"), Some(id));
-        assert!(status(&thief).is_some_and(|other| other != id));
+        let (_, live) = install(&more, Some(&template), &mut specs, &mut cache);
+        let model =
+            |statuses: &[Status], key: &str| statuses.iter().find(|s| s.key == key).unwrap().model;
+        assert_eq!(model(&live, &thief), Some(id));
+        assert!(model(&live, "a/b:c/sat").is_some_and(|other| other != id));
+        let (_, restarted) = install(
+            &more,
+            Some(&template),
+            &mut Specs::default(),
+            &mut BTreeMap::new(),
+        );
+        assert_eq!(restarted, live);
     }
 }

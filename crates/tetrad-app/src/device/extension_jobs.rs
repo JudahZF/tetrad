@@ -17,9 +17,12 @@ pub const STORE_DIR: &str = "tetrad/extensions";
 /// (O) Asset files of an extension are in `<store root>/../assets/<extension id>/`, that is
 /// `/media/p4/tetrad/assets/<id>` on the unit. The user copies them there.
 pub const ASSETS_DIR: &str = "assets";
-/// The largest asset file: it goes to the runner in one 4 MiB frame, as JSON text.
-pub const MAX_ASSET_BYTES: u64 = 3 * 1024 * 1024;
-/// Asset files one scan reads.
+/// The largest asset file.
+pub const MAX_ASSET_BYTES: usize = 3 * 1024 * 1024;
+/// The largest asset text as a JSON string. It goes to the runner in one frame, and escaping
+/// can make it up to 6 times larger (`\u00XX`); 16 KiB stay for the rest of the event.
+pub const MAX_ASSET_JSON: usize = tetrad_extensions::protocol::MAX_FRAME - (16 << 10);
+/// Asset builds one scan asks for (a file can build more than one block).
 pub const MAX_ASSETS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -263,9 +266,10 @@ pub fn assets_dir(store_root: &Path, id: &str) -> PathBuf {
         .join(id)
 }
 
-/// Reads every asset file of `blocks` in `dir`, sorted by name. The folder is made when it is
-/// missing, so the user sees where to copy files. A file with another extension is skipped
-/// quietly; a file that is too large, not UTF-8 or badly named gives a problem line.
+/// Reads every asset file of `blocks` in `dir`, sorted by name. A file builds every block whose
+/// extensions match it (the lists may overlap). The folder is made when it is missing, so the
+/// user sees where to copy files. A file with another extension is skipped quietly; a file that
+/// is too large, not UTF-8 or badly named gives a problem line.
 fn scan_assets(dir: &Path, blocks: &[(String, Vec<String>)]) -> AssetScan {
     let mut scan = AssetScan::default();
     let listed = std::fs::create_dir_all(dir).and_then(|()| std::fs::read_dir(dir));
@@ -283,55 +287,81 @@ fn scan_assets(dir: &Path, blocks: &[(String, Vec<String>)]) -> AssetScan {
             continue;
         };
         let lower = name.to_ascii_lowercase();
-        let Some((block, extension)) = blocks.iter().find_map(|(block, extensions)| {
-            let extension = extensions.iter().find(|e| lower.ends_with(e.as_str()))?;
-            Some((block, extension))
-        }) else {
-            continue;
-        };
-        let variant = &name[..name.len() - extension.len()];
-        if !store::variant_ok(variant) {
-            scan.problems.push(format!(
-                "{name}: use only letters, digits, spaces, '.', '_' and '-' (48 at most)"
-            ));
-            continue;
+        // Read once, for the first block that matches.
+        let mut read = None;
+        for (block, extensions) in blocks {
+            let Some(extension) = extensions.iter().find(|e| lower.ends_with(e.as_str())) else {
+                continue;
+            };
+            let variant = &name[..name.len() - extension.len()];
+            if !store::variant_ok(variant) {
+                let problem = format!(
+                    "{name}: use only letters, digits, spaces, '.', '_' and '-' (48 at most)"
+                );
+                if !scan.problems.contains(&problem) {
+                    scan.problems.push(problem);
+                }
+                continue;
+            }
+            scan.present.push((block.clone(), variant.to_owned()));
+            if scan.files.len() == MAX_ASSETS {
+                scan.problems.push(format!(
+                    "more than {MAX_ASSETS} asset builds; {name} for {block} is left out"
+                ));
+                continue;
+            }
+            if let Ok(text) = read.get_or_insert_with(|| read_asset(&path)) {
+                scan.files.push(AssetFile {
+                    block: block.clone(),
+                    variant: variant.to_owned(),
+                    name: name.to_owned(),
+                    text: text.clone(),
+                });
+            }
         }
-        scan.present.push((block.clone(), variant.to_owned()));
-        if scan.files.len() == MAX_ASSETS {
-            scan.problems.push(format!(
-                "more than {MAX_ASSETS} asset files; {name} is left out"
-            ));
-            continue;
-        }
-        match read_asset(&path) {
-            Ok(text) => scan.files.push(AssetFile {
-                block: block.clone(),
-                variant: variant.to_owned(),
-                name: name.to_owned(),
-                text,
-            }),
-            Err(problem) => scan.problems.push(format!("{name}: {problem}")),
+        if let Some(Err(problem)) = read {
+            scan.problems.push(format!("{name}: {problem}"));
         }
     }
     scan
 }
 
-/// A regular file of at most [`MAX_ASSET_BYTES`] of UTF-8 text. The read is bounded, so a file
-/// that grows (or a FIFO) cannot make it read without end.
+/// A regular file of at most [`MAX_ASSET_BYTES`] of UTF-8 text that fits a runner frame
+/// ([`MAX_ASSET_JSON`]). The open does not block on a FIFO and the read is bounded, so no file
+/// can stop the worker.
 fn read_asset(path: &Path) -> Result<String, String> {
-    use std::io::Read;
-    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
-    if !file.metadata().is_ok_and(|meta| meta.is_file()) {
-        return Err("not a regular file".into());
+    use crate::offline::{FileError, read_limited};
+    let bytes = read_limited(path, MAX_ASSET_BYTES).map_err(|error| match error {
+        FileError::NotRegular(_) => "not a regular file".to_string(),
+        FileError::Limit { .. } => format!("larger than {} MiB", MAX_ASSET_BYTES >> 20),
+        FileError::Io { source, .. } => source.to_string(),
+        error => error.to_string(),
+    })?;
+    let text = String::from_utf8(bytes).map_err(|_| "not UTF-8 text")?;
+    let json = json_len(&text);
+    if json > MAX_ASSET_JSON {
+        return Err(format!(
+            "{json} bytes as JSON text; the runner takes {MAX_ASSET_JSON} at most"
+        ));
     }
-    let mut bytes = Vec::new();
-    file.take(MAX_ASSET_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes.len() as u64 > MAX_ASSET_BYTES {
-        return Err(format!("larger than {} MiB", MAX_ASSET_BYTES >> 20));
+    Ok(text)
+}
+
+/// The length of `text` as a JSON string, counted as serde_json writes it.
+fn json_len(text: &str) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
-    String::from_utf8(bytes).map_err(|_| "not UTF-8 text".into())
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, text).expect("a string always serializes");
+    count.0
 }
 
 fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
@@ -375,5 +405,49 @@ impl<H: HttpClient> Fetch for HttpFetch<H> {
             _ if response.body.len() > max_bytes => Err(FetchError::TooLarge(max_bytes)),
             _ => Ok(response.body),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file builds every block whose extensions match it; a file that would not fit a runner
+    /// frame once escaped, or a FIFO, is one problem line and stops nothing.
+    #[test]
+    fn scan_builds_every_matching_block_and_refuses_bad_files() {
+        let dir = std::env::temp_dir().join(format!("tetrad-assets-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("soft.curve"), "2").unwrap();
+        // 700 000 control characters: under 3 MiB raw, 4.2 MB as JSON (`\u0001` each).
+        std::fs::write(dir.join("escaped.curve"), "\u{1}".repeat(700_000)).unwrap();
+        #[cfg(unix)]
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(dir.join("pipe.curve"))
+                .status()
+                .unwrap()
+                .success()
+        );
+        let blocks = [
+            ("shape".to_string(), vec![".curve".to_string()]),
+            ("drive".to_string(), vec![".txt".into(), ".curve".into()]),
+        ];
+        let scan = scan_assets(&dir, &blocks);
+        std::fs::remove_dir_all(&dir).unwrap();
+        let built: Vec<_> = (scan.files.iter())
+            .map(|file| (file.block.as_str(), file.variant.as_str()))
+            .collect();
+        assert_eq!(built, [("shape", "soft"), ("drive", "soft")]);
+        let problem = |name: &str| {
+            let lines: Vec<_> = (scan.problems.iter())
+                .filter(|line| line.starts_with(name))
+                .collect();
+            assert_eq!(lines.len(), 1, "{name}: {:?}", scan.problems);
+            lines[0].clone()
+        };
+        assert!(problem("escaped.curve").contains("as JSON text"));
+        #[cfg(unix)]
+        assert!(problem("pipe.curve").contains("not a regular file"));
     }
 }
