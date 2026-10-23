@@ -516,6 +516,37 @@ fn type3a_pm_transfers_follow_simd_and_broadcast() {
     );
 }
 
+/// `R0 = R1 + R2, S0 = DM(I0, M0)` writes two registers in SISD; in SIMD the compute also writes
+/// S0, a double write the PRM does not define.
+#[test]
+fn type3a_sn_load_beside_an_rn_compute_is_sisd_only() {
+    let word = type3a(
+        Single {
+            post: true,
+            i: 0,
+            m: 0,
+            store: false,
+            ureg: 0x50,
+        },
+        single(FLOAT_ADD, 0, 1, 2),
+    );
+    let mut data = memory();
+    data.write(X, 0x1234).unwrap();
+    let mut machine = Machine::reset();
+    (machine.i[0], machine.r[0]) = (X, 0x77);
+    let (out, _) = run(|_| vec![word], &machine, &data);
+    assert_eq!((out.r[0], out.s[0]), (0, 0x1234));
+
+    let mut program = ProgramMemory::default();
+    program.load_words(ISA, &[word]).unwrap();
+    machine.mode1 = MODE1_PEYEN;
+    machine.set_pc(ISA);
+    assert_eq!(
+        machine.step(&program, &mut data),
+        Err(MachineError::SimdDoubleWrite(ISA))
+    );
+}
+
 /// DAG2 in Types 15a (`R3 = PM(5, I11)`, figure 16.10.1: G 44), 16a (`PM(I12, M13) = data32`,
 /// figure 16.12.1: G 37) and 19a (`MODIFY(I14, -2) (NW)`, figure 17.04.1: G 38).
 #[test]

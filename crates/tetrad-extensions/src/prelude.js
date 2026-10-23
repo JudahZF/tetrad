@@ -209,7 +209,8 @@
         isMono = true;
       },
       // IR 3: a network of vector operations that runs before the graph (qcdsp network.rs).
-      // Buffer handles are numbers; buffer 0 is the block input. `output` ends the network and
+      // A buffer handle is `graph * NODE_SPAN + buffer`, as a signal, so a buffer of another
+      // builder's network is refused. Buffer 0 is the block input. `output` ends the network and
       // returns the signal of its output for each sample. A block has one network and is mono.
       network: () => {
         live();
@@ -218,24 +219,28 @@
         const netOps = [];
         let ended = false;
         network = { buffers, ops: netOps, output: 0 };
-        const open = () => {
+        const unfinished = () => {
           if (ended) throw new Error("the network is finished");
+        };
+        const open = () => {
+          unfinished();
           if (netOps.length >= MAX_NETWORK_OPS) {
             throw new RangeError(`a network has at most ${MAX_NETWORK_OPS} operations`);
           }
         };
         const buffer = (handle) => {
-          if (!Number.isInteger(handle) || handle < 0 || handle >= buffers.length) {
+          const index = handle - graph * NODE_SPAN;
+          if (!Number.isInteger(handle) || index < 0 || index >= buffers.length) {
             throw new TypeError("not a buffer of this network");
           }
-          return handle;
+          return index;
         };
         const floats = (what, values) => {
           if (!Array.isArray(values)) throw new TypeError(`${what} must be an array of numbers`);
           return values.map((value) => f32(what, value));
         };
         return Object.freeze({
-          input: () => 0,
+          input: () => graph * NODE_SPAN,
           buffer: (channels) => {
             open();
             if (!Number.isInteger(channels) || channels < 1 || channels > MAX_CHANNELS) {
@@ -243,7 +248,7 @@
             }
             if (buffers.length >= MAX_BUFFERS) throw new RangeError(`at most ${MAX_BUFFERS} buffers`);
             buffers.push(channels);
-            return buffers.length - 1;
+            return graph * NODE_SPAN + buffers.length - 1;
           },
           gain: (target, parameter) => {
             open();
@@ -285,7 +290,7 @@
             netOps.push({ op: "copy", input: buffer(input), output: buffer(output) });
           },
           output: (target) => {
-            open();
+            unfinished();
             network.output = buffer(target);
             ended = true;
             isMono = true;

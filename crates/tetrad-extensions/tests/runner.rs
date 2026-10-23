@@ -625,6 +625,38 @@ fn a_block_provider_builds_the_network_qcdsp_builds() {
 }
 
 #[test]
+fn a_network_refuses_foreign_buffers_and_holds_its_operation_limit() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const b = ctx.blocks.builder();
+              const net = b.network();
+              const y = net.buffer(1);
+              const foreign = ctx.blocks.builder().network().buffer(1);
+              let refused = false;
+              try {
+                net.copy(foreign, y);
+              } catch (e) {
+                refused = String(e).includes("not a buffer of this network");
+              }
+              if (!refused) throw new Error("a foreign buffer was accepted");
+              net.copy(net.input(), y);
+              for (let i = 1; i < 4096; i++) net.activation(y, "relu");
+              return b.finish(net.output(y));
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(4, ""));
+    let BuildOutcome::Ir(ir) = published(&mut h, 4).outcome else {
+        panic!("a network at the operation limit did not build")
+    };
+    assert_eq!(ir["network"]["ops"].as_array().unwrap().len(), 4096);
+    qcdsp::Block::from_json(&ir.to_string()).unwrap();
+}
+
+#[test]
 fn a_failing_provider_publishes_its_error() {
     let mut h = Harness::start(
         r#"export default { activate(ctx) {
