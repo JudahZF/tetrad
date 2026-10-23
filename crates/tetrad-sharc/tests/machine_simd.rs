@@ -517,7 +517,7 @@ fn type3a_pm_transfers_follow_simd_and_broadcast() {
 }
 
 /// `R0 = R1 + R2, S0 = DM(I0, M0)` writes two registers in SISD; in SIMD the compute also writes
-/// S0, a double write the PRM does not define.
+/// S0, and through I1 with BDCST1 the load also writes R0: double writes the PRM does not define.
 #[test]
 fn type3a_sn_load_beside_an_rn_compute_is_sisd_only() {
     let word = type3a(
@@ -543,7 +543,26 @@ fn type3a_sn_load_beside_an_rn_compute_is_sisd_only() {
     machine.set_pc(ISA);
     assert_eq!(
         machine.step(&program, &mut data),
-        Err(MachineError::SimdDoubleWrite(ISA))
+        Err(MachineError::DoubleWrite(ISA))
+    );
+
+    let broadcast = type3a(
+        Single {
+            post: true,
+            i: 1,
+            m: 0,
+            store: false,
+            ureg: 0x50,
+        },
+        single(FLOAT_ADD, 0, 1, 2),
+    );
+    let mut program = ProgramMemory::default();
+    program.load_words(ISA, &[broadcast]).unwrap();
+    (machine.i[1], machine.mode1) = (X, MODE1_BDCST1);
+    machine.set_pc(ISA);
+    assert_eq!(
+        machine.step(&program, &mut data),
+        Err(MachineError::DoubleWrite(ISA))
     );
 }
 

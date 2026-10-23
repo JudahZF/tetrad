@@ -423,8 +423,9 @@ pub enum MachineError {
     NoCode(u32),
     #[error("unsupported word {word:#014x} at PC {pc:#x}")]
     UnsupportedWord { pc: u32, word: u64 },
-    #[error("SIMD instruction at PC {0:#x} writes one register twice (Rn and Sn)")]
-    SimdDoubleWrite(u32),
+    /// SIMD or a broadcast load makes one instruction write a register twice.
+    #[error("instruction at PC {0:#x} writes one register twice in this mode")]
+    DoubleWrite(u32),
     #[error("PC stack overflow at PC {0:#x}")]
     PcStackOverflow(u32),
     #[error("PC stack underflow at PC {0:#x}")]
@@ -919,8 +920,16 @@ impl Machine {
         compute: Option<Compute>,
         accesses: [Option<Access>; 2],
     ) -> Result<(), MachineError> {
-        if self.simd() && !distinct(compute, accesses, true) {
-            return Err(MachineError::SimdDoubleWrite(self.pc));
+        let broadcast = |access: &Access| {
+            let mode = match access.index {
+                1 => MODE1_BDCST1,
+                9 => MODE1_BDCST9,
+                _ => 0,
+            };
+            self.mode1 & mode != 0
+        };
+        if !distinct(compute, accesses, self.simd(), broadcast) {
+            return Err(MachineError::DoubleWrite(self.pc));
         }
         let mut planned = [None; 2];
         for (plan, access) in planned.iter_mut().zip(accesses) {
@@ -1731,24 +1740,47 @@ struct Access {
 }
 
 /// One instruction's register writes are distinct: compute results and data
-/// register loads. SISD keeps Rn and Sn apart; SIMD (`simd`) writes both banks,
-/// so it compares register numbers only. The PRM does not define a double
-/// write, so the decoders refuse it in either mode and `transfer` refuses it
-/// in SIMD (**I**).
-fn distinct(compute: Option<Compute>, accesses: [Option<Access>; 2], simd: bool) -> bool {
-    let bank = |code: u8| if simd || code >> 4 == 0 { 0 } else { 16 };
+/// register loads, as bits of `R0-R15, S0-S15`. A compute writes Rn, and Sn too
+/// in SIMD (`simd`); a load writes its register, and its complement too in SIMD
+/// or when `broadcast` says so. The PRM does not define a double write, so the
+/// decoders refuse one that every mode has, and `transfer` refuses the rest
+/// (**I**).
+fn distinct(
+    compute: Option<Compute>,
+    accesses: [Option<Access>; 2],
+    simd: bool,
+    broadcast: impl Fn(&Access) -> bool,
+) -> bool {
+    let bits = |n: usize, bank: usize, both: bool| {
+        if both {
+            0x1_0001 << n
+        } else {
+            1_u32 << (n + 16 * bank)
+        }
+    };
     let loads = accesses
         .into_iter()
         .flatten()
         .filter(|access| !access.store && is_data(access.data))
-        .map(|access| usize::from(access.data & 15) + bank(access.data));
+        .map(|access| {
+            let (n, bank) = (
+                usize::from(access.data & 15),
+                usize::from(access.data >> 4 == 5),
+            );
+            bits(n, bank, simd || broadcast(&access))
+        });
     let results = compute.map_or([None; 3], Compute::destinations);
     let mut seen = 0_u32;
-    results.into_iter().flatten().chain(loads).all(|n| {
-        let fresh = seen & (1 << n) == 0;
-        seen |= 1 << n;
-        fresh
-    })
+    results
+        .into_iter()
+        .flatten()
+        .map(|n| bits(n, 0, simd))
+        .chain(loads)
+        .all(|written| {
+            let fresh = seen & written == 0;
+            seen |= written;
+            fresh
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1987,7 +2019,8 @@ fn decode(word: u64) -> Option<Op> {
                 Some(decode_compute(field)?)
             };
             let accesses = [Some(dm_transfer(word >> 16)?), None];
-            distinct(compute, accesses, false).then_some(Op::Transfer { compute, accesses })
+            distinct(compute, accesses, false, |_| false)
+                .then_some(Op::Transfer { compute, accesses })
         }
         // Type5a ureg move, COND=31.
         0x70..=0x77 if word & ALWAYS == ALWAYS && word & 0x407f_ffff == 0 => {
@@ -2082,7 +2115,7 @@ fn decode_dual(word: u64) -> Option<Op> {
         Some(decode_compute(field)?)
     };
     let accesses = dual_accesses(word);
-    distinct(compute, accesses, false).then_some(Op::Transfer { compute, accesses })
+    distinct(compute, accesses, false, |_| false).then_some(Op::Transfer { compute, accesses })
 }
 
 /// VISA decoder for the shim forms (PRM "b"/"c" figures). Other short forms
@@ -2165,7 +2198,7 @@ fn decode_visa32(word: u32) -> Option<Op> {
     // Type 1b: Type 1a's upper 32 bits, marker 0111111 (PRM figure 14.07.1).
     if word >> 29 == 1 && word & 0x7f == 0x3f {
         let accesses = dual_accesses(fields << 16);
-        return distinct(None, accesses, false).then_some(Op::Transfer {
+        return distinct(None, accesses, false, |_| false).then_some(Op::Transfer {
             compute: None,
             accesses,
         });
@@ -2253,7 +2286,7 @@ fn decode_multifunction(field: u64) -> Option<Compute> {
         sum,
         difference,
     };
-    distinct(Some(compute), [None, None], false).then_some(compute)
+    distinct(Some(compute), [None, None], false, |_| false).then_some(compute)
 }
 
 #[cfg(test)]
