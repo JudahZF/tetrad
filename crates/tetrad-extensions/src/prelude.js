@@ -83,6 +83,8 @@
   const MAX_BUFFERS = 1024;
   const MAX_CHANNELS = 64;
   const MAX_NETWORK_OPS = 4096;
+  // Weights and biases of all convolutions of a network together (qcdsp `MAX_WEIGHTS`).
+  const MAX_NETWORK_WEIGHTS = 1 << 20;
   const MAX_KERNEL = 16;
   const MAX_DILATION = 1 << 16;
   const ACTIVATIONS = ["tanh", "hardtanh", "relu"];
@@ -219,6 +221,7 @@
         const buffers = [1];
         const netOps = [];
         let ended = false;
+        let weightCount = 0;
         network = { buffers, ops: netOps, output: 0 };
         const bufferBase = graph * NODE_SPAN + MAX_NODES;
         const unfinished = () => {
@@ -267,6 +270,10 @@
               throw new RangeError(`kernel 1 to ${MAX_KERNEL}, dilation 1 to ${MAX_DILATION}`);
             }
             const [from, to] = [buffer(input), buffer(output)];
+            const count = buffers[to] * (buffers[from] * kernel + (bias === undefined ? 0 : 1));
+            if (weightCount + count > MAX_NETWORK_WEIGHTS) {
+              throw new RangeError(`a network has at most ${MAX_NETWORK_WEIGHTS} weights and biases`);
+            }
             const w = floats("weights", weights);
             if (w.length !== buffers[from] * buffers[to] * kernel) {
               throw new RangeError("weights need output channels × input channels × kernel values");
@@ -278,6 +285,7 @@
             }
             if (accumulate) op.accumulate = true;
             netOps.push(op);
+            weightCount += count;
           },
           activation: (target, fn) => {
             open();
