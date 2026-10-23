@@ -30,6 +30,9 @@ pub struct InstalledExtension {
     pub state: ExtensionState,
     /// A newer version in the source's catalog.
     pub update: Option<String>,
+    /// While this installation is on: the other repositories ("Default" or `owner/repo`) whose
+    /// installation of the same extension is on too. Each adds the same blocks twice.
+    pub duplicates: Vec<String>,
     /// Command buttons the extension registered.
     pub commands: Vec<ExtensionButton>,
     pub settings: Vec<ExtensionSetting>,
@@ -99,6 +102,9 @@ pub struct AvailableExtension {
     pub name: String,
     pub version: String,
     pub description: String,
+    /// The repositories ("Default" or `owner/repo`) that have this extension installed and on.
+    /// Installed from here too, it would add the same blocks, themes and handlers twice.
+    pub duplicates: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

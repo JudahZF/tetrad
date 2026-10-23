@@ -135,6 +135,15 @@ fn repository_with(module: &str, capabilities: &[&str]) -> Web {
     web
 }
 
+/// Serves every file of `SOURCE` in `web` again under `to`.
+fn mirror(web: &Web, to: &str) {
+    let mut files = web.0.lock().unwrap();
+    let copies: Vec<_> = (files.iter())
+        .map(|(url, body)| (url.replace(SOURCE, to), body.clone()))
+        .collect();
+    files.extend(copies);
+}
+
 fn boot(media: Media, web: Web) -> (Device<Sim>, Media) {
     let root = media.0.join("tetrad/extensions");
     let backend = LocalBackend::threads().with_worker(root, web);
@@ -258,6 +267,60 @@ fn install_from_a_trusted_repository_then_map_midi_to_a_block() {
         state_of(d) == Some(ExtensionState::Running)
     });
     assert_eq!(view(&device).installed[0].version, "1.0.0");
+}
+
+/// The same extension on from two sources doubles its blocks and handlers: its Available row,
+/// the install message and both Installed rows say so until one is off.
+#[test]
+fn a_second_source_of_an_installed_extension_warns() {
+    const MIRROR: &str = "tester/mirror";
+    let web = repository();
+    mirror(&web, MIRROR);
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _media) = boot(media, web);
+    install(&mut device);
+    assert_eq!(
+        view(&device).status.as_deref(),
+        Some("Installed Test Mapper 1.0.0")
+    );
+    device.push(Event::Extensions(ExtensionCommand::AddSource {
+        repository: format!("https://github.com/{MIRROR}"),
+    }));
+    pump(&mut device, "the key", |d| view(d).pending_trust.is_some());
+    device.push(Event::Extensions(ExtensionCommand::TrustSource {
+        repository: MIRROR.into(),
+        trust: true,
+    }));
+    pump(&mut device, "the catalog", |d| {
+        !view(d).available.is_empty()
+    });
+    let available = &view(&device).available[0];
+    assert_eq!(available.source, MIRROR);
+    assert_eq!(available.duplicates, [SOURCE]);
+    device.push(Event::Extensions(ExtensionCommand::Install {
+        source: MIRROR.into(),
+        id: "test.mapper".into(),
+    }));
+    pump(&mut device, "the second install", |d| {
+        view(d).installed.len() == 2
+    });
+    assert_eq!(
+        view(&device).status.as_deref(),
+        Some("Also installed from tester/exts: keep one on (Test Mapper 1.0.0)")
+    );
+    let duplicates = |d: &Device<Sim>| -> Vec<Vec<String>> {
+        (view(d).installed.iter())
+            .map(|e| e.duplicates.clone())
+            .collect()
+    };
+    assert_eq!(duplicates(&device), [[MIRROR], [SOURCE]]);
+    device.push(Event::Extensions(ExtensionCommand::SetEnabled {
+        key: format!("{MIRROR}:test.mapper"),
+        enabled: false,
+    }));
+    pump(&mut device, "the cleared warnings", |d| {
+        duplicates(d).iter().all(Vec::is_empty)
+    });
 }
 
 #[test]
