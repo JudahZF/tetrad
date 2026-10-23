@@ -42,9 +42,11 @@ const SIZES: { readonly [channels: string]: string } = {
   "4/2": "nano",
 };
 const MAX_DILATION = 1 << 16;
-/** The network builder's kernel and channel limits (`NetworkBuilder` in the SDK). */
+/** The network builder's limits (`NetworkBuilder` in the SDK). */
 const NETWORK_MAX_KERNEL = 16;
 const NETWORK_MAX_CHANNELS = 64;
+const NETWORK_MAX_BUFFERS = 1024;
+const NETWORK_MAX_OPS = 4096;
 const FILM_KEYS = [
   "conv_pre_film",
   "conv_post_film",
@@ -261,7 +263,15 @@ export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
     !array.gated &&
     array.kernelSize <= NETWORK_MAX_KERNEL &&
     [array.inputSize, array.channels, array.headSize].every((n) => n <= NETWORK_MAX_CHANNELS);
-  if (model.arrays.every(fits)) return network(dsp, model);
+  // What `network` allocates: the input, the head sum, and per array its input mix and head;
+  // per layer a mixed buffer, the next residual and six operations.
+  const layers = model.arrays.reduce((n, array) => n + array.dilations.length, 0);
+  const arrays = model.arrays.length;
+  const buffers = 2 + 2 * arrays + 2 * layers;
+  const ops = 1 + 2 * arrays + 6 * layers;
+  if (model.arrays.every(fits) && buffers <= NETWORK_MAX_BUFFERS && ops <= NETWORK_MAX_OPS) {
+    return network(dsp, model);
+  }
   const size = new Size();
   graph(size, model);
   if (size.nodes > MAX_COMPILED_NODES || size.stateBytes > MAX_STATE_BYTES) {
