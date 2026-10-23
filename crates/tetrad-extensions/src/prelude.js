@@ -209,8 +209,9 @@
         isMono = true;
       },
       // IR 3: a network of vector operations that runs before the graph (qcdsp network.rs).
-      // A buffer handle is `graph * NODE_SPAN + buffer`, as a signal, so a buffer of another
-      // builder's network is refused. Buffer 0 is the block input. `output` ends the network and
+      // A buffer handle is `graph * NODE_SPAN + MAX_NODES + buffer`: the upper half of the span,
+      // which signals never use, so another builder's buffer and any signal are refused. Buffer 0
+      // is the block input. `output` ends the network and
       // returns the signal of its output for each sample. A block has one network and is mono.
       network: () => {
         live();
@@ -219,7 +220,9 @@
         const netOps = [];
         let ended = false;
         network = { buffers, ops: netOps, output: 0 };
+        const bufferBase = graph * NODE_SPAN + MAX_NODES;
         const unfinished = () => {
+          live();
           if (ended) throw new Error("the network is finished");
         };
         const open = () => {
@@ -229,7 +232,7 @@
           }
         };
         const buffer = (handle) => {
-          const index = handle - graph * NODE_SPAN;
+          const index = handle - bufferBase;
           if (!Number.isInteger(handle) || index < 0 || index >= buffers.length) {
             throw new TypeError("not a buffer of this network");
           }
@@ -240,7 +243,7 @@
           return values.map((value) => f32(what, value));
         };
         return Object.freeze({
-          input: () => graph * NODE_SPAN,
+          input: () => (live(), bufferBase),
           buffer: (channels) => {
             open();
             if (!Number.isInteger(channels) || channels < 1 || channels > MAX_CHANNELS) {
@@ -248,7 +251,7 @@
             }
             if (buffers.length >= MAX_BUFFERS) throw new RangeError(`at most ${MAX_BUFFERS} buffers`);
             buffers.push(channels);
-            return graph * NODE_SPAN + buffers.length - 1;
+            return bufferBase + buffers.length - 1;
           },
           gain: (target, parameter) => {
             open();

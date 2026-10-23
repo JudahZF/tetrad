@@ -73,6 +73,7 @@ Check a package at any time with `$T check FILE.tetradext`.
 | --- | --- |
 | `tetrad.midi-mapper-0.2.0.tetradext` (trigger provider for Mappings) | `extensions-2026-10-20` |
 | `tetrad.nam-0.1.0.tetradext`, `0.2.0`, `0.3.0` (Neural Amp Modeler blocks, API 2; 0.3.0 adds trainer WaveNets) | `extensions-2026-10-23` |
+| `tetrad.nam-0.3.1.tetradext` (WaveNets past the network limits, such as kernels above 16, stay on the scalar graph) | `extensions-2026-10-23.2` |
 | `tetrad.dsp-examples-0.1.0.tetradext`, `0.2.0` (qcdsp example blocks, API 2) | `extensions-2026-10-23` |
 
 Devices before API 2 skip the API 2 packages: `latest()` filters on the API version. The

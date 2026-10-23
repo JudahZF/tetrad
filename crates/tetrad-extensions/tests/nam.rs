@@ -638,6 +638,25 @@ fn builds_wavenet_models_that_match_nam_core() {
         worst <= 2e-3 * peak,
         "largest error against NAM core: {worst} (peak {peak})"
     );
+
+    // Kernel 17 is past the network's limit (16): the model stays on the scalar graph.
+    let arrays = [
+        ArrayConfig {
+            kernel: 17,
+            dilations: vec![1],
+            ..ArrayConfig::trainer(1, 2, 1, false)
+        },
+        small(2, 1, 1, true),
+    ];
+    let w = scaled(&wavenet_weights(&arrays), 3.0);
+    let block = host.block(3, "Wide.nam", nam("WaveNet", wavenet_config(&arrays), &w));
+    assert_eq!(block.version(), 2, "a wide kernel is a scalar graph");
+    let mut reference = WaveNet::new(&arrays, &w);
+    let (worst, peak) = compare(&block, 4800, |x| reference.process(x));
+    assert!(
+        worst <= 2e-3 * peak,
+        "largest error against NAM core: {worst} (peak {peak})"
+    );
     host.stop();
 }
 

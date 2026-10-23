@@ -32,7 +32,7 @@ All notable changes to Tetrad are in this file. The version numbers follow
   `ctx.blocks.builder()` to build a block from an asset file, package format 2 (up to 4 MiB),
   a 32 MiB JavaScript heap. `tetrad-ext init --blocks`, `check` (block CPU and memory) and
   `preview` (run a block on a WAV file).
-- Neural Amp Modeler 0.3.0: plays NAM LSTM and WaveNet models from
+- Neural Amp Modeler 0.3.1: plays NAM LSTM and WaveNet models from
   `/media/p4/tetrad/assets/tetrad.nam/` as Guitar Amplifier blocks, including the NAM trainer's
   nano, feather and lite sizes (on the test unit below 25%, about 48% and 75% of a DSP core). Its
   blocks match NeuralAmpModelerCore (within 2e-3 of the peak). The trainer's standard size needs

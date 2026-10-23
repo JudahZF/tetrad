@@ -42,6 +42,9 @@ const SIZES: { readonly [channels: string]: string } = {
   "4/2": "nano",
 };
 const MAX_DILATION = 1 << 16;
+/** The network builder's kernel and channel limits (`NetworkBuilder` in the SDK). */
+const NETWORK_MAX_KERNEL = 16;
+const NETWORK_MAX_CHANNELS = 64;
 const FILM_KEYS = [
   "conv_pre_film",
   "conv_post_film",
@@ -248,13 +251,17 @@ export function weightCount(arrays: readonly LayerArray[]): number {
 
 /**
  * The block: input gain, the layer arrays, head_scale and output gain. Mono: the model runs once
- * and both channels get its output. Ungated models (all the NAM trainer makes) become a network
- * (IR 3), which Tetrad compiles to frame kernels; Tetrad refuses a model whose CPU or memory does
- * not fit one DSP core. Gated models use the scalar graph and throw, naming the model's size,
- * when they need more nodes or state than a scalar block holds.
+ * and both channels get its output. Ungated models within the network limits (all the NAM
+ * trainer makes) become a network (IR 3), which Tetrad compiles to frame kernels; Tetrad refuses
+ * a model whose CPU or memory does not fit one DSP core. Other models use the scalar graph and
+ * throw, naming the model's size, when they need more nodes or state than a scalar block holds.
  */
 export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
-  if (!model.arrays.some((array) => array.gated)) return network(dsp, model);
+  const fits = (array: LayerArray) =>
+    !array.gated &&
+    array.kernelSize <= NETWORK_MAX_KERNEL &&
+    [array.inputSize, array.channels, array.headSize].every((n) => n <= NETWORK_MAX_CHANNELS);
+  if (model.arrays.every(fits)) return network(dsp, model);
   const size = new Size();
   graph(size, model);
   if (size.nodes > MAX_COMPILED_NODES || size.stateBytes > MAX_STATE_BYTES) {

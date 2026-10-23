@@ -625,21 +625,28 @@ fn a_block_provider_builds_the_network_qcdsp_builds() {
 }
 
 #[test]
-fn a_network_refuses_foreign_buffers_and_holds_its_operation_limit() {
+fn a_network_refuses_foreign_handles_and_holds_its_operation_limit() {
     let mut h = Harness::start(
         r#"export default { activate(ctx) {
             ctx.blocks.provide("amp", () => {
+              const refuses = (what, attempt, reason) => {
+                try {
+                  attempt();
+                } catch (e) {
+                  if (String(e).includes(reason)) return;
+                }
+                throw new Error(`${what} was accepted`);
+              };
               const b = ctx.blocks.builder();
+              const level = b.parameter("Level", 0, 1, 1);
               const net = b.network();
               const y = net.buffer(1);
-              const foreign = ctx.blocks.builder().network().buffer(1);
-              let refused = false;
-              try {
-                net.copy(foreign, y);
-              } catch (e) {
-                refused = String(e).includes("not a buffer of this network");
-              }
-              if (!refused) throw new Error("a foreign buffer was accepted");
+              const other = ctx.blocks.builder();
+              const foreign = other.network();
+              refuses("a foreign buffer", () => net.copy(foreign.buffer(1), y), "not a buffer");
+              refuses("a signal as a buffer", () => net.copy(level, y), "not a buffer");
+              other.finish(other.input());
+              refuses("a finished builder's network", () => foreign.buffer(1), "finished");
               net.copy(net.input(), y);
               for (let i = 1; i < 4096; i++) net.activation(y, "relu");
               return b.finish(net.output(y));
