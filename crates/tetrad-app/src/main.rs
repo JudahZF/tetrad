@@ -901,8 +901,8 @@ fn print_json(value: serde_json::Value) -> Result<(), Error> {
     Ok(())
 }
 
-/// Largest extension module the runner loads.
-const MAX_MODULE_BYTES: usize = 1024 * 1024;
+/// Largest extension module the runner loads: a module is never larger than its package.
+const MAX_MODULE_BYTES: usize = tetrad_extensions::package::MAX_PACKAGE;
 /// Runner address-space limit: the mapped `tetrad` image, its libraries, two thread stacks and
 /// the QuickJS heap. Trial value; measured on the unit in gate A.
 #[cfg(target_os = "linux")]

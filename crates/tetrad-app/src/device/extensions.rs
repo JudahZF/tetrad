@@ -21,24 +21,25 @@ use serde_json::{Value as Json, json};
 use tetrad_engine::{Column, Row, Site as EngineSite, Slot};
 use tetrad_extensions::host::RunnerOutput;
 use tetrad_extensions::protocol::{
-    Binding, CallResult, ControlChange, ControlKind, ErrorCode, Event, ExtensionInfo, HostMessage,
-    LogLevel, MAX_TRIGGER_LABEL, MAX_TRIGGERS, MidiEvent, PROTOCOL_VERSION, Pair, Registrations,
-    RunnerMessage, Site, TriggerSpec,
+    AssetText, Binding, BlockPublish, BuildOutcome, CallResult, ControlChange, ControlKind,
+    ErrorCode, Event, ExtensionInfo, HostMessage, LogLevel, MAX_TRIGGER_LABEL, MAX_TRIGGERS,
+    MidiEvent, PROTOCOL_VERSION, PUBLISH_BLOCK, Pair, Registrations, RunnerMessage, Site,
+    TriggerSpec,
 };
 use tetrad_midi::{Channel, MidiMessage, U7};
 
 use super::actions::Action;
-use super::extension_jobs::Loaded;
+use super::extension_jobs::{AssetFile, AssetScan, Loaded};
 pub use super::extension_jobs::{ExtensionJob, JobResult};
 use super::{Effect, State, Subsystem};
 use tetrad_extensions::catalog::{Catalog, PublicKey};
-use tetrad_extensions::manifest::{Capability, SettingKind};
+use tetrad_extensions::manifest::{BlockSpec, Capability, SettingKind};
 use tetrad_extensions::repository::SourceId;
 use tetrad_extensions::store::{InstallKey, Source};
 use tetrad_ui::{
-    AvailableExtension, ExtensionButton, ExtensionCommand, ExtensionSetting, ExtensionSettingInput,
-    ExtensionSettingValue, ExtensionSource, ExtensionState, ExtensionsView, InstalledExtension,
-    PendingTrust,
+    AvailableExtension, ExtensionBlock, ExtensionButton, ExtensionCommand, ExtensionSetting,
+    ExtensionSettingInput, ExtensionSettingValue, ExtensionSource, ExtensionState, ExtensionsView,
+    InstalledExtension, PendingTrust,
 };
 
 /// Log lines kept per installation for the detail page.
@@ -247,6 +248,7 @@ pub struct Capabilities {
     pub controls_edit: bool,
     pub storage: bool,
     pub triggers: bool,
+    pub blocks: bool,
     pub usb: bool,
 }
 
@@ -260,13 +262,25 @@ pub struct Installation {
     pub version: String,
     pub description: String,
     pub source: String,
-    pub module: PathBuf,
+    /// `None`: a data-only package (themes or DSP blocks), which has no runner.
+    pub module: Option<PathBuf>,
     pub capabilities: Capabilities,
+    /// The DSP blocks of the manifest.
+    pub blocks: Vec<BlockSpec>,
+    /// The IR of the static blocks, by block ID.
+    pub block_irs: BTreeMap<String, qcdsp::Block>,
+    /// IR the extension built from assets in an earlier run, by block and variant.
+    pub generated: BTreeMap<(String, String), qcdsp::Block>,
     pub config: Json,
     pub storage: BTreeMap<String, Json>,
     pub enabled: bool,
-    /// A theme-only package: it has no module, so no runner starts for it.
-    pub data_only: bool,
+}
+
+impl Installation {
+    /// The store key; `None` only for a key that was not made by the store.
+    fn install_key(&self) -> Option<InstallKey> {
+        self.key.parse().ok()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -320,6 +334,51 @@ struct Entry {
     registrations: Registrations,
     status_lines: Vec<String>,
     log: VecDeque<String>,
+    /// Generated block IR by block and variant: the cache, then each new build.
+    generated: BTreeMap<(String, String), qcdsp::Block>,
+    /// Why the last build of a block and variant failed.
+    build_errors: BTreeMap<(String, String), String>,
+    /// Asset files that wait for a [`Event::BuildBlock`]; one build runs at a time.
+    builds: VecDeque<AssetFile>,
+    /// The scope and asset of the build that runs.
+    building: Option<(u64, AssetFile)>,
+    /// Asset blocks for which the last scan found no file.
+    no_assets: Vec<String>,
+    /// Builds that stopped the session (a fault, a time limit), with the asset text they had.
+    /// Such an asset is not built again until its file changes, so one bad file cannot fault
+    /// the extension at every start.
+    stopped_builds: BTreeMap<(String, String), String>,
+}
+
+impl Entry {
+    fn new(installation: Installation) -> Self {
+        Self {
+            generated: installation.generated.clone(),
+            installation,
+            state: RunState::Disabled,
+            session: None,
+            registrations: Registrations::default(),
+            status_lines: Vec::new(),
+            log: VecDeque::new(),
+            build_errors: BTreeMap::new(),
+            builds: VecDeque::new(),
+            building: None,
+            no_assets: Vec::new(),
+            stopped_builds: BTreeMap::new(),
+        }
+    }
+
+    /// The session ended: no build runs, and the queue goes (the next activation scans again).
+    /// When a `fault` ended it, a build that was running is recorded as stopped.
+    fn end_session(&mut self, fault: Option<&str>) {
+        if let (Some((_, file)), Some(reason)) = (self.building.take(), fault) {
+            let id = (file.block, file.variant);
+            self.stopped_builds.insert(id.clone(), file.text);
+            self.build_errors
+                .insert(id, format!("the build stopped the extension: {reason}"));
+        }
+        self.builds.clear();
+    }
 }
 
 /// Runner outputs and job results waiting for the device.
@@ -341,6 +400,11 @@ pub struct Outcome {
     pub reservations_changed: bool,
     /// Triggers the extensions fired (`scope.triggers.fire`), for the mappings bridge.
     pub triggers: Vec<FiredTrigger>,
+    /// The community blocks may have changed: the device installs
+    /// [`Extensions::community_sources`] again.
+    pub community_changed: bool,
+    /// Store work a host call asked for; the bridge submits it before it returns.
+    jobs: Vec<ExtensionJob>,
     /// Answers to USB messages ([`Extensions::usb_message`]), for the USB link.
     pub usb_replies: Vec<UsbReply>,
 }
@@ -440,20 +504,11 @@ impl Extensions {
                     }
                 }
                 None => {
-                    self.slots.insert(
-                        key,
-                        Entry {
-                            installation,
-                            state: RunState::Disabled,
-                            session: None,
-                            registrations: Registrations::default(),
-                            status_lines: Vec::new(),
-                            log: VecDeque::new(),
-                        },
-                    );
+                    self.slots.insert(key, Entry::new(installation));
                 }
             }
         }
+        outcome.community_changed = true;
         let keys: Vec<String> = self.slots.keys().cloned().collect();
         for key in keys {
             let slot = &self.slots[&key];
@@ -532,11 +587,11 @@ impl Extensions {
         if slot.session.is_some() || !slot.installation.enabled {
             return;
         }
-        // A theme pack has nothing to run; enabled, its themes are in use.
-        if slot.installation.data_only {
+        let Some(module) = slot.installation.module.clone() else {
+            // Themes or DSP blocks only: nothing runs; they follow the enabled switch.
             slot.state = RunState::Running;
             return;
-        }
+        };
         let activate = HostMessage::Activate {
             protocol: PROTOCOL_VERSION,
             extension: ExtensionInfo {
@@ -546,7 +601,7 @@ impl Extensions {
             config: slot.installation.config.clone(),
         };
         let started = backend
-            .start(key, &slot.installation.module)
+            .start(key, &module)
             .and_then(|run| backend.send(key, &activate).map(|()| run));
         match started {
             Ok(run) => {
@@ -582,6 +637,7 @@ impl Extensions {
             backend.stop(key);
             outcome.usb_replies.extend(session.orphans("disabled"));
         }
+        slot.end_session(None);
         if !slot.installation.enabled {
             if !slot.registrations.midi_channels.is_empty() {
                 outcome.reservations_changed = true;
@@ -605,6 +661,8 @@ impl Extensions {
             return outcome;
         };
         slot.installation.enabled = enabled;
+        // DSP blocks follow the enabled switch.
+        outcome.community_changed = !slot.installation.blocks.is_empty();
         if enabled {
             if matches!(slot.state, RunState::Faulted(_)) {
                 slot.state = RunState::Disabled;
@@ -621,6 +679,7 @@ impl Extensions {
         let mut outcome = Outcome::default();
         if let Some(slot) = self.slots.get_mut(key) {
             slot.session = None;
+            slot.end_session(None);
             slot.state = RunState::Disabled;
         }
         backend.stop(key);
@@ -837,6 +896,7 @@ impl Extensions {
             backend.stop(key);
             outcome.usb_replies.extend(session.orphans(&reason));
         }
+        slot.end_session(Some(&reason));
         push_log(&mut slot.log, &format!("fault: {reason}"));
         slot.state = RunState::Faulted(reason.clone());
         if !slot.registrations.midi_channels.is_empty() {
@@ -879,7 +939,14 @@ impl Extensions {
                 self.on_message(&key, message, state, native_channel, backend, &mut outcome)
             }
         }
+        self.submit_jobs(&mut outcome, backend);
         outcome
+    }
+
+    fn submit_jobs(&mut self, outcome: &mut Outcome, backend: &mut dyn ExtensionBackend) {
+        for job in std::mem::take(&mut outcome.jobs) {
+            self.submit(job, backend);
+        }
     }
 
     fn on_message(
@@ -909,6 +976,7 @@ impl Extensions {
                 slot.registrations = registrations;
                 slot.state = RunState::Running;
                 self.deliver(key, Event::Running, backend, outcome);
+                self.scan_assets(key, backend);
             }
             RunnerMessage::Request {
                 id,
@@ -938,6 +1006,9 @@ impl Extensions {
                 if session.scopes.remove(&scope).is_some() {
                     session.in_flight = session.in_flight.saturating_sub(1);
                 }
+                if slot.building.as_ref().is_some_and(|(at, _)| *at == scope) {
+                    slot.building = None;
+                }
                 if let Some(request) = session.usb_scopes.remove(&scope) {
                     let result = match error {
                         Some(error) => Err(error),
@@ -957,6 +1028,7 @@ impl Extensions {
                         return;
                     }
                 }
+                self.next_build(key, backend, outcome);
             }
             RunnerMessage::Log { level, text } => {
                 let slot = self.slots.get_mut(key).expect("checked");
@@ -989,6 +1061,19 @@ impl Extensions {
         }
         if registrations.control_changes && !slot.installation.capabilities.controls_read {
             return Err("watches controls without the controlsRead capability".into());
+        }
+        if !registrations.blocks.is_empty() && !slot.installation.capabilities.blocks {
+            return Err("provides DSP blocks without the blocks capability".into());
+        }
+        for (i, block) in registrations.blocks.iter().enumerate() {
+            let generated =
+                (slot.installation.blocks.iter()).any(|b| &b.id == block && b.generated);
+            if !generated || registrations.blocks[..i].contains(block) {
+                return Err(format!(
+                    "provides block {block:?}, which is not a generated block of the manifest or \
+                     is provided twice"
+                ));
+            }
         }
         if registrations.usb && !slot.installation.capabilities.usb {
             return Err("answers USB messages without the usb capability".into());
@@ -1210,8 +1295,327 @@ impl Extensions {
                     Err(why) => CallResult::error(ErrorCode::InvalidParams, why),
                 }
             }
+            PUBLISH_BLOCK => {
+                if !capabilities.blocks {
+                    return deny("blocks");
+                }
+                let publish: BlockPublish = match serde_json::from_value(params) {
+                    Ok(publish) => publish,
+                    Err(error) => {
+                        return CallResult::error(ErrorCode::InvalidParams, error.to_string());
+                    }
+                };
+                let building = (slot.building.as_ref()).is_some_and(|(at, file)| {
+                    Some(*at) == scope
+                        && file.block == publish.block
+                        && file.variant == publish.variant
+                });
+                if !building {
+                    return CallResult::error(
+                        ErrorCode::InvalidParams,
+                        "blocks.publish answers the build of its own handler only",
+                    );
+                }
+                let id = (publish.block.clone(), publish.variant.clone());
+                let ir = match publish.outcome {
+                    BuildOutcome::Error(error) => Err(error),
+                    BuildOutcome::Ir(ir) => serde_json::from_value::<qcdsp::Block>(ir)
+                        .map_err(|error| error.to_string())
+                        .and_then(|ir| ir.validate().map(|()| ir).map_err(|e| e.to_string())),
+                };
+                match ir {
+                    Ok(ir) => {
+                        slot.build_errors.remove(&id);
+                        if slot.generated.get(&id) != Some(&ir) {
+                            slot.generated.insert(id.clone(), ir.clone());
+                            outcome.community_changed = true;
+                            if let Some(key) = slot.installation.install_key() {
+                                outcome.jobs.push(ExtensionJob::SaveGenerated {
+                                    key,
+                                    block: id.0,
+                                    variant: id.1,
+                                    ir: Box::new(ir),
+                                });
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        push_log(
+                            &mut slot.log,
+                            &format!("block {} ({}) not built: {error}", id.0, id.1),
+                        );
+                        slot.build_errors.insert(id, error);
+                    }
+                }
+                CallResult::Ok(Json::Null)
+            }
             _ => CallResult::error(ErrorCode::UnknownMethod, format!("no host method {method}")),
         }
+    }
+
+    /// Asks the store worker for the asset files of the generated blocks of `key`.
+    fn scan_assets(&mut self, key: &str, backend: &mut dyn ExtensionBackend) {
+        let Some(slot) = self.slots.get(key) else {
+            return;
+        };
+        let blocks: Vec<(String, Vec<String>)> = (slot.installation.blocks.iter())
+            .filter(|block| block.generated && slot.registrations.blocks.contains(&block.id))
+            .map(|block| {
+                let extensions = (block.asset.iter())
+                    .flat_map(|asset| asset.extensions.iter().cloned())
+                    .collect();
+                (block.id.clone(), extensions)
+            })
+            .collect();
+        if blocks.is_empty() {
+            return;
+        }
+        let Some(install) = slot.installation.install_key() else {
+            return;
+        };
+        let job = ExtensionJob::ScanAssets {
+            key: install,
+            id: slot.installation.id.clone(),
+            blocks,
+        };
+        self.submit(job, backend);
+    }
+
+    /// The assets of `key`'s generated blocks: each file is queued for a build, and cached IR of
+    /// a file that is gone is removed (only after a complete scan). A file whose build stopped
+    /// the extension is not built again until its text changes. A generated block of a
+    /// registered provider without an asset spec builds once, as variant `default`.
+    fn on_assets(
+        &mut self,
+        key: &str,
+        scan: AssetScan,
+        backend: &mut dyn ExtensionBackend,
+        outcome: &mut Outcome,
+    ) {
+        let Some(slot) = self.slots.get_mut(key) else {
+            return;
+        };
+        for problem in &scan.problems {
+            push_log(&mut slot.log, &format!("assets: {problem}"));
+        }
+        let mut builds: VecDeque<AssetFile> = scan.files.into();
+        for block in &slot.installation.blocks {
+            if block.generated
+                && block.asset.is_none()
+                && slot.registrations.blocks.contains(&block.id)
+            {
+                builds.push_back(AssetFile {
+                    block: block.id.clone(),
+                    variant: "default".into(),
+                    name: String::new(),
+                    text: String::new(),
+                });
+            }
+        }
+        let mut present = scan.present;
+        present.extend(builds.iter().map(|f| (f.block.clone(), f.variant.clone())));
+        // A file that changed gets another chance; one that did not stays out.
+        slot.stopped_builds.retain(|id, text| {
+            builds
+                .iter()
+                .any(|f| (&f.block, &f.variant) == (&id.0, &id.1) && &f.text == text)
+        });
+        builds.retain(|f| {
+            !slot
+                .stopped_builds
+                .contains_key(&(f.block.clone(), f.variant.clone()))
+        });
+        if scan.complete {
+            let gone: Vec<(String, String)> = (slot.generated.keys())
+                .filter(|id| !present.contains(id))
+                .cloned()
+                .collect();
+            for (block, variant) in gone {
+                slot.generated.remove(&(block.clone(), variant.clone()));
+                outcome.community_changed = true;
+                if let Some(key) = slot.installation.install_key() {
+                    outcome.jobs.push(ExtensionJob::RemoveGenerated {
+                        key,
+                        block,
+                        variant,
+                    });
+                }
+            }
+            slot.build_errors.retain(|id, _| present.contains(id));
+        }
+        slot.no_assets = (slot.installation.blocks.iter())
+            .filter(|block| block.asset.is_some() && !present.iter().any(|(id, _)| id == &block.id))
+            .map(|block| block.id.clone())
+            .collect();
+        slot.builds = builds;
+        self.next_build(key, backend, outcome);
+    }
+
+    /// Sends the next queued build when the session is idle. A build goes out only when it
+    /// can be sent at once, so the bridge knows its scope.
+    fn next_build(&mut self, key: &str, backend: &mut dyn ExtensionBackend, outcome: &mut Outcome) {
+        let Some(slot) = self.slots.get_mut(key) else {
+            return;
+        };
+        let idle = slot
+            .session
+            .as_ref()
+            .is_some_and(|session| session.in_flight < IN_FLIGHT && session.backlog.is_empty());
+        if slot.building.is_some() || slot.state != RunState::Running || !idle {
+            return;
+        }
+        let Some(file) = slot.builds.pop_front() else {
+            return;
+        };
+        let event = Event::BuildBlock {
+            block: file.block.clone(),
+            variant: file.variant.clone(),
+            asset: AssetText {
+                name: file.name.clone(),
+                text: file.text.clone(),
+            },
+        };
+        // `deliver` sends at once (the session is idle), in the next scope.
+        slot.building = Some((self.next_scope + 1, file));
+        self.deliver(key, event, backend, outcome);
+    }
+
+    /// Every community block of the enabled installations: static blocks, and blocks built from
+    /// assets (their name is the block name and the variant, such as "NAM Plexi").
+    pub fn community_sources(&self) -> Vec<super::community::Source> {
+        let mut sources = Vec::new();
+        for (key, slot) in &self.slots {
+            let installation = &slot.installation;
+            if !installation.enabled {
+                continue;
+            }
+            for block in &installation.blocks {
+                let source =
+                    |key: String, name: String, ir: &qcdsp::Block| super::community::Source {
+                        key,
+                        name,
+                        category: block.category,
+                        placeholder: block.placeholder,
+                        ir: ir.clone(),
+                    };
+                if !block.generated {
+                    if let Some(ir) = installation.block_irs.get(&block.id) {
+                        sources.push(source(
+                            format!("{key}/{}", block.id),
+                            block.name.clone(),
+                            ir,
+                        ));
+                    }
+                    continue;
+                }
+                for ((id, variant), ir) in &slot.generated {
+                    if id == &block.id {
+                        let name: String = format!("{} {variant}", block.name)
+                            .chars()
+                            .take(MAX_BLOCK_NAME)
+                            .collect();
+                        sources.push(source(format!("{key}/{id}#{variant}"), name, ir));
+                    }
+                }
+            }
+        }
+        sources
+    }
+}
+
+/// The longest name of a community block in the picker.
+const MAX_BLOCK_NAME: usize = 32;
+
+/// The DSP block rows of one installation's page.
+fn block_rows(
+    key: &str,
+    slot: Option<&Entry>,
+    blocks: &[BlockSpec],
+    community: &super::community::Installed,
+) -> Vec<ExtensionBlock> {
+    let category = |block: &BlockSpec| category_name(block.category);
+    let ready = |status: &super::community::Status, block: &BlockSpec| match &status.model {
+        Some(_) => ExtensionBlock {
+            name: status.name.clone(),
+            detail: format!(
+                "{} · {}% DSP",
+                category(block),
+                status.cpu.unwrap_or_default()
+            ),
+            ready: true,
+        },
+        None => ExtensionBlock {
+            name: status.name.clone(),
+            detail: status.error.clone().unwrap_or_else(|| "not built".into()),
+            ready: false,
+        },
+    };
+    let mut rows = Vec::new();
+    for block in blocks {
+        if !block.generated {
+            let status = community.status(&format!("{key}/{}", block.id));
+            rows.push(status.map_or_else(
+                || ExtensionBlock {
+                    name: block.name.clone(),
+                    detail: "Off".into(),
+                    ready: false,
+                },
+                |status| ready(status, block),
+            ));
+            continue;
+        }
+        let Some(slot) = slot else { continue };
+        for (id, variant) in slot.generated.keys().filter(|(id, _)| id == &block.id) {
+            if let Some(status) = community.status(&format!("{key}/{id}#{variant}")) {
+                rows.push(ready(status, block));
+            }
+        }
+        for ((id, variant), error) in &slot.build_errors {
+            if id == &block.id {
+                rows.push(ExtensionBlock {
+                    name: format!("{} {variant}", block.name),
+                    detail: error.clone(),
+                    ready: false,
+                });
+            }
+        }
+        if slot.no_assets.contains(&block.id)
+            && let Some(asset) = &block.asset
+        {
+            rows.push(ExtensionBlock {
+                name: block.name.clone(),
+                detail: format!(
+                    "Copy {} files ({}) to /media/p4/tetrad/{}/{}",
+                    asset.label,
+                    asset.extensions.join(", "),
+                    super::extension_jobs::ASSETS_DIR,
+                    slot.installation.id
+                ),
+                ready: false,
+            });
+        }
+    }
+    rows
+}
+
+/// The stock picker name of a block category.
+fn category_name(category: qcdsp::Category) -> &'static str {
+    use qcdsp::Category::*;
+    match category {
+        GuitarOverdrive => "Guitar Overdrive",
+        GuitarAmplifier => "Guitar Amplifier",
+        BassAmplifier => "Bass Amplifier",
+        BassOverdrive => "Bass Overdrive",
+        Equalizer => "Equalizer",
+        Compressor => "Compressor",
+        Delay => "Delay",
+        Modulation => "Modulation",
+        Reverb => "Reverb",
+        Wah => "Wah",
+        Utility => "Utility",
+        Pitch => "Pitch",
+        Filter => "Filter",
+        Synth => "Synth",
     }
 }
 
@@ -1623,6 +2027,12 @@ impl Extensions {
                 repositories.status = Some(format!("{source}: {error}"));
                 Outcome::default()
             }
+            JobResult::Assets { key, scan } => {
+                let mut outcome = Outcome::default();
+                self.on_assets(&key.to_string(), scan, backend, &mut outcome);
+                self.submit_jobs(&mut outcome, backend);
+                outcome
+            }
             JobResult::Installed(Ok(loaded)) => {
                 let manifest = &loaded.installed.current.manifest;
                 repositories.status =
@@ -1902,7 +2312,7 @@ impl Extensions {
     }
 
     /// Everything the Extensions pages show.
-    pub fn view(&self) -> ExtensionsView {
+    pub fn view(&self, community: &super::community::Installed) -> ExtensionsView {
         let repositories = &self.repositories;
         let installed = (repositories.records.iter())
             .map(|(key, record)| {
@@ -1970,6 +2380,7 @@ impl Extensions {
                     commands,
                     settings,
                     status_lines: self.status_lines(key).to_vec(),
+                    blocks: block_rows(key, slot, &manifest.blocks, community),
                     log: self.log(key),
                     themes: manifest
                         .themes
@@ -2043,6 +2454,11 @@ fn installation(loaded: &Loaded) -> Installation {
         description: manifest.description.clone(),
         source: key.source.to_string(),
         module: loaded.module.clone(),
+        blocks: manifest.blocks.clone(),
+        block_irs: loaded.blocks.clone(),
+        generated: (loaded.generated.iter())
+            .map(|g| ((g.block.clone(), g.variant.clone()), g.ir.clone()))
+            .collect(),
         capabilities: Capabilities {
             midi_receive: manifest.has(Capability::MidiReceive),
             midi_send: manifest.has(Capability::MidiSend),
@@ -2050,11 +2466,11 @@ fn installation(loaded: &Loaded) -> Installation {
             controls_edit: manifest.has(Capability::ControlsEdit),
             storage: manifest.has(Capability::Storage),
             triggers: manifest.has(Capability::Triggers),
+            blocks: manifest.has(Capability::Blocks),
             usb: manifest.has(Capability::Usb),
         },
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),
         enabled: loaded.installed.enabled,
-        data_only: !loaded.has_module,
     }
 }

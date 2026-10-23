@@ -12,6 +12,7 @@
     running: [],
     controlChanged: [],
     presetLoaded: [],
+    blocks: new Map(),
     usb: undefined,
   };
   const registrations = {
@@ -19,6 +20,7 @@
     commands: [],
     controlChanges: false,
     triggers: [],
+    blocks: [],
     usb: false,
   };
   let activating = true;
@@ -37,6 +39,7 @@
   const duringActivation = (name) => {
     if (!activating) throw new Error(`${name} is only allowed during activate()`);
   };
+  const message = (e) => (e instanceof Error ? e.message : String(e)).slice(0, 1024);
 
   // Mutating APIs exist only on a scope. A scope closes when its handler settles; the host
   // then refuses its calls with ScopeClosed, so a detached promise cannot write later.
@@ -58,6 +61,158 @@
       }),
       ui: Object.freeze({ setStatus: (lines) => c("ui.setStatus", { lines }) }),
       triggers: Object.freeze({ fire: (firing) => c("triggers.fire", firing) }),
+    });
+  };
+
+  // The IR builder mirrors qcdsp's BlockBuilder and emits its JSON IR (qcdsp graph.rs). Nodes
+  // live in flat arrays. A signal is the number `graph * NODE_SPAN + node`, so a signal from
+  // another builder fails the range check. Limits are qcdsp's; Tetrad validates again.
+  const MAX_NODES = 65536;
+  const MAX_PARAMETERS = 256;
+  const MAX_MEMORIES = 4096;
+  const MAX_DELAY_SAMPLES = 16 * 1024 * 1024;
+  const NODE_SPAN = 2 * MAX_NODES;
+  // Op codes index OPS: 0 input, 1 constant, 2..4 indexed reads, 5..10 binary, 11..15 unary.
+  const OPS = ["input", "constant", "parameter", "state", "delay", "add", "sub", "mul", "min",
+    "max", "div", "neg", "abs", "recip", "tanh", "sigmoid"];
+  const OP_DIV = 10;
+  const OP_RECIP = 13;
+  let nextGraph = 1;
+  // qcdsp reads every value as an f32; JSON keeps the shorter f64 text.
+  const f32 = (what, value) => {
+    if (typeof value !== "number" || !Number.isFinite(Math.fround(value))) {
+      throw new RangeError(`${what} must be a finite 32-bit float`);
+    }
+    return value;
+  };
+
+  const makeBuilder = () => {
+    const graph = nextGraph++;
+    const ops = [0];
+    const as = [0];
+    const bs = [0];
+    const parameters = [];
+    const states = [];
+    const delays = [];
+    let isMono = false;
+    let finished = false;
+    let delaySamples = 0;
+    const live = () => {
+      if (finished) throw new Error("the block builder is finished");
+    };
+    const node = (signal) => {
+      const index = signal - graph * NODE_SPAN;
+      if (!Number.isInteger(signal) || index < 0 || index >= ops.length) {
+        throw new TypeError("signal belongs to another block builder");
+      }
+      return index;
+    };
+    const push = (op, a, b) => {
+      live();
+      if (ops.length >= MAX_NODES) throw new RangeError(`a block has at most ${MAX_NODES} nodes`);
+      ops.push(op);
+      as.push(a);
+      bs.push(b);
+      return graph * NODE_SPAN + ops.length - 1;
+    };
+    const binary = (op) => (lhs, rhs) => push(op, node(lhs), node(rhs));
+    const unary = (op) => (input) => push(op, node(input), 0);
+    // A state or delay handle of this builder; `op` is its read node's op code.
+    const memory = (handle, op, list, what) => {
+      const index = node(handle === null || typeof handle !== "object" ? undefined : handle.signal);
+      if (ops[index] !== op) throw new TypeError(`not a ${what} of this block builder`);
+      const entry = list[as[index]];
+      if (entry.update !== null) throw new Error(`the ${what} already has an update`);
+      return entry;
+    };
+    const emit = (i) => {
+      const op = ops[i];
+      if (op === 0) return { op: "input" };
+      if (op === 1) return { op: "constant", value: as[i] };
+      if (op <= 4) return { op: OPS[op], index: as[i] };
+      if (op <= OP_DIV) return { op: "binary", kind: OPS[op], lhs: as[i], rhs: bs[i] };
+      return { op: OPS[op], input: as[i] };
+    };
+    return Object.freeze({
+      input: () => (live(), graph * NODE_SPAN),
+      constant: (value) => push(1, f32("constant", value), 0),
+      parameter: (name, min, max, initial) => {
+        live();
+        if (typeof name !== "string" || name.trim() === "") {
+          throw new TypeError("parameter name must be a non-empty string");
+        }
+        const [lo, hi, value] = [f32("min", min), f32("max", max), f32("default", initial)];
+        const [flo, fhi, fvalue] = [lo, hi, value].map(Math.fround);
+        // min < max as f32: the unit divides by max - min.
+        if (!(flo < fhi) || fvalue < flo || fvalue > fhi || !Number.isFinite(Math.fround(fhi - flo))) {
+          throw new RangeError(`parameter ${name} needs min < max and min <= default <= max`);
+        }
+        if (parameters.some((p) => p.name === name)) throw new Error(`parameter ${name} exists`);
+        if (parameters.length >= MAX_PARAMETERS) {
+          throw new RangeError(`a block has at most ${MAX_PARAMETERS} parameters`);
+        }
+        const signal = push(2, parameters.length, 0);
+        parameters.push({ name, min: lo, max: hi, default: value });
+        return signal;
+      },
+      state: (initial) => {
+        const value = f32("state", initial);
+        if (states.length >= MAX_MEMORIES) throw new RangeError(`at most ${MAX_MEMORIES} states`);
+        const signal = push(3, states.length, 0);
+        states.push({ initial: value, update: null });
+        return Object.freeze({ signal });
+      },
+      delay: (samples) => {
+        if (!Number.isInteger(samples) || samples < 1 || delaySamples + samples > MAX_DELAY_SAMPLES) {
+          throw new RangeError(`delay lengths are whole samples, at most ${MAX_DELAY_SAMPLES} in all`);
+        }
+        if (delays.length >= MAX_MEMORIES) throw new RangeError(`at most ${MAX_MEMORIES} delays`);
+        const signal = push(4, delays.length, 0);
+        delays.push({ initial: samples, update: null });
+        delaySamples += samples;
+        return Object.freeze({ signal });
+      },
+      add: binary(5),
+      sub: binary(6),
+      mul: binary(7),
+      min: binary(8),
+      max: binary(9),
+      div: binary(OP_DIV),
+      neg: unary(11),
+      abs: unary(12),
+      recip: unary(OP_RECIP),
+      tanh: unary(14),
+      sigmoid: unary(15),
+      updateState: (state, value) => {
+        live();
+        const update = node(value);
+        memory(state, 3, states, "state").update = update;
+      },
+      updateDelay: (delay, value) => {
+        live();
+        const update = node(value);
+        memory(delay, 4, delays, "delay").update = update;
+      },
+      mono: () => {
+        live();
+        isMono = true;
+      },
+      finish: (output) => {
+        live();
+        const out = node(output);
+        finished = true;
+        // The oldest IR version that holds the block, as qcdsp's `finish` writes.
+        let version = isMono ? 2 : 1;
+        const nodes = new Array(ops.length);
+        for (let i = 0; i < ops.length; i++) {
+          if (ops[i] === OP_DIV || ops[i] >= OP_RECIP) version = 2;
+          nodes[i] = emit(i);
+        }
+        // Placeholders: Tetrad replaces blob name, name and category from the manifest.
+        const ir = { version, blob_name: "block", name: "Block", category: "utility" };
+        if (isMono) ir.channels = "mono";
+        return Object.assign(ir, { parameters, states, delays, nodes, output: out });
+      },
     });
   };
 
@@ -137,6 +292,19 @@
           registrations.triggers.push({ id, label });
         },
       }),
+      // The host checks the capability and that the manifest declares a generated block.
+      blocks: Object.freeze({
+        provide(block, provider) {
+          duringActivation("blocks.provide");
+          if (typeof block !== "string" || !/^[a-z0-9-]{1,32}$/.test(block)) {
+            throw new TypeError("block id must be 1 to 32 characters of [a-z0-9-]");
+          }
+          if (handlers.blocks.has(block)) throw new Error(`block ${block} already has a provider`);
+          handlers.blocks.set(block, fn("provider", provider));
+          registrations.blocks.push(block);
+        },
+        builder: makeBuilder,
+      }),
     });
 
   globalThis.__tetrad_activate = async (definition, extensionJson, configJson) => {
@@ -177,6 +345,9 @@
       case "presetLoaded":
         run = handlers.presetLoaded.map((h) => () => h(scope));
         break;
+      case "buildBlock":
+        run = [() => buildBlock(event, scope)];
+        break;
       case "usb": {
         const h = handlers.usb;
         run = h
@@ -198,6 +369,29 @@
       () => native.done(scopeId, null, result),
       (e) => native.done(scopeId, String(e && e.stack ? `${e}\n${e.stack}` : e), null),
     );
+  };
+
+  // Runs a block provider and sends its IR, or what it threw, to the host in the event's scope.
+  const buildBlock = async ({ block, variant, asset }, scope) => {
+    const publish = (result) => call("blocks.publish", scope.id, { block, variant, ...result });
+    let ir;
+    try {
+      const provider = handlers.blocks.get(block);
+      if (!provider) throw new Error(`no provider for block ${block}`);
+      ir = await provider(Object.freeze({ name: asset.name, text: asset.text }), scope);
+      if (ir === null || typeof ir !== "object" || Array.isArray(ir)) {
+        throw new TypeError("a block provider must return a BlockIr object");
+      }
+    } catch (e) {
+      return publish({ error: message(e) });
+    }
+    try {
+      await publish({ ir });
+    } catch (e) {
+      // Refused before it reached the host (not JSON, or over the frame size).
+      if (e === null || typeof e !== "object" || e.code !== "limitExceeded") throw e;
+      await publish({ error: `the IR was not sent: ${message(e)}` });
+    }
   };
 
   globalThis.__tetrad_dispose = () => {

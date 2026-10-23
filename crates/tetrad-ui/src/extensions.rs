@@ -35,10 +35,22 @@ pub struct InstalledExtension {
     pub settings: Vec<ExtensionSetting>,
     /// Bounded text lines the extension set with `scope.ui.setStatus`.
     pub status_lines: Vec<String>,
+    /// The DSP blocks of the package and whether each one is ready to play.
+    pub blocks: Vec<ExtensionBlock>,
     /// The newest log lines, oldest first.
     pub log: Vec<String>,
     /// Names of the themes it adds to Settings → Appearance.
     pub themes: Vec<String>,
+}
+
+/// One community DSP block of a package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionBlock {
+    /// The picker name, such as "Saturator".
+    pub name: String,
+    /// "Guitar Overdrive · 4% DSP" when it is ready, or why it is not.
+    pub detail: String,
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

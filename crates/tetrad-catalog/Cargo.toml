@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 qc-format.workspace = true
+qcdsp.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tetrad-core.workspace = true

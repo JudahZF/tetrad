@@ -143,6 +143,11 @@ pub(crate) fn read_varint(data: &[u8], pos: &mut usize, base: usize) -> Result<u
 }
 
 pub(crate) fn parse(data: &[u8], limits: Limits) -> Result<Message> {
+    parse_as(data, limits, "BinaryPreset")
+}
+
+/// Parses `data` as the schema message `root` (for example `"Model"`).
+pub(crate) fn parse_as(data: &[u8], limits: Limits, root: &str) -> Result<Message> {
     if data.len() > limits.max_bytes {
         return Err(Error::Limit {
             kind: "bytes",
@@ -156,7 +161,7 @@ pub(crate) fn parse(data: &[u8], limits: Limits) -> Result<Message> {
         &mut pos,
         0,
         0,
-        Some(schema::message("BinaryPreset")),
+        Some(schema::message(root)),
         None,
         &mut budget,
     )?;

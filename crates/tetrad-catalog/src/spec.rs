@@ -258,6 +258,9 @@ pub struct ModelSpec {
     pub report_row: bool,
     /// ModelRepo `reuse_pmco` (absent means true, `0x4e9ed8`).
     pub reuse_pmco: bool,
+    /// (O) Set for a community block ([`crate::community`]); `None` for every stock model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community: Option<crate::community::CommunitySpec>,
 }
 
 impl ModelSpec {
@@ -373,6 +376,7 @@ impl Specs {
                     stats,
                     report_row: catalog.modules.contains_key(&model.id),
                     reuse_pmco: model.reuse_pmco != Some(false),
+                    community: None,
                 };
                 Ok((model.id, spec))
             })

@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use serde_json::json;
 use tetrad_extensions::protocol::{
-    self, CallResult, ErrorCode, Event, ExtensionInfo, HostMessage, MidiEvent, PROTOCOL_VERSION,
-    RunnerMessage, TriggerSpec,
+    self, AssetText, BlockPublish, BuildOutcome, CallResult, ErrorCode, Event, ExtensionInfo,
+    HostMessage, MidiEvent, PROTOCOL_VERSION, PUBLISH_BLOCK, RunnerMessage, TriggerSpec,
 };
 use tetrad_extensions::runner::{self, Limits, RunnerError};
 
@@ -445,4 +445,185 @@ fn a_waiting_activation_times_out() {
         quick(),
     );
     assert!(h.fault().contains("did not finish in time"));
+}
+
+fn build_block(scope: u64, text: &str) -> HostMessage {
+    HostMessage::Event {
+        scope,
+        event: Event::BuildBlock {
+            block: "amp".into(),
+            variant: "Hot".into(),
+            asset: AssetText {
+                name: "hot.json".into(),
+                text: text.into(),
+            },
+        },
+    }
+}
+
+/// Answers the `blocks.publish` call of `scope` and returns its params.
+fn published(h: &mut Harness, scope: u64) -> BlockPublish {
+    let RunnerMessage::Request {
+        id,
+        scope: call_scope,
+        method,
+        params,
+    } = h.next()
+    else {
+        panic!("no publish call")
+    };
+    assert_eq!((call_scope, method.as_str()), (Some(scope), PUBLISH_BLOCK));
+    h.send(&HostMessage::Response {
+        id,
+        result: CallResult::Ok(json!(null)),
+    });
+    assert_eq!(
+        h.next(),
+        RunnerMessage::Done {
+            scope,
+            error: None,
+            result: None
+        }
+    );
+    serde_json::from_value(params).unwrap()
+}
+
+#[test]
+fn a_block_provider_builds_the_ir_qcdsp_builds() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", (asset) => {
+              const b = ctx.blocks.builder();
+              const x = b.input();
+              const drive = b.parameter("Drive", 0, 4, JSON.parse(asset.text).drive);
+              const last = b.state(0);
+              const late = b.delay(2);
+              const y = b.tanh(b.mul(drive, x));
+              const echo = b.add(y, b.mul(b.constant(0.5), last.signal));
+              const out = b.add(echo, b.mul(b.constant(0.25), late.signal));
+              b.updateState(last, y);
+              b.updateDelay(late, x);
+              b.mono();
+              return b.finish(out);
+            });
+        } };"#,
+        Limits::default(),
+    );
+    let RunnerMessage::Activated { registrations } = h.next() else {
+        panic!("not activated")
+    };
+    assert_eq!(registrations.blocks, ["amp"]);
+
+    h.send(&build_block(5, r#"{"drive": 2}"#));
+    let publish = published(&mut h, 5);
+    assert_eq!(
+        (publish.block.as_str(), publish.variant.as_str()),
+        ("amp", "Hot")
+    );
+    let BuildOutcome::Ir(ir) = publish.outcome else {
+        panic!("provider failed: {:?}", publish.outcome)
+    };
+    let block = qcdsp::Block::from_json(&ir.to_string()).unwrap();
+    assert_eq!(block.version(), 2, "tanh and mono need IR 2");
+
+    // The same graph from qcdsp's own builder, in the same order.
+    let expected = (|| -> qcdsp::Result<qcdsp::Block> {
+        let mut b = qcdsp::BlockBuilder::new("block", "Block", qcdsp::Category::Utility);
+        let x = b.input();
+        let drive = b.parameter(qcdsp::Parameter::new("Drive", 0.0, 4.0, 2.0)?)?;
+        let last = b.state(0.0)?;
+        let late = b.delay(2)?;
+        let product = b.mul(drive, x)?;
+        let y = b.tanh(product)?;
+        let half = b.constant(0.5)?;
+        let echo = b.mul(half, last.signal())?;
+        let echo = b.add(y, echo)?;
+        let quarter = b.constant(0.25)?;
+        let tail = b.mul(quarter, late.signal())?;
+        let out = b.add(echo, tail)?;
+        b.update_state(last, y)?;
+        b.update_delay(late, x)?;
+        b.mono();
+        b.finish(out)
+    })()
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&block).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
+
+    // y = tanh(2x), then y + 0.5 y[n-1] + 0.25 x[n-2].
+    let mut processor = qcdsp::Processor::new(block).unwrap();
+    let input = [0.25, -0.5, 0.0];
+    let y = input.map(|x: f32| (2.0 * x).tanh());
+    let want = [y[0], y[1] + 0.5 * y[0], y[2] + 0.5 * y[1] + 0.25 * input[0]];
+    for (x, want) in input.into_iter().zip(want) {
+        let got = processor.process_sample(x);
+        assert!((got - want).abs() < 2e-4, "{x}: {got} != {want}");
+    }
+}
+
+#[test]
+fn a_failing_provider_publishes_its_error() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const a = ctx.blocks.builder();
+              return ctx.blocks.builder().finish(a.input());
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(2, ""));
+    let publish = published(&mut h, 2);
+    let BuildOutcome::Error(error) = publish.outcome else {
+        panic!("a foreign signal was accepted")
+    };
+    assert!(error.contains("another block builder"), "{error}");
+}
+
+/// A parameter whose range is empty as f32 (1 and 1 + 1e-9) would normalise to 0/0 on the
+/// unit: the builder refuses it.
+#[test]
+fn an_empty_parameter_range_is_refused() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const b = ctx.blocks.builder();
+              return b.finish(b.mul(b.input(), b.parameter("Gain", 1, 1 + 1e-9, 1)));
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(2, ""));
+    let BuildOutcome::Error(error) = published(&mut h, 2).outcome else {
+        panic!("an empty range was accepted")
+    };
+    assert!(error.contains("min < max"), "{error}");
+}
+
+#[test]
+fn block_builds_get_the_longer_budget() {
+    let spin = "const end = Date.now() + 200; while (Date.now() < end) {}";
+    let source = format!(
+        r#"export default {{ activate(ctx) {{
+            ctx.blocks.provide("amp", () => {{
+              {spin}
+              const b = ctx.blocks.builder();
+              return b.finish(b.input());
+            }});
+            ctx.commands.register("spin", () => {{ {spin} }});
+        }} }};"#
+    );
+    let mut h = Harness::start(&source, quick());
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(1, ""));
+    assert!(matches!(published(&mut h, 1).outcome, BuildOutcome::Ir(_)));
+    h.send(&HostMessage::Event {
+        scope: 2,
+        event: Event::Command { id: "spin".into() },
+    });
+    assert!(h.fault().contains("slice"));
 }

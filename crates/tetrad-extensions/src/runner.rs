@@ -4,7 +4,8 @@
 //! through the prelude's `call`, `log` and `done` natives, and every call is a host frame.
 //! Each JavaScript entry (a dispatch, a response, a job pump) runs under a slice deadline
 //! enforced by the QuickJS interrupt handler. Activation and each event handler also have an
-//! elapsed-time deadline; a stuck promise faults the runner.
+//! elapsed-time deadline; a stuck promise faults the runner. A [`Event::BuildBlock`] handler
+//! (parse an asset, build IR) has longer budgets than other events.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -20,7 +21,9 @@ use rquickjs::{
     CatchResultExt, CaughtError, Context, Ctx, Exception, Function, Module, Object, Persistent,
     Promise, Runtime, Value,
 };
+use serde::Serialize;
 use serde_json::Value as Json;
+use serde_json::value::RawValue;
 
 use crate::protocol::{
     self, CallResult, Event, ExtensionInfo, HostMessage, LogLevel, PROTOCOL_VERSION, Registrations,
@@ -30,6 +33,23 @@ use crate::protocol::{
 const PRELUDE: &str = include_str!("prelude.js");
 /// Log lines one JavaScript entry may send before the rest are dropped.
 const MAX_LOGS: usize = 32;
+
+/// A frame for the host: a message, or a request line already encoded by the `call` native.
+enum Outgoing {
+    Message(RunnerMessage),
+    Line(Vec<u8>),
+}
+
+/// The wire form of [`RunnerMessage::Request`] with borrowed raw params, so a large call
+/// (block IR) is copied once instead of parsed into a value tree.
+#[derive(Serialize)]
+#[serde(tag = "type", rename = "request")]
+struct RequestFrame<'a> {
+    id: u64,
+    scope: Option<u64>,
+    method: &'a str,
+    params: &'a RawValue,
+}
 
 /// Runner budgets. Trial values for the device; tune from ARM measurements.
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +65,10 @@ pub struct Limits {
     pub slice_clock: fn() -> Duration,
     /// Longest time from an event's dispatch to its handler settling.
     pub handler: Duration,
+    /// [`Limits::slice`] while an [`Event::BuildBlock`] handler runs.
+    pub build_slice: Duration,
+    /// [`Limits::handler`] of an [`Event::BuildBlock`].
+    pub build_handler: Duration,
     /// Longest activation, including its awaited host calls.
     pub activation: Duration,
     /// Most host calls in flight.
@@ -56,11 +80,15 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            memory: 8 * 1024 * 1024,
+            // An asset and the IR built from it are a few MiB each. The device process also has
+            // a 128 MiB address-space limit.
+            memory: 32 * 1024 * 1024,
             stack: 256 * 1024,
             slice: Duration::from_millis(50),
             slice_clock: monotonic,
             handler: Duration::from_secs(1),
+            build_slice: Duration::from_secs(2),
+            build_handler: Duration::from_secs(5),
             activation: Duration::from_secs(3),
             pending_calls: 32,
             queued_events: 256,
@@ -135,7 +163,7 @@ fn spawn_reader(mut input: impl BufRead + Send + 'static) -> Receiver<Result<Hos
 /// State the JavaScript natives share with the engine loop.
 #[derive(Default)]
 struct Shared {
-    outbox: Vec<RunnerMessage>,
+    outbox: Vec<Outgoing>,
     /// Log lines since the last flush; past [`MAX_LOGS`] they are dropped.
     logged: usize,
     /// Resolve and reject functions of calls in flight, by request ID.
@@ -205,9 +233,18 @@ enum Phase {
         until: Instant,
     },
     Running {
-        busy: Option<(u64, Instant)>,
+        busy: Option<Busy>,
         queue: VecDeque<(u64, Event)>,
     },
+}
+
+/// The event whose handler runs now.
+#[derive(Clone, Copy)]
+struct Busy {
+    scope: u64,
+    until: Instant,
+    /// The slice budget of its JavaScript entries.
+    slice: Duration,
 }
 
 struct Runner<'w, W: Write> {
@@ -254,8 +291,11 @@ impl<'w, W: Write> Runner<'w, W> {
             shared.logged = 0;
             std::mem::take(&mut shared.outbox)
         };
-        for message in &outbox {
-            self.send(message)?;
+        for outgoing in &outbox {
+            match outgoing {
+                Outgoing::Message(message) => self.send(message)?,
+                Outgoing::Line(line) => self.output.write_all(line)?,
+            }
         }
         self.output.flush()?;
         Ok(())
@@ -271,7 +311,7 @@ impl<'w, W: Write> Runner<'w, W> {
             let wait = match &self.phase {
                 Phase::WaitingForActivate => None,
                 Phase::Activating { until, .. } => Some(*until),
-                Phase::Running { busy, .. } => busy.map(|(_, until)| until),
+                Phase::Running { busy, .. } => busy.map(|busy| busy.until),
             };
             let message = match wait {
                 None => frames.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -416,10 +456,9 @@ impl<'w, W: Write> Runner<'w, W> {
                     let registrations: Registrations =
                         serde_json::from_str(json.as_deref().unwrap_or("{}"))
                             .map_err(|e| RunnerError::Fault(format!("registrations: {e}")))?;
-                    self.shared
-                        .borrow_mut()
-                        .outbox
-                        .push(RunnerMessage::Activated { registrations });
+                    self.shared.borrow_mut().outbox.push(Outgoing::Message(
+                        RunnerMessage::Activated { registrations },
+                    ));
                     self.phase = Phase::Running {
                         busy: None,
                         queue: VecDeque::new(),
@@ -433,7 +472,7 @@ impl<'w, W: Write> Runner<'w, W> {
             };
             let done = std::mem::take(&mut self.shared.borrow_mut().done);
             for (scope, mut error, result) in done {
-                if busy.is_some_and(|(current, _)| current == scope) {
+                if busy.is_some_and(|busy| busy.scope == scope) {
                     *busy = None;
                 }
                 let result = result.and_then(|json| {
@@ -441,13 +480,16 @@ impl<'w, W: Write> Runner<'w, W> {
                         .inspect_err(|e| error = Some(format!("USB reply is not JSON: {e}")))
                         .ok()
                 });
-                self.shared.borrow_mut().outbox.push(RunnerMessage::Done {
-                    scope,
-                    error,
-                    result,
-                });
+                self.shared
+                    .borrow_mut()
+                    .outbox
+                    .push(Outgoing::Message(RunnerMessage::Done {
+                        scope,
+                        error,
+                        result,
+                    }));
             }
-            if let Some((scope, until)) = *busy {
+            if let Some(Busy { scope, until, .. }) = *busy {
                 if Instant::now() >= until {
                     return Err(RunnerError::Fault(format!(
                         "handler for scope {scope} did not finish in time"
@@ -458,7 +500,15 @@ impl<'w, W: Write> Runner<'w, W> {
             let Some((scope, event)) = queue.pop_front() else {
                 return Ok(());
             };
-            *busy = Some((scope, Instant::now() + self.limits.handler));
+            let (handler, slice) = match event {
+                Event::BuildBlock { .. } => (self.limits.build_handler, self.limits.build_slice),
+                _ => (self.limits.handler, self.limits.slice),
+            };
+            *busy = Some(Busy {
+                scope,
+                until: Instant::now() + handler,
+                slice,
+            });
             let event = serde_json::to_string(&event).unwrap_or_default();
             self.enter(|ctx| {
                 let dispatch: Function = ctx.globals().get("__tetrad_dispatch")?;
@@ -468,9 +518,19 @@ impl<'w, W: Write> Runner<'w, W> {
         }
     }
 
+    /// The slice budget of the next JavaScript entry: the running handler's, else the default.
+    fn slice(&self) -> Duration {
+        match &self.phase {
+            Phase::Running {
+                busy: Some(busy), ..
+            } => busy.slice,
+            _ => self.limits.slice,
+        }
+    }
+
     /// Runs queued promise jobs under one slice deadline.
     fn pump(&mut self) -> Result<(), RunnerError> {
-        self.deadline.arm(self.limits.slice);
+        self.deadline.arm(self.slice());
         let result = loop {
             match self.runtime.execute_pending_job() {
                 Ok(false) => break Ok(()),
@@ -491,7 +551,7 @@ impl<'w, W: Write> Runner<'w, W> {
         &mut self,
         f: impl for<'js> FnOnce(Ctx<'js>) -> rquickjs::Result<T>,
     ) -> Result<T, RunnerError> {
-        self.deadline.arm(self.limits.slice);
+        self.deadline.arm(self.slice());
         let result = self
             .context
             .with(|ctx| f(ctx.clone()).catch(&ctx).map_err(|error| describe(&error)));
@@ -534,20 +594,32 @@ fn install_natives<'js>(
             move |ctx: Ctx<'js>, method: String, scope: Option<f64>, params: String| {
                 let (promise, resolve, reject) = ctx.promise()?;
                 let mut shared = calls.borrow_mut();
-                let params: Option<Json> = serde_json::from_str(&params).ok();
-                if shared.pending.len() >= pending_limit || params.is_none() {
-                    let message = if params.is_none() {
-                        "parameters are not JSON"
-                    } else {
-                        "too many host calls in flight"
-                    };
-                    let exception = Exception::from_message(ctx.clone(), message)?;
-                    exception.set("code", "limitExceeded")?;
-                    reject.call::<_, ()>((exception,))?;
-                    return Ok::<_, rquickjs::Error>(promise);
-                }
-                shared.next_id += 1;
-                let id = shared.next_id;
+                let id = shared.next_id + 1;
+                // A raw newline would end the frame early; JSON.stringify never writes one.
+                let line = RawValue::from_string(params)
+                    .ok()
+                    .filter(|params| !params.get().contains('\n'))
+                    .ok_or("parameters are not single-line JSON")
+                    .and_then(|params| {
+                        protocol::encode(&RequestFrame {
+                            id,
+                            scope: scope.map(|s| s as u64),
+                            method: &method,
+                            params: &params,
+                        })
+                        .map_err(|_| "parameters are over the frame size limit")
+                    });
+                let line = match line {
+                    Ok(line) if shared.pending.len() < pending_limit => line,
+                    failed => {
+                        let message = failed.err().unwrap_or("too many host calls in flight");
+                        let exception = Exception::from_message(ctx.clone(), message)?;
+                        exception.set("code", "limitExceeded")?;
+                        reject.call::<_, ()>((exception,))?;
+                        return Ok::<_, rquickjs::Error>(promise);
+                    }
+                };
+                shared.next_id = id;
                 shared.pending.insert(
                     id,
                     (
@@ -555,12 +627,7 @@ fn install_natives<'js>(
                         Persistent::save(&ctx, reject),
                     ),
                 );
-                shared.outbox.push(RunnerMessage::Request {
-                    id,
-                    scope: scope.map(|s| s as u64),
-                    method,
-                    params: params.unwrap_or(Json::Null),
-                });
+                shared.outbox.push(Outgoing::Line(line));
                 Ok(promise)
             },
         )?,
@@ -588,7 +655,7 @@ fn install_natives<'js>(
                 },
                 _ => return,
             };
-            shared.outbox.push(message);
+            shared.outbox.push(Outgoing::Message(message));
         })?,
     )?;
     native.set(

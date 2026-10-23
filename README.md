@@ -53,6 +53,9 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Extensions.** Install small TypeScript programs from signed GitHub repositories
   (Settings → System → Extensions), such as MIDI Mapper for a second MIDI channel. See
   [docs/extensions.md](docs/extensions.md).
+- **DSP blocks (experimental).** Extensions can add DSP blocks that Tetrad compiles for the
+  DSP, such as Neural Amp Modeler for NAM LSTM models. Presets keep a stock block in their slot,
+  so stock CorOS still loads them. See [DSP blocks](docs/extensions.md#dsp-blocks).
 - **Cortex Control.** Connect the desktop app over USB to change settings and the Global EQ,
   browse files, make backups and update CorOS.
 - **Wi-Fi and cloud.** Sign in, download and upload presets, and back up to the cloud or to the

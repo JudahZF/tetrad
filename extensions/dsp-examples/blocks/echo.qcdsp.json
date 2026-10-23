@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "blob_name": "delay",
+  "name": "Delay",
+  "category": "delay",
+  "parameters": [
+    {
+      "name": "Mix",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    },
+    {
+      "name": "Feedback",
+      "min": 0.0,
+      "max": 0.95,
+      "default": 0.25
+    }
+  ],
+  "states": [],
+  "delays": [
+    {
+      "initial": 9000,
+      "update": 10
+    }
+  ],
+  "nodes": [
+    {
+      "op": "input"
+    },
+    {
+      "op": "delay",
+      "index": 0
+    },
+    {
+      "op": "parameter",
+      "index": 0
+    },
+    {
+      "op": "parameter",
+      "index": 1
+    },
+    {
+      "op": "constant",
+      "value": 1.0
+    },
+    {
+      "op": "binary",
+      "kind": "sub",
+      "lhs": 4,
+      "rhs": 2
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 0,
+      "rhs": 5
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 1,
+      "rhs": 2
+    },
+    {
+      "op": "binary",
+      "kind": "add",
+      "lhs": 6,
+      "rhs": 7
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 1,
+      "rhs": 3
+    },
+    {
+      "op": "binary",
+      "kind": "add",
+      "lhs": 0,
+      "rhs": 9
+    }
+  ],
+  "output": 8
+}

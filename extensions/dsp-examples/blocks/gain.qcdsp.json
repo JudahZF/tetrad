@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "blob_name": "gain",
+  "name": "Gain",
+  "category": "utility",
+  "parameters": [
+    {
+      "name": "Gain",
+      "min": 0.0,
+      "max": 4.0,
+      "default": 1.0
+    }
+  ],
+  "states": [],
+  "delays": [],
+  "nodes": [
+    {
+      "op": "input"
+    },
+    {
+      "op": "parameter",
+      "index": 0
+    },
+    {
+      "op": "binary",
+      "kind": "mul",
+      "lhs": 0,
+      "rhs": 1
+    }
+  ],
+  "output": 2
+}

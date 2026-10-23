@@ -1,4 +1,4 @@
-// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 1.
+// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 2.
 //
 // Types only. The runner provides every value at run time and has no module loader, so
 // import with `import type { ... } from "@tetrad/extensions"` and bundle to one ES module
@@ -104,6 +104,80 @@ export type TriggerFiring = {
   readonly continuous: boolean;
 };
 
+/** An asset file the user chose for a generated block, as UTF-8 text. */
+export type Asset = {
+  /** The file name, such as "Plexi.nam". */
+  readonly name: string;
+  readonly text: string;
+};
+
+/**
+ * A qcdsp IR graph, as `BlockBuilder.finish` returns it. Tetrad validates it, replaces its
+ * name, blob name and category from the manifest, and compiles it for the DSP.
+ */
+export type BlockIr = { readonly [key: string]: JsonValue };
+
+/** A value in a block graph: an opaque handle that only its own builder accepts. */
+export type Signal = number & { readonly __tetradSignal: true };
+
+/** One persistent sample value. A read gives the value of the previous sample. */
+export type State = { readonly signal: Signal };
+
+/** A delay line, zero at the start. A read gives the sample written `samples` samples ago. */
+export type Delay = { readonly signal: Signal };
+
+/**
+ * Builds a qcdsp IR graph, like qcdsp's `BlockBuilder`. The graph runs once per sample on
+ * 32-bit floats in DSP units. A method throws on a bad value, on a signal from another
+ * builder and after `finish`. Limits: 65536 nodes, 256 parameters, 4096 states, 4096 delays
+ * and 16M delay samples in all.
+ */
+export interface BlockBuilder {
+  /** The input sample. */
+  input(): Signal;
+  constant(value: number): Signal;
+  /**
+   * A control in DSP units; the unit shows it as 0..1 mapped onto `min..max`. Names are
+   * unique in the block.
+   */
+  parameter(name: string, min: number, max: number, initial: number): Signal;
+  state(initial: number): State;
+  /** `samples` is a whole number, 1 or more. */
+  delay(samples: number): Delay;
+  add(lhs: Signal, rhs: Signal): Signal;
+  sub(lhs: Signal, rhs: Signal): Signal;
+  mul(lhs: Signal, rhs: Signal): Signal;
+  min(lhs: Signal, rhs: Signal): Signal;
+  max(lhs: Signal, rhs: Signal): Signal;
+  /** `lhs * recip(rhs)`. */
+  div(lhs: Signal, rhs: Signal): Signal;
+  neg(input: Signal): Signal;
+  abs(input: Signal): Signal;
+  /**
+   * `1 / input`, relative error about 2^-22. `|input|` must be about 1e-37..1e37: outside
+   * that range the result can be infinite or NaN, which faults the block on the DSP.
+   */
+  recip(input: Signal): Signal;
+  /** A clamped Padé tanh, within 1e-4 of tanh. */
+  tanh(input: Signal): Signal;
+  /** `0.5 + 0.5 * tanh(input / 2)`. */
+  sigmoid(input: Signal): Signal;
+  /** Sets the value of `state` for the next sample. At most one update per state. */
+  updateState(state: State, value: Signal): void;
+  /** Writes `value` into `delay` for this sample. At most one update per delay. */
+  updateDelay(delay: Delay, value: Signal): void;
+  /** Computes channel A only and copies it to channel B, at half the cost of stereo. */
+  mono(): void;
+  /** Ends the graph with `output` as the block's output sample. */
+  finish(output: Signal): BlockIr;
+}
+
+/**
+ * Builds the IR of a generated block from one asset. It runs with a longer budget than other
+ * handlers: 5 s in all and 2 s of CPU time for each piece of synchronous work.
+ */
+export type BlockProvider = (asset: Asset, scope: Scope) => BlockIr | Promise<BlockIr>;
+
 /** Settings values by key, as declared in the manifest. */
 export type Config = { readonly [key: string]: JsonValue };
 
@@ -181,6 +255,17 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
   readonly triggers: {
     /** Offers a trigger to Mappings; at most 8. Needs the `triggers` capability. */
     declare(trigger: TriggerSpec): void;
+  };
+  readonly blocks: {
+    /**
+     * Registers the provider of a generated block (`"generated": true` in the manifest), such
+     * as an amp built from a NAM model file. Tetrad calls it once for each asset the user
+     * chooses and keeps the IR. What the provider throws shows as a failed build of that
+     * asset. Needs the `blocks` capability.
+     */
+    provide(block: string, provider: BlockProvider): void;
+    /** A new, empty IR builder. Works in `activate` and in handlers. */
+    builder(): BlockBuilder;
   };
   readonly usb: {
     /**

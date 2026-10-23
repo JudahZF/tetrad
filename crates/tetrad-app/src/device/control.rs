@@ -1532,6 +1532,10 @@ fn preset_message(preset: Vec<u8>, reason: RecallPresetReason) -> ControlMessage
 fn working_preset(state: &State) -> Option<Preset> {
     let mut preset = state.current.as_ref()?.preset.clone();
     pushes::deploy_fields(&mut preset, state);
+    // (O) Cortex Control does not know community blocks: it gets their placeholders.
+    if let Some(specs) = state.specs.as_ref() {
+        preset = super::preset::exported(&preset, specs).ok()?;
+    }
     Some(preset)
 }
 

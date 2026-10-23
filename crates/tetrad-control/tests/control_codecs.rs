@@ -110,14 +110,23 @@ fn absent_and_explicit_defaults_have_distinct_outbound_encodings() {
         TunerMessage::decode(&[], limits).unwrap().message,
         TunerMessage::default()
     );
-    assert_eq!(ShowTunerMessage::default().encode(limits).unwrap(), []);
-    assert_eq!(KeepAliveMessage::default().encode(limits).unwrap(), []);
-    assert_eq!(ConnectionMessage::default().encode(limits).unwrap(), []);
+    assert_eq!(
+        ShowTunerMessage::default().encode(limits).unwrap(),
+        [0_u8; 0]
+    );
+    assert_eq!(
+        KeepAliveMessage::default().encode(limits).unwrap(),
+        [0_u8; 0]
+    );
+    assert_eq!(
+        ConnectionMessage::default().encode(limits).unwrap(),
+        [0_u8; 0]
+    );
     assert_eq!(
         SuspendConnectionMessage::default().encode(limits).unwrap(),
-        []
+        [0_u8; 0]
     );
-    assert_eq!(LooperMessage::default().encode(limits).unwrap(), []);
+    assert_eq!(LooperMessage::default().encode(limits).unwrap(), [0_u8; 0]);
     let show = ShowTunerMessage {
         action: Some(MessageAction::Create.into()),
         request_id: Some(0),

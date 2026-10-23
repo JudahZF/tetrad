@@ -12,6 +12,7 @@ pub mod appearance;
 mod boot;
 pub mod bringup;
 pub mod capture;
+pub mod community;
 pub mod control;
 pub mod dsp;
 pub mod extension_jobs;
@@ -692,6 +693,8 @@ pub struct State {
     /// READ (stock builds its size relations once at boot, `0x6ba7b8`). The specs are set
     /// once, before any Control step.
     pub module_stats: std::cell::OnceCell<control::StatsBase>,
+    /// (O) The community blocks of the installed extensions and their build results.
+    pub community: community::Installed,
     /// The loaded preset; a write goes through [`Tracked::get_mut`] ([`State::preset_dirty`]).
     pub current: Tracked<Option<Current>>,
     pub performance: Performance,
@@ -837,6 +840,7 @@ impl State {
             library: None,
             specs: None,
             module_stats: std::cell::OnceCell::new(),
+            community: community::Installed::default(),
             current: Tracked {
                 value: None,
                 revision: 0,
@@ -2912,9 +2916,15 @@ impl<P: Platform> Device<P> {
         for key in &outcome.storage_changed {
             extensions.save_storage(key, backend);
         }
+        let community = outcome
+            .community_changed
+            .then(|| extensions.community_sources());
         if outcome.reservations_changed {
             let mask = extensions.reserved_channels();
             self.bridges.midi.set_reserved_channels(mask);
+        }
+        if let Some(sources) = community {
+            self.sync_community(&sources);
         }
         // Declared triggers can change with any extension step.
         self.bridges.mappings.view_stale = true;

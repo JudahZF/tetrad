@@ -9,8 +9,8 @@ use serde_json::Value;
 /// Wire version. A runner that sees a different version refuses to start.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-/// Largest frame in bytes, newline excluded.
-pub const MAX_FRAME: usize = 64 * 1024;
+/// Largest frame in bytes, newline excluded. Block IR and asset text can be large.
+pub const MAX_FRAME: usize = 4 * 1024 * 1024;
 
 /// Host → runner.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,6 +91,10 @@ pub struct Registrations {
     /// Triggers the extension offers to Mappings, in declaration order.
     #[serde(default)]
     pub triggers: Vec<TriggerSpec>,
+    /// Block IDs with a provider (`ctx.blocks.provide`). The host checks each against the
+    /// manifest's generated blocks and the `blocks` capability.
+    #[serde(default)]
+    pub blocks: Vec<String>,
     /// The extension answers [`Event::Usb`] (`ctx.usb.onMessage`).
     #[serde(default)]
     pub usb: bool,
@@ -154,6 +158,47 @@ pub enum Event {
     Usb {
         message: Value,
     },
+    /// Build the IR of a generated block from an asset. The handler ends with one
+    /// [`PUBLISH_BLOCK`] call in this event's scope. This event has the longer
+    /// [`Limits::build_handler`](crate::runner::Limits::build_handler) budget.
+    BuildBlock {
+        block: String,
+        /// The name the host gives the result, such as the asset's file stem.
+        variant: String,
+        asset: AssetText,
+    },
+}
+
+/// An asset file as UTF-8 text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetText {
+    /// The file name, such as `Plexi.nam`.
+    pub name: String,
+    pub text: String,
+}
+
+/// The host method that ends an [`Event::BuildBlock`] handler. Its params are a
+/// [`BlockPublish`].
+pub const PUBLISH_BLOCK: &str = "blocks.publish";
+
+/// The params of [`PUBLISH_BLOCK`]: `{block, variant, ir}` or `{block, variant, error}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockPublish {
+    pub block: String,
+    pub variant: String,
+    #[serde(flatten)]
+    pub outcome: BuildOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuildOutcome {
+    /// The provider's IR, not validated: decode it with `qcdsp::Block::from_json` or
+    /// deserialize and `validate()` it.
+    Ir(Value),
+    /// The message of what the provider threw.
+    Error(String),
 }
 
 /// A channel voice message on a reserved channel. Channels count from 1.

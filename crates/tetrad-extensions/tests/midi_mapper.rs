@@ -97,7 +97,7 @@ fn fires_a_trigger_for_each_cc_note_and_program_change() {
     };
     let (input, to_runner) = std::io::pipe().unwrap();
     let (from_runner, mut output) = std::io::pipe().unwrap();
-    let module = package.module.clone();
+    let module = package.module.expect("MIDI Mapper has a module");
     let thread = std::thread::spawn(move || {
         runner::run(
             &module,

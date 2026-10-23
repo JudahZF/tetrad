@@ -14,7 +14,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::manifest::{self, API_VERSION, MAX_DESCRIPTION, MAX_NAME};
+use crate::manifest::{self, API_VERSION, MAX_DESCRIPTION, MAX_NAME, MIN_API_VERSION};
 use crate::package::{MAX_PACKAGE, PACKAGE_SUFFIX};
 
 pub const CATALOG_FORMAT: u32 = 1;
@@ -195,11 +195,11 @@ impl Catalog {
         Ok(())
     }
 
-    /// The newest release of `id` that this host's API can run.
+    /// The newest release of `id` whose API this host runs.
     pub fn latest(&self, id: &str) -> Option<&CatalogEntry> {
         self.extensions
             .iter()
-            .filter(|e| e.id == id && e.api == API_VERSION)
+            .filter(|e| e.id == id && (MIN_API_VERSION..=API_VERSION).contains(&e.api))
             .max_by(|a, b| a.version.cmp(&b.version))
     }
 
@@ -329,12 +329,18 @@ mod tests {
     fn latest_skips_unsupported_api_and_duplicates_are_refused() {
         let catalog = Catalog {
             format: 1,
-            extensions: vec![entry("1.2.0", 1), entry("1.10.0", 1), entry("2.0.0", 2)],
+            extensions: vec![
+                entry("1.2.0", 1),
+                entry("1.10.0", MIN_API_VERSION),
+                entry("1.9.0", API_VERSION),
+                entry("2.0.0", API_VERSION + 1),
+            ],
         };
         catalog.validate().unwrap();
         assert_eq!(
             catalog.latest("tetrad.test").unwrap().version.to_string(),
-            "1.10.0"
+            "1.10.0",
+            "an older API still runs; a newer API is skipped"
         );
         let dup = Catalog {
             format: 1,

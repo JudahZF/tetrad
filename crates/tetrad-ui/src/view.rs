@@ -1639,7 +1639,7 @@ pub struct DspCoreView {
     pub cpu: [f32; 3],
     /// "EMDMA (%):".
     pub emdma: f32,
-    /// "Heap(%):" DM, PM and SD, printed `DM:a/PM:b/SD:c`.
+    /// DM, PM and SD heap use in %, one row each.
     pub heap: [f32; 3],
 }
 

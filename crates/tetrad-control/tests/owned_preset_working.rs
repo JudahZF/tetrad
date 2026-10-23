@@ -263,7 +263,7 @@ fn owned_library_bytes_install_prefix_and_route_existing_scene_actions_without_l
     assert!(capture.pairs().is_empty());
     assert!(capture.omissions().is_empty());
     assert_eq!(capture.document().summary().scene_count, 0);
-    assert_eq!(capture.document().bytes(), &[]);
+    assert!(capture.document().bytes().is_empty());
     // Generic empty protobuf acceptance never upgrades this admission.
     let installed = capture
         .install(OmissionAck::RequireNoOmissions, shell())

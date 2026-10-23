@@ -112,7 +112,7 @@ pub struct CoreDiagnostics {
     pub cpu: [f32; 3],
     /// "EMDMA (%):": `f32` word 10.
     pub emdma: f32,
-    /// "Heap(%):" DM, PM, SD: words 6, 8, 7 as `u32` over 153,592, 114,680 and 2^24, × 100.
+    /// DM, PM and SD heap use: words 6, 8, 7 as `u32` over 153,592, 114,680 and 2^24, × 100.
     pub heap: [f32; 3],
 }
 

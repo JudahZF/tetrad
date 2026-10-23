@@ -31,6 +31,7 @@ use tetrad_library::stock::{
 use tetrad_preset::{
     CatalogModel, CatalogParam, ColBypass, MigrationReport, Model, ModelCatalog, ParamValue,
     Preset, PresetDocument, SaveStamp, SceneValue, SplitterType, StompRole, TEMPO_MODEL_ID,
+    community,
 };
 use tetrad_services::cloud::session::Claims;
 use tetrad_settings::tuner::TempoDefaults;
@@ -248,6 +249,8 @@ pub fn prepare(
     dynamic_delay_compensation: bool,
     previous: Option<&Deployment>,
 ) -> Result<Prepared, PresetError> {
+    // Before the migration, which would empty a slot with an unknown model ID.
+    restore_community(&mut preset, specs);
     let migration = preset.migrate(&DeviceCatalog(specs))?;
     let document = PresetDocument::parse(&preset.to_bytes(), tetrad_preset::Limits::default())?;
     let imported = import_layout(&document.summary()?, specs, AbsentScalars::Proto3Default)?;
@@ -284,6 +287,31 @@ pub fn prepare(
         deployment,
         update,
     })
+}
+
+/// (O) Puts the installed community blocks of `preset` back in their slots
+/// (`tetrad_preset::community`). A block that is not installed keeps its stock placeholder,
+/// and so does every block of a record that does not decode: the preset still loads.
+pub fn restore_community(preset: &mut Preset, specs: &Specs) -> Vec<community::Missing> {
+    community::restore(preset, |key| specs.community_id(key)).unwrap_or_default()
+}
+
+/// (O) `preset` as it leaves Tetrad (a preset file, a full Cortex Control preset): each
+/// community block becomes its stock placeholder at its defaults, and a record keeps the block
+/// for the next load. Stock CorOS loads and plays the placeholder.
+pub fn exported(preset: &Preset, specs: &Specs) -> Result<Preset, PresetError> {
+    let mut exported = preset.clone();
+    community::stash(&mut exported, |model| {
+        let community = specs.model(model)?.community.as_ref()?;
+        let placeholder = specs.model(community.placeholder)?;
+        let defaults = tetrad_engine::new_instance(placeholder);
+        let scene = SceneIndex::new(0).expect("scene 0");
+        Some(community::Stash {
+            key: community.key.clone(),
+            placeholder: Model::block(placeholder.id, stored_values(&defaults, scene)),
+        })
+    })?;
+    Ok(exported)
 }
 
 /// Reads one library preset, or the stock new-preset shape for an empty slot (inferred).
@@ -2358,6 +2386,7 @@ fn write(
         Some(path) => {
             let stock = library.load(path)?;
             let mut stored = Preset::try_from(&stock.document)?;
+            restore_community(&mut stored, specs);
             stored.migrate(&DeviceCatalog(specs))?;
             let changed =
                 stored != current.preset || request.name != stored.name.as_deref().unwrap_or("");
@@ -2417,7 +2446,7 @@ fn write(
                 .filter(|_| !changed)
                 .unwrap_or(tetrad_firmware::running().version);
             let sidecar = saved_sidecar(&preset, instrument, coros_version);
-            let written = rewrite(library, &path, &preset, Some(sidecar))?;
+            let written = rewrite(library, &path, &exported(&preset, specs)?, Some(sidecar))?;
             (path, written, None)
         }
         (Some((setlist, slot)), _) => {
@@ -2428,8 +2457,10 @@ fn write(
                 sidecar_instrument(instrument),
                 tetrad_firmware::running().version,
             );
-            let document =
-                PresetDocument::parse(&preset.to_bytes(), tetrad_preset::Limits::default())?;
+            let document = PresetDocument::parse(
+                &exported(&preset, specs)?.to_bytes(),
+                tetrad_preset::Limits::default(),
+            )?;
             let stored = match overwrite {
                 true => library.replace(&setlist.name, slot, request.name, &document, &sidecar)?,
                 false => library.store(&setlist.name, slot, request.name, &document, &sidecar)?,
@@ -2437,7 +2468,7 @@ fn write(
             // A taken file name gets a `_<n>` suffix; the hash follows the real path.
             if stored.value != expected {
                 stamp(&stored.value, &mut preset)?;
-                rewrite(library, &stored.value, &preset, None)?;
+                rewrite(library, &stored.value, &exported(&preset, specs)?, None)?;
             }
             (stored.value, true, stored.search_index)
         }
@@ -3290,5 +3321,72 @@ mod tests {
         assert_eq!(block.params[1].at(scene), 0.5);
         assert_eq!(block.params[0].at(scene), 0.75);
         assert_eq!(rejected_model_preset_rows(&specs, 12000, &rows), 4);
+    }
+    /// (O) A community block leaves Tetrad as its stock placeholder at its defaults, with a
+    /// record. The next load puts the same block back; a catalog without the block keeps the
+    /// placeholder and reports the block as missing.
+    #[test]
+    fn community_blocks_leave_as_placeholders_and_come_back() {
+        const GAIN: &str = "<Models><Category id='16' name='Utility'>\
+<Model id='16005' name='Gain' blob='gainblock'>\
+<Parameter name='LEVEL' type='float' min='-60' max='12' defaultValue='0'/></Model>\
+</Category></Models>";
+        const ID: u32 = 812;
+        let mut specs = specs();
+        let gain = Specs::resolve(&Catalog::parse(GAIN, "<ModuleReport/>").unwrap()).unwrap();
+        specs.models.extend(gain.models);
+        let block = qcdsp::examples::saturator()
+            .unwrap()
+            .renamed("tx_test", "Saturator", qcdsp::Category::GuitarOverdrive)
+            .unwrap();
+        let resources = qcdsp::device::Resources {
+            code_bytes: 4096,
+            state_bytes: 512,
+            cycles_per_call: 9000,
+        };
+        let report =
+            qcdsp::device::module_element(&block, "qcdsp_tx_test", ID, "Saturator", &resources)
+                .unwrap();
+        let community = tetrad_catalog::community::CommunitySpec {
+            key: "acme/blocks:acme.drive/sat".into(),
+            placeholder: 16_005,
+        };
+        let spec = tetrad_catalog::community::spec(&block, ID, "qcdsp_tx_test", &report, community)
+            .unwrap();
+        let scene = SceneIndex::new(0).unwrap();
+        let mut stored = stored_values(&tetrad_engine::new_instance(&spec), scene);
+        stored[0] = ParamValue::Float(0.75);
+        specs.models.insert(ID, spec);
+        let chain = tetrad_preset::Chain {
+            models: vec![Model::empty_slot(); 8],
+            ..Default::default()
+        };
+        let mut preset = Preset {
+            chains: vec![chain; 4],
+            ..Preset::default()
+        };
+        preset.chains[1].models[3] = Model::block(ID, stored);
+        let original = preset.chains[1].models[3].clone();
+
+        let saved = exported(&preset, &specs).unwrap();
+        let placeholder = &saved.chains[1].models[3];
+        assert_eq!(placeholder.hash, Some(16_005));
+        assert_eq!(
+            placeholder.params[0].value(0),
+            Some(&ParamValue::Float(60.0 / 72.0))
+        );
+        let mut loaded =
+            Preset::decode(&saved.to_bytes(), tetrad_preset::Limits::default()).unwrap();
+        assert!(restore_community(&mut loaded, &specs).is_empty());
+        assert_eq!(loaded.chains[1].models[3], original);
+
+        let mut without = specs.clone();
+        without.remove_community();
+        let mut loaded =
+            Preset::decode(&saved.to_bytes(), tetrad_preset::Limits::default()).unwrap();
+        let missing = restore_community(&mut loaded, &without);
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].key, "acme/blocks:acme.drive/sat");
+        assert_eq!(loaded.chains[1].models[3].hash, Some(16_005));
     }
 }

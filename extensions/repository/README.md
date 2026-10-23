@@ -72,3 +72,11 @@ Check a package at any time with `$T check FILE.tetradext`.
 | Package | Tag |
 | --- | --- |
 | `tetrad.midi-mapper-0.2.0.tetradext` (trigger provider for Mappings) | `extensions-2026-10-20` |
+| `tetrad.nam-0.1.0.tetradext` (Neural Amp Modeler LSTM blocks, API 2) | not published yet |
+| `tetrad.dsp-examples-0.1.0.tetradext` (seven qcdsp example blocks, API 2) | not published yet |
+
+The two API 2 packages are built (`extensions/nam`, `extensions/dsp-examples`), but they are
+not in the signed catalog: the catalog needs the maintainer's key. Publish them with steps 3 to
+5 and a new tag. Devices before API 2 skip them: `latest()` filters on the API version. The
+example graphs come from `cargo qcdsp export --example <name> --output <file>` (the slapback is
+`--example delay --delay-samples 3600`).

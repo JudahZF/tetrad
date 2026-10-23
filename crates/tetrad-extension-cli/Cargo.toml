@@ -17,6 +17,9 @@ clap.workspace = true
 ed25519-dalek.workspace = true
 serde_json.workspace = true
 tetrad-extensions.workspace = true
+qcdsp = { path = "../../qcdsp/crates/qcdsp" }
+# Already in the lock file through qcdsp; `preview` reads and writes WAV with it.
+hound = "3.5.1"
 
 [lints]
 workspace = true

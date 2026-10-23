@@ -21,6 +21,7 @@ const EMPTY_ROW: u32 = 44;
 /// Command buttons: two columns of 44 px buttons on a 52 px pitch.
 const COMMAND_PITCH: u32 = 52;
 const STATUS_LINE: u32 = 24;
+const BLOCK_ROW: u32 = 48;
 /// The detail page shows the newest log lines.
 const LOG_LINES: usize = 10;
 const LOG_LINE: u32 = 18;
@@ -373,6 +374,7 @@ enum Part<'a> {
     /// Up to two command buttons from this index.
     Commands(usize),
     StatusLine(&'a str),
+    Block(&'a ExtensionBlock),
     Log(&'a [String]),
     Remove,
 }
@@ -386,6 +388,7 @@ impl Part<'_> {
             Self::Header(_) => HEADER,
             Self::Commands(_) => COMMAND_PITCH,
             Self::StatusLine(_) => STATUS_LINE,
+            Self::Block(_) => BLOCK_ROW,
             Self::Log(lines) => lines.len() as u32 * LOG_LINE + 16,
             Self::Enabled | Self::Update(_) | Self::Setting(..) | Self::Remove => ROW,
         }
@@ -422,6 +425,10 @@ fn parts(extension: &InstalledExtension, width: u32) -> Vec<Part<'_>> {
         parts.push(Part::Header("Commands"));
         parts.extend((0..extension.commands.len()).step_by(2).map(Part::Commands));
     }
+    if !extension.blocks.is_empty() {
+        parts.push(Part::Header("DSP blocks"));
+        parts.extend(extension.blocks.iter().map(Part::Block));
+    }
     if !extension.themes.is_empty() {
         parts.push(Part::Header("Themes (Settings → Appearance)"));
         parts.extend(extension.themes.iter().map(|name| Part::StatusLine(name)));
@@ -445,7 +452,7 @@ fn parts(extension: &InstalledExtension, width: u32) -> Vec<Part<'_>> {
 }
 
 /// An extension's page: back arrow, name and state badge, then its description, the enable
-/// switch, fault and update rows, settings, commands, status lines, log and REMOVE.
+/// switch, fault and update rows, settings, commands, DSP blocks, status lines, log and REMOVE.
 fn detail(ui: &UiState, l: &mut Layout, pane: Rect, extension: &InstalledExtension) {
     let view = &ui.snapshot.extensions;
     let badge = Rect::new(pane.right() - BADGE.0 as i32, pane.y + 4, BADGE.0, BADGE.1);
@@ -557,6 +564,23 @@ fn detail_part(
                     BODY,
                 );
             }
+        }
+        Part::Block(block) => {
+            let width = row.width - 8;
+            l.text(
+                Rect::new(row.x, row.y + 2, width, 22),
+                block.name.as_str(),
+                BODY,
+                p.text,
+                Align::Left,
+            );
+            l.text(
+                Rect::new(row.x, row.y + 24, width, 18),
+                fit(&block.detail, CAPTION, width as f32),
+                CAPTION,
+                if block.ready { p.muted } else { p.warning },
+                Align::Left,
+            );
         }
         Part::StatusLine(line) => l.text(
             Rect::new(row.x, row.y, row.width - 8, row.height),
@@ -1119,6 +1143,7 @@ pub(crate) mod tests {
             commands: Vec::new(),
             settings: Vec::new(),
             status_lines: Vec::new(),
+            blocks: Vec::new(),
             log: Vec::new(),
             themes: Vec::new(),
         };
@@ -1147,6 +1172,7 @@ pub(crate) mod tests {
                 ),
             ],
             status_lines: vec!["ready".into()],
+            blocks: Vec::new(),
             log: vec!["started".into()],
             ..installed("mapper", ExtensionState::Running)
         };
