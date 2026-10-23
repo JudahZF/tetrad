@@ -401,11 +401,12 @@ impl<P: super::platform::Platform> super::Device<P> {
                 format!("community block IDs ({IDS_FILE}): {error}"),
             );
         }
-        // Without the framework, or with IDs not saved, the next sync tries again, even with
-        // the same sources.
+        // Without the framework, or with IDs not read or not saved, the next sync tries again,
+        // even with the same sources.
+        let settled = template_error.is_none() && readable.is_ok() && !ids_unsaved;
         self.state.community = Installed {
             statuses,
-            fingerprint: (template_error.is_none() && !ids_unsaved).then_some(fingerprint),
+            fingerprint: settled.then_some(fingerprint),
             compiled,
             ids: readable.is_ok().then_some(ids),
             ids_unsaved,
