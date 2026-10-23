@@ -644,6 +644,47 @@ fn network_kernels_cover_accumulate_and_short_convolutions() {
     }
 }
 
+/// A network whose DM arena allocation fails plays dry, and destroy frees nothing, even when
+/// the state's weights pointer word held a stale value before init.
+#[test]
+fn failed_network_allocation_frees_nothing() {
+    let block = examples::wavenet(&[examples::WavenetArray {
+        input: 1,
+        channels: 2,
+        head: 1,
+        head_bias: true,
+        dilations: vec![1, 2],
+    }])
+    .unwrap();
+    let mut h = Harness::new(&block, true);
+    h.allocation = 0;
+    let weights = h.layout.weights().unwrap();
+    let stale = h.state + h.scale * weights.pointer;
+    h.memory.map.write(stale, 0xdead_beef).unwrap();
+    h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+    assert_eq!(h.state_word(weights.pointer), 0);
+    let input = h.write_input(0);
+    h.call(h.generated.entries.process, IO, 0, None);
+    for (channel, samples) in input.iter().enumerate() {
+        for (sample, x) in samples.iter().enumerate() {
+            assert_eq!(h.output(channel, sample).to_bits(), x.to_bits(), "dry");
+        }
+    }
+    h.call(
+        h.generated.entries.destroy.unwrap(),
+        0,
+        0,
+        Some(STOCK_DESTROY),
+    );
+    assert!(
+        h.heap_calls
+            .iter()
+            .all(|&(function, _, _)| function == HEAP_MALLOC),
+        "{:x?}",
+        h.heap_calls
+    );
+}
+
 /// heap_malloc returns 0 when heap 0 is full. Then nothing touches the arena: process leaves
 /// the buffers as they are (dry) and writes only its own frame, recovery writes nothing, and
 /// destroy goes straight to the stock destroy.
