@@ -2061,7 +2061,11 @@ impl Extensions {
                 let key = &loaded.installed.key;
                 let installed = format!("{} {}", manifest.name, manifest.version);
                 // The warning leads: a long name is cut at the end of the line.
-                let duplicates = repositories.enabled_elsewhere(&key.source, &key.id);
+                // An update of a copy that is off keeps it off: no conflict.
+                let duplicates = match loaded.installed.enabled {
+                    true => repositories.enabled_elsewhere(&key.source, &key.id),
+                    false => Vec::new(),
+                };
                 repositories.status = Some(if duplicates.is_empty() {
                     format!("Installed {installed}")
                 } else {
