@@ -78,6 +78,19 @@
         "size": 19891,
         "sha256": "4ef9a0207cbe32cdcdbe3c374b6c0f2fa524bd370a72a59ecc7089a22cc7036b"
       }
+    },
+    {
+      "id": "tetrad.nam",
+      "name": "Neural Amp Modeler",
+      "version": "0.3.1",
+      "description": "Plays Neural Amp Modeler LSTM and WaveNet models (.nam files) as DSP blocks, including the trainer's nano, feather and lite sizes. Copy .nam files to the extension's asset folder; each becomes a Guitar Amplifier block.",
+      "api": 2,
+      "asset": {
+        "tag": "extensions-2026-10-23.2",
+        "name": "tetrad.nam-0.3.1.tetradext",
+        "size": 20460,
+        "sha256": "84d8cf6839306fcb7d0c337291edb38b3b7ecbd8cc781e676e96cacdbbd9a8c8"
+      }
     }
   ]
 }
