@@ -286,10 +286,16 @@ fn installed_row(
         extension.version,
         source_label(view, &extension.source)
     );
-    // The update note keeps at least half the line; the version and source give way first.
-    let update = (extension.update.as_ref()).map(|version| format!(" · Update to {version}"));
-    let reserved = update.as_ref().map_or(0, |update| {
-        (CAPTION.width(update).ceil() as u32).min(width / 2)
+    // A duplicate warning, else the update note, keeps at least half the line; the version and
+    // source give way first.
+    let note = if extension.duplicates.is_empty() {
+        (extension.update.as_ref()).map(|version| (format!(" · Update to {version}"), p.accent))
+    } else {
+        let from = extension.duplicates.join(", ");
+        Some((format!(" · Also on from {from}"), p.warning))
+    };
+    let reserved = note.as_ref().map_or(0, |(note, _)| {
+        (CAPTION.width(note).ceil() as u32).min(width / 2)
     });
     let meta_width = (CAPTION.width(&meta).ceil() as u32 + 1).min(width - reserved);
     l.text(
@@ -299,12 +305,12 @@ fn installed_row(
         p.muted,
         Align::Left,
     );
-    if let Some(update) = update {
+    if let Some((note, color)) = note {
         l.text(
             Rect::new(x + meta_width as i32, row.y + 32, width - meta_width, 18),
-            update,
+            note,
             CAPTION,
-            p.accent,
+            color,
             Align::Left,
         );
     }
@@ -338,12 +344,11 @@ fn available_row(
     let width = (install.x - 12 - x) as u32;
     // A second installation from another source doubles its blocks: the warning takes the
     // description's line.
-    let note = match &extension.installed_from {
-        Some(source) => (
-            format!("Also installed from {}", source_label(view, source)),
-            p.warning,
-        ),
-        None => (extension.description.clone(), p.muted),
+    let note = if extension.duplicates.is_empty() {
+        (extension.description.clone(), p.muted)
+    } else {
+        let from = extension.duplicates.join(", ");
+        (format!("Also installed from {from}"), p.warning)
     };
     let lines = [
         (8, 22, extension.name.clone(), BODY, p.text),
@@ -1150,6 +1155,7 @@ pub(crate) mod tests {
             enabled: true,
             state,
             update: None,
+            duplicates: Vec::new(),
             commands: Vec::new(),
             settings: Vec::new(),
             status_lines: Vec::new(),
@@ -1204,7 +1210,7 @@ pub(crate) mod tests {
                 name: "Strobe".into(),
                 version: "0.1.0".into(),
                 description: String::new(),
-                installed_from: None,
+                duplicates: Vec::new(),
             }],
             sources: vec![source(DEFAULT, true), source(OTHER, false)],
             pending_trust: None,

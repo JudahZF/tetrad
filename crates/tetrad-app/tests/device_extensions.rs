@@ -269,8 +269,8 @@ fn install_from_a_trusted_repository_then_map_midi_to_a_block() {
     assert_eq!(view(&device).installed[0].version, "1.0.0");
 }
 
-/// The same extension from a second source would double its blocks and handlers: its Available
-/// row names the installed source, and the install message asks to turn one off.
+/// The same extension on from two sources doubles its blocks and handlers: its Available row,
+/// the install message and both Installed rows say so until one is off.
 #[test]
 fn a_second_source_of_an_installed_extension_warns() {
     const MIRROR: &str = "tester/mirror";
@@ -296,7 +296,7 @@ fn a_second_source_of_an_installed_extension_warns() {
     });
     let available = &view(&device).available[0];
     assert_eq!(available.source, MIRROR);
-    assert_eq!(available.installed_from.as_deref(), Some(SOURCE));
+    assert_eq!(available.duplicates, [SOURCE]);
     device.push(Event::Extensions(ExtensionCommand::Install {
         source: MIRROR.into(),
         id: "test.mapper".into(),
@@ -306,8 +306,21 @@ fn a_second_source_of_an_installed_extension_warns() {
     });
     assert_eq!(
         view(&device).status.as_deref(),
-        Some("Also installed from tester/exts: turn one off (Test Mapper 1.0.0)")
+        Some("Also installed from tester/exts: keep one on (Test Mapper 1.0.0)")
     );
+    let duplicates = |d: &Device<Sim>| -> Vec<Vec<String>> {
+        (view(d).installed.iter())
+            .map(|e| e.duplicates.clone())
+            .collect()
+    };
+    assert_eq!(duplicates(&device), [[MIRROR], [SOURCE]]);
+    device.push(Event::Extensions(ExtensionCommand::SetEnabled {
+        key: format!("{MIRROR}:test.mapper"),
+        enabled: false,
+    }));
+    pump(&mut device, "the cleared warnings", |d| {
+        duplicates(d).iter().all(Vec::is_empty)
+    });
 }
 
 #[test]

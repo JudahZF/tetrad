@@ -2731,6 +2731,7 @@ fn extensions_fixture() -> ExtensionsView {
         enabled: state != ExtensionState::Disabled,
         state,
         update: None,
+        duplicates: Vec::new(),
         commands: Vec::new(),
         settings: Vec::new(),
         status_lines: Vec::new(),
@@ -2845,7 +2846,7 @@ fn extensions_fixture() -> ExtensionsView {
                 name: "Strobe Tuner".into(),
                 version: "0.4.1".into(),
                 description: "A strobe view for the tuner screen with cents history.".into(),
-                installed_from: None,
+                duplicates: Vec::new(),
             },
             AvailableExtension {
                 source: "night-owl/footswitch-tools".into(),
@@ -2855,7 +2856,7 @@ fn extensions_fixture() -> ExtensionsView {
                 description: "Assign a second action to a double tap on any footswitch, \
                     with per-preset overrides."
                     .into(),
-                installed_from: None,
+                duplicates: Vec::new(),
             },
         ],
         sources: vec![

@@ -461,12 +461,15 @@ struct Repositories {
 }
 
 impl Repositories {
-    /// The source of an installation of `id` from a source other than `source`.
-    fn installed_elsewhere(&self, source: &SourceId, id: &str) -> Option<&SourceId> {
+    /// The labels of the sources other than `source` whose installation of `id` is on: with an
+    /// installation from `source` on too, each adds the same blocks, themes and handlers twice.
+    fn enabled_elsewhere(&self, source: &SourceId, id: &str) -> Vec<String> {
         (self.records.values())
-            .map(|record| &record.installed.key)
-            .find(|key| key.id == id && &key.source != source)
-            .map(|key| &key.source)
+            .map(|record| &record.installed)
+            .filter(|installed| installed.enabled && installed.key.id == id)
+            .filter(|installed| &installed.key.source != source)
+            .map(|installed| self.label(&installed.key.source))
+            .collect()
     }
 
     /// "Default" for the default repository, as the pages name it; any other its `owner/repo`.
@@ -2058,15 +2061,13 @@ impl Extensions {
                 let key = &loaded.installed.key;
                 let installed = format!("{} {}", manifest.name, manifest.version);
                 // The warning leads: a long name is cut at the end of the line.
-                repositories.status = Some(
-                    match repositories.installed_elsewhere(&key.source, &key.id) {
-                        Some(other) => format!(
-                            "Also installed from {}: turn one off ({installed})",
-                            repositories.label(other)
-                        ),
-                        None => format!("Installed {installed}"),
-                    },
-                );
+                let duplicates = repositories.enabled_elsewhere(&key.source, &key.id);
+                repositories.status = Some(if duplicates.is_empty() {
+                    format!("Installed {installed}")
+                } else {
+                    let from = duplicates.join(", ");
+                    format!("Also installed from {from}: keep one on ({installed})")
+                });
                 repositories
                     .records
                     .insert(loaded.installed.key.to_string(), *loaded);
@@ -2407,6 +2408,10 @@ impl Extensions {
                     enabled: record.installed.enabled,
                     state,
                     update,
+                    duplicates: match record.installed.enabled {
+                        true => repositories.enabled_elsewhere(source, &manifest.id),
+                        false => Vec::new(),
+                    },
                     commands,
                     settings,
                     status_lines: self.status_lines(key).to_vec(),
@@ -2434,7 +2439,8 @@ impl Extensions {
                             source: source.source.clone(),
                             id: entry.id.clone(),
                         };
-                        !repositories.records.contains_key(&key.to_string())
+                        // Keys compare without case; their strings do not.
+                        !(repositories.records.values()).any(|record| record.installed.key == key)
                     })
                     .map(|entry| AvailableExtension {
                         source: source.source.to_string(),
@@ -2442,9 +2448,7 @@ impl Extensions {
                         name: entry.name.clone(),
                         version: entry.version.to_string(),
                         description: entry.description.clone(),
-                        installed_from: repositories
-                            .installed_elsewhere(&source.source, &entry.id)
-                            .map(ToString::to_string),
+                        duplicates: repositories.enabled_elsewhere(&source.source, &entry.id),
                     })
                     .collect::<Vec<_>>()
             })
