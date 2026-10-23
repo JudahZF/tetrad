@@ -97,6 +97,50 @@ enum BuildError {
     TooLarge(usize),
 }
 
+/// Saved model IDs of community blocks by key, a JSON object ([`Ids`]).
+pub const IDS_FILE: &str = "/media/p4/tetrad/community-ids.json";
+const MAX_IDS_FILE: u64 = 1 << 20;
+
+/// Model IDs by source key. Mappings and undo frames hold model IDs, so a key keeps its ID
+/// across restarts and across the installs of other keys.
+pub type Ids = BTreeMap<String, u32>;
+
+/// The model ID of each of `sources` (sorted by key), `None` when its range is full. A key
+/// keeps its saved ID while that ID is free of stock models (`stock`) and in its category's
+/// range. A new key takes [`community::local_id`] past the stock IDs and every saved ID; only
+/// when the range is full does it take the ID of a saved key that is not installed now.
+/// `ids` gets the new assignments.
+pub fn assign_ids(
+    sources: &[&Source],
+    stock: impl Fn(u32) -> bool,
+    ids: &mut Ids,
+) -> Vec<Option<u32>> {
+    let mut assigned = BTreeSet::new();
+    let mut out: Vec<Option<u32>> = (sources.iter())
+        .map(|source| {
+            let id = *ids.get(&source.key)?;
+            let fits = id / 1000 == source.category.id() && community::is_local(id);
+            (fits && !stock(id) && assigned.insert(id)).then_some(id)
+        })
+        .collect();
+    let saved: BTreeSet<u32> = ids.values().copied().collect();
+    for (slot, source) in out.iter_mut().zip(sources) {
+        if slot.is_some() {
+            continue;
+        }
+        let category = source.category.id();
+        let free = |id: u32| !stock(id) && !assigned.contains(&id);
+        *slot = community::local_id(category, &source.key, |id| !free(id) || saved.contains(&id))
+            .or_else(|| community::local_id(category, &source.key, |id| !free(id)));
+        if let Some(id) = *slot {
+            assigned.insert(id);
+            ids.retain(|_, saved| *saved != id);
+            ids.insert(source.key.clone(), id);
+        }
+    }
+    out
+}
+
 /// One compiled source, kept so that an unchanged source is never compiled again.
 #[derive(Debug, Clone)]
 pub struct Compiled {
@@ -107,31 +151,19 @@ pub struct Compiled {
 
 /// Compiles `sources` (with `template`, or reports every new block as not ready without one)
 /// and replaces the community models of `specs`. `cache` holds the last result by key: an
-/// unchanged source reuses its blob and spec.
-///
-/// Model IDs follow from the set of keys alone: [`community::local_id`] probes in key order,
-/// past stock IDs and the IDs of earlier keys, whether or not a block builds. Mappings and undo
-/// frames hold model IDs, so a restart gives each key the ID it had before. Only a new key whose
-/// hash collides moves the ID of a key that sorts after it.
+/// unchanged source reuses its blob and spec. `ids` gives the model IDs ([`assign_ids`]).
 pub fn install(
     sources: &[Source],
     template: Option<&VolumeTemplate>,
     specs: &mut Specs,
     cache: &mut BTreeMap<String, Compiled>,
+    ids: &mut Ids,
 ) -> (CommunityBlobs, Vec<Status>) {
     specs.remove_community();
     let mut sources: Vec<&Source> = sources.iter().collect();
     sources.sort_by(|a, b| a.key.cmp(&b.key));
     sources.dedup_by(|a, b| a.key == b.key);
-    let mut assigned = BTreeSet::new();
-    let ids: Vec<Option<u32>> = (sources.iter())
-        .map(|source| {
-            let taken = |id| specs.models.contains_key(&id) || assigned.contains(&id);
-            let id = community::local_id(source.category.id(), &source.key, taken)?;
-            assigned.insert(id);
-            Some(id)
-        })
-        .collect();
+    let ids = assign_ids(&sources, |id| specs.models.contains_key(&id), ids);
     let mut previous = std::mem::take(cache);
     let mut blobs = CommunityBlobs::default();
     let mut statuses = Vec::with_capacity(sources.len());
@@ -234,6 +266,8 @@ pub struct Installed {
     pub statuses: Vec<Status>,
     fingerprint: Option<u64>,
     compiled: BTreeMap<String, Compiled>,
+    /// [`IDS_FILE`], read at the first install.
+    ids: Option<Ids>,
 }
 
 impl Installed {
@@ -266,6 +300,31 @@ fn fingerprint(sources: &[Source]) -> u64 {
         })
 }
 
+/// [`IDS_FILE`]; empty when it is missing or bad (the IDs then follow from the keys alone).
+fn read_ids(platform: &mut impl super::platform::Platform) -> Ids {
+    use super::platform::ServiceBackends;
+    use tetrad_services::exec::Files;
+    let files = platform.services().files();
+    (files
+        .read_bounded(std::path::Path::new(IDS_FILE), MAX_IDS_FILE)
+        .ok()
+        .flatten())
+    .and_then(|bytes: Vec<u8>| serde_json::from_slice(&bytes).ok())
+    .unwrap_or_default()
+}
+
+fn save_ids(platform: &mut impl super::platform::Platform, ids: &Ids) -> Result<(), String> {
+    use super::platform::ServiceBackends;
+    use tetrad_services::exec::Files;
+    let bytes = serde_json::to_vec(ids).map_err(|error| error.to_string())?;
+    let files = platform.services().files();
+    let path = std::path::Path::new(IDS_FILE);
+    (path.parent())
+        .map_or(Ok(()), |dir| files.create_dirs(dir))
+        .and_then(|()| files.write_atomic(path, &bytes))
+        .map_err(|error| error.to_string())
+}
+
 impl<P: super::platform::Platform> super::Device<P> {
     /// Installs `sources` as the community blocks. When they changed: the loaded preset leaves
     /// with the old catalog (each community block becomes its placeholder and a record), the
@@ -296,7 +355,15 @@ impl<P: super::platform::Platform> super::Device<P> {
             None => None,
         };
         let mut compiled = std::mem::take(&mut self.state.community.compiled);
-        let (blobs, mut statuses) = install(sources, template, specs, &mut compiled);
+        let mut ids = match self.state.community.ids.take() {
+            Some(ids) => ids,
+            None => read_ids(&mut self.platform),
+        };
+        let saved = ids.clone();
+        let (blobs, mut statuses) = install(sources, template, specs, &mut compiled, &mut ids);
+        let ids_error = (ids != saved)
+            .then(|| save_ids(&mut self.platform, &ids))
+            .and_then(Result::err);
         if let Some(error) = &template_error {
             for status in statuses.iter_mut().filter(|status| status.model.is_none()) {
                 status.error = Some(format!("the stock Volume framework: {error}"));
@@ -320,11 +387,18 @@ impl<P: super::platform::Platform> super::Device<P> {
             };
             self.notice(super::Subsystem::Extensions, detail);
         }
+        if let Some(error) = ids_error {
+            self.notice(
+                super::Subsystem::Extensions,
+                format!("community block IDs not saved: {error}"),
+            );
+        }
         // Without the framework the next sync tries again, even with the same sources.
         self.state.community = Installed {
             statuses,
             fingerprint: template_error.is_none().then_some(fingerprint),
             compiled,
+            ids: Some(ids),
         };
         self.state.module_stats = std::cell::OnceCell::new();
         self.bridges.ui.invalidate_models();
@@ -408,9 +482,49 @@ mod tests {
     fn no_template_builds_nothing() {
         let mut specs = Specs::default();
         let sources = [source("a/b:c/sat", qcdsp::examples::saturator().unwrap())];
-        let (blobs, statuses) = install(&sources, None, &mut specs, &mut BTreeMap::new());
+        let (blobs, statuses) = install(
+            &sources,
+            None,
+            &mut specs,
+            &mut BTreeMap::new(),
+            &mut Ids::new(),
+        );
         assert!(blobs.is_empty() && specs.models.is_empty());
         assert!(statuses[0].model.is_none() && statuses[0].error.is_some());
+    }
+
+    /// A key keeps its saved ID when a new key's hash collides with it, when it is not installed
+    /// for a while, and after a restart; it moves only off a stock ID, and a full range reuses
+    /// the ID of a key that is not installed.
+    #[test]
+    fn saved_ids_keep_each_key_on_its_model() {
+        let ir = qcdsp::examples::saturator().unwrap();
+        let key = "a/b:c/sat";
+        let id = community::local_id(0, key, |_| false).unwrap();
+        let thief = (0..10_000)
+            .map(|n| format!("a/b:c/a{n}"))
+            .find(|other| community::local_id(0, other, |_| false) == Some(id))
+            .unwrap();
+        let (sat, other) = (source(key, ir.clone()), source(&thief, ir.clone()));
+        let mut ids = Ids::new();
+        assert_eq!(assign_ids(&[&sat], |_| false, &mut ids), [Some(id)]);
+        // The thief sorts first and is new: it probes past the saved ID, also while the
+        // saturator is not installed.
+        let moved = assign_ids(&[&other], |_| false, &mut ids)[0].unwrap();
+        assert_ne!(moved, id);
+        let both = [Some(moved), Some(id)];
+        assert_eq!(assign_ids(&[&other, &sat], |_| false, &mut ids), both);
+        assert_eq!(
+            assign_ids(&[&other, &sat], |_| false, &mut ids.clone()),
+            both
+        );
+        // A stock model on the saved ID moves the key, and the new ID is saved.
+        let after = assign_ids(&[&sat], |stock| stock == id, &mut ids)[0].unwrap();
+        assert!(after != id && ids[key] == after);
+        // A full range: the one free ID is the saturator's, and the thief takes it.
+        let full = |stock| stock != after;
+        assert_eq!(assign_ids(&[&other], full, &mut ids), [Some(after)]);
+        assert!(!ids.contains_key(key));
     }
 
     /// Each block links into a blob for every DSP core with the same stable ID; a block that does
@@ -437,8 +551,9 @@ mod tests {
             source("a/b:c/arena", qcdsp::examples::delay(9000).unwrap()),
         ];
         let mut specs = Specs::default();
-        let mut cache = BTreeMap::new();
-        let (blobs, statuses) = install(&sources, Some(&template), &mut specs, &mut cache);
+        let (mut cache, mut ids) = (BTreeMap::new(), Ids::new());
+        let (blobs, statuses) =
+            install(&sources, Some(&template), &mut specs, &mut cache, &mut ids);
         let sat = statuses.iter().find(|s| s.key == "a/b:c/sat").unwrap();
         let id = sat.model.expect("the saturator builds");
         assert_eq!(id / 1000, 0, "Guitar Overdrive band");
@@ -492,27 +607,28 @@ mod tests {
         }
         assert!(blobs.load(DspCore::Core0, id + 1).is_none());
         // Unchanged: no compile (no template needed), the same ID.
-        let (_, again) = install(&sources, None, &mut specs, &mut cache);
+        let (_, again) = install(&sources, None, &mut specs, &mut cache, &mut ids);
         let sat = again.iter().find(|s| s.key == "a/b:c/sat").unwrap();
         assert_eq!(sat.model, Some(id), "the cached block needs no compile");
-        // A new key whose hash takes the saturator's ID: the key that sorts first gets it, and
-        // after a restart (an empty cache) every key has the ID it had live.
+        // A new key whose hash takes the saturator's ID: the saturator keeps it, and after a
+        // restart (an empty cache, the saved IDs) every key has the ID it had live.
         let mut more = sources.to_vec();
         let thief = (0..10_000)
             .map(|n| format!("a/b:c/a{n}"))
             .find(|key| community::local_id(0, key, |_| false) == Some(id))
             .unwrap();
         more.push(source(&thief, qcdsp::examples::saturator().unwrap()));
-        let (_, live) = install(&more, Some(&template), &mut specs, &mut cache);
+        let (_, live) = install(&more, Some(&template), &mut specs, &mut cache, &mut ids);
         let model =
             |statuses: &[Status], key: &str| statuses.iter().find(|s| s.key == key).unwrap().model;
-        assert_eq!(model(&live, &thief), Some(id));
-        assert!(model(&live, "a/b:c/sat").is_some_and(|other| other != id));
+        assert_eq!(model(&live, "a/b:c/sat"), Some(id));
+        assert!(model(&live, &thief).is_some_and(|other| other != id));
         let (_, restarted) = install(
             &more,
             Some(&template),
             &mut Specs::default(),
             &mut BTreeMap::new(),
+            &mut ids.clone(),
         );
         assert_eq!(restarted, live);
     }
