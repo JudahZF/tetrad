@@ -3,7 +3,7 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [0.1.0-alpha.5](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.5) (2026-10-23)
 
 ### Added
 
