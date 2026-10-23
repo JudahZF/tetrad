@@ -231,8 +231,24 @@ words; volume `0x1b0` `I5=MODIFY(I4,0x24)` is state byte 36). `FIX` follows the
 non-saturating PRM rule (all ones on NaN, infinity or overflow). One
 step is one cycle of `EMUCLK`; this is not pipeline timing. It refuses: a
 zero loop count (PRM: 2^32 iterations), branches in the last three loop
-instructions, nested loops sharing an end, nonzero DAG lengths, SIMD/
-saturation modes and Type3a post-modify/stores of DAG1 registers.
+instructions, nested loops sharing an end, saturation and bit-reversal modes and
+Type3a post-modify/stores of DAG1 registers.
+
+## Frame kernels (2026-10-22)
+
+For qcdsp networks (NAM WaveNets) the machine also runs, in ISA and VISA: Type 1a (compute
+with a DM and a PM move; no compute, single-function, or float multifunction mul±add and
+mul with dual add/sub; Type 2a takes the same multifunction computes) and the 32-bit VISA Type 1b; Type 3a/3b with G=1 (DAG2) and a compute
+field; DAG2 in Types 15a/15b, 16a and 19a; S0-S15 as uregs. MODE1 PEYEN (SIMD), BDCST1 and
+BDCST9 are modeled: computes and transfers act on PEy with the complementary registers, PEy
+addresses the explicit address plus one normal word (+4 in byte space), a load through I1 or
+I9 with its broadcast bit gives PEy the same word, and a SIMD branch condition must hold on
+both PEs. Circular buffers wrap post-modify and MODIFY within `[B, B+L)` (M and L ×4 in byte
+space); pre-modify does not wrap. Stock code switches these modes with Type 18a BIT SET/CLR
+(`140200200000` sets PEYEN, `142200200000` clears it). The machine refuses VISA code whose last
+31 parcels of a loop body are not 48-bit instructions (`VisaLoopTail`, PRM `.06.062`), an
+instruction that writes one data register twice, and |M| ≥ L in a ring. `tests/machine_simd.rs`
+builds its words field by field from the PRM figures and checks stock words.
 
 ## Math leaves (2026-10-10)
 
@@ -269,10 +285,9 @@ ISA returns use `RTS (DB)`). H1 is their first hardware proof.
 
 ## Unsupported milestones
 
-PM/DAG2 data transfers, SIMD, parallel computation, cross-index MODIFY,
-condition-terminated DO loops, Type9a forms outside
-`(Mx, I8)`, L1 cache maintenance, circular buffers and unknown flags remain
-unavailable. Open hardware gates: a probe of Type14d in ISA code space (PRM
+Cross-index MODIFY, condition-terminated DO loops, conditional Type 1 and Type 3, MRF
+multifunction, Type9a forms outside `(Mx, I8)`, L1 cache
+maintenance and unknown flags remain unavailable. Open hardware gates: a probe of Type14d in ISA code space (PRM
 lists Addr = ISA), the SYSCTL address and byte-space bound, SHARC-side
 cache/coherency of shared L2,
 and every timing claim. The leaf `simulator` keeps its narrow contract: RTI,

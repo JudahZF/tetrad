@@ -168,8 +168,57 @@ export interface BlockBuilder {
   updateDelay(delay: Delay, value: Signal): void;
   /** Computes channel A only and copies it to channel B, at half the cost of stereo. */
   mono(): void;
+  /**
+   * Starts the block's network (IR 3): vector operations on channel buffers that run before the
+   * graph, for convolutional models such as NAM WaveNets. A block has at most one network, and
+   * a block with a network is mono.
+   */
+  network(): NetworkBuilder;
   /** Ends the graph with `output` as the block's output sample. */
   finish(output: Signal): BlockIr;
+}
+
+/** A buffer of channels in a network: an opaque handle that only its own network accepts. */
+export type NetBuffer = number & { readonly __tetradNetBuffer: true };
+
+/** Options of a convolution. Weights are ordered `[output][input][kernel]`. */
+export type ConvOptions = {
+  /** Taps, 1 to 16 (1 is a dense 1×1 layer). Default 1. */
+  readonly kernel?: number;
+  /** Samples between taps, 1 to 65536. Default 1. */
+  readonly dilation?: number;
+  readonly weights: readonly number[];
+  /** One value per output channel. */
+  readonly bias?: readonly number[];
+  /** Add to the output buffer instead of replacing it. */
+  readonly accumulate?: boolean;
+};
+
+/**
+ * Builds a network. It runs once per sample: every operation reads and writes whole buffers.
+ * A buffer is written before it is read, and a buffer whose history a convolution reads (kernel
+ * above 1) does not change after that convolution. Limits: 1024 buffers, 64 channels per
+ * buffer, 4096 operations, 2^20 weights.
+ */
+export interface NetworkBuilder {
+  /** The block input: one channel. */
+  input(): NetBuffer;
+  buffer(channels: number): NetBuffer;
+  /** `buffer *= parameter`, where `parameter` is a parameter signal of the same block. */
+  gain(buffer: NetBuffer, parameter: Signal): void;
+  /**
+   * A causal dilated convolution: `output[o] (+)= bias[o] + Σ_i Σ_k weights[o][i][k] ·
+   * input[i](t − (kernel − 1 − k) · dilation)`.
+   */
+  conv(input: NetBuffer, output: NetBuffer, options: ConvOptions): void;
+  /** In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`. */
+  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu"): void;
+  /** `output += input` (same channel count). */
+  add(input: NetBuffer, output: NetBuffer): void;
+  /** `output = input` (same channel count). */
+  copy(input: NetBuffer, output: NetBuffer): void;
+  /** Ends the network; the signal is `buffer` (one channel) for each sample. */
+  output(buffer: NetBuffer): Signal;
 }
 
 /**

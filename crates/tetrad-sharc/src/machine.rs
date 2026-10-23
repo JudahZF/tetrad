@@ -14,13 +14,25 @@
 //!
 //! Float computes use host `f32` by default. [`Arithmetic::Prm`] opts in to the
 //! PRM rules of [`crate::simulator::run_scalar_prm`] on 40-bit data registers.
+//!
+//! MODE1 PEYEN selects SIMD (PRM `.08.35`): computes also run on PEy with the
+//! complementary registers ([`Machine::s`]), and ureg transfers also move the
+//! complementary register at the next normal word. BDCST1/BDCST9 broadcast
+//! I1/I9 loads to both PEs (`.08.33`). With MODE1 CBUFEN, post-modify wraps
+//! in the ring `[B, B + L)` (`.08.32`).
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::ops::Range;
 
 use crate::alu::{ComputeOp, compare_prm, evaluate, evaluate_prm};
 use crate::emit::OwnedCode;
-use crate::isa48::{MODE1_IRPTEN, MODE1_NESTM, MODE1_RND32, MODE1_SCALAR_CLEAR};
+use crate::isa48::{
+    MODE1_ALUSAT, MODE1_BDCST1, MODE1_BDCST9, MODE1_BR0, MODE1_BR8, MODE1_CBUFEN, MODE1_IRPTEN,
+    MODE1_NESTM, MODE1_PEYEN, MODE1_RND32, MODE1_TRUNCATE,
+};
+
+/// MODE1 bits the model refuses: saturation, truncation and bit reversal.
+const MODE1_UNMODELED: u32 = MODE1_TRUNCATE | MODE1_ALUSAT | MODE1_BR0 | MODE1_BR8;
 
 pub const PC_STACK_DEPTH: usize = 30;
 pub const LOOP_STACK_DEPTH: usize = 6;
@@ -53,7 +65,7 @@ pub const STKYX_AIS: u32 = 1 << 5;
 /// STKYX multiplier floating-point invalid sticky.
 pub const STKYX_MIS: u32 = 1 << 9;
 
-/// Float semantics of Type 2a computes.
+/// Float semantics of computes, on both PEs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Arithmetic {
     /// Host `f32` on the 32-bit register view; the extension stays zero and
@@ -63,8 +75,8 @@ pub enum Arithmetic {
     /// PRM rules on 40-bit registers (`alu::evaluate_prm`): MODE1 RND32 selects
     /// 24-bit rounding (else the 32-bit extended format), denormal operands and
     /// post-rounded results become signed zero, NaN or invalid gives all ones,
-    /// overflow gives ±infinity. Computes set [`STKYX_AIS`]/[`STKYX_MIS`] on a
-    /// NaN operand or an invalid operation (PRM 23.x, 26.2).
+    /// overflow gives ±infinity. Computes set [`STKYX_AIS`]/[`STKYX_MIS`] (in
+    /// STKYY on PEy) on a NaN operand or an invalid operation (PRM 23.x, 26.2).
     Prm,
 }
 
@@ -294,11 +306,15 @@ pub struct ProgramMemory {
 
 impl ProgramMemory {
     pub fn load(&mut self, code: &OwnedCode) -> Result<(), ProgramError> {
-        let words = code.words().iter().map(|w| w.bits()).collect();
+        let words: Vec<u64> = code.words().iter().map(|w| w.bits()).collect();
+        self.load_words(code.origin().get(), &words)
+    }
+    /// Load raw 48-bit ISA words at a normal-word address.
+    pub fn load_words(&mut self, origin: u32, words: &[u64]) -> Result<(), ProgramError> {
         insert(
             &mut self.sections,
-            code.origin().get(),
-            words,
+            origin,
+            words.to_vec(),
             InstructionSpace::Isa,
         )
     }
@@ -375,15 +391,20 @@ pub struct Flags {
 }
 
 /// Counter loops only (`UNTIL LCE`); condition-terminated DO is not decoded.
+/// `start` is the first body address, `end` the address of the last
+/// instruction (its first parcel in VISA space).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LoopFrame {
+    start: u32,
     end: u32,
     count: u32,
 }
 
+/// PRM `.06.016`: ASTATx and ASTATy are pushed in SISD and SIMD alike.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StatusFrame {
     flags: Flags,
+    flags_y: Flags,
     mode1: u32,
 }
 
@@ -402,6 +423,9 @@ pub enum MachineError {
     NoCode(u32),
     #[error("unsupported word {word:#014x} at PC {pc:#x}")]
     UnsupportedWord { pc: u32, word: u64 },
+    /// SIMD or a broadcast load makes one instruction write a register twice.
+    #[error("instruction at PC {0:#x} writes one register twice in this mode")]
+    DoubleWrite(u32),
     #[error("PC stack overflow at PC {0:#x}")]
     PcStackOverflow(u32),
     #[error("PC stack underflow at PC {0:#x}")]
@@ -419,6 +443,11 @@ pub enum MachineError {
     ZeroLoopCount(u32),
     #[error("branch at PC {0:#x} is in the last three instructions of a loop")]
     BranchInLoopTail(u32),
+    /// PRM `.06.062`: the last eleven instructions of a loop body (all of a
+    /// shorter body) must be 48-bit. Raised when VISA code fetches a 16- or
+    /// 32-bit instruction there.
+    #[error("short VISA instruction at PC {0:#x} is in the last eleven instructions of a loop")]
+    VisaLoopTail(u32),
     /// PRM `.06.026`: no branch, return or DO in the two delay slots.
     #[error("branch at PC {0:#x} is in the delay slot of a delayed branch")]
     BranchInDelaySlot(u32),
@@ -426,9 +455,11 @@ pub enum MachineError {
     SharedLoopEnd(u32),
     #[error("RTI at PC {0:#x} without an active interrupt")]
     RtiWithoutInterrupt(u32),
-    #[error("DAG{dag} L{index} is nonzero: circular buffers are not modeled")]
-    CircularBuffer { dag: u8, index: usize },
-    #[error("unmodeled MODE1 {0:#x}: SIMD, broadcast, saturation and bit reversal are refused")]
+    /// PRM `.08.32`: the (scaled) length is below 2^31 and the modifier is
+    /// smaller than the length, so one wrap lands inside the ring.
+    #[error("circular buffer I{index} at PC {pc:#x}: L or |M| out of range")]
+    CircularBuffer { pc: u32, index: usize },
+    #[error("unmodeled MODE1 {0:#x}: saturation, truncation and bit reversal are refused")]
     Modes(u32),
     #[error("index register arithmetic overflow at PC {0:#x}")]
     IndexOverflow(u32),
@@ -470,6 +501,15 @@ pub struct Machine {
     /// STKYX: only [`STKYX_AIS`] and [`STKYX_MIS`] are modeled. Sticky until
     /// the caller clears them, as the stock kernel does around each process.
     pub stkyx: u32,
+    /// PEy data registers S0-S15 (ureg `0x50`-`0x5f`), the complements of
+    /// `r` (PRM `.04.08`), with their own extension bytes.
+    pub s: [u32; 16],
+    pub s_extension: [u8; 16],
+    /// ASTATy: SIMD computes set it; SIMD branches AND their condition over
+    /// both PEs (PRM `.06.084`).
+    pub flags_y: Flags,
+    /// STKYY: the PEy [`STKYX_AIS`]/[`STKYX_MIS`] stickies.
+    pub stkyy: u32,
     pc: u32,
     pc_stack: Vec<u32>,
     loop_stack: Vec<LoopFrame>,
@@ -504,6 +544,10 @@ impl Machine {
             arithmetic: Arithmetic::HostF32,
             extension: [0; 16],
             stkyx: 0,
+            s: [0; 16],
+            s_extension: [0; 16],
+            flags_y: Flags::default(),
+            stkyy: 0,
             pc: InterruptBit::RESET.vector(),
             pc_stack: Vec::new(),
             loop_stack: Vec::new(),
@@ -594,10 +638,7 @@ impl Machine {
         if self.status_stack.len() == STATUS_STACK_DEPTH {
             return Err(MachineError::StatusStackOverflow(self.pc));
         }
-        self.status_stack.push(StatusFrame {
-            flags: self.flags,
-            mode1: self.mode1,
-        });
+        self.status_stack.push(self.status());
         self.mode1 &= !self.mmask;
         self.irptl &= !(1 << bit);
         self.imaskp |= 1 << bit;
@@ -632,11 +673,12 @@ impl Machine {
         program: &ProgramMemory,
         bus: &mut impl Bus,
     ) -> Result<(), MachineError> {
-        if self.mode1 & MODE1_SCALAR_CLEAR != 0 {
+        if self.mode1 & MODE1_UNMODELED != 0 {
             return Err(MachineError::Modes(self.mode1));
         }
         let pc = self.pc;
-        let (op, length) = match InstructionSpace::of(pc) {
+        let space = InstructionSpace::of(pc);
+        let (op, length) = match space {
             InstructionSpace::Isa => {
                 let word = program.fetch(pc).ok_or(MachineError::NoCode(pc))?;
                 (
@@ -646,13 +688,30 @@ impl Machine {
             }
             InstructionSpace::Visa => decode_visa(program, pc)?,
         };
+        // The 48-bit loop tail (PRM `.06.062`) starts in the 31 parcels that
+        // end at the loop end; a shorter instruction there breaks it.
+        if space == InstructionSpace::Visa
+            && length < 3
+            && self
+                .loop_stack
+                .iter()
+                .any(|frame| frame.start <= pc && pc <= frame.end && frame.end - pc <= 30)
+        {
+            return Err(MachineError::VisaLoopTail(pc));
+        }
         let branch = matches!(op, Op::Branch { .. } | Op::Return { .. } | Op::CJump { .. });
-        // PRM: no JUMP/CALL/RTS in the last three instructions of a loop.
+        // PRM: no JUMP/CALL/RTS in the last three instructions of a loop
+        // (48-bit, so three parcels each in VISA space).
+        let tail = if space == InstructionSpace::Visa {
+            6
+        } else {
+            2
+        };
         if branch
             && self
                 .loop_stack
                 .last()
-                .is_some_and(|frame| pc <= frame.end && pc + 2 >= frame.end)
+                .is_some_and(|frame| pc <= frame.end && pc + tail >= frame.end)
         {
             return Err(MachineError::BranchInLoopTail(pc));
         }
@@ -667,104 +726,76 @@ impl Machine {
             Op::Idle => {
                 self.idle = true;
             }
-            Op::Compute { op, dst, lhs, rhs } => self.compute(op, dst, lhs, rhs),
-            // Shifter status (SZ/SV/SS) is separate from the ALU flags.
-            Op::Shift { dst, src, amount } => {
-                self.write_ureg(dst as u8, logical_shift(self.r[src], amount));
+            Op::Compute(compute) => {
+                let effects = self.compute(Some(compute));
+                self.commit(effects);
             }
-            Op::ShiftBy { dst, src, amount } => {
-                let value = logical_shift(self.r[src], self.r[amount] as u8 as i8);
-                self.write_ureg(dst as u8, value);
-            }
-            Op::Immediate { ureg, value } => self.write_ureg(ureg, value),
-            Op::Move { dst, src } => {
-                let value = self.read_ureg(src);
-                self.write_ureg(dst, value);
-                // Data register to data register moves carry all 40 bits (I: PRM
-                // 4.10 swaps and PX transfers are 40-bit; DAG transfers use 39:8).
-                if dst >> 4 == 0 && src >> 4 == 0 {
-                    self.extension[usize::from(dst)] = self.extension[usize::from(src & 15)];
+            Op::Immediate { ureg, value } => {
+                self.write_ureg(ureg, value);
+                if let Some(complement) = complement(ureg).filter(|_| self.simd()) {
+                    self.write_ureg(complement, value);
                 }
             }
-            Op::Memory {
-                data,
-                index,
-                modifier,
-                post,
-                store,
-            } => {
-                self.check_linear(index)?;
-                let original = self.i[index];
-                let updated =
-                    scaled(original, self.m[modifier]).ok_or(MachineError::IndexOverflow(pc))?;
-                let address = if post { original } else { updated };
-                if store {
-                    let value = self.read_ureg(data);
-                    self.store(bus, address, value)?;
-                } else {
-                    let value = self.load(bus, address)?;
-                    self.write_ureg(data, value);
-                }
-                if post {
-                    self.i[index] = updated;
-                }
-            }
+            Op::Move { dst, src } => self.copy(dst, src),
+            Op::Transfer { compute, accesses } => self.transfer(bus, compute, accesses)?,
             Op::ImmediateStore {
                 index,
                 modifier,
                 value,
             } => {
-                self.check_linear(index)?;
                 let original = self.i[index];
-                self.i[index] =
-                    scaled(original, self.m[modifier]).ok_or(MachineError::IndexOverflow(pc))?;
+                self.i[index] = self.post_modify(index, self.m[modifier])?;
                 self.store(bus, original, value)?;
+                // PRM 16.12: PEy writes the same data at the next word.
+                if self.simd() {
+                    let next = scaled(original, 1).ok_or(MachineError::IndexOverflow(pc))?;
+                    self.store(bus, next, value)?;
+                }
             }
+            // Pre-modify: no update, no wrap (PRM `.08.14`, `.08.30`).
             Op::OffsetMemory {
                 data,
                 index,
                 offset,
                 store,
             } => {
-                self.check_linear(index)?;
                 let address =
                     scaled(self.i[index], offset).ok_or(MachineError::IndexOverflow(pc))?;
                 if store {
-                    self.store(bus, address, self.read_ureg(data))?;
+                    self.store_ureg(bus, data, address, Some(index))?;
                 } else {
-                    let value = self.load(bus, address)?;
-                    self.write_ureg(data, value);
+                    self.load_ureg(bus, data, address, Some(index))?;
                 }
             }
             // PRM `.08.18`: the NW form scales like a normal-word offset; the
-            // plain form adds raw addresses.
+            // plain form adds raw addresses. MODIFY wraps a ring whatever
+            // CBUFEN says (`.08.16`).
             Op::Modify {
                 index,
                 offset,
                 words,
-            } => {
-                self.check_linear(index)?;
-                let pointer = self.i[index];
-                self.i[index] = if words {
-                    scaled(pointer, offset)
-                } else {
-                    pointer.checked_add_signed(offset)
-                }
-                .ok_or(MachineError::IndexOverflow(pc))?;
-            }
+            } => self.i[index] = self.modified(index, offset, words, true)?,
             Op::Direct {
                 data,
                 address,
                 store,
             } => {
                 if store {
-                    self.store(bus, address, self.r[data])?;
+                    self.store_ureg(bus, data as u8, address, None)?;
                 } else {
-                    let value = self.load(bus, address)?;
-                    self.write_ureg(data as u8, value);
+                    self.load_ureg(bus, data as u8, address, None)?;
                 }
             }
-            Op::ByteStore { data, address } => bus.write_byte(address, self.r[data] as u8)?,
+            // PRM `.06.090`: in byte space the PEy byte is 4 addresses on.
+            Op::ByteStore { data, address } => {
+                bus.write_byte(address, self.r[data] as u8)?;
+                if self.simd() {
+                    let next = address
+                        .checked_add(4)
+                        .ok_or(MachineError::IndexOverflow(pc))?;
+                    bus.write_byte(next, self.s[data] as u8)?;
+                }
+            }
             Op::SystemBit {
                 operation,
                 sysreg,
@@ -774,7 +805,6 @@ impl Machine {
             Op::FlushCache => {}
             // PRM `.17.21`: I7 = I6 and I6 = DM(0, I6), both from the old I6.
             Op::Rframe => {
-                self.check_linear(6)?;
                 let frame = self.i[6];
                 self.i[6] = self.load(bus, frame)?;
                 self.i[7] = frame;
@@ -805,9 +835,9 @@ impl Machine {
                 }
             }
             // Type 25a (ABI record §4): the two delay slots push R2 and the
-            // return literal into the new frame.
+            // return literal into the new frame. `R2 = I6` is a ureg move.
             Op::CJump { target } => {
-                self.write_ureg(2, self.i[6]);
+                self.copy(2, 0x16);
                 self.i[6] = self.i[7];
                 self.delayed = Some(DelayedBranch { target, slots: 2 });
             }
@@ -823,8 +853,7 @@ impl Machine {
                             .status_stack
                             .pop()
                             .ok_or(MachineError::StatusStackUnderflow(pc))?;
-                        self.flags = frame.flags;
-                        self.mode1 = frame.mode1;
+                        self.restore(frame);
                     }
                     self.imaskp &= !(1 << bit);
                 }
@@ -846,6 +875,7 @@ impl Machine {
                 }
                 self.push_pc(next)?;
                 self.loop_stack.push(LoopFrame {
+                    start: next,
                     end,
                     count: self.lcntr,
                 });
@@ -876,6 +906,207 @@ impl Machine {
         Ok(())
     }
 
+    fn simd(&self) -> bool {
+        self.mode1 & MODE1_PEYEN != 0
+    }
+
+    /// Types 1 and 3: an optional compute with one or two DAG accesses, all
+    /// reading the registers as they were before the instruction (stores and
+    /// computes first, then loads; the decoders refuse two writes to one
+    /// register). Post-modify updates I last.
+    fn transfer(
+        &mut self,
+        bus: &mut impl Bus,
+        compute: Option<Compute>,
+        accesses: [Option<Access>; 2],
+    ) -> Result<(), MachineError> {
+        let broadcast = |access: &Access| {
+            let mode = match access.index {
+                1 => MODE1_BDCST1,
+                9 => MODE1_BDCST9,
+                _ => 0,
+            };
+            self.mode1 & mode != 0
+        };
+        if !distinct(compute, accesses, self.simd(), broadcast) {
+            return Err(MachineError::DoubleWrite(self.pc));
+        }
+        let mut planned = [None; 2];
+        for (plan, access) in planned.iter_mut().zip(accesses) {
+            if let Some(access) = access {
+                let modifier = self.m[access.modifier];
+                let address = if access.post {
+                    self.i[access.index]
+                } else {
+                    scaled(self.i[access.index], modifier)
+                        .ok_or(MachineError::IndexOverflow(self.pc))?
+                };
+                let updated = if access.post {
+                    Some(self.post_modify(access.index, modifier)?)
+                } else {
+                    None
+                };
+                *plan = Some((access, address, updated));
+            }
+        }
+        let effects = self.compute(compute);
+        for &(access, address, _) in planned.iter().flatten().filter(|p| p.0.store) {
+            self.store_ureg(bus, access.data, address, Some(access.index))?;
+        }
+        self.commit(effects);
+        for &(access, address, _) in planned.iter().flatten().filter(|p| !p.0.store) {
+            self.load_ureg(bus, access.data, address, Some(access.index))?;
+        }
+        for (access, _, updated) in planned.into_iter().flatten() {
+            if let Some(updated) = updated {
+                self.i[access.index] = updated;
+            }
+        }
+        Ok(())
+    }
+
+    /// I after a post-modify access: wrapped when CBUFEN is set.
+    fn post_modify(&self, index: usize, modifier: i32) -> Result<u32, MachineError> {
+        self.modified(index, modifier, true, self.mode1 & MODE1_CBUFEN != 0)
+    }
+
+    /// `I + M`, wrapped into the ring `[B, B + L)` when `ring` and L != 0
+    /// (PRM `.08.32`): once down by L when M >= 0 and the sum reaches B + L,
+    /// once up by L when M < 0 and the sum falls below B. With `words`, a
+    /// byte-space pointer scales M and L by 4 (normal-word units, `.08.18`).
+    fn modified(
+        &self,
+        index: usize,
+        modifier: i32,
+        words: bool,
+        ring: bool,
+    ) -> Result<u32, MachineError> {
+        let pointer = self.i[index];
+        let unit = if words {
+            i64::from(AddressUnit::of(pointer).scale())
+        } else {
+            1
+        };
+        let step = i64::from(modifier) * unit;
+        let length = i64::from(self.l[index]) * unit;
+        let mut next = i64::from(pointer) + step;
+        if ring && length != 0 {
+            if length > i64::from(i32::MAX) || step.abs() >= length {
+                return Err(MachineError::CircularBuffer { pc: self.pc, index });
+            }
+            let base = i64::from(self.b[index]);
+            if step >= 0 && next >= base + length {
+                next -= length;
+            } else if step < 0 && next < base {
+                next += length;
+            }
+        }
+        u32::try_from(next).map_err(|_| MachineError::IndexOverflow(self.pc))
+    }
+
+    /// The PEy half of a normal-word ureg transfer at `address` (PRM `.08.33`,
+    /// `.08.36`, `.06.090`). A load through I1 with BDCST1 or I9 with BDCST9
+    /// into a data register also loads its complement from the same address,
+    /// in SISD too. Otherwise SIMD moves the complementary ureg at the next
+    /// normal word: `address + 1` in word space, `+ 4` in byte space. The
+    /// implicit address does not wrap in a ring (`.08.31`).
+    fn implicit(
+        &self,
+        ureg: u8,
+        address: u32,
+        index: Option<usize>,
+        store: bool,
+    ) -> Result<Option<(u8, u32)>, MachineError> {
+        let Some(complement) = complement(ureg) else {
+            return Ok(None);
+        };
+        let broadcast = match index {
+            Some(1) => MODE1_BDCST1,
+            Some(9) => MODE1_BDCST9,
+            _ => 0,
+        };
+        if !store && is_data(ureg) && self.mode1 & broadcast != 0 {
+            return Ok(Some((complement, address)));
+        }
+        if !self.simd() {
+            return Ok(None);
+        }
+        let next = scaled(address, 1).ok_or(MachineError::IndexOverflow(self.pc))?;
+        Ok(Some((complement, next)))
+    }
+
+    fn store_ureg(
+        &mut self,
+        bus: &mut impl Bus,
+        ureg: u8,
+        address: u32,
+        index: Option<usize>,
+    ) -> Result<(), MachineError> {
+        let implicit = self.implicit(ureg, address, index, true)?;
+        let value = self.read_ureg(ureg);
+        let implicit = implicit.map(|(complement, at)| (at, self.read_ureg(complement)));
+        self.store(bus, address, value)?;
+        if let Some((at, value)) = implicit {
+            self.store(bus, at, value)?;
+        }
+        Ok(())
+    }
+
+    fn load_ureg(
+        &mut self,
+        bus: &mut impl Bus,
+        ureg: u8,
+        address: u32,
+        index: Option<usize>,
+    ) -> Result<(), MachineError> {
+        let implicit = self.implicit(ureg, address, index, false)?;
+        let value = self.load(bus, address)?;
+        let implicit = implicit
+            .map(|(complement, at)| self.load(bus, at).map(|value| (complement, value)))
+            .transpose()?;
+        self.write_ureg(ureg, value);
+        if let Some((complement, value)) = implicit {
+            self.write_ureg(complement, value);
+        }
+        Ok(())
+    }
+
+    /// `dst = src`. In SIMD a destination with a complement also takes the
+    /// complement of the source, or the source itself when it has none
+    /// (`R5 = I8` loads R5 and S5; `I8 = R5` only I8; PRM `.08.36`,
+    /// `.06.084`). Data register to data register moves carry all 40 bits (I:
+    /// PRM 4.10 swaps and PX transfers are 40-bit; DAG transfers use 39:8).
+    fn copy(&mut self, dst: u8, src: u8) {
+        let read = |m: &Self, code: u8| (m.read_ureg(code), m.extension_of(code));
+        let explicit = read(self, src);
+        let implicit = complement(dst)
+            .filter(|_| self.simd())
+            .map(|cdst| (cdst, read(self, complement(src).unwrap_or(src))));
+        for (dst, (value, extension)) in std::iter::once((dst, explicit)).chain(implicit) {
+            self.write_ureg(dst, value);
+            if let (Some(extension), Some(slot)) = (extension, self.extension_mut(dst)) {
+                *slot = extension;
+            }
+        }
+    }
+
+    fn extension_of(&self, code: u8) -> Option<u8> {
+        let n = usize::from(code & 15);
+        match code >> 4 {
+            0 => Some(self.extension[n]),
+            5 => Some(self.s_extension[n]),
+            _ => None,
+        }
+    }
+    fn extension_mut(&mut self, code: u8) -> Option<&mut u8> {
+        let n = usize::from(code & 15);
+        match code >> 4 {
+            0 => Some(&mut self.extension[n]),
+            5 => Some(&mut self.s_extension[n]),
+            _ => None,
+        }
+    }
+
     /// Normal-word data access; the core-internal `SYSCTL` never reaches the bus.
     fn load(&self, bus: &mut impl Bus, address: u32) -> Result<u32, BusError> {
         if address == SYSCTL {
@@ -891,18 +1122,124 @@ impl Machine {
         bus.write(address, value)
     }
 
-    fn check_linear(&self, index: usize) -> Result<(), MachineError> {
-        if self.l[index] != 0 {
-            return Err(MachineError::CircularBuffer {
-                dag: if index < 8 { 1 } else { 2 },
-                index,
-            });
-        }
-        Ok(())
+    /// The effects of `compute` on PEx and, in SIMD, PEy (PRM `.06.086`),
+    /// from the registers before the instruction writes.
+    fn compute(&self, compute: Option<Compute>) -> [Option<Effects>; 2] {
+        let Some(compute) = compute else {
+            return [None, None];
+        };
+        [
+            Some(self.effects(compute, false)),
+            self.simd().then(|| self.effects(compute, true)),
+        ]
     }
 
-    fn compute(&mut self, op: ComputeOp, dst: usize, lhs: usize, rhs: usize) {
-        let (x, y) = (self.r[lhs], self.r[rhs]);
+    fn commit(&mut self, effects: [Option<Effects>; 2]) {
+        for (y, effects) in [false, true].into_iter().zip(effects) {
+            let Some(effects) = effects else { continue };
+            let (registers, extension, flags, sticky) = if y {
+                (
+                    &mut self.s,
+                    &mut self.s_extension,
+                    &mut self.flags_y,
+                    &mut self.stkyy,
+                )
+            } else {
+                (
+                    &mut self.r,
+                    &mut self.extension,
+                    &mut self.flags,
+                    &mut self.stkyx,
+                )
+            };
+            for (dst, bits) in effects.writes.into_iter().flatten() {
+                registers[dst] = (bits >> 8) as u32;
+                extension[dst] = bits as u8;
+            }
+            effects.flags.apply(flags);
+            *sticky |= effects.sticky;
+        }
+    }
+
+    /// One PE's data registers: PEx (`R`) or PEy (`S`).
+    fn bank(&self, y: bool) -> (&[u32; 16], &[u8; 16]) {
+        if y {
+            (&self.s, &self.s_extension)
+        } else {
+            (&self.r, &self.extension)
+        }
+    }
+
+    fn effects(&self, compute: Compute, y: bool) -> Effects {
+        let (registers, _) = self.bank(y);
+        // Shifter status (SZ/SV/SS) is separate from the ALU flags; a shift
+        // result is a 32-bit write.
+        let shift = |dst: usize, value: u32| Effects {
+            writes: [Some((dst, u64::from(value) << 8)), None, None],
+            ..Effects::default()
+        };
+        match compute {
+            Compute::Alu { op, dst, lhs, rhs } => {
+                let (result, flags, sticky) = self.operate(y, op, lhs, rhs);
+                Effects {
+                    writes: [result.map(|bits| (dst, bits)), None, None],
+                    flags,
+                    sticky,
+                }
+            }
+            Compute::Shift { dst, src, amount } => {
+                shift(dst, logical_shift(registers[src], amount))
+            }
+            Compute::ShiftBy { dst, src, amount } => shift(
+                dst,
+                logical_shift(registers[src], registers[amount] as u8 as i8),
+            ),
+            // PRM `.05.45`: each part works as its single function; dual
+            // add/subtract ORs the ALU flags. The multiplier sets no ALU flag.
+            Compute::Multi {
+                product,
+                xm,
+                ym,
+                xa,
+                ya,
+                sum,
+                difference,
+            } => {
+                let (result, _, mut sticky) = self.operate(y, ComputeOp::FloatMultiply, xm, ym);
+                let mut writes = [result.map(|bits| (product, bits)), None, None];
+                let mut flags = FlagUpdate::None;
+                let alu = [
+                    (ComputeOp::FloatAdd, sum),
+                    (ComputeOp::FloatSubtract, difference),
+                ];
+                for (slot, (op, dst)) in writes[1..].iter_mut().zip(alu) {
+                    let Some(dst) = dst else { continue };
+                    let (result, update, alu_sticky) = self.operate(y, op, xa, ya);
+                    *slot = result.map(|bits| (dst, bits));
+                    flags = flags.or(update);
+                    sticky |= alu_sticky;
+                }
+                Effects {
+                    writes,
+                    flags,
+                    sticky,
+                }
+            }
+        }
+    }
+
+    /// One ALU or multiplier operation on PE `y`: the 40-bit result (`None`
+    /// for compares), its flag update and the stickies it raises.
+    fn operate(
+        &self,
+        y: bool,
+        op: ComputeOp,
+        lhs: usize,
+        rhs: usize,
+    ) -> (Option<u64>, FlagUpdate, u32) {
+        let (registers, extension) = self.bank(y);
+        let (x, y) = (registers[lhs], registers[rhs]);
+        let mut sticky = 0;
         // 40-bit result, and the float order (x vs y for COMP, else the result
         // vs zero) that sets AZ/AN. `None` for NaN or a non-float result.
         let (result, order) = match self.arithmetic {
@@ -919,11 +1256,11 @@ impl Machine {
             }
             Arithmetic::Prm => {
                 let rnd32 = self.mode1 & MODE1_RND32 != 0;
-                let wide = |n: usize| u64::from(self.r[n]) << 8 | u64::from(self.extension[n]);
+                let wide = |n: usize| u64::from(registers[n]) << 8 | u64::from(extension[n]);
                 let (x, y) = (wide(lhs), wide(rhs));
                 let result = evaluate_prm(op, x, y, rnd32);
                 if invalid(op, x, y, rnd32, result) {
-                    self.stkyx |= match op {
+                    sticky = match op {
                         ComputeOp::FloatMultiply => STKYX_MIS,
                         _ => STKYX_AIS,
                     };
@@ -937,26 +1274,24 @@ impl Machine {
                 (result, order)
             }
         };
-        match op {
+        let flags = match op {
             // The multiplier does not update ALU flags.
-            ComputeOp::FloatMultiply => {}
-            ComputeOp::IntegerCompare => {
-                self.flags.zero = x == y;
-                self.flags.negative = (x as i32) < (y as i32);
-            }
-            ComputeOp::IntegerCompareUnsigned => {
-                self.flags.zero = x == y;
-                self.flags.negative = x < y;
-            }
+            ComputeOp::FloatMultiply => FlagUpdate::None,
+            ComputeOp::IntegerCompare => FlagUpdate::ZeroNegative {
+                zero: x == y,
+                negative: (x as i32) < (y as i32),
+            },
+            ComputeOp::IntegerCompareUnsigned => FlagUpdate::ZeroNegative {
+                zero: x == y,
+                negative: x < y,
+            },
             // Float results and COMP (both read floats).
-            _ if op.float_result() => {
-                self.flags.zero = order == Some(Ordering::Equal);
-                self.flags.negative = order == Some(Ordering::Less);
-            }
+            _ if op.float_result() => FlagUpdate::ZeroNegative {
+                zero: order == Some(Ordering::Equal),
+                negative: order == Some(Ordering::Less),
+            },
             _ => {
                 let bits = (result.expect("non-compare result") >> 8) as u32;
-                self.flags.zero = bits == 0;
-                self.flags.negative = bits & (1 << 31) != 0;
                 let (carry, overflow) = match op {
                     ComputeOp::IntegerAdd => add_flags(x, y),
                     ComputeOp::IntegerIncrement => add_flags(x, 1),
@@ -964,32 +1299,20 @@ impl Machine {
                     ComputeOp::IntegerDecrement => sub_flags(x, 1),
                     _ => (false, false),
                 };
-                self.flags.carry = carry;
-                self.flags.overflow = overflow;
+                FlagUpdate::Integer {
+                    zero: bits == 0,
+                    negative: bits & (1 << 31) != 0,
+                    carry,
+                    overflow,
+                }
             }
-        }
-        if let Some(bits) = result {
-            self.r[dst] = (bits >> 8) as u32;
-            self.extension[dst] = bits as u8;
-        }
+        };
+        (result, flags, sticky)
     }
 
+    /// PRM `.06.084`: in SIMD a branch condition is the AND over both PEs.
     fn condition(&self, condition: u8) -> bool {
-        let f = self.flags;
-        match condition {
-            0 => f.zero,
-            1 => f.negative && !f.zero,
-            2 => f.negative || f.zero,
-            3 => f.carry,
-            13 => f.test,
-            16 => !f.zero,
-            17 => !f.negative || f.zero,
-            18 => !f.negative && !f.zero,
-            19 => !f.carry,
-            29 => !f.test,
-            31 => true,
-            _ => unreachable!("decoder restricts conditions"),
-        }
+        holds(self.flags, condition) && (!self.simd() || holds(self.flags_y, condition))
     }
 
     fn system_bit(&mut self, operation: BitOp, sysreg: SysReg, mask: u32) {
@@ -1003,15 +1326,37 @@ impl Machine {
                 let empty = (u32::from(self.loop_stack.is_empty()) << 26)
                     | (u32::from(self.status_stack.is_empty()) << 24)
                     | (u32::from(self.pc_stack.is_empty()) << 22);
-                self.flags.test = empty & mask == mask;
+                self.set_test(empty & mask == mask);
                 return;
             }
         };
         match operation {
             BitOp::Set => *register |= mask,
             BitOp::Clear => *register &= !mask,
-            BitOp::Test => self.flags.test = *register & mask == mask,
+            BitOp::Test => {
+                let all = *register & mask == mask;
+                self.set_test(all);
+            }
         }
+    }
+    /// BIT TST is a sequencer operation; both ASTATs get its result (I), so
+    /// a SIMD branch on TF sees it.
+    fn set_test(&mut self, value: bool) {
+        self.flags.test = value;
+        self.flags_y.test = value;
+    }
+
+    fn status(&self) -> StatusFrame {
+        StatusFrame {
+            flags: self.flags,
+            flags_y: self.flags_y,
+            mode1: self.mode1,
+        }
+    }
+    fn restore(&mut self, frame: StatusFrame) {
+        self.flags = frame.flags;
+        self.flags_y = frame.flags_y;
+        self.mode1 = frame.mode1;
     }
 
     fn stacks(&mut self, push: StackSet, pop: StackSet) -> Result<(), MachineError> {
@@ -1020,10 +1365,7 @@ impl Machine {
             if self.status_stack.len() == STATUS_STACK_DEPTH {
                 return Err(MachineError::StatusStackOverflow(pc));
             }
-            self.status_stack.push(StatusFrame {
-                flags: self.flags,
-                mode1: self.mode1,
-            });
+            self.status_stack.push(self.status());
             self.mode1 &= !self.mmask;
         }
         if pop.status {
@@ -1031,8 +1373,7 @@ impl Machine {
                 .status_stack
                 .pop()
                 .ok_or(MachineError::StatusStackUnderflow(pc))?;
-            self.flags = frame.flags;
-            self.mode1 = frame.mode1;
+            self.restore(frame);
         }
         if pop.loops {
             self.loop_stack
@@ -1053,6 +1394,7 @@ impl Machine {
             2 => self.m[index] as u32,
             3 => self.l[index],
             4 => self.b[index],
+            5 => self.s[index],
             _ => match SystemUreg::from_code(code).expect("decoder restricts uregs") {
                 SystemUreg::Lcntr => self.lcntr,
                 SystemUreg::CurLcntr => self.loop_stack.last().map_or(0, |f| f.count),
@@ -1082,6 +1424,10 @@ impl Machine {
             4 => {
                 self.b[index] = value;
                 self.i[index] = value;
+            }
+            5 => {
+                self.s[index] = value;
+                self.s_extension[index] = 0;
             }
             _ => match SystemUreg::from_code(code).expect("decoder restricts uregs") {
                 SystemUreg::Lcntr => self.lcntr = value,
@@ -1212,10 +1558,10 @@ impl SystemUreg {
     }
 }
 
-/// R, I, M, L, B of both DAGs, plus the modeled system registers.
+/// R, I, M, L, B of both DAGs, S (PEy), plus the modeled system registers.
 const fn ureg(code: u8, write: bool) -> Option<u8> {
     match code >> 4 {
-        0..=4 => Some(code),
+        0..=5 => Some(code),
         _ => match SystemUreg::from_code(code) {
             Some(system) if !write || system.writable() => Some(code),
             _ => None,
@@ -1223,31 +1569,225 @@ const fn ureg(code: u8, write: bool) -> Option<u8> {
     }
 }
 
+/// The SIMD complement of a modeled ureg (PRM `.06.084`): Rn and Sn, USTAT1
+/// and USTAT2. Other uregs have none; SIMD moves them on PEx only.
+const fn complement(code: u8) -> Option<u8> {
+    match code {
+        0x00..=0x0f => Some(code + 0x50),
+        0x50..=0x5f => Some(code - 0x50),
+        0x70 => Some(0x71),
+        0x71 => Some(0x70),
+        _ => None,
+    }
+}
+
+/// R or S. Broadcast loads reach only these (PRM `.08.33`).
+const fn is_data(code: u8) -> bool {
+    matches!(code >> 4, 0 | 5)
+}
+
+/// An I, M, L or B register of DAG2 (`dag2`) or DAG1.
+const fn in_dag(code: u8, dag2: bool) -> bool {
+    matches!(code >> 4, 1..=4) && (code & 15 >= 8) == dag2
+}
+
 fn condition_code(word: u64) -> Option<u8> {
     let code = ((word >> 33) & 31) as u8;
     matches!(code, 0..=2 | 13 | 16..=18 | 29 | 31).then_some(code)
+}
+
+fn holds(f: Flags, condition: u8) -> bool {
+    match condition {
+        0 => f.zero,
+        1 => f.negative && !f.zero,
+        2 => f.negative || f.zero,
+        3 => f.carry,
+        13 => f.test,
+        16 => !f.zero,
+        17 => !f.negative || f.zero,
+        18 => !f.negative && !f.zero,
+        19 => !f.carry,
+        29 => !f.test,
+        31 => true,
+        _ => unreachable!("decoder restricts conditions"),
+    }
+}
+
+/// The ALU flags one compute writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum FlagUpdate {
+    #[default]
+    None,
+    /// Float results and compares: AZ and AN only.
+    ZeroNegative { zero: bool, negative: bool },
+    /// Fixed-point results.
+    Integer {
+        zero: bool,
+        negative: bool,
+        carry: bool,
+        overflow: bool,
+    },
+}
+
+impl FlagUpdate {
+    fn apply(self, flags: &mut Flags) {
+        match self {
+            Self::None => {}
+            Self::ZeroNegative { zero, negative } => {
+                (flags.zero, flags.negative) = (zero, negative);
+            }
+            Self::Integer {
+                zero,
+                negative,
+                carry,
+                overflow,
+            } => {
+                (flags.zero, flags.negative) = (zero, negative);
+                (flags.carry, flags.overflow) = (carry, overflow);
+            }
+        }
+    }
+    /// PRM `.05.45`: dual add/subtract ORs the ALU flags of its two parts.
+    fn or(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::None, update) | (update, Self::None) => update,
+            (
+                Self::ZeroNegative { zero, negative },
+                Self::ZeroNegative {
+                    zero: zero2,
+                    negative: negative2,
+                },
+            ) => Self::ZeroNegative {
+                zero: zero || zero2,
+                negative: negative || negative2,
+            },
+            _ => unreachable!("multifunction ALU parts are float"),
+        }
+    }
+}
+
+/// What a compute does on one PE: 40-bit register writes, flags, stickies.
+#[derive(Debug, Clone, Copy, Default)]
+struct Effects {
+    writes: [Option<(usize, u64)>; 3],
+    flags: FlagUpdate,
+    sticky: u32,
+}
+
+/// A compute field (PRM 21.x) or a Type 6a shift. Registers are 0-15 of the
+/// PE that runs it (R on PEx, S on PEy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compute {
+    Alu {
+        op: ComputeOp,
+        dst: usize,
+        lhs: usize,
+        rhs: usize,
+    },
+    /// Type 6a `Rn = LSHIFT Rx BY data8`.
+    Shift { dst: usize, src: usize, amount: i8 },
+    /// `Rn = LSHIFT Rx BY Ry`.
+    ShiftBy {
+        dst: usize,
+        src: usize,
+        amount: usize,
+    },
+    /// Float multifunction (PRM 21.15, 21.16): `Fm = Fxm * Fym` with
+    /// `Fa = Fxa + Fya` and/or `Fs = Fxa - Fya`.
+    Multi {
+        product: usize,
+        xm: usize,
+        ym: usize,
+        xa: usize,
+        ya: usize,
+        sum: Option<usize>,
+        difference: Option<usize>,
+    },
+}
+
+impl Compute {
+    fn destinations(self) -> [Option<usize>; 3] {
+        match self {
+            Self::Alu {
+                op:
+                    ComputeOp::FloatCompare
+                    | ComputeOp::IntegerCompare
+                    | ComputeOp::IntegerCompareUnsigned,
+                ..
+            } => [None; 3],
+            Self::Alu { dst, .. } | Self::Shift { dst, .. } | Self::ShiftBy { dst, .. } => {
+                [Some(dst), None, None]
+            }
+            Self::Multi {
+                product,
+                sum,
+                difference,
+                ..
+            } => [Some(product), sum, difference],
+        }
+    }
+}
+
+/// One DAG access of Types 1 and 3. `data` is a ureg code; `index` and
+/// `modifier` are 0-15 (DAG2 is 8-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Access {
+    data: u8,
+    index: usize,
+    modifier: usize,
+    post: bool,
+    store: bool,
+}
+
+/// One instruction's register writes are distinct: compute results and data
+/// register loads, as bits of `R0-R15, S0-S15`. A compute writes Rn, and Sn too
+/// in SIMD (`simd`); a load writes its register, and its complement too in SIMD
+/// or when `broadcast` says so. The PRM does not define a double write, so the
+/// decoders refuse one that every mode has, and `transfer` refuses the rest
+/// (**I**).
+fn distinct(
+    compute: Option<Compute>,
+    accesses: [Option<Access>; 2],
+    simd: bool,
+    broadcast: impl Fn(&Access) -> bool,
+) -> bool {
+    let bits = |n: usize, bank: usize, both: bool| {
+        if both {
+            0x1_0001 << n
+        } else {
+            1_u32 << (n + 16 * bank)
+        }
+    };
+    let loads = accesses
+        .into_iter()
+        .flatten()
+        .filter(|access| !access.store && is_data(access.data))
+        .map(|access| {
+            let (n, bank) = (
+                usize::from(access.data & 15),
+                usize::from(access.data >> 4 == 5),
+            );
+            bits(n, bank, simd || broadcast(&access))
+        });
+    let results = compute.map_or([None; 3], Compute::destinations);
+    let mut seen = 0_u32;
+    results
+        .into_iter()
+        .flatten()
+        .map(|n| bits(n, 0, simd))
+        .chain(loads)
+        .all(|written| {
+            let fresh = seen & written == 0;
+            seen |= written;
+            fresh
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Op {
     Nop,
     Idle,
-    Compute {
-        op: ComputeOp,
-        dst: usize,
-        lhs: usize,
-        rhs: usize,
-    },
-    Shift {
-        dst: usize,
-        src: usize,
-        amount: i8,
-    },
-    ShiftBy {
-        dst: usize,
-        src: usize,
-        amount: usize,
-    },
+    Compute(Compute),
     Immediate {
         ureg: u8,
         value: u32,
@@ -1256,12 +1796,10 @@ enum Op {
         dst: u8,
         src: u8,
     },
-    Memory {
-        data: u8,
-        index: usize,
-        modifier: usize,
-        post: bool,
-        store: bool,
+    /// Types 1 and 3: an optional compute with one or two DAG accesses.
+    Transfer {
+        compute: Option<Compute>,
+        accesses: [Option<Access>; 2],
     },
     OffsetMemory {
         data: u8,
@@ -1269,7 +1807,7 @@ enum Op {
         offset: i32,
         store: bool,
     },
-    /// Type 16a `DM(Ia, Mb) = imm32`, post-modify.
+    /// Type 16a `DM(Ia, Mb) = imm32` / `PM(Ic, Md) = imm32`, post-modify.
     ImmediateStore {
         index: usize,
         modifier: usize,
@@ -1350,17 +1888,18 @@ fn decode(word: u64) -> Option<Op> {
     }
     let opcode = word >> 40;
     match opcode {
-        // Type2a single compute, COND=31.
-        0x01 if word & !0x3f_ffff == 0x013e_0000_0000 => decode_compute(word),
+        // Type2a compute, COND=31; the 23-bit field holds a single or a multifunction compute
+        // (stock `013e00598c70` = `F8=F1*F7, F12=F8-F12`).
+        0x01 if word & !0x7f_ffff == 0x013e_0000_0000 => decode_compute(word).map(Op::Compute),
         // Type6a shifter immediate, LSHIFT only; DATAEX must sign-fill data8.
         0x02 if word & !(0xf << 27 | 0xffff) == 0x023e_0000_0000 => {
             let amount = (word >> 8) as u8 as i8;
             let dataex = (word >> 27) & 0xf;
-            (dataex == if amount < 0 { 0xf } else { 0 }).then_some(Op::Shift {
+            (dataex == if amount < 0 { 0xf } else { 0 }).then_some(Op::Compute(Compute::Shift {
                 dst: ((word >> 4) & 15) as usize,
                 src: (word & 15) as usize,
                 amount,
-            })
+            }))
         }
         // Type8a: A (bit 38) is (LA), loop abort, which is not modeled.
         0x06 if word & (1 << 38 | 0x3f << 24) == 0 => Some(Op::Branch {
@@ -1395,11 +1934,13 @@ fn decode(word: u64) -> Option<Op> {
             })
         }
         // Type12a counter loops: immediate (0x0c) or data register (0x0d).
-        0x0c if word & (1 << 23) == 0 && (word >> 24) & 0xffff != 0 => Some(Op::Do {
+        // Mode (bit 23) picks F1- or E2-active execution (PRM `.06.048`),
+        // which runs the same loop; RELADDR is 22:0.
+        0x0c if (word >> 24) & 0xffff != 0 => Some(Op::Do {
             end: (word & 0x7f_ffff) as i32,
             count: LoopSource::Immediate(((word >> 24) & 0xffff) as u32),
         }),
-        0x0d if word & 0xff80_ff80_0000 == 0x0d00_0000_0000 && (word >> 32) & 0x7f < 16 => {
+        0x0d if word & 0xff80_ff00_0000 == 0x0d00_0000_0000 && (word >> 32) & 0x7f < 16 => {
             Some(Op::Do {
                 end: (word & 0x7f_ffff) as i32,
                 count: LoopSource::Register(((word >> 32) & 15) as usize),
@@ -1442,11 +1983,11 @@ fn decode(word: u64) -> Option<Op> {
                 mask: word as u32,
             })
         }
-        // Type 19a self-index DAG1 MODIFY (W 39, G 38, IDIS 37:35): `0x15`
-        // with W = 1 is the NW form, `0x16` with W = 0 the plain form. SW
-        // (`0x15`, W = 0), DAG2 and cross-index are refused.
-        0x15 | 0x16 if (word >> 35) & 0x1f == u64::from(opcode == 0x15) << 4 => Some(Op::Modify {
-            index: ((word >> 32) & 7) as usize,
+        // Type 19a self-index MODIFY (W 39, G 38, IDIS 37:35, IS 34:32):
+        // `0x15` with W = 1 is the NW form, `0x16` with W = 0 the plain form.
+        // G selects DAG2. SW (`0x15`, W = 0) and cross-index are refused.
+        0x15 | 0x16 if (word >> 35) & 0x17 == u64::from(opcode == 0x15) << 4 => Some(Op::Modify {
+            index: 8 * ((word >> 38) & 1) as usize + ((word >> 32) & 7) as usize,
             offset: word as u32 as i32,
             words: opcode == 0x15,
         }),
@@ -1468,9 +2009,18 @@ fn decode(word: u64) -> Option<Op> {
                 },
             })
         }
-        // Type3a DM(Ia, Mb) <-> ureg, DAG1, COND=31.
-        0x40..=0x5f if word & (ALWAYS | 1 << 32) == ALWAYS && word & 0x407f_ffff == 0 => {
-            dm_transfer(word >> 16)
+        0x20..=0x3f => decode_dual(word),
+        // Type3a compute with DM(Ia, Mb) or PM(Ic, Md) <-> ureg; COND=31, L=0.
+        0x40..=0x5f if word & ALWAYS == ALWAYS && word & (1 << 30) == 0 => {
+            let field = word & 0x7f_ffff;
+            let compute = if field == 0 {
+                None
+            } else {
+                Some(decode_compute(field)?)
+            };
+            let accesses = [Some(dm_transfer(word >> 16)?), None];
+            distinct(compute, accesses, false, |_| false)
+                .then_some(Op::Transfer { compute, accesses })
         }
         // Type5a ureg move, COND=31.
         0x70..=0x77 if word & ALWAYS == ALWAYS && word & 0x407f_ffff == 0 => {
@@ -1480,56 +2030,98 @@ fn decode(word: u64) -> Option<Op> {
                 src: ureg(source as u8, false)?,
             })
         }
-        // Type16a `DM(Ia, Mb) = imm32`: G = 0 (DM), bits 36:32 zero.
-        0x90..=0x9f if word & (0x3f << 32) == 0 => Some(Op::ImmediateStore {
-            index: ((word >> 41) & 7) as usize,
-            modifier: ((word >> 38) & 7) as usize,
-            value: word as u32,
-        }),
-        // Type15a normal-word universal-register transfer.
-        0xa0..=0xaf if word & (1 << 39) == 0 => Some(Op::OffsetMemory {
-            data: offset_ureg(((word >> 32) & 0x7f) as u8, word & (1 << 40) != 0)?,
-            index: ((word >> 41) & 7) as usize,
-            offset: word as u32 as i32,
-            store: word & (1 << 40) != 0,
-        }),
+        // Type16a `DM(Ia, Mb) = imm32`: G 37 selects DAG2, bits 36:32 zero.
+        0x90..=0x9f if word & (0x1f << 32) == 0 => {
+            let base = 8 * ((word >> 37) & 1) as usize;
+            Some(Op::ImmediateStore {
+                index: base + ((word >> 41) & 7) as usize,
+                modifier: base + ((word >> 38) & 7) as usize,
+                value: word as u32,
+            })
+        }
+        // Type15a normal-word universal-register transfer; G 44 selects DAG2.
+        0xa0..=0xbf if word & (1 << 39) == 0 => {
+            let (store, dag2) = (word & (1 << 40) != 0, word & (1 << 44) != 0);
+            Some(Op::OffsetMemory {
+                data: offset_ureg(((word >> 32) & 0x7f) as u8, store, dag2)?,
+                index: 8 * usize::from(dag2) + ((word >> 41) & 7) as usize,
+                offset: word as u32 as i32,
+                store,
+            })
+        }
         _ => None,
     }
 }
 
-/// Offset loads may target DAG1; stores must source a different DAG or data.
-fn offset_ureg(code: u8, store: bool) -> Option<u8> {
-    if store && matches!(code >> 4, 1..=4) && code & 15 < 8 {
+/// Offset loads may target the access's DAG; stores must source another DAG
+/// or a data register.
+fn offset_ureg(code: u8, store: bool, dag2: bool) -> Option<u8> {
+    if store && in_dag(code, dag2) {
         return None;
     }
     ureg(code, !store)
 }
 
-/// Type 3a/3b `DM(Ia, Mb) <-> ureg` from the 32-bit field layout of Type 3b
-/// (Type 3a's upper 32 bits): U 28, I 27:25, M 24:22, D 15, UREG 13:7.
-/// Post-modify and stores need a UREG outside DAG1 (PRM UREGXDAG1).
-fn dm_transfer(fields: u64) -> Option<Op> {
+/// Type 3a/3b ACCESS (PRM 14.14, 14.16) from the Type 3b field layout (Type
+/// 3a's upper 32 bits): U 28, I 27:25, M 24:22, G 16, D 15, UREG 13:7. G
+/// selects `PM(Ic, Md)` on DAG2 (I8-I15, M8-M15). Post-modify and stores
+/// need a ureg outside that DAG (UREGXDAG1, UREGXDAG2).
+fn dm_transfer(fields: u64) -> Option<Access> {
     let store = fields & (1 << 15) != 0;
     let post = fields & (1 << 28) != 0;
+    let dag2 = fields & (1 << 16) != 0;
     let code = ((fields >> 7) & 0x7f) as u8;
-    let dag1 = matches!(code >> 4, 1..=4) && code & 15 < 8;
-    if dag1 && (store || post) {
+    if in_dag(code, dag2) && (store || post) {
         return None;
     }
-    Some(Op::Memory {
+    let base = 8 * usize::from(dag2);
+    Some(Access {
         data: ureg(code, !store)?,
-        index: ((fields >> 25) & 7) as usize,
-        modifier: ((fields >> 22) & 7) as usize,
+        index: base + ((fields >> 25) & 7) as usize,
+        modifier: base + ((fields >> 22) & 7) as usize,
         post,
         store,
     })
 }
 
+/// Type 1a (PRM 14.02, figure 14.03.1) accesses: DMD 44, DMI 43:41, DMM
+/// 40:38, DMDREG 36:33 through DAG1; PMD 37, PMI 32:30, PMM 29:27, PMDREG
+/// 26:23 through DAG2. Both post-modify; D = 1 stores.
+fn dual_accesses(word: u64) -> [Option<Access>; 2] {
+    let field = |shift: u32, mask: u64| ((word >> shift) & mask) as usize;
+    let access = |store: u32, index: u32, modifier: u32, data: u32, base: usize| Access {
+        data: field(data, 15) as u8,
+        index: base + field(index, 7),
+        modifier: base + field(modifier, 7),
+        post: true,
+        store: field(store, 1) == 1,
+    };
+    [
+        Some(access(44, 41, 38, 33, 0)),
+        Some(access(37, 30, 27, 23, 8)),
+    ]
+}
+
+/// Type 1a: compute 22:0 (0 for none) with a DM and a PM access. Compute
+/// 22:16 = `0x3f` is the Type 1b marker, so the 48-bit reading refuses it.
+fn decode_dual(word: u64) -> Option<Op> {
+    let field = word & 0x7f_ffff;
+    if field >> 16 == 0x3f {
+        return None;
+    }
+    let compute = if field == 0 {
+        None
+    } else {
+        Some(decode_compute(field)?)
+    };
+    let accesses = dual_accesses(word);
+    distinct(compute, accesses, false, |_| false).then_some(Op::Transfer { compute, accesses })
+}
+
 /// VISA decoder for the shim forms (PRM "b"/"c" figures). Other short forms
-/// fall through to the 48-bit reading; their markers (checked for Types 2b,
-/// 2c, 3b, 3c, 5b, 7b, 9b, 11c, 15b, 16b, 17b, 21c, 22c, 25c) make [`decode`]
-/// refuse it. Loop ends must be ISA (PRM `.06.062`), so DO is refused here.
-/// Returns the op and its length in parcels.
+/// fall through to the 48-bit reading; their markers (checked for Types 1b,
+/// 2b, 2c, 3b, 3c, 5b, 7b, 9b, 11c, 15b, 16b, 17b, 21c, 22c, 25c) make
+/// [`decode`] refuse it. Returns the op and its length in parcels.
 fn decode_visa(program: &ProgramMemory, pc: u32) -> Result<(Op, u32), MachineError> {
     let parcel = |n: u32| {
         let address = pc.wrapping_add(n);
@@ -1543,12 +2135,18 @@ fn decode_visa(program: &ProgramMemory, pc: u32) -> Result<(Op, u32), MachineErr
         0x0001 => Some(Op::Nop),
         0x1901 => Some(Op::Rframe),
         // Type 3c normal-word post-modify, PEx data registers.
-        _ if first & 0xf010 == 0x9010 => Some(Op::Memory {
-            data: (first & 15) as u8,
-            index: ((first >> 9) & 7) as usize,
-            modifier: ((first >> 6) & 7) as usize,
-            post: true,
-            store: first & (1 << 5) != 0,
+        _ if first & 0xf010 == 0x9010 => Some(Op::Transfer {
+            compute: None,
+            accesses: [
+                Some(Access {
+                    data: (first & 15) as u8,
+                    index: ((first >> 9) & 7) as usize,
+                    modifier: ((first >> 6) & 7) as usize,
+                    post: true,
+                    store: first & (1 << 5) != 0,
+                }),
+                None,
+            ],
         }),
         // Type 11c, unconditional, J=LR=0; X (bit 8) selects RTI.
         0x0abe | 0x0bbe => Some(Op::Return {
@@ -1564,10 +2162,9 @@ fn decode_visa(program: &ProgramMemory, pc: u32) -> Result<(Op, u32), MachineErr
         return Ok((op, 2));
     }
     let word = u64::from(word32) << 16 | u64::from(parcel(2)?);
-    match decode(word) {
-        Some(Op::Do { .. }) | None => Err(MachineError::UnsupportedWord { pc, word }),
-        Some(op) => Ok((op, 3)),
-    }
+    decode(word)
+        .map(|op| (op, 3))
+        .ok_or(MachineError::UnsupportedWord { pc, word })
 }
 
 fn decode_visa32(word: u32) -> Option<Op> {
@@ -1580,18 +2177,31 @@ fn decode_visa32(word: u32) -> Option<Op> {
             src: ureg(source as u8, false)?,
         });
     }
-    // Type 15b normal-word universal-register transfer, L=G=0.
-    if word & 0xf0ff_c000 == 0x9008_0000 {
+    // Type 15b normal-word universal-register transfer, L=0; G 21 is DAG2.
+    if word & 0xf0df_c000 == 0x9008_0000 {
+        let (store, dag2) = (word & (1 << 24) != 0, word & (1 << 21) != 0);
         return Some(Op::OffsetMemory {
-            data: offset_ureg(((word >> 7) & 0x7f) as u8, word & (1 << 24) != 0)?,
-            index: ((word >> 25) & 7) as usize,
+            data: offset_ureg(((word >> 7) & 0x7f) as u8, store, dag2)?,
+            index: 8 * usize::from(dag2) + ((word >> 25) & 7) as usize,
             offset: ((word << 25) as i32) >> 25,
-            store: word & (1 << 24) != 0,
+            store,
         });
     }
-    // Type 3b, COND=31, G=L=0, marker 01111, W=X=1 (normal word).
-    if word & 0xe03f_407f == 0x403e_003f {
-        return dm_transfer(fields);
+    // Type 3b, COND=31, L=0, marker 01111, W=X=1 (normal word); G is free.
+    if word & 0xe03e_407f == 0x403e_003f {
+        let accesses = [Some(dm_transfer(fields)?), None];
+        return Some(Op::Transfer {
+            compute: None,
+            accesses,
+        });
+    }
+    // Type 1b: Type 1a's upper 32 bits, marker 0111111 (PRM figure 14.07.1).
+    if word >> 29 == 1 && word & 0x7f == 0x3f {
+        let accesses = dual_accesses(fields << 16);
+        return distinct(None, accesses, false, |_| false).then_some(Op::Transfer {
+            compute: None,
+            accesses,
+        });
     }
     // Type 9b `JUMP (Md, Ic)`, REL=B=A=CI=0, J = (DB). Fields sit 16 bits
     // below Type 9a, so COND is read through the 48-bit position.
@@ -1609,18 +2219,23 @@ fn decode_visa32(word: u32) -> Option<Op> {
     None
 }
 
-fn decode_compute(word: u64) -> Option<Op> {
-    let dst = ((word >> 8) & 15) as usize;
-    let lhs = ((word >> 4) & 15) as usize;
-    let rhs = (word & 15) as usize;
-    if (word >> 12) & 0x3ff == 0x200 {
-        return Some(Op::ShiftBy {
+/// Compute field (PRM 21.x). Bit 22 clear: single function, CU and opcode
+/// 21:12, Rn 11:8, Rx 7:4, Ry 3:0. Bit 22 set: float multifunction.
+fn decode_compute(field: u64) -> Option<Compute> {
+    if field & (1 << 22) != 0 {
+        return decode_multifunction(field);
+    }
+    let dst = ((field >> 8) & 15) as usize;
+    let lhs = ((field >> 4) & 15) as usize;
+    let rhs = (field & 15) as usize;
+    if (field >> 12) & 0x3ff == 0x200 {
+        return Some(Compute::ShiftBy {
             dst,
             src: lhs,
             amount: rhs,
         });
     }
-    let op = match ((word >> 12) & 0x3ff, dst, rhs) {
+    let op = match ((field >> 12) & 0x3ff, dst, rhs) {
         (0x130, ..) => ComputeOp::FloatMultiply,
         (0x081, ..) => ComputeOp::FloatAdd,
         (0x082, ..) => ComputeOp::FloatSubtract,
@@ -1646,5 +2261,83 @@ fn decode_compute(word: u64) -> Option<Op> {
         (0x0c9, _, 0) => ComputeOp::FixToInteger,
         _ => return None,
     };
-    Some(Op::Compute { op, dst, lhs, rhs })
+    Some(Compute::Alu { op, dst, lhs, rhs })
+}
+
+/// Float multifunction (PRM 21.15, 21.16): Fm 15:12, Fa 11:8, Fxm 7:6
+/// (F0-F3), Fym 5:4 (F4-F7), Fxa 3:2 (F8-F11), Fya 1:0 (F12-F15). Opcode
+/// 21:16 `011000` adds, `011001` subtracts; 21:20 = `11` is the dual
+/// add/subtract with Fs at 19:16. Other multifunction forms are refused.
+fn decode_multifunction(field: u64) -> Option<Compute> {
+    let register = |shift: u32, mask: u64| ((field >> shift) & mask) as usize;
+    let fa = register(8, 15);
+    let (sum, difference) = match (field >> 16) & 0x3f {
+        0b01_1000 => (Some(fa), None),
+        0b01_1001 => (None, Some(fa)),
+        0b11_0000..=0b11_1111 => (Some(fa), Some(register(16, 15))),
+        _ => return None,
+    };
+    let compute = Compute::Multi {
+        product: register(12, 15),
+        xm: register(6, 3),
+        ym: 4 + register(4, 3),
+        xa: 8 + register(2, 3),
+        ya: 12 + register(0, 3),
+        sum,
+        difference,
+    };
+    distinct(Some(compute), [None, None], false, |_| false).then_some(compute)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TYPE1A: u64 = 0b001 << 45;
+    /// `F0 = F0 * F4` (CU and opcode 21:12, Rn 11:8, Rx 7:4, Ry 3:0).
+    const MULTIPLY_F0: u64 = 0x130 << 12 | 4;
+
+    /// The PRM leaves a double write undefined, so a code generator bug that loads and computes
+    /// into one register, or loads one register twice, is refused rather than guessed.
+    #[test]
+    fn decoders_refuse_two_writes_to_one_register() {
+        // R0 = DM(I0, M0), R0 = PM(I8, M8).
+        assert_eq!(decode(TYPE1A), None);
+        // F0 = F0 * F4, R0 = DM(I0, M0), R1 = PM(I8, M8).
+        assert_eq!(decode(TYPE1A | 1 << 23 | MULTIPLY_F0), None);
+        // F0 = F0 * F4, R1 = DM(I0, M0), R2 = PM(I8, M8) is fine.
+        assert!(decode(TYPE1A | 1 << 33 | 2 << 23 | MULTIPLY_F0).is_some());
+        // F2 = F0 * F4, F2 = F8 + F12: Fm = Fa.
+        assert_eq!(
+            decode_compute(1 << 22 | 0b01_1000 << 16 | 2 << 12 | 2 << 8),
+            None
+        );
+        // Type 3a F0 = F0 * F4, R0 = DM(I0, M0) (U = 1, COND = 31).
+        assert_eq!(decode(0b010 << 45 | 1 << 44 | 31 << 33 | MULTIPLY_F0), None);
+    }
+
+    /// Type 1b is Type 1a's upper half with compute 22:16 = 0x3f (PRM figure 14.07.1): the
+    /// 48-bit reading refuses that marker and the 32-bit reading is the bare dual move.
+    #[test]
+    fn type1b_marker_is_not_a_compute() {
+        // R0 = DM(I0, M0), R1 = PM(I8, M8).
+        let type1b: u32 = 0b001 << 29 | 1 << 7 | 0x3f;
+        assert_eq!(decode(u64::from(type1b) << 16), None);
+        let access = |data, index, modifier| {
+            Some(Access {
+                data,
+                index,
+                modifier,
+                post: true,
+                store: false,
+            })
+        };
+        assert_eq!(
+            decode_visa32(type1b),
+            Some(Op::Transfer {
+                compute: None,
+                accesses: [access(0, 0, 0), access(1, 8, 8)],
+            })
+        );
+    }
 }

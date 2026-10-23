@@ -258,7 +258,7 @@ mod tests {
         refuse(&|v| v["blocks"] = json!({}));
         refuse(&|v| v["blocks"]["other"] = v["blocks"]["gain"].clone());
         refuse(&|v| v["blocks"]["gain"]["output"] = json!(99));
-        refuse(&|v| v["blocks"]["gain"]["version"] = json!(3));
+        refuse(&|v| v["blocks"]["gain"]["version"] = json!(4));
         // Format 1 cannot carry blocks.
         let error = refuse(&|v| {
             v["format"] = json!(1);

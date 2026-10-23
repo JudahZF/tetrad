@@ -638,16 +638,36 @@ fn builds_wavenet_models_that_match_nam_core() {
         worst <= 2e-3 * peak,
         "largest error against NAM core: {worst} (peak {peak})"
     );
+
+    // Kernel 17 is past the network's limit (16): the model stays on the scalar graph.
+    let arrays = [
+        ArrayConfig {
+            kernel: 17,
+            dilations: vec![1],
+            ..ArrayConfig::trainer(1, 2, 1, false)
+        },
+        small(2, 1, 1, true),
+    ];
+    let w = scaled(&wavenet_weights(&arrays), 3.0);
+    let block = host.block(3, "Wide.nam", nam("WaveNet", wavenet_config(&arrays), &w));
+    assert_eq!(block.version(), 2, "a wide kernel is a scalar graph");
+    let mut reference = WaveNet::new(&arrays, &w);
+    let (worst, peak) = compare(&block, 4800, |x| reference.process(x));
+    assert!(
+        worst <= 2e-3 * peak,
+        "largest error against NAM core: {worst} (peak {peak})"
+    );
     host.stop();
 }
 
 #[test]
-fn refuses_wavenet_models_it_cannot_play() {
+fn builds_trainer_wavenets_and_refuses_what_does_not_fit() {
     let Some(mut host) = Host::start() else {
         return;
     };
-    // The trainer's sizes, with nonzero weights so that no product is skipped. A size that
-    // fits is built and measured; one that does not is refused with the estimate.
+    // The trainer's sizes, with nonzero weights so that no product is skipped. Each builds as
+    // a network (IR 3) that matches NAM core; the device refuses standard, whose history does
+    // not fit the DM heap.
     let lite_first = ArrayConfig {
         dilations: (0..7).map(|i| 1 << i).collect(),
         ..ArrayConfig::trainer(1, 12, 6, false)
@@ -684,38 +704,28 @@ fn refuses_wavenet_models_it_cannot_play() {
         ),
     ];
     for (scope, (size, arrays)) in (1..).zip(&sizes) {
-        let text = nam("WaveNet", wavenet_config(arrays), &wavenet_weights(arrays));
-        match host.build(scope, &format!("{size}.nam"), text) {
-            BuildOutcome::Ir(ir) => {
-                report(
-                    &format!("WaveNet {size}"),
-                    &serde_json::from_value(ir).unwrap(),
-                );
-            }
-            BuildOutcome::Error(error) => {
-                eprintln!("WaveNet {size}: {error}");
-                assert!(
-                    error.contains(&format!("(WaveNet {size}) needs")),
-                    "{error}"
-                );
-            }
+        let w = wavenet_weights(arrays);
+        let block = host.block(
+            scope,
+            &format!("{size}.nam"),
+            nam("WaveNet", wavenet_config(arrays), &w),
+        );
+        assert_eq!(block.version(), 3, "{size} is a network");
+        // 2048 samples pass the longest dilation (512, kernel 3) twice.
+        let mut reference = WaveNet::new(arrays, &w);
+        let (worst, peak) = compare(&block, 2048, |x| reference.process(x));
+        eprintln!("WaveNet {size}: largest error against NAM core {worst:e}, peak {peak}");
+        assert!(worst <= 2e-3 * peak, "{size}: {worst} (peak {peak})");
+        if *size == "standard" {
+            let Err(error) = qcdsp::device::generate(&block) else {
+                panic!("standard does not fit the DM heap");
+            };
+            let error = error.to_string();
+            assert!(error.contains("bytes of DM heap"), "{error}");
+        } else {
+            report(&format!("WaveNet {size}"), &block);
         }
     }
-    // The standard size is far over both limits.
-    let standard = &sizes[3].1;
-    let error = host.refused(
-        9,
-        "Standard.nam",
-        nam(
-            "WaveNet",
-            wavenet_config(standard),
-            &wavenet_weights(standard),
-        ),
-    );
-    assert!(
-        error.contains("this version plays models up to 24576 nodes"),
-        "{error}"
-    );
 
     // Configs that change the computation in ways this version does not model.
     let arrays = [ArrayConfig {

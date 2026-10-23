@@ -564,6 +564,106 @@ fn a_block_provider_builds_the_ir_qcdsp_builds() {
 }
 
 #[test]
+fn a_block_provider_builds_the_network_qcdsp_builds() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const b = ctx.blocks.builder();
+              const level = b.parameter("Input", 0, 4, 1);
+              const net = b.network();
+              const x = net.input();
+              net.gain(x, level);
+              const z = net.buffer(2);
+              net.conv(x, z, { kernel: 2, dilation: 3, weights: [0.5, -0.25, 1, 0.125], bias: [0.1, 0] });
+              net.activation(z, "tanh");
+              const y = net.buffer(1);
+              net.conv(z, y, { weights: [0.75, -1.5] });
+              net.add(x, y);
+              return b.finish(b.mul(net.output(y), b.constant(0.5)));
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(3, ""));
+    let BuildOutcome::Ir(ir) = published(&mut h, 3).outcome else {
+        panic!("provider failed")
+    };
+    let block = qcdsp::Block::from_json(&ir.to_string()).unwrap();
+    assert_eq!(block.version(), 3, "a network needs IR 3");
+
+    let expected = (|| -> qcdsp::Result<qcdsp::Block> {
+        let mut b = qcdsp::BlockBuilder::new("block", "Block", qcdsp::Category::Utility);
+        b.parameter(qcdsp::Parameter::new("Input", 0.0, 4.0, 1.0)?)?;
+        let mut net = qcdsp::NetworkBuilder::new();
+        let x = net.input();
+        net.gain(x, 0);
+        let z = net.buffer(2);
+        net.conv(
+            x,
+            z,
+            2,
+            3,
+            vec![0.5, -0.25, 1.0, 0.125],
+            Some(vec![0.1, 0.0]),
+            false,
+        );
+        net.activation(z, qcdsp::Activation::Tanh);
+        let y = net.buffer(1);
+        net.conv(z, y, 1, 1, vec![0.75, -1.5], None, false);
+        net.add(x, y);
+        let output = b.network(net.finish(y))?;
+        let half = b.constant(0.5)?;
+        let out = b.mul(output, half)?;
+        b.finish(out)
+    })()
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&block).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
+}
+
+#[test]
+fn a_network_refuses_foreign_handles_and_holds_its_operation_limit() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.blocks.provide("amp", () => {
+              const refuses = (what, attempt, reason) => {
+                try {
+                  attempt();
+                } catch (e) {
+                  if (String(e).includes(reason)) return;
+                }
+                throw new Error(`${what} was accepted`);
+              };
+              const b = ctx.blocks.builder();
+              const level = b.parameter("Level", 0, 1, 1);
+              const net = b.network();
+              const y = net.buffer(1);
+              const other = ctx.blocks.builder();
+              const foreign = other.network();
+              refuses("a foreign buffer", () => net.copy(foreign.buffer(1), y), "not a buffer");
+              refuses("a signal as a buffer", () => net.copy(level, y), "not a buffer");
+              other.finish(other.input());
+              refuses("a finished builder's network", () => foreign.buffer(1), "finished");
+              net.copy(net.input(), y);
+              for (let i = 1; i < 4096; i++) net.activation(y, "relu");
+              return b.finish(net.output(y));
+            });
+        } };"#,
+        Limits::default(),
+    );
+    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
+    h.send(&build_block(4, ""));
+    let BuildOutcome::Ir(ir) = published(&mut h, 4).outcome else {
+        panic!("a network at the operation limit did not build")
+    };
+    assert_eq!(ir["network"]["ops"].as_array().unwrap().len(), 4096);
+    qcdsp::Block::from_json(&ir.to_string()).unwrap();
+}
+
+#[test]
 fn a_failing_provider_publishes_its_error() {
     let mut h = Harness::start(
         r#"export default { activate(ctx) {

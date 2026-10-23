@@ -30,6 +30,8 @@ const CANARY: u32 = 0x7fc0_dead;
 /// (dsp-heap note §2.1). The harness answers calls to them; nothing else may be called.
 const HEAP_MALLOC: u32 = 0x16_adfa;
 const HEAP_FREE: u32 = 0x16_ad7e;
+/// The PM heap of core 1 (heap 1, L1 block 2), byte space: a network's weights.
+const WEIGHTS: u32 = 0x30_4000;
 
 struct Memory {
     map: MemoryMap,
@@ -65,6 +67,9 @@ struct Harness {
     arena: Option<(u32, u32)>,
     /// What heap_malloc returns: the arena, or 0 (heap full).
     allocation: u32,
+    /// A network's weights region (heap 1, PM; byte space) and what heap_malloc(1) returns.
+    weights: Option<u32>,
+    weight_allocation: u32,
     heap_calls: Vec<HeapCall>,
 }
 
@@ -106,12 +111,21 @@ impl Harness {
                 Heap::Sd => (0x8000_0000, 4, AddressUnit::Byte),
                 Heap::Dm if byte_state => (0xd_0000, 1, AddressUnit::Word),
                 Heap::Dm => (0x25_0000, 4, AddressUnit::Byte),
+                Heap::Pm => unreachable!("only weights are in heap 1"),
             };
             map.add(base, unit, arena.words as usize).unwrap();
             for word in 0..arena.words {
                 map.write(base + scale * word, CANARY).unwrap();
             }
             (base, scale)
+        });
+        let weights = layout.weights().map(|weights| {
+            map.add(WEIGHTS, AddressUnit::Byte, weights.words as usize)
+                .unwrap();
+            for word in 0..weights.words {
+                map.write(WEIGHTS + 4 * word, CANARY).unwrap();
+            }
+            WEIGHTS
         });
         Self {
             cpu: Machine::reset(),
@@ -126,6 +140,8 @@ impl Harness {
             generated,
             allocation: arena.map_or(0, |(base, _)| base),
             arena,
+            weight_allocation: weights.unwrap_or(0),
+            weights,
             heap_calls: Vec::new(),
         }
     }
@@ -191,7 +207,13 @@ impl Harness {
             assert_eq!(cpu.m[n], before.2[n], "M{n}");
         }
         assert_eq!(cpu.mode1, MODE);
+        assert_eq!(cpu.l, [0; 16], "C code runs with every DAG length zero");
         assert_eq!(cpu.stkyx & 0x220, 0, "AIS/MIS faults the kernel slot");
+        assert_eq!(
+            cpu.stkyy & 0x220,
+            0,
+            "AIS/MIS on PEy faults the kernel slot"
+        );
         if entry == self.generated.entries.process {
             assert!(
                 cpu.cycles() - start <= self.generated.cycles_per_call,
@@ -205,7 +227,11 @@ impl Harness {
         let arena = self.arena.map_or(0..0, |(base, scale)| {
             base..base + scale * self.layout.arena.unwrap().words
         });
-        let writable: [Range<u32>; 5] = [
+        let weights = self.weights.map_or(0..0, |base| {
+            base..base + 4 * self.layout.weights().unwrap().words
+        });
+        let writable: [Range<u32>; 6] = [
+            weights,
             self.state + 17 * self.scale..self.state + self.layout.total_words * self.scale,
             arena,
             0x24_1080..0x24_1100,
@@ -239,7 +265,9 @@ impl Harness {
         for word in 0..64 {
             self.memory.map.write(cpu.i[7] - 4 * word, CANARY).unwrap();
         }
-        cpu.r[0] = if function == HEAP_MALLOC {
+        cpu.r[0] = if function == HEAP_MALLOC && cpu.r[4] == 1 {
+            self.weight_allocation
+        } else if function == HEAP_MALLOC {
             self.allocation
         } else {
             CANARY
@@ -460,6 +488,201 @@ fn arena_lifecycle(block: &Block, samples: u32, heap: Heap) {
                 .all(|a| (STACK - 2044..STACK).contains(a))
         );
     }
+}
+
+/// A two-array WaveNet network (IR 3): init takes the DM arena (bank, frame buffers, rings) and
+/// the PM weights arena and writes the packed weights; process runs the frame kernels in SIMD
+/// and matches the host reference past the longest dilation; recovery clears the history;
+/// destroy frees both heaps.
+#[test]
+fn network_block_runs_its_frame_kernels() {
+    let block = examples::wavenet(&[
+        examples::WavenetArray {
+            input: 1,
+            channels: 4,
+            head: 2,
+            head_bias: false,
+            dilations: vec![1, 2, 4, 8],
+        },
+        examples::WavenetArray {
+            input: 4,
+            channels: 2,
+            head: 1,
+            head_bias: true,
+            dilations: vec![1, 2, 16],
+        },
+    ])
+    .unwrap();
+    for byte_state in [false, true] {
+        let mut h = Harness::new(&block, byte_state);
+        let arena = h.layout.arena.expect("a network has an arena");
+        let weights = h.layout.weights().expect("and weights");
+        let plan = h.layout.network.clone().unwrap().plan;
+        h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+        assert_eq!(
+            h.heap_calls,
+            [
+                (HEAP_MALLOC, 0, arena.bytes()),
+                (HEAP_MALLOC, 1, weights.bytes())
+            ]
+        );
+        for (word, value) in plan.weights.iter().enumerate() {
+            let stored = h.memory.map.peek(WEIGHTS + 4 * word as u32).unwrap();
+            assert_eq!(stored, value.to_bits(), "weight {word}");
+        }
+
+        let mut twin = Processor::new(block.clone()).unwrap();
+        for (index, value) in [(0, 0.6_f32), (1, 0.3)] {
+            h.call(
+                h.generated.entries.set_parameter,
+                index,
+                value.to_bits(),
+                None,
+            );
+            let p = &block.parameters()[index as usize];
+            twin.set_parameter(index as usize, p.min + value * (p.max - p.min))
+                .unwrap();
+        }
+        // 40 calls pass the longest history (2 × 16 samples) many times over.
+        let mut peak = 0f32;
+        for frame in 0..48 {
+            if frame == 40 {
+                h.call(h.generated.entries.recovery, 0, 0, None);
+                twin.reset();
+            }
+            let input = h.write_input(frame);
+            let expected = input[0].map(|x| twin.process_sample(x));
+            peak = expected.iter().fold(peak, |peak, v| peak.max(v.abs()));
+            h.call(h.generated.entries.process, IO, 0, None);
+            check_output(&h, &[expected, expected], block.name(), frame);
+        }
+        assert!(peak > 0.01, "the network makes a signal: peak {peak}");
+        let destroy = h
+            .generated
+            .entries
+            .destroy
+            .expect("a network frees its heaps");
+        h.call(destroy, 0, 0, Some(STOCK_DESTROY));
+        let base = h.arena.unwrap().0;
+        assert_eq!(
+            h.heap_calls[2..],
+            [(HEAP_FREE, 1, WEIGHTS), (HEAP_FREE, 0, base)]
+        );
+    }
+}
+
+/// The less common kernel paths: a convolution that accumulates into its output, a fused
+/// condition on a one-term convolution (its loads need instructions of their own), odd channel
+/// counts, relu and hardtanh, and a gain.
+#[test]
+fn network_kernels_cover_accumulate_and_short_convolutions() {
+    use qcdsp::{Activation, BlockBuilder, Category, NetworkBuilder, Parameter};
+    let mut dsp = BlockBuilder::new("net", "Net", Category::Utility);
+    dsp.parameter(Parameter::new("Level", 0.0, 2.0, 1.0).unwrap())
+        .unwrap();
+    let mut net = NetworkBuilder::new();
+    let x = net.input();
+    net.gain(x, 0);
+    let a = net.buffer(3);
+    // One term (1 input, kernel 1) with a fused condition (x, accumulate).
+    net.conv(
+        x,
+        a,
+        1,
+        1,
+        vec![0.5, -0.25, 0.75],
+        Some(vec![0.1, 0.0, -0.1]),
+        false,
+    );
+    net.conv(x, a, 1, 1, vec![0.2, 0.3, -0.4], None, true);
+    net.activation(a, Activation::Relu);
+    let b = net.buffer(3);
+    net.conv(
+        a,
+        b,
+        2,
+        3,
+        (0..18).map(|n| n as f32 * 0.05 - 0.4).collect(),
+        None,
+        false,
+    );
+    // Accumulates into b with history: the residual is the output itself.
+    net.conv(
+        a,
+        b,
+        3,
+        1,
+        (0..27).map(|n| 0.3 - n as f32 * 0.02).collect(),
+        None,
+        true,
+    );
+    net.activation(b, Activation::Hardtanh);
+    let y = net.buffer(1);
+    net.conv(b, y, 1, 1, vec![0.6, -0.5, 0.4], Some(vec![0.05]), false);
+    let output = dsp.network(net.finish(y)).unwrap();
+    let block = dsp.finish(output).unwrap();
+    for byte_state in [false, true] {
+        let mut h = Harness::new(&block, byte_state);
+        h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+        h.call(
+            h.generated.entries.set_parameter,
+            0,
+            0.8_f32.to_bits(),
+            None,
+        );
+        let mut twin = Processor::new(block.clone()).unwrap();
+        twin.set_parameter(0, 1.6).unwrap();
+        let mut peak = 0f32;
+        for frame in 0..8 {
+            let input = h.write_input(frame);
+            let expected = input[0].map(|x| twin.process_sample(x));
+            peak = expected.iter().fold(peak, |peak, v| peak.max(v.abs()));
+            h.call(h.generated.entries.process, IO, 0, None);
+            check_output(&h, &[expected, expected], block.name(), frame);
+        }
+        assert!(peak > 0.01, "the network makes a signal: peak {peak}");
+    }
+}
+
+/// A network whose DM arena allocation fails plays dry, and destroy frees nothing, even when
+/// the state's weights pointer word held a stale value before init.
+#[test]
+fn failed_network_allocation_frees_nothing() {
+    let block = examples::wavenet(&[examples::WavenetArray {
+        input: 1,
+        channels: 2,
+        head: 1,
+        head_bias: true,
+        dilations: vec![1, 2],
+    }])
+    .unwrap();
+    let mut h = Harness::new(&block, true);
+    h.allocation = 0;
+    let weights = h.layout.weights().unwrap();
+    let stale = h.state + h.scale * weights.pointer;
+    h.memory.map.write(stale, 0xdead_beef).unwrap();
+    h.call(h.generated.entries.init, 0, 0, Some(STOCK_INIT));
+    assert_eq!(h.state_word(weights.pointer), 0);
+    let input = h.write_input(0);
+    h.call(h.generated.entries.process, IO, 0, None);
+    for (channel, samples) in input.iter().enumerate() {
+        for (sample, x) in samples.iter().enumerate() {
+            assert_eq!(h.output(channel, sample).to_bits(), x.to_bits(), "dry");
+        }
+    }
+    h.call(
+        h.generated.entries.destroy.unwrap(),
+        0,
+        0,
+        Some(STOCK_DESTROY),
+    );
+    assert!(
+        h.heap_calls
+            .iter()
+            .all(|&(function, _, _)| function == HEAP_MALLOC),
+        "{:x?}",
+        h.heap_calls
+    );
 }
 
 /// heap_malloc returns 0 when heap 0 is full. Then nothing touches the arena: process leaves
