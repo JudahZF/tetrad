@@ -310,6 +310,9 @@ fn read_ids(platform: &mut impl super::platform::Platform) -> Result<Ids, String
     let files = platform.services().files();
     match files.read_bounded(std::path::Path::new(IDS_FILE), MAX_IDS_FILE) {
         Ok(None) => Ok(Ids::new()),
+        Ok(Some(bytes)) if bytes.len() as u64 > MAX_IDS_FILE => {
+            Err(format!("larger than {MAX_IDS_FILE} bytes"))
+        }
         Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),
     }
