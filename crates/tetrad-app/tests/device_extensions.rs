@@ -306,7 +306,7 @@ fn a_second_source_of_an_installed_extension_warns() {
     });
     assert_eq!(
         view(&device).status.as_deref(),
-        Some("Installed Test Mapper 1.0.0, also from tester/exts: turn one off")
+        Some("Also installed from tester/exts: turn one off (Test Mapper 1.0.0)")
     );
 }
 

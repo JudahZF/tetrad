@@ -2056,14 +2056,15 @@ impl Extensions {
             JobResult::Installed(Ok(loaded)) => {
                 let manifest = &loaded.installed.current.manifest;
                 let key = &loaded.installed.key;
-                let installed = format!("Installed {} {}", manifest.name, manifest.version);
+                let installed = format!("{} {}", manifest.name, manifest.version);
+                // The warning leads: a long name is cut at the end of the line.
                 repositories.status = Some(
                     match repositories.installed_elsewhere(&key.source, &key.id) {
                         Some(other) => format!(
-                            "{installed}, also from {}: turn one off",
+                            "Also installed from {}: turn one off ({installed})",
                             repositories.label(other)
                         ),
-                        None => installed,
+                        None => format!("Installed {installed}"),
                     },
                 );
                 repositories

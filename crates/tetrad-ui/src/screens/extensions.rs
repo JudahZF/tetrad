@@ -61,7 +61,8 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, pane: Rect) {
 
 /// The default repository reads "Default", any other its `owner/repo`.
 fn source_label<'a>(view: &ExtensionsView, source: &'a str) -> &'a str {
-    let default = (view.sources.iter()).any(|entry| entry.default && entry.repository == source);
+    let default = (view.sources.iter())
+        .any(|entry| entry.default && entry.repository.eq_ignore_ascii_case(source));
     if default { "Default" } else { source }
 }
 
