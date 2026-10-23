@@ -266,8 +266,11 @@ pub struct Installed {
     pub statuses: Vec<Status>,
     fingerprint: Option<u64>,
     compiled: BTreeMap<String, Compiled>,
-    /// [`IDS_FILE`], read at the first install.
+    /// [`IDS_FILE`], read at the first install. It stays `None` while the file does not read,
+    /// so that a bad file is never overwritten.
     ids: Option<Ids>,
+    /// The last save of `ids` failed: the next install saves again.
+    ids_unsaved: bool,
 }
 
 impl Installed {
@@ -300,17 +303,16 @@ fn fingerprint(sources: &[Source]) -> u64 {
         })
 }
 
-/// [`IDS_FILE`]; empty when it is missing or bad (the IDs then follow from the keys alone).
-fn read_ids(platform: &mut impl super::platform::Platform) -> Ids {
+/// [`IDS_FILE`], empty when it is missing.
+fn read_ids(platform: &mut impl super::platform::Platform) -> Result<Ids, String> {
     use super::platform::ServiceBackends;
     use tetrad_services::exec::Files;
     let files = platform.services().files();
-    (files
-        .read_bounded(std::path::Path::new(IDS_FILE), MAX_IDS_FILE)
-        .ok()
-        .flatten())
-    .and_then(|bytes: Vec<u8>| serde_json::from_slice(&bytes).ok())
-    .unwrap_or_default()
+    match files.read_bounded(std::path::Path::new(IDS_FILE), MAX_IDS_FILE) {
+        Ok(None) => Ok(Ids::new()),
+        Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn save_ids(platform: &mut impl super::platform::Platform, ids: &Ids) -> Result<(), String> {
@@ -355,15 +357,21 @@ impl<P: super::platform::Platform> super::Device<P> {
             None => None,
         };
         let mut compiled = std::mem::take(&mut self.state.community.compiled);
-        let mut ids = match self.state.community.ids.take() {
-            Some(ids) => ids,
-            None => read_ids(&mut self.platform),
+        let (mut ids, readable) = match self.state.community.ids.take() {
+            Some(ids) => (ids, Ok(())),
+            None => match read_ids(&mut self.platform) {
+                Ok(ids) => (ids, Ok(())),
+                Err(error) => (Ids::new(), Err(error)),
+            },
         };
         let saved = ids.clone();
         let (blobs, mut statuses) = install(sources, template, specs, &mut compiled, &mut ids);
-        let ids_error = (ids != saved)
-            .then(|| save_ids(&mut self.platform, &ids))
-            .and_then(Result::err);
+        let save = readable.is_ok() && (ids != saved || self.state.community.ids_unsaved);
+        let ids_error = match &readable {
+            Err(error) => Some(format!("not read, so not saved: {error}")),
+            Ok(()) => (save.then(|| save_ids(&mut self.platform, &ids))).and_then(Result::err),
+        };
+        let ids_unsaved = save && ids_error.is_some();
         if let Some(error) = &template_error {
             for status in statuses.iter_mut().filter(|status| status.model.is_none()) {
                 status.error = Some(format!("the stock Volume framework: {error}"));
@@ -390,15 +398,17 @@ impl<P: super::platform::Platform> super::Device<P> {
         if let Some(error) = ids_error {
             self.notice(
                 super::Subsystem::Extensions,
-                format!("community block IDs not saved: {error}"),
+                format!("community block IDs ({IDS_FILE}): {error}"),
             );
         }
-        // Without the framework the next sync tries again, even with the same sources.
+        // Without the framework, or with IDs not saved, the next sync tries again, even with
+        // the same sources.
         self.state.community = Installed {
             statuses,
-            fingerprint: template_error.is_none().then_some(fingerprint),
+            fingerprint: (template_error.is_none() && !ids_unsaved).then_some(fingerprint),
             compiled,
-            ids: Some(ids),
+            ids: readable.is_ok().then_some(ids),
+            ids_unsaved,
         };
         self.state.module_stats = std::cell::OnceCell::new();
         self.bridges.ui.invalidate_models();
