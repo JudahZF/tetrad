@@ -7,6 +7,13 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Added
 
+- Themes (Settings → System → Appearance): pick the UI colours. The built-in themes are Stock
+  (the default, pixel for pixel the old look), Stage High Contrast, Slate and Ember. Tetrad
+  also reads theme files from `/media/p4/tetrad/themes/`, and extensions can add themes in
+  their manifest. Themes are dark only and must pass contrast checks. Block colours, scene
+  colours, LEDs, the boot menu and Recovery do not change (docs/themes.md).
+- Theme-only extensions: a manifest with `themes` and no capabilities, settings or commands
+  packs without a module, and Tetrad runs nothing for it (docs/extensions.md#ship-themes).
 - Remote (Settings → System → Remote): a web page on the unit to add IRs from a browser on the
   same Wi-Fi, behind a 4-digit PIN that the page shows. The browser converts each WAV or AIFF to
   the stock IR format (mono, 48 kHz, first 1,024 samples); the unit imports it into the IR
@@ -39,6 +46,14 @@ All notable changes to Tetrad are in this file. The version numbers follow
   an arena block leave the heap unchanged. A 512 KB SD arena block starts on cores 2, 3 and 4
   and matches its host reference.
 - qcdsp IR 2: `div`, `recip`, `tanh`, `sigmoid` and mono blocks.
+- Tetrad over USB (docs/usb.md): the `tetrad-usb` tool shows the Tetrad version, saves a
+  screenshot, prints the recent notices and sends a signed Tetrad release to the unit over the
+  USB cable. UPDATE TETRAD on the unit then installs it, also without the internet. The link
+  shares the HID interface with Cortex Control; both run at the same time.
+- Extensions: the `usb` capability and `ctx.usb.onMessage` answer JSON messages from a computer
+  (`tetrad-usb ext`), so an extension can add its own USB features.
+- USB MIDI sends and receives every MIDI kind, SysEx included. Before, only CC, PC and the clock
+  went out over USB.
 
 ### Changed
 

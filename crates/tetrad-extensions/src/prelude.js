@@ -13,6 +13,7 @@
     controlChanged: [],
     presetLoaded: [],
     blocks: new Map(),
+    usb: undefined,
   };
   const registrations = {
     midiChannels: [],
@@ -20,6 +21,7 @@
     controlChanges: false,
     triggers: [],
     blocks: [],
+    usb: false,
   };
   let activating = true;
   let disposer;
@@ -263,6 +265,14 @@
         },
       }),
       storage: Object.freeze({ get: (key) => call("storage.get", null, { key }) }),
+      usb: Object.freeze({
+        onMessage(handler) {
+          duringActivation("usb.onMessage");
+          if (handlers.usb) throw new Error("usb.onMessage is already registered");
+          handlers.usb = fn("handler", handler);
+          registrations.usb = true;
+        },
+      }),
       // The host checks the same rules again (`TriggerSpec::is_valid`).
       triggers: Object.freeze({
         declare(trigger) {
@@ -313,6 +323,8 @@
   globalThis.__tetrad_dispatch = (scopeId, eventJson) => {
     const event = JSON.parse(eventJson);
     const scope = makeScope(scopeId);
+    // The JSON text of a USB handler's return value: the reply to the computer.
+    let result = null;
     let run;
     switch (event.kind) {
       case "running":
@@ -335,14 +347,26 @@
       case "buildBlock":
         run = [() => buildBlock(event, scope)];
         break;
+      case "usb": {
+        const h = handlers.usb;
+        run = h
+          ? [
+              async () => {
+                const reply = await h(Object.freeze(event.message), scope);
+                result = JSON.stringify(reply === undefined ? null : reply);
+              },
+            ]
+          : [];
+        break;
+      }
       default:
         run = [];
     }
     (async () => {
       for (const h of run) await h();
     })().then(
-      () => native.done(scopeId, null),
-      (e) => native.done(scopeId, String(e && e.stack ? `${e}\n${e.stack}` : e)),
+      () => native.done(scopeId, null, result),
+      (e) => native.done(scopeId, String(e && e.stack ? `${e}\n${e.stack}` : e), null),
     );
   };
 

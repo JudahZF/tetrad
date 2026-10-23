@@ -455,6 +455,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hidapi"
+version = "2.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "818c0e1d27887aaf76fe737042e27a66b796a7b099e6d2e1a72d106c2dff3fa6"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "pkg-config",
+ "windows-sys",
+]
+
+[[package]]
 name = "hmac"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -899,7 +912,9 @@ dependencies = [
  "tetrad-settings",
  "tetrad-storage",
  "tetrad-sys",
+ "tetrad-theme",
  "tetrad-ui",
+ "tetrad-usb",
  "tetrad-watchdog",
  "thiserror",
  "zeroize",
@@ -910,6 +925,7 @@ name = "tetrad-assets"
 version = "0.1.0-alpha.4"
 dependencies = [
  "fontdue",
+ "tetrad-theme",
  "ttf-parser",
 ]
 
@@ -1050,6 +1066,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tetrad-theme",
  "thiserror",
 ]
 
@@ -1202,11 +1219,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetrad-theme"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "tetrad-ui"
 version = "0.1.0-alpha.4"
 dependencies = [
  "flate2",
  "tetrad-assets",
+ "tetrad-theme",
+ "thiserror",
+]
+
+[[package]]
+name = "tetrad-usb"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "clap",
+ "hidapi",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

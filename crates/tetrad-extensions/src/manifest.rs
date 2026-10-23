@@ -1,5 +1,5 @@
-//! The extension manifest: identity, API level, capabilities, settings, command labels and
-//! DSP blocks.
+//! The extension manifest: identity, API level, capabilities, settings, command labels, DSP
+//! blocks and themes.
 //!
 //! A manifest is authored as `tetrad-extension.json` and travels inside every package. The
 //! host trusts nothing in it until [`Manifest::validate`] passes. API 2 adds `blocks`; an API 1
@@ -8,6 +8,7 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
 pub const API_VERSION: u32 = 2;
@@ -25,6 +26,8 @@ pub const MAX_BLOCKS: usize = 16;
 pub const MAX_ASSET_EXTENSIONS: usize = 8;
 /// Longest asset file extension, the dot included.
 pub const MAX_ASSET_EXTENSION: usize = 16;
+/// Most themes one package may add.
+pub const MAX_THEMES: usize = 8;
 /// Longest setting key, setting label, option label, command ID and command label.
 pub const MAX_LABEL: usize = 32;
 
@@ -49,6 +52,10 @@ pub struct Manifest {
     /// hosts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<BlockSpec>,
+    /// Colour themes for Settings → Appearance. Data only: the host reads them from the
+    /// manifest and runs no code for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<ThemeSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -63,6 +70,8 @@ pub enum Capability {
     Triggers,
     /// Provide generated blocks: build qcdsp IR from an asset file at run time (API 2).
     Blocks,
+    /// Answer messages from a computer over the USB cable (`tetrad-usb ext`, docs/usb.md).
+    Usb,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,6 +181,10 @@ pub enum ManifestError {
     CommandId(String),
     #[error("block {0:?}: {1}")]
     Block(String, &'static str),
+    #[error("at most {MAX_THEMES} themes")]
+    TooManyThemes,
+    #[error("theme {0:?}: {1}")]
+    Theme(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -231,11 +244,34 @@ impl Manifest {
                 return Err(ManifestError::Duplicate(block.id.clone()));
             }
         }
+        if self.themes.len() > MAX_THEMES {
+            return Err(ManifestError::TooManyThemes);
+        }
+        for (i, theme) in self.themes.iter().enumerate() {
+            if let Err(error) = theme.resolve() {
+                return Err(ManifestError::Theme(theme.id.clone(), error.to_string()));
+            }
+            if self.themes[..i].iter().any(|t| t.id == theme.id) {
+                return Err(ManifestError::Duplicate(theme.id.clone()));
+            }
+        }
         Ok(())
     }
 
     pub fn block(&self, id: &str) -> Option<&BlockSpec> {
         self.blocks.iter().find(|b| b.id == id)
+    }
+
+    /// A data-only manifest adds themes or static DSP blocks and nothing else: no
+    /// capabilities, settings, commands or generated blocks. Its package may leave out the
+    /// module; the host runs nothing for a package without one (a package with a module still
+    /// runs it).
+    pub fn data_only(&self) -> bool {
+        !(self.themes.is_empty() && self.blocks.is_empty())
+            && self.capabilities.is_empty()
+            && self.settings.is_empty()
+            && self.commands.is_empty()
+            && self.blocks.iter().all(|b| !b.generated)
     }
 
     pub fn has(&self, capability: Capability) -> bool {

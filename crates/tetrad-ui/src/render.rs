@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::{LazyLock, Mutex};
 
-use tetrad_assets::{BACKGROUND, Icon, IconSize, Mask, Rgb, TextSize, Weight, text_width};
+use tetrad_assets::{Icon, IconSize, Mask, Palette, Rgb, TextSize, Weight, text_width};
 
 use crate::Rect;
 
@@ -40,11 +40,12 @@ impl Frame {
         writer.write_all(&self.pixels)
     }
 
-    /// A frame filled with the background color. Allocate it once and pass it
-    /// to [`crate::UiState::render_into`] or keep a [`crate::Renderer`].
+    /// A frame filled with the stock background color. Allocate it once and pass it
+    /// to [`crate::UiState::render_into`] or keep a [`crate::Renderer`]; both paint every pixel.
     pub fn new() -> Self {
+        let b = Palette::STOCK.background;
         Self {
-            pixels: [BACKGROUND.0, BACKGROUND.1, BACKGROUND.2].repeat((WIDTH * HEIGHT) as usize),
+            pixels: [b.0, b.1, b.2].repeat((WIDTH * HEIGHT) as usize),
         }
     }
 
@@ -275,13 +276,16 @@ fn shape_mask(shape: Shape, build: impl FnOnce() -> Mask) -> Cow<'static, Mask> 
 pub(crate) struct Canvas<'a> {
     frame: &'a mut Frame,
     clip: Clip,
+    /// The colours `draw` paints item looks with (the palette of the layout it paints).
+    pub palette: Palette,
 }
 
 impl<'a> Canvas<'a> {
-    pub fn new(frame: &'a mut Frame) -> Self {
+    pub fn new(frame: &'a mut Frame, palette: Palette) -> Self {
         Self {
             frame,
             clip: Clip::of(FULL),
+            palette,
         }
     }
 
@@ -876,10 +880,14 @@ impl crate::UiState {
     /// Full redraw into a caller-owned frame (no allocation). For partial
     /// redraws use [`crate::Renderer`].
     pub fn render_into(&self, frame: &mut Frame) {
-        let items = self.layout().items;
-        crate::draw::paint_region(&mut Canvas::new(frame), &items, FULL, |item| {
-            (item, crate::draw::is_pressed(item, self.pressed))
-        });
+        let layout = self.layout();
+        let items = layout.items;
+        crate::draw::paint_region(
+            &mut Canvas::new(frame, layout.palette),
+            &items,
+            FULL,
+            |item| (item, crate::draw::is_pressed(item, self.pressed)),
+        );
     }
 }
 
@@ -900,7 +908,7 @@ impl crate::UiState {
         let layout = crate::screens::grid::offscreen(&ui);
         let [black, white] = [Rgb(0, 0, 0), Rgb(255, 255, 255)].map(|fill| {
             let mut frame = Frame::new();
-            let mut canvas = Canvas::new(&mut frame);
+            let mut canvas = Canvas::new(&mut frame, layout.palette);
             canvas.fill(FULL, fill);
             for item in &layout.items {
                 crate::draw::item(&mut canvas, item, None);
@@ -1006,8 +1014,6 @@ pub(crate) fn wrap(text: &str, font: Font, width: f32) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use tetrad_assets::{ACCENT, ON_ACCENT, TEXT};
-
     use super::*;
 
     /// Both veil blends, the vectorized span (one row) and the table (a large area, and
@@ -1029,7 +1035,11 @@ mod tests {
             let color = Rgb(alpha, 255 - alpha, 0x63);
             for rows in [1, 8] {
                 frame.copy_from(&source);
-                Canvas::new(&mut frame).tint(Rect::new(0, 0, WIDTH - 1, rows), color, alpha);
+                Canvas::new(&mut frame, Palette::STOCK).tint(
+                    Rect::new(0, 0, WIDTH - 1, rows),
+                    color,
+                    alpha,
+                );
                 for x in 0..WIDTH as usize - 1 {
                     assert_eq!(
                         frame.pixel(x as u32, 0),
@@ -1066,8 +1076,9 @@ mod tests {
                 let cy = (n * 53 % 520) as f32 - 20.0 + fy;
                 let color = Rgb(n as u8, 255 - half as u8, 0x40);
                 let rect = if n % 2 == 0 { FULL } else { clip };
-                Canvas::new(&mut cached).clipped(rect, |canvas| canvas.circle(cx, cy, r, color));
-                Canvas::new(&mut direct).clipped(rect, |canvas| {
+                Canvas::new(&mut cached, Palette::STOCK)
+                    .clipped(rect, |canvas| canvas.circle(cx, cy, r, color));
+                Canvas::new(&mut direct, Palette::STOCK).clipped(rect, |canvas| {
                     for y in (cy - r - 1.0).floor() as i32..(cy + r + 1.0).ceil() as i32 {
                         for x in (cx - r - 1.0).floor() as i32..(cx + r + 1.0).ceil() as i32 {
                             canvas.blend(x, y, color, Canvas::disc_coverage(x, y, cx, cy, r));
@@ -1100,12 +1111,12 @@ mod tests {
             let width = [1.0, 1.5, 2.0, 3.0][shape % 4];
             let color = Rgb(n as u8, 0x80, 255 - n as u8);
             let rect = Rect::new(x0 as i32, y0 as i32, 4 + n as u32 % 13, 3 + n as u32 % 9);
-            let mut canvas = Canvas::new(&mut cached);
+            let mut canvas = Canvas::new(&mut cached, Palette::STOCK);
             if y0 != y1 {
                 canvas.line(x0, y0, x1, y1, width, color);
             }
             canvas.triangle_down(rect, color);
-            let mut canvas = Canvas::new(&mut direct);
+            let mut canvas = Canvas::new(&mut direct, Palette::STOCK);
             let (left, top, right, bottom) = Canvas::line_box(x0, y0, x1, y1, width / 2.0);
             for y in top..bottom {
                 for x in left..right {
@@ -1127,7 +1138,7 @@ mod tests {
     #[test]
     fn extreme_rectangles_and_unicode_text_are_clipped_to_rgb_frame() {
         let mut frame = Frame::new();
-        let mut canvas = Canvas::new(&mut frame);
+        let mut canvas = Canvas::new(&mut frame, Palette::STOCK);
         canvas.fill(
             Rect {
                 x: i32::MIN,
@@ -1135,15 +1146,14 @@ mod tests {
                 width: u32::MAX,
                 height: u32::MAX,
             },
-            ACCENT,
+            Palette::STOCK.accent,
         );
-        assert!(
-            canvas
-                .frame
-                .rgb()
-                .chunks_exact(3)
-                .all(|rgb| rgb == [ACCENT.0, ACCENT.1, ACCENT.2])
-        );
+        assert!(canvas.frame.rgb().chunks_exact(3).all(|rgb| rgb
+            == [
+                Palette::STOCK.accent.0,
+                Palette::STOCK.accent.1,
+                Palette::STOCK.accent.2
+            ]));
         let font = Font::new(TextSize::Px20, Weight::Medium);
         canvas.text(
             Rect {
@@ -1154,7 +1164,7 @@ mod tests {
             },
             "aé🙂long",
             font,
-            TEXT,
+            Palette::STOCK.text,
             Align::Left,
         );
         canvas.round_rect(
@@ -1165,18 +1175,24 @@ mod tests {
                 height: u32::MAX,
             },
             12.0,
-            ON_ACCENT,
+            Palette::STOCK.on_accent,
         );
-        canvas.arc((-50, 900), &ring(40.0, 8.0), 0.0, 360.0, ON_ACCENT);
+        canvas.arc(
+            (-50, 900),
+            &ring(40.0, 8.0),
+            0.0,
+            360.0,
+            Palette::STOCK.on_accent,
+        );
         canvas.arc(
             (i32::MAX, i32::MIN),
             &ring(40.0, 8.0),
             0.0,
             360.0,
-            ON_ACCENT,
+            Palette::STOCK.on_accent,
         );
         assert_eq!(frame.rgb().len(), 800 * 480 * 3);
-        assert_eq!(frame.pixel(799, 479), ACCENT);
+        assert_eq!(frame.pixel(799, 479), Palette::STOCK.accent);
     }
 
     #[test]

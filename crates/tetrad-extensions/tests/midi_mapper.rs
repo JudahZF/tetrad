@@ -73,7 +73,14 @@ impl Host {
     /// Runs one event and returns the firings it made.
     fn event(&mut self, scope: u64, event: Event) -> Vec<Value> {
         self.send(&HostMessage::Event { scope, event });
-        assert_eq!(self.serve(), RunnerMessage::Done { scope, error: None });
+        assert_eq!(
+            self.serve(),
+            RunnerMessage::Done {
+                scope,
+                error: None,
+                result: None
+            }
+        );
         std::mem::take(&mut self.fired)
     }
 }

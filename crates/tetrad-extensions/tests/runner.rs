@@ -142,10 +142,61 @@ fn midi_event_becomes_a_scoped_host_call() {
         h.next(),
         RunnerMessage::Done {
             scope: 9,
-            error: None
+            error: None,
+            result: None
         }
     );
 
+    h.send(&HostMessage::Stop);
+    assert!(h.thread.join().unwrap().is_ok());
+}
+
+/// A USB handler's return value is the reply in `Done`; nothing returned (a JSON `null`)
+/// leaves `result` out, and a throw reports its error.
+#[test]
+fn a_usb_message_is_answered_by_the_handler_result() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.usb.onMessage(async (message, scope) => {
+                if (message === "fail") throw new Error("refused");
+                if (message === "quiet") return;
+                return { echo: message, scope: scope.id };
+            });
+        } };"#,
+        Limits::default(),
+    );
+    let RunnerMessage::Activated { registrations } = h.next() else {
+        panic!("not activated")
+    };
+    assert!(registrations.usb);
+    let mut ask = |scope, message| {
+        h.send(&HostMessage::Event {
+            scope,
+            event: Event::Usb { message },
+        });
+        h.next()
+    };
+    assert_eq!(
+        ask(1, json!({"cmd": "ping"})),
+        RunnerMessage::Done {
+            scope: 1,
+            error: None,
+            result: Some(json!({"echo": {"cmd": "ping"}, "scope": 1})),
+        }
+    );
+    assert_eq!(
+        ask(2, json!("quiet")),
+        RunnerMessage::Done {
+            scope: 2,
+            error: None,
+            result: None,
+        }
+    );
+    let RunnerMessage::Done { error, result, .. } = ask(3, json!("fail")) else {
+        panic!("no done")
+    };
+    assert!(error.unwrap().contains("refused"));
+    assert_eq!(result, None);
     h.send(&HostMessage::Stop);
     assert!(h.thread.join().unwrap().is_ok());
 }
@@ -197,7 +248,8 @@ fn declared_triggers_register_and_fire_as_scoped_calls() {
         h.next(),
         RunnerMessage::Done {
             scope: 4,
-            error: None
+            error: None,
+            result: None
         }
     );
 }
@@ -249,6 +301,7 @@ fn a_rejected_call_rejects_with_its_code_and_the_handler_reports_it() {
     let RunnerMessage::Done {
         scope: 1,
         error: Some(error),
+        ..
     } = h.next()
     else {
         panic!("handler error not reported")
@@ -286,7 +339,8 @@ fn events_run_one_at_a_time() {
         h.next(),
         RunnerMessage::Done {
             scope: 1,
-            error: None
+            error: None,
+            result: None
         }
     );
     let RunnerMessage::Request { scope: Some(2), .. } = h.next() else {
@@ -423,7 +477,14 @@ fn published(h: &mut Harness, scope: u64) -> BlockPublish {
         id,
         result: CallResult::Ok(json!(null)),
     });
-    assert_eq!(h.next(), RunnerMessage::Done { scope, error: None });
+    assert_eq!(
+        h.next(),
+        RunnerMessage::Done {
+            scope,
+            error: None,
+            result: None
+        }
+    );
     serde_json::from_value(params).unwrap()
 }
 

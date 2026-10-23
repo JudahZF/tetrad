@@ -1,0 +1,28 @@
+[package]
+name = "tetrad-usb"
+description = "The Tetrad link over the Quad Cortex USB HID interface: framing, messages and the host tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The host side: the hidapi transport and the `tetrad-usb` command.
+host = ["dep:hidapi", "dep:clap"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+hidapi = { version = "2.6", optional = true }
+clap = { workspace = true, optional = true }
+
+[[bin]]
+name = "tetrad-usb"
+path = "src/main.rs"
+required-features = ["host"]
+
+[lints]
+workspace = true

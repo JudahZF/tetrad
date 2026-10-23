@@ -55,11 +55,15 @@ pub enum RunnerMessage {
         #[serde(default)]
         params: Value,
     },
-    /// The handler of `scope` settled; the host closes the scope.
+    /// The handler of `scope` settled; the host closes the scope. `result` is what a
+    /// [`Event::Usb`] handler returned: the reply to the computer. JSON `null` and nothing
+    /// are the same: no `result`.
     Done {
         scope: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<Value>,
     },
     Log {
         level: LogLevel,
@@ -91,6 +95,9 @@ pub struct Registrations {
     /// manifest's generated blocks and the `blocks` capability.
     #[serde(default)]
     pub blocks: Vec<String>,
+    /// The extension answers [`Event::Usb`] (`ctx.usb.onMessage`).
+    #[serde(default)]
+    pub usb: bool,
 }
 
 /// Most triggers one extension may declare.
@@ -146,6 +153,11 @@ pub enum Event {
     },
     /// A different preset is loaded; every target handle from before is stale.
     PresetLoaded,
+    /// A message from a computer over USB (`tetrad-usb ext`). The handler's return value,
+    /// in [`RunnerMessage::Done`], is the reply.
+    Usb {
+        message: Value,
+    },
     /// Build the IR of a generated block from an asset. The handler ends with one
     /// [`PUBLISH_BLOCK`] call in this event's scope. This event has the longer
     /// [`Limits::build_handler`](crate::runner::Limits::build_handler) budget.

@@ -4,8 +4,7 @@
 //! layout I): up to 12 messages, TYPE, CHANNEL and the type's three values. Every edit
 //! sends the target's whole list; the application stores it in the preset.
 
-use tetrad_assets::{ACCENT, ACCENT_FILL, BACKGROUND, CANVAS, DIVIDER, FAINT, Icon, MUTED, PANEL};
-use tetrad_assets::{ROW_SELECTED, Rgb, SECTION, SURFACE, TEXT};
+use tetrad_assets::{Icon, Rgb};
 
 use crate::layout::{BODY, ButtonStyle, Layout, Look};
 use crate::render::Align;
@@ -36,6 +35,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
 }
 
 fn matrix(ui: &UiState, l: &mut Layout) {
+    let p = l.palette;
     let midi = &ui.snapshot.preset_midi;
     crate::widgets::page_header(l, "Preset MIDI Out settings", Control::Back, Icon::Check);
     l.control(
@@ -45,21 +45,21 @@ fn matrix(ui: &UiState, l: &mut Layout) {
         "CLEAR ALL",
         Look::IconButton {
             icon: Icon::Trash,
-            fill: ACCENT_FILL,
+            fill: p.accent_fill,
         },
     );
-    l.push(Rect::new(685, 18, 1, 24), "", Look::Fill(SECTION));
+    l.push(Rect::new(685, 18, 1, 24), "", Look::Fill(p.section));
     let assigned = |target| !midi.messages(target).is_empty();
     // Device body with its darker footswitch band.
-    l.panel(BODY_RECT, PANEL, 16.0, None);
+    l.panel(BODY_RECT, p.panel, 16.0, None);
     l.push(
         Rect::new(BODY_RECT.x, 260, BODY_RECT.width, 100),
         "",
-        Look::Fill(ROW_SELECTED),
+        Look::Fill(p.row_selected),
     );
     l.panel(
         Rect::new(BODY_RECT.x, 340, BODY_RECT.width, 56),
-        ROW_SELECTED,
+        p.row_selected,
         16.0,
         None,
     );
@@ -69,14 +69,14 @@ fn matrix(ui: &UiState, l: &mut Layout) {
         (443, 291, 11),
         (443, 361, 11),
     ] {
-        dot(l, (cx, cy), radius, SURFACE);
+        dot(l, (cx, cy), radius, p.surface);
     }
     l.panel(
         ON_LOAD,
         if assigned(MidiOutTarget::OnLoad) {
-            ACCENT
+            p.accent
         } else {
-            BACKGROUND
+            p.background
         },
         6.0,
         None,
@@ -87,7 +87,7 @@ fn matrix(ui: &UiState, l: &mut Layout) {
         true,
         "ON PRESET LOAD MESSAGE",
         Look::Panel {
-            fill: CANVAS,
+            fill: p.canvas,
             radius: 5.0,
             border: None,
         },
@@ -97,7 +97,7 @@ fn matrix(ui: &UiState, l: &mut Layout) {
         "ON PRESET LOAD\nMESSAGE",
         Look::Paragraph {
             font: BODY,
-            color: TEXT,
+            color: p.text,
             align: Align::Center,
         },
     );
@@ -116,19 +116,25 @@ fn matrix(ui: &UiState, l: &mut Layout) {
             l,
             (cx, cy),
             11,
-            if assigned(target) { ACCENT } else { CANVAS },
+            if assigned(target) { p.accent } else { p.canvas },
         );
         l.text(
             Rect::new(cx + 20, cy - 12, 24, 24),
             letter,
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
     }
     for (target, label, x) in PEDALS {
         let pedal = Rect::new(x, 140, 104, 258);
-        l.text(Rect::new(x, 108, 104, 24), label, BODY, TEXT, Align::Center);
+        l.text(
+            Rect::new(x, 108, 104, 24),
+            label,
+            BODY,
+            p.text,
+            Align::Center,
+        );
         l.control(
             pedal,
             Control::MidiOut(MidiOutControl::Target(target)),
@@ -139,15 +145,19 @@ fn matrix(ui: &UiState, l: &mut Layout) {
         // Stock 016 pedal: a trapezoid with a 2 px rim, a narrower grey face and dark
         // grip bars (7 at the toe, 5 at the heel), 64 px wide.
         let cx = x as f32 + 52.0;
-        let rim = if assigned(target) { ACCENT } else { SURFACE };
+        let rim = if assigned(target) {
+            p.accent
+        } else {
+            p.surface
+        };
         trapezoid(l, cx, (140, 398), (52.0, 42.0), 14.0, rim);
-        trapezoid(l, cx, (142, 396), (50.0, 40.0), 12.0, PEDAL);
-        trapezoid(l, cx, (163, 389), (43.0, 34.0), 8.0, PANEL);
+        trapezoid(l, cx, (142, 396), (50.0, 40.0), 12.0, p.tone(PEDAL));
+        trapezoid(l, cx, (163, 389), (43.0, 34.0), 8.0, p.panel);
         for line in (0..7)
             .map(|n| 175 + n * 10)
             .chain((0..5).map(|n| 335 + n * 10))
         {
-            l.push(Rect::new(x + 20, line, 64, 4), "", Look::Fill(SURFACE));
+            l.push(Rect::new(x + 20, line, 64, 4), "", Look::Fill(p.surface));
         }
     }
 }
@@ -246,6 +256,7 @@ fn summary(message: &MidiOutMessage) -> String {
 }
 
 fn editor(ui: &UiState, l: &mut Layout, target: MidiOutTarget, selected: usize) {
+    let p = l.palette;
     let messages = ui.snapshot.preset_midi.messages(target);
     crate::widgets::page_header(l, &title(target), Control::Back, Icon::Check);
     l.control(
@@ -274,10 +285,10 @@ fn editor(ui: &UiState, l: &mut Layout, target: MidiOutTarget, selected: usize) 
         Rect::new(16, 62, 300, 24),
         "Midi messages",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
-    l.panel(LIST, PANEL, 8.0, None);
+    l.panel(LIST, p.panel, 8.0, None);
     // Two columns of six: all twelve slots stay visible.
     for index in 0..MIDI_OUT_MESSAGES {
         let column = (index / 6) as i32;
@@ -293,7 +304,7 @@ fn editor(ui: &UiState, l: &mut Layout, target: MidiOutTarget, selected: usize) 
                 bounds.inset(16, 0),
                 format!("{}   -", index + 1),
                 BODY,
-                FAINT,
+                p.faint,
                 Align::Left,
             );
             continue;
@@ -317,15 +328,15 @@ fn editor(ui: &UiState, l: &mut Layout, target: MidiOutTarget, selected: usize) 
             LIST.height - 16,
         ),
         "",
-        Look::Fill(DIVIDER),
+        Look::Fill(p.divider),
     );
-    l.panel(CARD, PANEL, 8.0, None);
+    l.panel(CARD, p.panel, 8.0, None);
     let Some(message) = messages.get(selected) else {
         l.text(
             CARD,
             "Tap ADD to create a message.",
             BODY,
-            MUTED,
+            p.muted,
             Align::Center,
         );
         return;
@@ -352,14 +363,14 @@ fn editor(ui: &UiState, l: &mut Layout, target: MidiOutTarget, selected: usize) 
             l.push(
                 Rect::new(cell.x - 1, cell.y + 8, 2, cell.height - 16),
                 "",
-                Look::Fill(DIVIDER),
+                Look::Fill(p.divider),
             );
         }
         l.text(
             Rect::new(cell.x + 10, cell.y + 6, cell.width - 20, 28),
             label,
             BODY,
-            TEXT,
+            p.text,
             Align::Left,
         );
         super::stepper(

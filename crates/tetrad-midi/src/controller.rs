@@ -18,7 +18,7 @@ use crate::preset_out::{
     GeneralMidiMessage, MidiOutSource, PlannedSend, PresetMidiOut, RemoteMidiError, ToggleState,
 };
 use crate::settings::{ChannelSetting, ClockOut, MidiSettings};
-use crate::usb::UsbMidiEvent;
+use crate::usb::{UsbMidiEvent, UsbMidiReceiver};
 
 /// Tap tempo state (+0xe0 BPM, +0xe8/+0xf0 tap times). The first tap after
 /// boot applies the initial 40 BPM.
@@ -54,6 +54,7 @@ pub struct MidiController {
     port: MidiPort,
     settings: MidiSettings,
     parser: MidiParser,
+    usb: UsbMidiReceiver,
     dispatch: DispatchState,
     clock: ClockState,
     toggles: ToggleState,
@@ -71,6 +72,7 @@ impl MidiController {
             port: MidiPort::Uart,
             settings,
             parser: MidiParser::default(),
+            usb: UsbMidiReceiver::default(),
             dispatch: DispatchState::default(),
             clock: ClockState::default(),
             toggles: ToggleState::default(),
@@ -174,19 +176,21 @@ impl MidiController {
         out
     }
 
-    /// A USB MIDI record (DSP response 0x07), drained like `0x0089ece0`.
+    /// A USB MIDI record (DSP response 0x07), drained like `0x0089ece0`. Every kind
+    /// decodes, SysEx after reassembly ([`UsbMidiReceiver`]); the stock map then drops what
+    /// it gives no job, and reserved channels take any voice message.
     pub fn receive_usb(&mut self, event: UsbMidiEvent, now: Duration) -> Vec<MidiOutput> {
         let mut out = Vec::new();
+        // Every packet reaches the receiver before the gates, so a gate never splices a SysEx.
+        let Some(message) = self.usb.receive(event) else {
+            return out;
+        };
         // Busy presets still take Stop; MIDI over USB off still takes ticks.
-        let realtime = matches!(event.code, 0x05 | 0x0f);
-        let stop = realtime && event.status == 0xfc;
-        let tick = realtime && event.status == 0xf8;
+        let stop = message == MidiMessage::Realtime(Realtime::Stop);
+        let tick = message == MidiMessage::Realtime(Realtime::TimingClock);
         if !(self.preset_ready || stop) || !(self.settings.over_usb || tick) {
             return out;
         }
-        let Some(message) = event.to_message() else {
-            return out;
-        };
         let mut env = Self::env(&self.settings, self.tempo, self.preset_ready, &mut out);
         match message {
             MidiMessage::Realtime(Realtime::TimingClock) => {
@@ -223,8 +227,16 @@ impl MidiController {
                 let mut env = Self::env(&self.settings, self.tempo, self.preset_ready, &mut out);
                 self.clock.din_tick(&mut env, now, Some(stamp));
             }
-            Some(message) => self.handle(message, now, &mut out),
-            None => {}
+            // The stock drain decodes only these kinds for the mini's port; the rest stays
+            // dropped, as on stock.
+            Some(
+                message @ (MidiMessage::NoteOff { .. }
+                | MidiMessage::NoteOn { .. }
+                | MidiMessage::ControlChange { .. }
+                | MidiMessage::ProgramChange { .. }
+                | MidiMessage::Realtime(_)),
+            ) => self.handle(message, now, &mut out),
+            _ => {}
         }
         out
     }
@@ -385,31 +397,36 @@ impl MidiController {
     }
 
     /// Send one message as `0x00331340` does. QC: DIN first, then USB
-    /// (0x18 immediate) when MIDI over USB is on. Timing clock stays on DIN.
-    /// Only CC and PC have a USB form, so other kinds (notes, pitch bend) go
-    /// to DIN only. QC mini: CC and PC go out as one tagged 0x18
-    /// (`0x00876200`) with the MIDI over USB flag; the ARM sends no timing
+    /// (0x18 immediate, one per packet) when MIDI over USB is on. Real-time
+    /// stays on DIN; the SHARC paces USB clock out. Stock sends only CC and PC
+    /// over USB; Tetrad sends every other kind too, SysEx as several packets
+    /// ([`UsbMidiEvent::packets`]). QC mini: CC and PC go out as one tagged
+    /// 0x18 (`0x00876200`) with the MIDI over USB flag; the ARM sends no timing
     /// clock (the SHARC paces clock out). Stock never encodes other kinds, so
     /// the mini sends nothing for them.
     pub fn transmit(&self, message: &MidiMessage) -> Vec<MidiOutput> {
         if self.port == MidiPort::Dsp {
-            if matches!(message, MidiMessage::Realtime(_)) {
+            if !matches!(
+                message,
+                MidiMessage::ControlChange { .. } | MidiMessage::ProgramChange { .. }
+            ) {
                 return Vec::new();
             }
-            return UsbMidiEvent::from_message(message)
+            return UsbMidiEvent::packets(message)
+                .into_iter()
                 .map(|event| {
                     MidiOutput::Dsp(DspCommand::PortMidiOut {
                         event,
                         usb: self.settings.over_usb,
                     })
                 })
-                .into_iter()
                 .collect();
         }
         let mut out = vec![MidiOutput::Din(message.to_bytes())];
         if self.settings.over_usb && !matches!(message, MidiMessage::Realtime(_)) {
             out.extend(
-                UsbMidiEvent::from_message(message)
+                UsbMidiEvent::packets(message)
+                    .into_iter()
                     .map(|event| MidiOutput::Dsp(DspCommand::UsbMidiOut(event))),
             );
         }
@@ -739,6 +756,36 @@ mod tests {
         );
         midi.set_over_usb(false);
         assert_eq!(midi.preset_loaded(&table), [MidiOutput::Din(vec![0xc0, 9])]);
+    }
+
+    /// USB carries the kinds stock left on DIN: SysEx goes out as one 0x18 per packet, and an
+    /// inbound USB pitch bend on a reserved channel reaches the extension.
+    #[test]
+    fn usb_carries_every_kind() {
+        let mut midi = controller();
+        let sysex = MidiMessage::SysEx(vec![0x7d, 0x44]);
+        let out = midi.transmit(&sysex);
+        assert_eq!(out[0], MidiOutput::Din(vec![0xf0, 0x7d, 0x44, 0xf7]));
+        let packets: Vec<_> = UsbMidiEvent::packets(&sysex)
+            .into_iter()
+            .map(|event| MidiOutput::Dsp(DspCommand::UsbMidiOut(event)))
+            .collect();
+        assert_eq!(packets.len(), 2);
+        assert_eq!(out[1..], packets);
+
+        midi.set_reserved_channels(1 << 1);
+        let bend = UsbMidiEvent {
+            code: 0x0e,
+            status: 0xe1,
+            data: [0x10, 0x50],
+        };
+        assert_eq!(
+            midi.receive_usb(bend, Duration::ZERO),
+            [MidiOutput::Reserved(MidiMessage::PitchBend {
+                channel: crate::Channel::from_index(1).unwrap(),
+                value: 0x2810,
+            })]
+        );
     }
 
     /// DIN clock in: enable sequence on the first in-range tick, 0x2d per

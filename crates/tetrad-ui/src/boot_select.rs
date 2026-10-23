@@ -3,7 +3,7 @@
 //! [`crate::UiState`] screen: the selector runs before either UI, with no snapshot, no navigation
 //! and no state other than [`BootMenu`]. Layout is owned.
 
-use tetrad_assets::{CANVAS, FAINT, MUTED, TEXT};
+use tetrad_assets::Palette;
 
 use crate::Rect;
 use crate::layout::{BODY, ButtonStyle, CAPTION, LARGE, Layout, Look, MEDIUM, XLARGE_BOLD};
@@ -60,14 +60,16 @@ pub struct BootMenu<'a> {
 
 impl BootMenu<'_> {
     pub fn render(&self) -> Frame {
-        let mut l = Layout::default();
-        l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(CANVAS));
+        // Always stock: the boot menu shows before Tetrad reads its settings.
+        let mut l = Layout::new(Palette::STOCK);
+        let p = l.palette;
+        l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.canvas));
         let line = |y, height| Rect::new(0, y, WIDTH, height);
         l.text(
             line(48, 28),
             "Choose the UI to start",
             LARGE,
-            TEXT,
+            p.text,
             Align::Center,
         );
         for choice in BootChoice::ALL {
@@ -84,27 +86,28 @@ impl BootMenu<'_> {
             l.push(choice.button(), choice.label(), look);
         }
         let countdown = format!("{} starts in {} s", self.default.label(), self.seconds_left);
-        l.text(line(340, 26), countdown, MEDIUM, TEXT, Align::Center);
+        l.text(line(340, 26), countdown, MEDIUM, p.text, Align::Center);
         l.text(
             line(384, 22),
             "Touch a button to start that UI now. The last choice is the default.",
             BODY,
-            MUTED,
+            p.muted,
             Align::Center,
         );
-        l.text(line(448, 18), self.version, CAPTION, FAINT, Align::Center);
+        l.text(line(448, 18), self.version, CAPTION, p.faint, Align::Center);
         let mut frame = Frame::new();
-        crate::draw::paint_region(&mut Canvas::new(&mut frame), &l.items, FULL, |item| {
-            (item, false)
-        });
+        crate::draw::paint_region(
+            &mut Canvas::new(&mut frame, l.palette),
+            &l.items,
+            FULL,
+            |item| (item, false),
+        );
         frame
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use tetrad_assets::{ACCENT, SECTION};
-
     use super::*;
     use crate::draw::TAB_ACTIVE;
 
@@ -133,16 +136,16 @@ mod tests {
                 let button = choice.button();
                 let corner = frame.pixel(button.x as u32 + 12, button.y as u32 + 12);
                 let edge: Vec<_> = pixels(&frame, Rect::new(button.x, button.y + 90, 2, 20))
-                    .filter(|&pixel| pixel == ACCENT)
+                    .filter(|&pixel| pixel == Palette::STOCK.accent)
                     .collect();
                 if choice == default {
                     assert_eq!(corner, TAB_ACTIVE, "{choice:?}");
                     assert!(!edge.is_empty(), "{choice:?} has no green outline");
                 } else {
-                    assert_eq!(corner, SECTION, "{choice:?}");
+                    assert_eq!(corner, Palette::STOCK.section, "{choice:?}");
                     assert!(edge.is_empty(), "{choice:?} has a green outline");
                 }
-                assert!(pixels(&frame, button).any(|pixel| pixel == TEXT));
+                assert!(pixels(&frame, button).any(|pixel| pixel == Palette::STOCK.text));
             }
         }
     }

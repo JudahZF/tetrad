@@ -148,9 +148,10 @@ tetrad-ext package --out ../packages .
 }
 ```
 
-Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`, `triggers`
-and `blocks`. The host refuses every call that needs a capability the manifest does not list.
-API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); an API 1 manifest still works.
+Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`,
+`triggers`, `usb` and `blocks`. The host refuses every call that needs a capability the manifest
+does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); an API 1 manifest
+still works.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`).
 
@@ -194,11 +195,48 @@ The full API, with comments, is in `tetrad.d.ts` (`tetrad-ext sdk` writes it):
 | `ctx.controls.list`, `ctx.controls.onChange` | `scope.storage.get`, `set`, `delete` |
 | `ctx.lifecycle.onRunning`, `onPresetLoaded` | `scope.ui.setStatus` |
 | `ctx.storage.get`, `ctx.triggers.declare`, `ctx.log/warn/error` | `scope.triggers.fire` |
+| `ctx.usb.onMessage` (its return value is the reply; see [usb.md](usb.md)) | |
 
 `ctx.controls.list` and `ctx.storage.get` work only during `activate`; handlers use their
 scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail
 with `staleContext`. There is no module loader: bundle everything into one file (`tetrad-ext
 build` does this).
+
+### Ship themes
+
+An extension can add up to 8 [themes](themes.md) to Settings → Appearance. List them in
+`themes` in the manifest, in the same format as a theme file but without `version`:
+
+```json
+{
+  "id": "my.theme-pack",
+  "name": "My Themes",
+  "version": "0.1.0",
+  "api": 1,
+  "themes": [
+    { "id": "dusk", "name": "Dusk", "base": "slate",
+      "colors": { "background": "#15111c", "accent": "#ff8fab" } }
+  ]
+}
+```
+
+A manifest with themes and no capabilities, settings or commands is **theme-only**:
+
+- It needs no `src/` and no build. `tetrad-ext package` packs it without a module.
+- Tetrad runs no code for it.
+- It asks for no access.
+
+An extension with code can add themes too.
+
+`tetrad-ext package` checks the themes in the same way as the unit does. A theme that fails
+(for example, a light background or text that is too hard to read) stops the package, and the
+unit refuses it at install.
+
+Themes show in Appearance while the extension is installed and enabled. The extension's page
+lists them. See `extensions/fixtures/theme-pack` for a complete example.
+
+Tetrad builds before 0.1.0-alpha.5 do not know the `themes` field. They refuse the package at
+install and change nothing.
 
 ## Write a DSP block
 

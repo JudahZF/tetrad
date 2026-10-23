@@ -3,7 +3,7 @@
 //! Licenses with the licence viewer (`0x6cbbe0`, `0x6cb3c4`) and Diagnostics (`_INIT_561`).
 //! Positions are the stock ones inside the 520 px settings page panel.
 
-use tetrad_assets::{BACKGROUND, Icon, MUTED, Rgb, SURFACE, TEXT};
+use tetrad_assets::{Icon, Rgb};
 
 use crate::layout::{BODY, CAPTION, LARGE, Layout, ListId, Look};
 use crate::render::{Align, HEIGHT, wrap};
@@ -107,6 +107,7 @@ pub(crate) fn default_device_name(mini: bool) -> &'static str {
 /// Device Information: two sections of plain label / value text (no row cards) and the
 /// pencil left of ✓ that opens the name keyboard.
 pub(super) fn information(ui: &UiState, l: &mut Layout, page: Rect) {
+    let p = l.palette;
     let a = &ui.snapshot.about;
     l.control(
         EDIT_BUTTON,
@@ -115,7 +116,7 @@ pub(super) fn information(ui: &UiState, l: &mut Layout, page: Rect) {
         "EDIT",
         Look::IconButton {
             icon: Icon::Edit,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     let name = a.device_name.as_deref().map_or_else(
@@ -158,7 +159,7 @@ pub(super) fn information(ui: &UiState, l: &mut Layout, page: Rect) {
                     l.push(
                         Rect::new(page.x + 16, y + 7, 489, 1),
                         "",
-                        Look::Fill(BACKGROUND),
+                        Look::Fill(p.background),
                     );
                     y += 31;
                 }
@@ -166,7 +167,7 @@ pub(super) fn information(ui: &UiState, l: &mut Layout, page: Rect) {
                     Rect::new(page.x + 16, y, 292, ROW as u32),
                     *title,
                     LARGE,
-                    TEXT,
+                    p.text,
                     Align::Left,
                 );
                 y += ROW;
@@ -175,14 +176,14 @@ pub(super) fn information(ui: &UiState, l: &mut Layout, page: Rect) {
                         Rect::new(page.x + 16, y, 292, ROW as u32),
                         *label,
                         CAPTION,
-                        TEXT,
+                        p.text,
                         Align::Left,
                     );
                     l.text(
                         Rect::new(page.x + VALUE_X, y, 292, ROW as u32),
                         value.as_deref().unwrap_or("-"),
                         CAPTION,
-                        TEXT,
+                        p.text,
                         Align::Left,
                     );
                     y += ROW;
@@ -225,10 +226,11 @@ pub(super) fn licences(ui: &UiState, l: &mut Layout, page: Rect) {
 /// Licence viewer: a full-width 800 × 427 text page, text 600 px wide at x 100, centred
 /// 16 px lines. The close control is not recovered: Back and ✓ return to the list (I).
 fn viewer(ui: &UiState, l: &mut Layout, label: &str) {
+    let p = l.palette;
     let area = Rect::new(0, 53, WIDTH, 427);
     // A page of its own over the settings frame: the frame stops taking input.
     l.overlay();
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(BACKGROUND));
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.background));
     l.control(
         crate::widgets::CLOSE_BUTTON,
         Control::Back,
@@ -236,14 +238,14 @@ fn viewer(ui: &UiState, l: &mut Layout, label: &str) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: tetrad_assets::PANEL,
+            fill: p.panel,
         },
     );
     l.text(
         Rect::new(16, 8, 600, 44),
         format!("{label} license"),
         LARGE,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     let file = licence_file(label);
@@ -282,7 +284,7 @@ fn viewer(ui: &UiState, l: &mut Layout, label: &str) {
                     Rect::new(100, top + 8 + index as i32 * LINE, 600, LINE as u32),
                     line.clone(),
                     BODY,
-                    TEXT,
+                    p.text,
                     Align::Center,
                 );
             }
@@ -319,11 +321,12 @@ pub(super) fn diagnostics(ui: &UiState, l: &mut Layout, page: Rect) {
 }
 
 fn title(l: &mut Layout, page: Rect, text: &str) {
+    let p = l.palette;
     l.text(
         Rect::new(page.x + 16, page.y, page.width - 32, 52),
         text,
         LARGE,
-        TEXT,
+        p.text,
         Align::Left,
     );
 }
@@ -363,6 +366,7 @@ fn number_g(value: f32, precision: usize) -> String {
 /// the column of a `0x00` block and those come from cores 0..3. Stock prints the three heaps
 /// in one cell (`DM:a/PM:b/SD:c`), which the column cuts off; here each heap has its own row.
 fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
+    let p = l.palette;
     title(l, page, DiagnosticsPage::Dsp.label());
     const COLUMN: i32 = 84;
     let x0 = page.x + 112;
@@ -374,7 +378,7 @@ fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
             Rect::new(x0 + index as i32 * COLUMN, page.y + 60, COLUMN as u32, 17),
             core,
             CAPTION,
-            TEXT,
+            p.text,
             Align::Left,
         );
     }
@@ -395,7 +399,7 @@ fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
             Rect::new(page.x + 16, y, 96, 17),
             label,
             CAPTION,
-            ORANGE,
+            p.tone(ORANGE),
             Align::Left,
         );
         for column in 0..5 {
@@ -422,7 +426,7 @@ fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
                 Rect::new(x0 + column * COLUMN, y, COLUMN as u32, 17),
                 value,
                 CAPTION,
-                TEXT,
+                p.text,
                 Align::Left,
             );
         }
@@ -432,6 +436,7 @@ fn dsp(ui: &UiState, l: &mut Layout, page: Rect) {
 /// Footswitch Statistics (`0x68b8c4`): press/release and encoder turn counters since boot,
 /// rows from y 80 on a 34 px pitch (classic order; the mini lists A–D).
 fn footswitches(ui: &UiState, l: &mut Layout, page: Rect) {
+    let p = l.palette;
     title(l, page, DiagnosticsPage::Footswitch.label());
     const NAMES: [&str; 11] = [
         "A", "B", "C", "D", "DOWN", "E", "F", "G", "H", "TEMPO", "UP",
@@ -451,21 +456,21 @@ fn footswitches(ui: &UiState, l: &mut Layout, page: Rect) {
                     Rect::new(rows.x + 24, y, 80, 17),
                     *name,
                     CAPTION,
-                    ORANGE,
+                    p.tone(ORANGE),
                     Align::Left,
                 );
                 l.text(
                     Rect::new(rows.x + 120, y, 200, 17),
                     format!("(p: {}, r: {})", stats.pressed, stats.released),
                     CAPTION,
-                    TEXT,
+                    p.text,
                     Align::Left,
                 );
                 l.text(
                     Rect::new(rows.x + 300, y, 200, 17),
                     format!("(l: {}, r: {})", stats.left, stats.right),
                     CAPTION,
-                    TEXT,
+                    p.text,
                     Align::Left,
                 );
             }
@@ -478,6 +483,7 @@ fn footswitches(ui: &UiState, l: &mut Layout, page: Rect) {
 /// update slot `0x68a90c` colours the distances and the ±1 sample counts. I: 14 px text for
 /// the stock 13 pt; the value is cut to the page; the rows scroll (the page is 411 px high).
 fn usb(ui: &UiState, l: &mut Layout, page: Rect) {
+    let p = l.palette;
     title(l, page, DiagnosticsPage::Usb.label());
     const LABELS: [&str; 21] = [
         "USBConnected",
@@ -518,14 +524,14 @@ fn usb(ui: &UiState, l: &mut Layout, page: Rect) {
                     Rect::new(rows.x + 30, y, 300, 17),
                     *label,
                     CAPTION,
-                    ORANGE,
+                    p.tone(ORANGE),
                     Align::Left,
                 );
                 let (text, tone) = values.map_or(("---", UsbTone::Plain), |values| {
                     (values[index].text.as_str(), values[index].tone)
                 });
                 let color = match tone {
-                    UsbTone::Plain | UsbTone::InRange => TEXT,
+                    UsbTone::Plain | UsbTone::InRange => p.text,
                     UsbTone::OutOfRange => Rgb(0xff, 0x00, 0x00),
                     UsbTone::Plus => Rgb(0x00, 0xff, 0x00),
                     UsbTone::Minus => Rgb(0x00, 0x00, 0xff),

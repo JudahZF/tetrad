@@ -169,8 +169,9 @@ struct Shared {
     /// Resolve and reject functions of calls in flight, by request ID.
     pending: HashMap<u64, (Persistent<Function<'static>>, Persistent<Function<'static>>)>,
     next_id: u64,
-    /// Settled handler scopes, with an error text when the handler threw.
-    done: Vec<(u64, Option<String>)>,
+    /// Settled handler scopes, with an error text when the handler threw and the JSON text
+    /// of a USB handler's return value.
+    done: Vec<(u64, Option<String>, Option<String>)>,
 }
 
 /// Wall-clock time since the first call: the default [`Limits::slice_clock`].
@@ -470,14 +471,23 @@ impl<'w, W: Write> Runner<'w, W> {
                 return Ok(());
             };
             let done = std::mem::take(&mut self.shared.borrow_mut().done);
-            for (scope, error) in done {
+            for (scope, mut error, result) in done {
                 if busy.is_some_and(|busy| busy.scope == scope) {
                     *busy = None;
                 }
+                let result = result.and_then(|json| {
+                    serde_json::from_str(&json)
+                        .inspect_err(|e| error = Some(format!("USB reply is not JSON: {e}")))
+                        .ok()
+                });
                 self.shared
                     .borrow_mut()
                     .outbox
-                    .push(Outgoing::Message(RunnerMessage::Done { scope, error }));
+                    .push(Outgoing::Message(RunnerMessage::Done {
+                        scope,
+                        error,
+                        result,
+                    }));
             }
             if let Some(Busy { scope, until, .. }) = *busy {
                 if Instant::now() >= until {
@@ -650,9 +660,12 @@ fn install_natives<'js>(
     )?;
     native.set(
         "done",
-        Function::new(ctx.clone(), move |scope: f64, error: Option<String>| {
-            shared.borrow_mut().done.push((scope as u64, error));
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |scope: f64, error: Option<String>, result: Option<String>| {
+                shared.borrow_mut().done.push((scope as u64, error, result));
+            },
+        )?,
     )?;
     ctx.globals().set("__tetrad_native", native)
 }

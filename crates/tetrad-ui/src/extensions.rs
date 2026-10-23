@@ -39,6 +39,8 @@ pub struct InstalledExtension {
     pub blocks: Vec<ExtensionBlock>,
     /// The newest log lines, oldest first.
     pub log: Vec<String>,
+    /// Names of the themes it adds to Settings → Appearance.
+    pub themes: Vec<String>,
 }
 
 /// One community DSP block of a package.

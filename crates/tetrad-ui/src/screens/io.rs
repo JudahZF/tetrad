@@ -3,9 +3,7 @@
 //! select it, hold OUT 1/2 or 3/4 to pair them) and the 5 × 2 parameter card. Encoders
 //! A–H, BANK DOWN and TEMPO turn the cells in reading order.
 
-use tetrad_assets::{
-    ACCENT, BACKGROUND, CANVAS, DIVIDER, FAINT, Icon, MUTED, PANEL, Rgb, SURFACE, TEXT,
-};
+use tetrad_assets::{Icon, Rgb};
 
 use crate::layout::{BODY, ButtonStyle, CAPTION, Layout, Look, MEDIUM};
 use crate::render::Align;
@@ -96,6 +94,7 @@ pub(super) const PORTS: [Port; 17] = {
 };
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: IoTab) {
+    let p = l.palette;
     // 4.1.0 puts the I/O preset button (`0x35c4ac` builds `0x227a84` for 31000) left of the
     // title, as on the Global EQ page (I: same (8, 8) place); shot 102 is older.
     super::settings_presets::button(ui, l, crate::SettingsPresetPage::Io);
@@ -107,18 +106,18 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: IoTab) {
         Rect::new(title_x, free.y, title_width, free.height),
         title,
         MEDIUM,
-        MUTED,
+        p.muted,
         Align::Left,
     );
     l.text(
         Rect::new(title_x + title_width as i32 + 8, free.y, 200, free.height),
         tab.title(),
         MEDIUM,
-        ACCENT,
+        p.accent,
         Align::Left,
     );
     // Stock 102: `#1e1e1e` button, grey 16 px Regular text.
-    l.panel(GLOBAL_EQ, SURFACE, 8.0, None);
+    l.panel(GLOBAL_EQ, p.surface, 8.0, None);
     l.control(
         GLOBAL_EQ,
         Control::Navigate(Screen::GlobalEq(EqTab::Band(EqBand(0)))),
@@ -126,13 +125,13 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: IoTab) {
         "GLOBAL EQ",
         Look::Area,
     );
-    l.text(GLOBAL_EQ, "GLOBAL EQ", BODY, MUTED, Align::Center);
+    l.text(GLOBAL_EQ, "GLOBAL EQ", BODY, p.muted, Align::Center);
     let eq_on = ui.snapshot.setting(SettingId::EqEnabled) == Some(&SettingValue::Bool(true));
     l.push(
         Rect::new(GLOBAL_EQ.right() - 10, GLOBAL_EQ.y + 4, 6, 6),
         "",
         Look::Dot {
-            color: if eq_on { ACCENT } else { FAINT },
+            color: if eq_on { p.accent } else { p.faint },
         },
     );
     port_map(ui, l, tab);
@@ -143,7 +142,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: IoTab) {
             if selected {
                 l.panel(
                     Rect::new(bounds.x, bounds.y, bounds.width, 60),
-                    PANEL,
+                    p.panel,
                     8.0,
                     None,
                 );
@@ -159,12 +158,12 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: IoTab) {
                 bounds,
                 ["1", "2"][index],
                 BODY,
-                if selected { TEXT } else { MUTED },
+                if selected { p.text } else { p.muted },
                 Align::Center,
             );
         }
     }
-    l.panel(CARD, PANEL, 8.0, None);
+    l.panel(CARD, p.panel, 8.0, None);
     let rows = tab.cells(&ui.snapshot().rows);
     for (row, cells) in rows.iter().enumerate() {
         card_row(ui, l, tab, row, cells);
@@ -172,11 +171,12 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, tab: IoTab) {
     l.push(
         Rect::new(CARD.x, CARD.y + CELL.1 as i32, CARD.width, 2),
         "",
-        Look::Fill(DIVIDER),
+        Look::Fill(p.divider),
     );
 }
 
 fn port_map(ui: &UiState, l: &mut Layout, tab: IoTab) {
+    let p = l.palette;
     let selected_tab = match tab {
         IoTab::UsbRouting => IoTab::Usb,
         tab => tab,
@@ -207,13 +207,14 @@ fn port_map(ui: &UiState, l: &mut Layout, tab: IoTab) {
         (OutputJack::Out12, (327, 147)),
         (OutputJack::Out34, (490, 145)),
     ] {
-        link(l, center, if paired(jack) { MUTED } else { FAINT });
+        link(l, center, if paired(jack) { p.muted } else { p.faint });
     }
 }
 
 /// The rear-panel map `dy` px lower: each connector, its label and the stems from the USB,
 /// MIDI and EXP 1 connectors to their labels (shot 102). `lit` ports are green.
 pub(super) fn rear_panel(l: &mut Layout, dy: i32, lit: impl Fn(&Port) -> bool) {
+    let p = l.palette;
     for port in &PORTS {
         let lit = lit(port);
         let (cx, cy) = (port.center.0, port.center.1 + dy);
@@ -225,7 +226,7 @@ pub(super) fn rear_panel(l: &mut Layout, dy: i32, lit: impl Fn(&Port) -> bool) {
                 l,
                 Rect::new(cx - 14, cy - 61, 28, 28),
                 Icon::Headphones,
-                TEXT,
+                p.text,
             );
             continue;
         }
@@ -241,18 +242,19 @@ pub(super) fn rear_panel(l: &mut Layout, dy: i32, lit: impl Fn(&Port) -> bool) {
             port.label,
             Look::Paragraph {
                 font: CAPTION,
-                color: if lit { TEXT } else { MUTED },
+                color: if lit { p.text } else { p.muted },
                 align: Align::Center,
             },
         );
     }
     for x in [43, 160, 224] {
-        l.push(Rect::new(x - 1, 140 + dy, 2, 40), "", Look::Fill(FAINT));
+        l.push(Rect::new(x - 1, 140 + dy, 2, 40), "", Look::Fill(p.faint));
     }
 }
 
 /// One connector drawn from discs (no stock images): selected ports are green.
 fn connector(l: &mut Layout, port: &Port, (cx, cy): (i32, i32), selected: bool) {
+    let p = l.palette;
     let disc = |l: &mut Layout, (dx, dy): (i32, i32), radius: i32, color: Rgb| {
         let size = (radius * 2) as u32;
         l.push(
@@ -261,28 +263,28 @@ fn connector(l: &mut Layout, port: &Port, (cx, cy): (i32, i32), selected: bool) 
             Look::Dot { color },
         );
     };
-    let body = if selected { ACCENT } else { PANEL };
+    let body = if selected { p.accent } else { p.panel };
     match port.shape {
         Shape::Usb => {
-            let mark = if selected { ACCENT } else { TEXT };
+            let mark = if selected { p.accent } else { p.text };
             l.panel(Rect::new(cx - 18, cy - 18, 36, 36), mark, 3.0, None);
-            l.panel(Rect::new(cx - 14, cy - 14, 28, 28), CANVAS, 1.0, None);
+            l.panel(Rect::new(cx - 14, cy - 14, 28, 28), p.canvas, 1.0, None);
             l.push(Rect::new(cx - 7, cy - 4, 14, 7), "", Look::Fill(mark));
         }
         // Shot 102 row 115: black rim, solid hex nut, a 1 px dark ring, black hole.
         Shape::Jack => {
-            disc(l, (0, 0), 22, CANVAS);
+            disc(l, (0, 0), 22, p.canvas);
             hex_nut(l, (cx, cy), 21, body);
-            disc(l, (0, 0), 13, CANVAS);
+            disc(l, (0, 0), 13, p.canvas);
             disc(l, (0, 0), 12, body);
-            disc(l, (0, 0), 8, CANVAS);
+            disc(l, (0, 0), 8, p.canvas);
         }
         Shape::Din => {
-            disc(l, (0, 0), 22, if selected { ACCENT } else { PANEL });
-            disc(l, (0, 0), 19, PANEL);
-            disc(l, (0, 0), 14, CANVAS);
+            disc(l, (0, 0), 22, if selected { p.accent } else { p.panel });
+            disc(l, (0, 0), 19, p.panel);
+            disc(l, (0, 0), 14, p.canvas);
             for (dx, dy) in [(-8, 2), (-5, -5), (0, -8), (5, -5), (8, 2)] {
-                disc(l, (dx, dy), 2, MUTED);
+                disc(l, (dx, dy), 2, p.muted);
             }
         }
         Shape::Xlr => {
@@ -291,12 +293,16 @@ fn connector(l: &mut Layout, port: &Port, (cx, cy): (i32, i32), selected: bool) 
                 l,
                 (0, 0),
                 29,
-                if selected { ACCENT_FILL } else { BACKGROUND },
+                if selected {
+                    p.accent_fill
+                } else {
+                    p.background
+                },
             );
-            disc(l, (0, 0), 20, if selected { ACCENT } else { CANVAS });
-            disc(l, (0, 0), 17, CANVAS);
+            disc(l, (0, 0), 20, if selected { p.accent } else { p.canvas });
+            disc(l, (0, 0), 17, p.canvas);
             for (dx, dy) in [(-7, -4), (7, -4), (0, 7)] {
-                disc(l, (dx, dy), 3, if selected { ACCENT } else { MUTED });
+                disc(l, (dx, dy), 3, if selected { p.accent } else { p.muted });
             }
         }
         // Shot 102 x 674: XLR/¼" combo. Black rim (a 1 px green ring when selected), a
@@ -304,18 +310,16 @@ fn connector(l: &mut Layout, port: &Port, (cx, cy): (i32, i32), selected: bool) 
         // three pin lobes (top, left, right).
         Shape::Combo => {
             disc(l, (0, 0), 32, body);
-            disc(l, (0, 0), if selected { 31 } else { 32 }, CANVAS);
+            disc(l, (0, 0), if selected { 31 } else { 32 }, p.canvas);
             disc(l, (-16, 15), 3, body);
             disc(l, (0, 0), 21, body);
-            disc(l, (0, 0), 9, CANVAS);
+            disc(l, (0, 0), 9, p.canvas);
             for (dx, dy) in [(0, -11), (-11, 0), (11, 0)] {
-                disc(l, (dx, dy), 4, CANVAS);
+                disc(l, (dx, dy), 4, p.canvas);
             }
         }
     }
 }
-
-const ACCENT_FILL: Rgb = tetrad_assets::ACCENT_FILL;
 
 /// Flat-top hex nut (¼" jack body, shot 102) of circumradius `radius`: solid 1 px rows.
 fn hex_nut(l: &mut Layout, (cx, cy): (i32, i32), radius: i32, color: Rgb) {
@@ -332,11 +336,12 @@ fn hex_nut(l: &mut Layout, (cx, cy): (i32, i32), radius: i32, color: Rgb) {
 
 /// Output pairing mark between two jacks: a chain link, two rings with a bar through them.
 fn link(l: &mut Layout, (cx, cy): (i32, i32), color: Rgb) {
+    let background = l.palette.background;
     for dx in [-10, -2] {
         l.panel(Rect::new(cx + dx, cy - 5, 12, 10), color, 5.0, None);
-        l.panel(Rect::new(cx + dx + 2, cy - 3, 8, 6), BACKGROUND, 3.0, None);
+        l.panel(Rect::new(cx + dx + 2, cy - 3, 8, 6), background, 3.0, None);
     }
-    l.push(Rect::new(cx - 2, cy - 6, 4, 12), "", Look::Fill(BACKGROUND));
+    l.push(Rect::new(cx - 2, cy - 6, 4, 12), "", Look::Fill(background));
     l.push(Rect::new(cx - 5, cy - 1, 10, 2), "", Look::Fill(color));
 }
 
@@ -356,6 +361,7 @@ fn cell_rect(row: usize, column: i32, span: i32) -> Rect {
 }
 
 fn card_row(ui: &UiState, l: &mut Layout, tab: IoTab, row: usize, cells: &[IoCell]) {
+    let p = l.palette;
     let meters = &ui.snapshot().io_meters;
     let fixed = cells
         .iter()
@@ -374,7 +380,7 @@ fn card_row(ui: &UiState, l: &mut Layout, tab: IoTab, row: usize, cells: &[IoCel
             l.push(
                 Rect::new(bounds.right() - 2, bounds.y + 14, 2, 78),
                 "",
-                Look::Fill(CELL_DIVIDER),
+                Look::Fill(p.tone(CELL_DIVIDER)),
             );
         }
         match *cell {
@@ -396,7 +402,7 @@ fn card_row(ui: &UiState, l: &mut Layout, tab: IoTab, row: usize, cells: &[IoCel
                 _ => {}
             },
             IoCell::Text(text) => {
-                l.paragraph(bounds.inset(10, 10), text, BODY, MUTED);
+                l.paragraph(bounds.inset(10, 10), text, BODY, p.muted);
             }
             IoCell::Action(action, label) => {
                 l.button(
@@ -427,6 +433,7 @@ fn allowed(ui: &UiState, id: SettingId) -> bool {
 /// Stock panel cell per kind: level knob, stepped knob (opens its list), or a two-label
 /// vertical switch (On/Off, Mic/Instrument).
 fn setting_cell(ui: &UiState, l: &mut Layout, bounds: Rect, id: SettingId) {
+    let p = l.palette;
     let value = ui.snapshot.setting(id);
     let enabled = value.is_some() && allowed(ui, id);
     match (id.kind(), value) {
@@ -472,7 +479,7 @@ fn setting_cell(ui: &UiState, l: &mut Layout, bounds: Rect, id: SettingId) {
                 Look::Knob {
                     value: id.format(value),
                     kind: ParameterKind::Continuous { position },
-                    color: ACCENT,
+                    color: p.accent,
                     focused: false,
                 },
             );
@@ -496,7 +503,8 @@ fn stepped_knob(
         Some(SettingValue::Choice(index)) => Some(usize::from(*index)),
         _ => None,
     };
-    let ink = if enabled { TEXT } else { FAINT };
+    let p = l.palette;
+    let ink = if enabled { p.text } else { p.faint };
     l.text(
         Rect::new(bounds.x + 10, bounds.y + 6, bounds.width - 20, 28),
         id.label(),
@@ -513,7 +521,7 @@ fn stepped_knob(
             Rect::new(x, row.y + 2, 24, 28),
             unit,
             CAPTION,
-            MUTED,
+            p.muted,
             Align::Left,
         );
     }
@@ -535,16 +543,16 @@ fn stepped_knob(
         );
     };
     let center = (cx as f32, cy as f32);
-    disc(l, center, 24.5, CANVAS);
-    disc(l, center, 21.5, PANEL.mix(CANVAS, 60));
+    disc(l, center, 24.5, p.canvas);
+    disc(l, center, 21.5, p.panel.mix(p.canvas, 60));
     let angle_of =
         |option: usize| (135.0 + 270.0 * option as f32 / (count.max(2) - 1) as f32).to_radians();
     for option in 0..count {
         let angle = angle_of(option);
         let color = match (Some(option) == index, enabled) {
-            (true, true) => ACCENT,
-            (true, false) => FAINT,
-            (false, _) => ACCENT_FILL,
+            (true, true) => p.accent,
+            (true, false) => p.faint,
+            (false, _) => p.accent_fill,
         };
         let at = (center.0 + angle.cos() * 34.0, center.1 + angle.sin() * 34.0);
         disc(l, at, 3.5, color);
@@ -570,6 +578,7 @@ fn switch_cell(
     index: Option<usize>,
     enabled: bool,
 ) {
+    let p = l.palette;
     let flip = index.map_or(1, |index| 1 - index.min(1) as i32);
     l.control(
         bounds,
@@ -578,7 +587,7 @@ fn switch_cell(
         id.label(),
         Look::Area,
     );
-    let ink = if enabled { TEXT } else { FAINT };
+    let ink = if enabled { p.text } else { p.faint };
     l.text(
         Rect::new(bounds.x + 10, bounds.y + 6, bounds.width - 20, 28),
         id.label(),
@@ -587,7 +596,7 @@ fn switch_cell(
         Align::Left,
     );
     let track = Rect::new(bounds.x + 16, bounds.y + 44, 22, 46);
-    l.panel(track, CANVAS, 11.0, None);
+    l.panel(track, p.canvas, 11.0, None);
     for (position, label) in labels.into_iter().enumerate() {
         let active = index == Some(1 - position);
         let y = track.y + position as i32 * 23;
@@ -595,7 +604,7 @@ fn switch_cell(
             Rect::new(track.right() + 16, y, bounds.width - 60, 23),
             label,
             BODY,
-            if active && enabled { TEXT } else { FAINT },
+            if active && enabled { p.text } else { p.faint },
             Align::Left,
         );
         if active {
@@ -604,10 +613,10 @@ fn switch_cell(
                 ring,
                 "",
                 Look::Dot {
-                    color: if enabled { ACCENT } else { FAINT },
+                    color: if enabled { p.accent } else { p.faint },
                 },
             );
-            l.push(ring.inset(3, 3), "", Look::Dot { color: CANVAS });
+            l.push(ring.inset(3, 3), "", Look::Dot { color: p.canvas });
         }
     }
 }
@@ -651,9 +660,10 @@ fn usb_meter_db(meters: &IoMeters, label: &str) -> [f32; 2] {
 
 /// A left-aligned meter reading: the number white, the "dB" unit grey as stock (review R32).
 fn db_readout(l: &mut Layout, bounds: Rect, db: f32) {
+    let p = l.palette;
     let number = format!("{:.1}", db.max(IoMeters::FLOOR));
     let unit_x = bounds.x + BODY.width(&number).ceil() as i32 + 4;
-    l.text(bounds, number, BODY, TEXT, Align::Left);
+    l.text(bounds, number, BODY, p.text, Align::Left);
     l.text(
         Rect::new(
             unit_x,
@@ -663,18 +673,19 @@ fn db_readout(l: &mut Layout, bounds: Rect, db: f32) {
         ),
         "dB",
         BODY,
-        MUTED,
+        p.muted,
         Align::Left,
     );
 }
 
 /// Level meter cell (shot 102 row 2).
 fn meter_cell(l: &mut Layout, bounds: Rect, label: &str, db: f32) {
+    let text = l.palette.text;
     l.text(
         Rect::new(bounds.x + 10, bounds.y + 6, bounds.width - 20, 28),
         label,
         BODY,
-        TEXT,
+        text,
         Align::Left,
     );
     db_readout(
@@ -704,7 +715,8 @@ fn meter_bar(l: &mut Layout, bar: Rect, db: f32) {
         },
     );
     let x = bar.x + (bar.width as f32 * BAR_BREAK).round() as i32;
-    l.push(Rect::new(x, bar.y, 1, bar.height), "", Look::Fill(PANEL));
+    let panel = l.palette.panel;
+    l.push(Rect::new(x, bar.y, 1, bar.height), "", Look::Fill(panel));
 }
 
 /// Left/right pair meter (kind 6; USB in shot 049): title, (i) help when it has one, two
@@ -716,11 +728,12 @@ fn pair_meter_cell(
     help: Option<&'static str>,
     db: [f32; 2],
 ) {
+    let p = l.palette;
     l.text(
         Rect::new(bounds.x + 10, bounds.y + 6, bounds.width - 50, 28),
         label,
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     // Stock ⓘ sits 28 px left of the cell's right edge (review R32).
@@ -733,7 +746,7 @@ fn pair_meter_cell(
         readout,
         format!("{:.1}", db[1].max(IoMeters::FLOOR)),
         BODY,
-        TEXT,
+        p.text,
         Align::Right,
     );
     // Shot 049: bars at y + 62 and y + 83.

@@ -19,6 +19,7 @@ serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 # Community DSP blocks ship as qcdsp IR inside packages.
 qcdsp = { path = "../../qcdsp/crates/qcdsp" }
+tetrad-theme.workspace = true
 
 [lints]
 workspace = true

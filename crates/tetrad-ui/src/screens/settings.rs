@@ -1,11 +1,10 @@
 //! Settings (manual §10: Account, System, Device, Support groups), stock frame and pages. Wi-Fi,
 //! updates, storage and backups pages live in their own files; the I/O page is `io.rs`.
 
-use tetrad_assets::{ACCENT, BACKGROUND, CANVAS, DIVIDER, FAINT, Icon, IconSize, MUTED, PANEL};
-use tetrad_assets::{Rgb, TEXT, block};
+use tetrad_assets::{Icon, IconSize, Rgb, block};
 
 use crate::layout::{BODY, BODY_BOLD, ButtonStyle, LARGE, Layout, ListId, Look};
-use crate::layout::{MEDIUM, MEDIUM_BOLD, SMALL_BOLD};
+use crate::layout::{GREY_VEIL, MEDIUM, MEDIUM_BOLD, SMALL_BOLD};
 use crate::render::{Align, Font, wrap};
 use crate::settings::{DeviceAction, PageRow, SettingKind, SettingsPage};
 use crate::*;
@@ -33,6 +32,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         TetradUpdates => Icon::Download,
         SwapTempoTuner => Icon::Swap,
         Brightness => Icon::Brightness,
+        Appearance => Icon::Palette,
         PowerFunctions => Icon::Bolt,
         PowerOnMode | SceneBypass => Icon::Power,
         MasterVolume => Icon::Knob,
@@ -67,33 +67,34 @@ fn group_icon(group: SettingsGroup) -> Icon {
 /// group is green with a ✓, and System carries an 8 px green dot when an update is available.
 pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
     const ROW: u32 = 60;
+    let p = l.palette;
     let panel = Rect::new(
         GROUPS.x,
         GROUPS.y - 2,
         GROUPS.width,
         (MENU.y - GROUPS.y + 2) as u32 + SettingsGroup::ALL.len() as u32 * ROW,
     );
-    l.veil(crate::layout::GREY_VEIL);
+    l.veil((p.tone(GREY_VEIL.0), GREY_VEIL.1));
     l.popover(panel);
-    l.panel(panel, CANVAS, 8.0, None);
+    l.panel(panel, p.canvas, 8.0, None);
     glyph(
         l,
         Rect::new(GROUPS.x + 8, GROUPS.y, 40, GROUPS.height),
         group_icon(group),
-        TEXT,
+        p.text,
     );
     l.text(
         Rect::new(GROUPS.x + 54, GROUPS.y, 160, GROUPS.height),
         group.title(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     triangle(
         l,
         Rect::new(GROUPS.right() - 23, GROUPS.y + 17, 14, 8),
         false,
-        MUTED,
+        p.muted,
     );
     for (index, entry) in SettingsGroup::ALL.iter().enumerate() {
         let row = Rect::new(
@@ -103,7 +104,7 @@ pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
             ROW,
         );
         let current = *entry == group;
-        let color = if current { ACCENT } else { TEXT };
+        let color = if current { p.accent } else { p.text };
         l.control(
             row,
             Control::Choose(index as u16),
@@ -115,7 +116,7 @@ pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
             l,
             Rect::new(row.x + 8, row.y, 40, ROW),
             group_icon(*entry),
-            TEXT,
+            p.text,
         );
         l.text(
             Rect::new(row.x + 60, row.y, 150, ROW),
@@ -131,7 +132,7 @@ pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
                 Look::Glyph {
                     icon: Icon::Check,
                     size: IconSize::Small,
-                    color: ACCENT,
+                    color: p.accent,
                 },
             );
         } else if *entry == SettingsGroup::System && ui.snapshot.updater.available_version.is_some()
@@ -139,7 +140,7 @@ pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
             l.push(
                 Rect::new(row.right() - 22, row.y + 26, 8, 8),
                 "",
-                Look::Dot { color: ACCENT },
+                Look::Dot { color: p.accent },
             );
         }
     }
@@ -157,9 +158,10 @@ fn menu_pages(ui: &UiState, group: SettingsGroup) -> Vec<SettingsPage> {
 }
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
+    let p = l.palette;
     let group = page.group();
     // Group dropdown (shot 034): panel fill, icon at x 24, label at x 62, ▼ at x 248.
-    l.panel(GROUPS, PANEL, 8.0, None);
+    l.panel(GROUPS, p.panel, 8.0, None);
     l.control(
         GROUPS,
         Control::Setting(SettingControl::Groups),
@@ -171,27 +173,27 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         l,
         Rect::new(GROUPS.x + 8, GROUPS.y, 40, GROUPS.height),
         group_icon(group),
-        TEXT,
+        p.text,
     );
     l.text(
         Rect::new(GROUPS.x + 54, GROUPS.y, 160, GROUPS.height),
         group.title(),
         BODY,
-        TEXT,
+        p.text,
         Align::Left,
     );
     triangle(
         l,
         Rect::new(GROUPS.right() - 23, GROUPS.y + 17, 14, 8),
         true,
-        TEXT,
+        p.text,
     );
     // An available update outside System: an 8 px green dot on the button's top-right corner.
     if group != SettingsGroup::System && ui.snapshot.updater.available_version.is_some() {
         l.push(
             Rect::new(GROUPS.right() - 8, GROUPS.y - 6, 8, 8),
             "",
-            Look::Dot { color: ACCENT },
+            Look::Dot { color: p.accent },
         );
     }
     l.control(
@@ -201,10 +203,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: PANEL,
+            fill: p.panel,
         },
     );
-    l.panel(MENU, PANEL, 8.0, None);
+    l.panel(MENU, p.panel, 8.0, None);
     let pages = menu_pages(ui, group);
     let update = ui.snapshot.updater.available_version.is_some();
     let tetrad_update = matches!(
@@ -245,13 +247,13 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
                     l.push(
                         Rect::new(row.right() - 22, row.y + 26, 8, 8),
                         "",
-                        Look::Dot { color: ACCENT },
+                        Look::Dot { color: p.accent },
                     );
                 }
             }
         },
     );
-    l.panel(PANE, PANEL, 8.0, None);
+    l.panel(PANE, p.panel, 8.0, None);
     let pane = PANE.inset(16, 12);
     // Updates and Backups put their own state title there; Device Information starts with
     // its section titles and Diagnostics pages carry their own.
@@ -272,7 +274,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
             Rect::new(pane.x, pane.y, pane.width, 32),
             page.heading(),
             LARGE,
-            TEXT,
+            p.text,
             Align::Left,
         );
     }
@@ -288,6 +290,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::Licenses => super::support::licences(ui, l, PANE),
         SettingsPage::Diagnostics => super::support::diagnostics(ui, l, PANE),
         SettingsPage::Brightness => brightness(ui, l, body),
+        SettingsPage::Appearance => super::appearance::layout(ui, l, body),
         SettingsPage::GlobalBypass => global_bypass(ui, l, body),
         SettingsPage::FactoryReset => super::recovery::options(l, body, false),
         SettingsPage::AboutContact => about(l, body),
@@ -313,6 +316,7 @@ fn row_height(row: &PageRow, width: u32) -> u32 {
 /// Generic setting rows: toggles flip on tap, choices open a list, numbers get a stepper,
 /// radio options pick their index. Unknown values show a dash and stay disabled.
 pub(super) fn rows(ui: &UiState, l: &mut Layout, area: Rect, list: ListId, rows: &[PageRow]) {
+    let p = l.palette;
     let content: u32 = rows.iter().map(|row| row_height(row, area.width)).sum();
     l.scroll(list, area, content, ui.offset(list), |l, mut y| {
         for row in rows {
@@ -323,7 +327,7 @@ pub(super) fn rows(ui: &UiState, l: &mut Layout, area: Rect, list: ListId, rows:
                         Rect::new(area.x, y + 10, area.width, 20),
                         title,
                         BODY_BOLD,
-                        TEXT,
+                        p.text,
                         Align::Left,
                     );
                 }
@@ -333,7 +337,7 @@ pub(super) fn rows(ui: &UiState, l: &mut Layout, area: Rect, list: ListId, rows:
                         Rect::new(area.x, y, area.width, height),
                         text,
                         MEDIUM,
-                        TEXT,
+                        p.text,
                     );
                 }
                 PageRow::Setting(id) => {
@@ -378,6 +382,7 @@ pub(super) fn rows(ui: &UiState, l: &mut Layout, area: Rect, list: ListId, rows:
 /// disc at +2, the label and the control at the right end: a vertical switch (the
 /// whole row toggles), a black dropdown that opens in place, or a stepper for numbers.
 pub(super) fn setting_row(ui: &UiState, l: &mut Layout, bounds: Rect, id: SettingId) {
+    let p = l.palette;
     let value = ui.snapshot.setting(id);
     let known = value.is_some();
     // The (i) target is left of the row target so both stay disjoint.
@@ -399,7 +404,7 @@ pub(super) fn setting_row(ui: &UiState, l: &mut Layout, bounds: Rect, id: Settin
             ),
             id.label(),
             MEDIUM,
-            if known { TEXT } else { FAINT },
+            if known { p.text } else { p.faint },
             Align::Left,
         );
     };
@@ -437,8 +442,8 @@ pub(super) fn setting_row(ui: &UiState, l: &mut Layout, bounds: Rect, id: Settin
                 id.label(),
                 Look::Area,
             );
-            l.panel(field, CANVAS, 4.0, None);
-            let ink = if known { TEXT } else { FAINT };
+            l.panel(field, p.canvas, 4.0, None);
+            let ink = if known { p.text } else { p.faint };
             let arrow = Rect::new(field.right() - 24, field.y + 15, 12, 7);
             triangle(l, arrow, true, ink);
             l.text(
@@ -471,7 +476,7 @@ pub(super) fn setting_row(ui: &UiState, l: &mut Layout, bounds: Rect, id: Settin
     l.push(
         Rect::new(bounds.x, bounds.bottom() - 1, bounds.width, 1),
         "",
-        Look::Fill(DIVIDER),
+        Look::Fill(p.divider),
     );
 }
 
@@ -483,6 +488,7 @@ pub(super) fn info_button(
     title: &'static str,
     body: &'static str,
 ) {
+    let p = l.palette;
     let target = Rect::new(center.0 - 20, center.1 - 20, 40, 40);
     l.control(
         target,
@@ -492,13 +498,20 @@ pub(super) fn info_button(
         Look::Area,
     );
     let disc = Rect::new(center.0 - 11, center.1 - 11, 22, 22);
-    l.push(disc, "", Look::Dot { color: BACKGROUND });
-    l.text(disc, "i", SMALL_BOLD, PANEL, Align::Center);
+    l.push(
+        disc,
+        "",
+        Look::Dot {
+            color: p.background,
+        },
+    );
+    l.text(disc, "i", SMALL_BOLD, p.panel, Align::Center);
 }
 
 /// One radio option (Scene Bypass State Behavior): ring at the left, the stock text
 /// beside it; the whole row selects it.
 fn radio(ui: &UiState, l: &mut Layout, bounds: Rect, id: SettingId, index: u16, text: &str) {
+    let p = l.palette;
     let value = ui.snapshot.setting(id);
     let selected = value == Some(&SettingValue::Choice(index));
     l.control(
@@ -517,10 +530,10 @@ fn radio(ui: &UiState, l: &mut Layout, bounds: Rect, id: SettingId, index: u16, 
             Look::Dot { color },
         );
     };
-    dot(l, 10, if selected { ACCENT } else { FAINT });
-    dot(l, 7, PANEL);
+    dot(l, 10, if selected { p.accent } else { p.faint });
+    dot(l, 7, p.panel);
     if selected {
-        dot(l, 4, ACCENT);
+        dot(l, 4, p.accent);
     }
     rich_paragraph(
         l,
@@ -532,7 +545,7 @@ fn radio(ui: &UiState, l: &mut Layout, bounds: Rect, id: SettingId, index: u16, 
         ),
         text,
         MEDIUM,
-        if selected { TEXT } else { MUTED },
+        if selected { p.text } else { p.muted },
     );
 }
 
@@ -561,13 +574,14 @@ const BRIGHTNESS: [SettingId; 3] = [
 /// Brightness (shot 034): the ▲/▼/TEMPO help (`0xa3af5c`), three 32-segment bars with
 /// their 0–32 value and the three mode icons that toggle dimmed LEDs.
 fn brightness(ui: &UiState, l: &mut Layout, area: Rect) {
+    let p = l.palette;
     rich_paragraph(
         l,
         Rect::new(area.x, area.y + 4, area.width, 72),
         "Turn the ▲, ▼, and TEMPO footswitches to adjust the brightness. Tap the Modes at \
          the bottom to toggle dimmed LED lights for each one individually.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     for (index, id) in BRIGHTNESS.into_iter().enumerate() {
         let top = area.y + 80 + index as i32 * 79;
@@ -579,14 +593,14 @@ fn brightness(ui: &UiState, l: &mut Layout, area: Rect) {
             Rect::new(area.x, top, 300, 24),
             id.label(),
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Left,
         );
         l.text(
             Rect::new(area.right() - 112, top, 100, 24),
             value.map_or_else(|| "-".to_owned(), |value| value.to_string()),
             MEDIUM,
-            TEXT,
+            p.text,
             Align::Right,
         );
         let bar = brightness_bar(area, index);
@@ -598,7 +612,7 @@ fn brightness(ui: &UiState, l: &mut Layout, area: Rect) {
             id.label(),
             Look::Area,
         );
-        l.panel(bar, BACKGROUND, 2.0, None);
+        l.panel(bar, p.background, 2.0, None);
         let inner = bar.inset(2, 2);
         for segment in 0..value.unwrap_or(0).min(SEGMENTS) {
             let x = inner.x + segment * inner.width as i32 / SEGMENTS;
@@ -606,7 +620,7 @@ fn brightness(ui: &UiState, l: &mut Layout, area: Rect) {
             l.push(
                 Rect::new(x, inner.y, (next - x - 2) as u32, inner.height),
                 "",
-                Look::Fill(ACCENT),
+                Look::Fill(p.accent),
             );
         }
     }
@@ -625,7 +639,7 @@ fn brightness(ui: &UiState, l: &mut Layout, area: Rect) {
             id.label(),
             Look::Area,
         );
-        glyph(l, target, icon, if on { TEXT } else { FAINT });
+        glyph(l, target, icon, if on { p.text } else { p.faint });
     }
 }
 
@@ -683,19 +697,20 @@ impl UiState {
 /// footnote (`0xa3ba18`), then a Cab tile and an IR Loader tile, each with four ROW power
 /// buttons (bypassed = highlighted, I).
 fn global_bypass(ui: &UiState, l: &mut Layout, area: Rect) {
+    let p = l.palette;
     rich_paragraph(
         l,
         Rect::new(area.x, area.y + 4, area.width, 72),
         "Globally bypass Cabs, IR Loaders, or Neural Captures of cabs* on any row. Globally \
          bypassed devices will have a bypass icon ⏻ but will not appear bypassed on The Grid.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     l.paragraph(
         Rect::new(area.x, area.y + 76, area.width, 44),
         "*Neural Captures need to have the Capture Type set to \"Cab\" to be bypassed.",
         BODY,
-        MUTED,
+        p.muted,
     );
     for (index, icon) in [Icon::Cab, Icon::IrLoader].into_iter().enumerate() {
         let id_of = if index == 0 {
@@ -709,7 +724,7 @@ fn global_bypass(ui: &UiState, l: &mut Layout, area: Rect) {
             "",
             Look::Block {
                 hue: Some(block::CAB),
-                fill: CANVAS,
+                fill: p.canvas,
                 icon: Some(icon),
                 bypassed: false,
                 selected: false,
@@ -725,7 +740,7 @@ fn global_bypass(ui: &UiState, l: &mut Layout, area: Rect) {
                 Rect::new(x, top, 66, 20),
                 id.label(),
                 BODY,
-                MUTED,
+                p.muted,
                 Align::Center,
             );
             let value = ui.snapshot.setting(id);
@@ -750,7 +765,7 @@ fn global_bypass(ui: &UiState, l: &mut Layout, area: Rect) {
             l.push(
                 Rect::new(area.x, top + 86, area.width, 1),
                 "",
-                Look::Fill(DIVIDER),
+                Look::Fill(p.divider),
             );
         }
     }
@@ -759,35 +774,37 @@ fn global_bypass(ui: &UiState, l: &mut Layout, area: Rect) {
 /// About Us (shot 044 layout): black card, divider and the support block. Owned text: the
 /// stock card names the company and carries its logo and QR code.
 fn about(l: &mut Layout, area: Rect) {
+    let p = l.palette;
     let card = Rect::new(area.x, area.y, area.width, 124);
-    l.panel(card, CANVAS, 12.0, None);
+    l.panel(card, p.canvas, 12.0, None);
     l.text(
         Rect::new(card.x + 20, card.y + 16, card.width - 40, 24),
         "Tetrad",
         MEDIUM_BOLD,
-        TEXT,
+        p.text,
         Align::Left,
     );
     l.paragraph(
         Rect::new(card.x + 20, card.y + 42, card.width - 40, 72),
         "An owned reconstruction of the Quad Cortex userspace.\nNot made or supported by Neural DSP Technologies.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
     l.push(
         Rect::new(area.x, card.bottom() + 20, area.width, 1),
         "",
-        Look::Fill(DIVIDER),
+        Look::Fill(p.divider),
     );
     l.paragraph(
         Rect::new(area.x, card.bottom() + 52, area.width, 120),
         "For help with this build, read the project documentation in docs/.\n\nDevice support from the manufacturer does not cover this software.",
         MEDIUM,
-        TEXT,
+        p.text,
     );
 }
 
 fn account(ui: &UiState, l: &mut Layout, area: Rect) {
+    let p = l.palette;
     match &ui.snapshot.account.username {
         // Stock 4.1.0 on the QC (2026-10-16): the link line as the title, a white paragraph,
         // a black 219 × 45 UNLINK DEVICE.
@@ -796,14 +813,14 @@ fn account(ui: &UiState, l: &mut Layout, area: Rect) {
                 Rect::new(area.x, area.y - 44, area.width, 32),
                 format!("Device linked to [{user}]"),
                 LARGE,
-                TEXT,
+                p.text,
                 Align::Left,
             );
             l.paragraph(
                 Rect::new(area.x, area.y + 2, area.width, 50),
                 "You are ready to send & receive Presets & Neural Captures and use Cloud backups.",
                 MEDIUM,
-                TEXT,
+                p.text,
             );
             // 16 px label: ink 114 × 11 on `sa1.png` (18 px would be 128 × 13).
             l.button_in(
@@ -820,7 +837,7 @@ fn account(ui: &UiState, l: &mut Layout, area: Rect) {
                 Rect::new(area.x, area.y, area.width, 60),
                 "Link Quad Cortex with your account to use the Cloud service.",
                 MEDIUM,
-                TEXT,
+                p.text,
             );
             l.button(
                 Rect::new(area.x, area.y + 70, 240, 44),

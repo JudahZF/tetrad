@@ -117,7 +117,9 @@ impl Host {
                     let result = CallResult::Ok(Value::Null);
                     self.send(&HostMessage::Response { id, result });
                 }
-                RunnerMessage::Done { scope: done, error } => {
+                RunnerMessage::Done {
+                    scope: done, error, ..
+                } => {
                     assert_eq!((done, error), (scope, None));
                     return published.expect("the provider published");
                 }

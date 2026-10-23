@@ -8,6 +8,7 @@
 //! [`Notice`]s (nothing is skipped silently).
 
 pub mod actions;
+pub mod appearance;
 mod boot;
 pub mod bringup;
 pub mod capture;
@@ -38,6 +39,7 @@ pub mod remote;
 pub mod services;
 pub mod ui;
 mod upload;
+mod usb;
 
 pub use upload::UploadRefused;
 
@@ -497,6 +499,7 @@ pub enum Subsystem {
     Power,
     Extensions,
     Remote,
+    Usb,
 }
 
 /// A degraded step or an unsupported request, kept for the UI and the log.
@@ -940,6 +943,7 @@ impl State {
 /// The subsystem bridges, one file each.
 pub struct Bridges {
     pub ui: ui::Ui,
+    pub appearance: appearance::Appearance,
     pub control: control::Control,
     pub input: input::Input,
     pub jacks: jacks::InputScheduler,
@@ -979,6 +983,8 @@ pub struct Device<P: Platform> {
     last_phases: PhaseTimes,
     /// The costliest unit of each phase of the last [`Self::step`] (bring-up `SLOW` lines).
     probe: probe::Probe,
+    /// The Tetrad link over USB (`usb.rs`).
+    usb: usb::UsbLink,
     /// The Wi-Fi bring-up (`services::Services::start`) succeeded.
     services_up: bool,
     /// [`bringup::RunOptions::STOCK`] for `run`; a bring-up run gates stages and writes.
@@ -1030,6 +1036,7 @@ impl<P: Platform> Device<P> {
                 capture,
                 extensions: extensions::Extensions::new(),
                 mappings: mappings::Mappings::default(),
+                appearance: appearance::Appearance::default(),
                 remote: remote::Remote::default(),
             },
             state: State::new(product, hal_platform, settings),
@@ -1048,6 +1055,7 @@ impl<P: Platform> Device<P> {
             shown_clips: tetrad_ui::GridClips::default(),
             last_phases: PhaseTimes::default(),
             probe: probe::Probe::default(),
+            usb: usb::UsbLink::default(),
             services_up: false,
             options,
             health: bringup::Health::default(),
@@ -1112,6 +1120,8 @@ impl<P: Platform> Device<P> {
         }
         device.splash(progress::DSP_READY);
         device.migrate_settings(boot_count);
+        // Before the first Tetrad frame, so a boot shows the chosen theme from the start.
+        device.load_appearance();
         // Review r30 C7: one `fw_printenv` per boot for both readers below (stock loads the map
         // once per process, `0x47d994`); a failure is reported by each reader.
         let mut boot_env = None;
@@ -1392,6 +1402,7 @@ impl<P: Platform> Device<P> {
         }
         self.probe.enter();
         self.send_control_reports(control::outgoing::FRAMES_PER_PASS);
+        self.send_usb_reports(usb::REPORTS_PER_PASS);
         self.probe.leave(Label::new("send_reports"));
         lap.end(&mut self.last_phases.control);
         self.probe.set_phase(Phase::Views);
@@ -1481,8 +1492,13 @@ impl<P: Platform> Device<P> {
             self.notice(Subsystem::Input, error.to_string());
         }
         self.queue.extend(hal.into_iter().map(Event::Hal));
+        let mut usb = Vec::new();
         while let Some(dsp) = self.dsp.as_mut() {
             match dsp.next_event() {
+                // Tetrad reports never reach the Cortex Control link (`usb.rs`).
+                Ok(Some((_, DspEvent::HidReport(report)))) if tetrad_usb::is_tetrad(&report.0) => {
+                    usb.push(report.0);
+                }
                 Ok(Some((_, DspEvent::HidReport(report)))) => {
                     self.queue.push_back(Event::Control(Box::new(report.0)));
                 }
@@ -1516,6 +1532,9 @@ impl<P: Platform> Device<P> {
                     break;
                 }
             }
+        }
+        for report in usb {
+            self.usb_report(&report);
         }
         let mut input = Vec::new();
         if let Err(error) = self.platform.poll_input(&mut input) {
@@ -2110,6 +2129,7 @@ impl<P: Platform> Device<P> {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
             ui::Handoff::Mappings(command) => self.mapping_command(command),
+            ui::Handoff::Theme(id) => self.set_theme(id),
             ui::Handoff::Remote { enabled } => {
                 self.set_remote(enabled);
                 Vec::new()
@@ -2908,12 +2928,86 @@ impl<P: Platform> Device<P> {
         }
         // Declared triggers can change with any extension step.
         self.bridges.mappings.view_stale = true;
+        for reply in outcome.usb_replies {
+            self.usb.answer_extension(reply);
+        }
         let mut effects = outcome.effects;
         for fired in &outcome.triggers {
             let step = (self.bridges.mappings).on_extension(fired, &self.state, self.clock.now());
             effects.extend(self.mapping_step(step));
         }
         effects
+    }
+
+    /// Reads the stored theme choice and the theme files ([`appearance::FILE`],
+    /// [`appearance::THEMES_DIR`]). Missing files are fine; bad ones are reported.
+    fn load_appearance(&mut self) {
+        use tetrad_services::exec::Files;
+        let files = self.platform.services().files();
+        let stored = files.read_bounded(Path::new(appearance::FILE), appearance::MAX_FILE);
+        let problem = match stored {
+            Ok(bytes) => self.bridges.appearance.load(bytes.as_deref()),
+            Err(error) => Some(error.to_string()),
+        };
+        if let Some(problem) = problem {
+            self.notice(Subsystem::Ui, format!("Appearance: {problem}"));
+        }
+        self.read_theme_files();
+        // Into the views now: the start-up frames are presented before the first view sync.
+        self.state.views.appearance = self.bridges.appearance.view();
+    }
+
+    /// Reads the theme files again (at boot and when Settings → Appearance opens, so files
+    /// copied over while Tetrad runs show up).
+    pub(in crate::device) fn read_theme_files(&mut self) {
+        use tetrad_services::exec::Files;
+        let files = self.platform.services().files();
+        let dir = Path::new(appearance::THEMES_DIR);
+        let (mut names, problem): (Vec<String>, _) = match files.list_dir(dir) {
+            Ok(entries) => (
+                (entries.into_iter().flatten())
+                    .filter(|entry| !entry.is_dir && entry.name.ends_with(".json"))
+                    .map(|entry| entry.name)
+                    .collect(),
+                None,
+            ),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        names.sort();
+        names.truncate(appearance::MAX_THEME_FILES);
+        let read = (names.into_iter())
+            .map(|name| {
+                let bytes = (files.read_bounded(&dir.join(&name), appearance::MAX_FILE))
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| bytes.ok_or_else(|| "the file is gone".to_owned()));
+                (name, bytes)
+            })
+            .collect();
+        self.bridges.appearance.set_files(read);
+        if let Some(error) = problem {
+            self.notice(Subsystem::Ui, format!("Appearance: {error}"));
+        }
+    }
+
+    /// Applies and stores a theme picked on Settings → Appearance.
+    fn set_theme(&mut self, id: tetrad_theme::ThemeId) -> Vec<Effect> {
+        use tetrad_services::exec::Files;
+        let bytes = match self.bridges.appearance.select(id) {
+            Ok(bytes) => bytes,
+            Err(reason) => return vec![Effect::Notice(Subsystem::Ui, reason)],
+        };
+        let files = self.platform.services().files();
+        let path = Path::new(appearance::FILE);
+        let saved = (path.parent())
+            .map_or(Ok(()), |dir| files.create_dirs(dir))
+            .and_then(|()| files.write_atomic(path, &bytes));
+        match saved {
+            Ok(()) => Vec::new(),
+            Err(error) => vec![Effect::Notice(
+                Subsystem::Ui,
+                format!("Theme not saved: {error}"),
+            )],
+        }
     }
 
     fn mapping_command(&mut self, command: tetrad_ui::MappingCommand) -> Vec<Effect> {

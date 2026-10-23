@@ -249,6 +249,7 @@ pub struct Capabilities {
     pub storage: bool,
     pub triggers: bool,
     pub blocks: bool,
+    pub usb: bool,
 }
 
 /// One installed extension as the bridge runs it.
@@ -261,7 +262,7 @@ pub struct Installation {
     pub version: String,
     pub description: String,
     pub source: String,
-    /// `None`: a package of DSP blocks only, which has no runner.
+    /// `None`: a data-only package (themes or DSP blocks), which has no runner.
     pub module: Option<PathBuf>,
     pub capabilities: Capabilities,
     /// The DSP blocks of the manifest.
@@ -298,6 +299,31 @@ struct Session {
     /// Events sent and not yet answered with `Done`.
     in_flight: usize,
     backlog: VecDeque<Event>,
+    /// USB request IDs of [`Event::Usb`] events in the backlog, in order.
+    usb_waiting: VecDeque<u32>,
+    /// The USB request ID of each open [`Event::Usb`] scope.
+    usb_scopes: HashMap<u64, u32>,
+}
+
+impl Session {
+    /// Opens `scope` for `event` (it takes the next waiting USB request when it is one).
+    fn open(&mut self, scope: u64, generation: u64, event: &Event) {
+        self.scopes.insert(scope, generation);
+        self.in_flight += 1;
+        if matches!(event, Event::Usb { .. })
+            && let Some(request) = self.usb_waiting.pop_front()
+        {
+            self.usb_scopes.insert(scope, request);
+        }
+    }
+
+    /// Error replies for every USB request the session can no longer answer.
+    fn orphans(self, reason: &str) -> impl Iterator<Item = UsbReply> {
+        (self.usb_scopes.into_values().chain(self.usb_waiting)).map(move |request| UsbReply {
+            request,
+            result: Err(format!("the extension stopped: {reason}")),
+        })
+    }
 }
 
 struct Entry {
@@ -379,6 +405,15 @@ pub struct Outcome {
     pub community_changed: bool,
     /// Store work a host call asked for; the bridge submits it before it returns.
     jobs: Vec<ExtensionJob>,
+    /// Answers to USB messages ([`Extensions::usb_message`]), for the USB link.
+    pub usb_replies: Vec<UsbReply>,
+}
+
+/// The answer of an extension to one USB message: its handler's return value or its error.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsbReply {
+    pub request: u32,
+    pub result: Result<Json, String>,
 }
 
 /// One firing of an extension trigger.
@@ -553,7 +588,7 @@ impl Extensions {
             return;
         }
         let Some(module) = slot.installation.module.clone() else {
-            // DSP blocks only: nothing runs; the blocks follow the enabled switch.
+            // Themes or DSP blocks only: nothing runs; they follow the enabled switch.
             slot.state = RunState::Running;
             return;
         };
@@ -576,6 +611,8 @@ impl Extensions {
                     scopes: HashMap::new(),
                     in_flight: 0,
                     backlog: VecDeque::new(),
+                    usb_waiting: VecDeque::new(),
+                    usb_scopes: HashMap::new(),
                 });
             }
             Err(error) => {
@@ -595,9 +632,10 @@ impl Extensions {
         let Some(slot) = self.slots.get_mut(key) else {
             return;
         };
-        if slot.session.take().is_some() {
+        if let Some(session) = slot.session.take() {
             let _ = backend.send(key, &HostMessage::Stop);
             backend.stop(key);
+            outcome.usb_replies.extend(session.orphans("disabled"));
         }
         slot.end_session(None);
         if !slot.installation.enabled {
@@ -692,6 +730,43 @@ impl Extensions {
             );
         }
         outcome
+    }
+
+    /// A message from a computer over USB for the extension with manifest ID or key `id`. Its
+    /// handler's answer comes back in [`Outcome::usb_replies`] under `request`.
+    pub fn usb_message(
+        &mut self,
+        id: &str,
+        request: u32,
+        message: Json,
+        backend: &mut dyn ExtensionBackend,
+    ) -> Result<Outcome, String> {
+        let (key, slot) = (self.slots.iter_mut())
+            .find(|(key, slot)| *key == id || slot.installation.id == id)
+            .ok_or_else(|| format!("no extension {id} is installed"))?;
+        if !slot.installation.capabilities.usb {
+            return Err(format!("{id} does not have the usb capability"));
+        }
+        let session = (slot.session.as_mut())
+            .filter(|_| slot.state == RunState::Running)
+            .ok_or_else(|| format!("{id} is not running"))?;
+        if !slot.registrations.usb {
+            return Err(format!("{id} has no USB handler"));
+        }
+        // A message over the runner frame limit would fault the extension when it is sent: it
+        // is refused here, and the extension keeps running.
+        let event = Event::Usb { message };
+        let frame = HostMessage::Event {
+            scope: u64::MAX,
+            event: event.clone(),
+        };
+        tetrad_extensions::protocol::encode(&frame)
+            .map_err(|error| format!("the message is too large for an extension: {error}"))?;
+        session.usb_waiting.push_back(request);
+        let key = key.clone();
+        let mut outcome = Outcome::default();
+        self.deliver(&key, event, backend, &mut outcome);
+        Ok(outcome)
     }
 
     /// A message on a reserved channel. Without a running owner it is dropped.
@@ -801,8 +876,7 @@ impl Extensions {
         }
         self.next_scope += 1;
         let scope = self.next_scope;
-        session.scopes.insert(scope, self.generation);
-        session.in_flight += 1;
+        session.open(scope, self.generation, &event);
         if let Err(error) = backend.send(key, &HostMessage::Event { scope, event }) {
             self.fault(key, format!("send failed: {error}"), backend, outcome);
         }
@@ -818,8 +892,9 @@ impl Extensions {
         let Some(slot) = self.slots.get_mut(key) else {
             return;
         };
-        if slot.session.take().is_some() {
+        if let Some(session) = slot.session.take() {
             backend.stop(key);
+            outcome.usb_replies.extend(session.orphans(&reason));
         }
         slot.end_session(Some(&reason));
         push_log(&mut slot.log, &format!("fault: {reason}"));
@@ -914,10 +989,14 @@ impl Extensions {
                     self.fault(key, format!("send failed: {error}"), backend, outcome);
                 }
             }
-            RunnerMessage::Done { scope, error } => {
+            RunnerMessage::Done {
+                scope,
+                error,
+                result,
+            } => {
                 let slot = self.slots.get_mut(key).expect("checked");
-                if let Some(error) = error
-                    && !is_expected_cancellation(&error)
+                if let Some(error) = &error
+                    && !is_expected_cancellation(error)
                 {
                     push_log(&mut slot.log, &format!("handler error: {error}"));
                 }
@@ -930,14 +1009,20 @@ impl Extensions {
                 if slot.building.as_ref().is_some_and(|(at, _)| *at == scope) {
                     slot.building = None;
                 }
+                if let Some(request) = session.usb_scopes.remove(&scope) {
+                    let result = match error {
+                        Some(error) => Err(error),
+                        None => Ok(result.unwrap_or(Json::Null)),
+                    };
+                    outcome.usb_replies.push(UsbReply { request, result });
+                }
                 while session.in_flight < IN_FLIGHT {
                     let Some(event) = session.backlog.pop_front() else {
                         break;
                     };
                     self.next_scope += 1;
                     let scope = self.next_scope;
-                    session.scopes.insert(scope, self.generation);
-                    session.in_flight += 1;
+                    session.open(scope, self.generation, &event);
                     if let Err(error) = backend.send(key, &HostMessage::Event { scope, event }) {
                         self.fault(key, format!("send failed: {error}"), backend, outcome);
                         return;
@@ -989,6 +1074,9 @@ impl Extensions {
                      is provided twice"
                 ));
             }
+        }
+        if registrations.usb && !slot.installation.capabilities.usb {
+            return Err("answers USB messages without the usb capability".into());
         }
         let triggers = &registrations.triggers;
         if !triggers.is_empty() && !slot.installation.capabilities.triggers {
@@ -2205,6 +2293,24 @@ impl Extensions {
             .collect()
     }
 
+    /// Themes of the enabled installations, for Settings → Appearance; `None` until the store
+    /// is read.
+    pub fn themes(&self) -> Option<Vec<super::appearance::ExtensionThemes>> {
+        let repositories = &self.repositories;
+        repositories.loaded.then(|| {
+            (repositories.records.iter())
+                .filter(|(_, record)| record.installed.enabled)
+                .map(|(key, record)| (key, &record.installed.current.manifest))
+                .filter(|(_, manifest)| !manifest.themes.is_empty())
+                .map(|(key, manifest)| super::appearance::ExtensionThemes {
+                    extension: key.clone(),
+                    name: manifest.name.clone(),
+                    themes: manifest.themes.clone(),
+                })
+                .collect()
+        })
+    }
+
     /// Everything the Extensions pages show.
     pub fn view(&self, community: &super::community::Installed) -> ExtensionsView {
         let repositories = &self.repositories;
@@ -2276,6 +2382,11 @@ impl Extensions {
                     status_lines: self.status_lines(key).to_vec(),
                     blocks: block_rows(key, slot, &manifest.blocks, community),
                     log: self.log(key),
+                    themes: manifest
+                        .themes
+                        .iter()
+                        .map(|theme| theme.name.clone())
+                        .collect(),
                 }
             })
             .collect();
@@ -2356,6 +2467,7 @@ fn installation(loaded: &Loaded) -> Installation {
             storage: manifest.has(Capability::Storage),
             triggers: manifest.has(Capability::Triggers),
             blocks: manifest.has(Capability::Blocks),
+            usb: manifest.has(Capability::Usb),
         },
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),

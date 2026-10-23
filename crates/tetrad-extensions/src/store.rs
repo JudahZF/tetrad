@@ -111,7 +111,7 @@ pub struct Release {
     /// Fingerprint of the key that signed the catalog it came from.
     pub signer: String,
     pub manifest: Manifest,
-    /// The package has a module to run. A blocks-only package has none.
+    /// The package has a module to run. A data-only package has none.
     #[serde(default = "records_before_blocks_have_a_module")]
     pub has_module: bool,
 }
@@ -258,12 +258,14 @@ impl Store {
         self.root.join("blocks").join(key.file_stem())
     }
 
-    /// The module file to start the runner with; `None` for a blocks-only package.
+    /// The module file to start the runner with; `None` for a data-only package (themes and
+    /// static DSP blocks). A theme-only package installed before `has_module` left an empty
+    /// module file, which also counts as none.
     pub fn module_path(&self, installed: &Installed) -> Option<PathBuf> {
         let release = &installed.current;
-        release
-            .has_module
-            .then(|| self.module_file(&installed.key, &release.version))
+        let path = self.module_file(&installed.key, &release.version);
+        let empty = fs::metadata(&path).is_ok_and(|meta| meta.len() == 0);
+        (release.has_module && !empty).then_some(path)
     }
 
     /// Reads everything, re-verifying cached catalogs against pinned keys and installed

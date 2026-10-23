@@ -5,10 +5,7 @@
 //! editor header row. Stock geometry and colours; the step bars, speaker and mic are
 //! owned drawings (the stock `pattern_tremolo_steps/*.png` and cab icons are not used).
 
-use tetrad_assets::{
-    BACKGROUND, CANVAS, FAINT, Icon, IconSize, MUTED, PANEL, ROW_SELECTED, Rgb, SURFACE, TEXT,
-    TextSize, WARNING, Weight,
-};
+use tetrad_assets::{Icon, IconSize, Rgb, TextSize, Weight, block};
 
 use crate::layout::{BODY, BODY_BOLD, CAPTION, LARGE, Layout, ListId, Look};
 use crate::render::{Align, Font, WIDTH};
@@ -206,9 +203,9 @@ pub(crate) const LAST_OFFSET: u8 = 8;
 const KNOB_X: [i32; 5] = [8, 165, 322, 479, 636];
 const COUNT_FONT: Font = Font::new(TextSize::Px32, Weight::Regular);
 const SIGN_FONT: Font = Font::new(TextSize::Px40, Weight::Regular);
-/// Scroller page box: `#111c26` with a 3 px `#3500f1` border, radius 6.
+/// Scroller page box: `#111c26` with a 3 px `#3500f1` (modulation) border, radius 6.
 const BOX_FILL: Rgb = Rgb(0x11, 0x1c, 0x26);
-const BOX_BORDER: Rgb = Rgb(0x35, 0x00, 0xf1);
+const BOX_BORDER: Rgb = block::MODULATION;
 
 /// The scroller offset for a touch at `x`: the page box centres on the finger (I).
 pub(crate) fn scroller_offset(x: i32) -> u8 {
@@ -229,8 +226,9 @@ fn pattern_knobs(ui: &UiState) -> Vec<u16> {
 }
 
 fn pattern(ui: &UiState, l: &mut Layout, hue: Rgb) {
+    let palette = l.palette;
     let top = BODY_TOP;
-    l.push(Rect::new(0, top, WIDTH, 420), "", Look::Fill(PANEL));
+    l.push(Rect::new(0, top, WIDTH, 420), "", Look::Fill(palette.panel));
     let count = step_count(ui);
     // A hold on the STEPS area assigns STEPS to Scenes (`onLongPressStepsSceneModeButton`).
     l.control(
@@ -244,31 +242,31 @@ fn pattern(ui: &UiState, l: &mut Layout, hue: Rgb) {
         Rect::new(16, top + 13, 52, 22),
         "STEPS",
         BODY,
-        MUTED,
+        palette.muted,
         Align::Left,
     );
     l.text(
         Rect::new(16, top + 35, 40, 38),
         count.to_string(),
         COUNT_FONT,
-        TEXT,
+        palette.text,
         Align::Left,
     );
     if parameter(ui, STEPS).is_some_and(|p| p.scene) {
-        l.panel(Rect::new(55, top + 44, 7, 7), TEXT, 1.0, None);
+        l.panel(Rect::new(55, top + 44, 7, 7), palette.text, 1.0, None);
     }
     for (x, control, sign, enabled) in [
         (79, EditorControl::StepsMinus, "-", count > 1),
         (143, EditorControl::StepsPlus, "+", count < STEP_COUNT),
     ] {
         let button = Rect::new(x, top + 16, 56, 52);
-        l.panel(button, BACKGROUND, 8.0, None);
+        l.panel(button, palette.background, 8.0, None);
         l.control(button, Control::Editor(control), enabled, sign, Look::Area);
         l.text(
             button,
             sign,
             SIGN_FONT,
-            if enabled { TEXT } else { FAINT },
+            if enabled { palette.text } else { palette.faint },
             Align::Center,
         );
     }
@@ -287,7 +285,7 @@ fn pattern(ui: &UiState, l: &mut Layout, hue: Rgb) {
         Look::Glyph {
             icon: Icon::Info,
             size: IconSize::Small,
-            color: MUTED,
+            color: palette.muted,
         },
     );
     for (x, index) in KNOB_X.into_iter().zip(pattern_knobs(ui)) {
@@ -318,7 +316,8 @@ fn knob_cell(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb) {
 }
 
 fn scroller(ui: &UiState, l: &mut Layout) {
-    l.panel(STRIP, CANVAS, 6.0, None);
+    let p = l.palette;
+    l.panel(STRIP, p.canvas, 6.0, None);
     let step = STRIP.width as f32 / f32::from(STEP_COUNT);
     let page = Rect::new(
         STRIP.x + (f32::from(ui.step_offset) * step).round() as i32,
@@ -327,7 +326,7 @@ fn scroller(ui: &UiState, l: &mut Layout) {
         STRIP.height,
     );
     l.panel(page, BOX_BORDER, 6.0, None);
-    l.panel(page.inset(3, 3), BOX_FILL, 3.0, None);
+    l.panel(page.inset(3, 3), p.tone(BOX_FILL), 3.0, None);
     let steps: [f32; 16] =
         std::array::from_fn(|step| f32::from(step_value(ui, step as u8)) / STEP_MAX);
     let points = envelope(
@@ -339,7 +338,7 @@ fn scroller(ui: &UiState, l: &mut Layout) {
     l.clipped(STRIP, |l| {
         for pair in points.windows(2) {
             let at = |(x, y): (f32, f32)| (STRIP.x as f32 + x, STRIP.y as f32 + y);
-            l.line(at(pair[0]), at(pair[1]), 2.0, TEXT);
+            l.line(at(pair[0]), at(pair[1]), 2.0, p.text);
         }
     });
     l.control(
@@ -392,6 +391,7 @@ fn envelope(steps: &[f32; 16], swing: f32, depth: f32, smooth: f32) -> Vec<(f32,
 }
 
 fn fader(ui: &UiState, l: &mut Layout, step: u8, count: u8, hue: Rgb) {
+    let p = l.palette;
     let x = FADERS.x + (i32::from(step) - i32::from(ui.step_offset)) * FADER_PITCH;
     if x >= FADERS.right() || x + FADER_PITCH <= FADERS.x {
         return;
@@ -406,7 +406,7 @@ fn fader(ui: &UiState, l: &mut Layout, step: u8, count: u8, hue: Rgb) {
         if step < count {
             color
         } else {
-            PANEL.mix(color, 77)
+            p.panel.mix(color, 77)
         }
     };
     let top = FADERS.y;
@@ -414,17 +414,17 @@ fn fader(ui: &UiState, l: &mut Layout, step: u8, count: u8, hue: Rgb) {
     // Grouped step numbers turn `#121212` (`0x3a81a8`); the band under them is owned.
     let grouped = joined_next || joined_prev;
     if grouped {
-        l.push(label, "", Look::Fill(dim(MUTED)));
+        l.push(label, "", Look::Fill(dim(p.muted)));
     }
     l.text(
         Rect::new(x, top + 16, FADER_WIDTH, 22),
         (step + 1).to_string(),
         BODY,
-        dim(if grouped { BACKGROUND } else { MUTED }),
+        dim(if grouped { p.background } else { p.muted }),
         Align::Center,
     );
     let track = Rect::new(x, top + 40, width, 198);
-    l.panel(track, dim(SURFACE), 6.0, None);
+    l.panel(track, dim(p.surface), 6.0, None);
     let filled = (i32::from(step_value(ui, step)) * STEP_PX).clamp(0, track.height as i32) as u32;
     if filled > 0 {
         l.panel(
@@ -450,7 +450,7 @@ fn fader(ui: &UiState, l: &mut Layout, step: u8, count: u8, hue: Rgb) {
 // --- Cab ------------------------------------------------------------------------------
 
 /// `CabsimPanel` colours by mic (`0x821408`, `0x820c4c`).
-const MIC_HUES: [Rgb; 2] = [Rgb(0x69, 0x54, 0xff), Rgb(0xff, 0xd2, 0x36)];
+const MIC_HUES: [Rgb; 2] = [block::CAB, block::PITCH];
 /// Panels 390 × 413 at x 8 and 401.
 const PANEL_X: [i32; 2] = [8, 401];
 /// Mic graph item at 54,74 of its panel, 282 × 272; the mic stays 26 px off the edges.
@@ -459,6 +459,8 @@ const GRAPH_MARGIN: f32 = 26.0;
 /// Mic knob offsets from [`CabMic::base`], left to right: POSITION, DISTANCE, LEVEL, PAN
 /// (BALANCE on stereo cabs), the `displayPos` order.
 const MIC_KNOBS: [u16; 4] = [5, 4, 2, 3];
+/// Speaker cone fill while the mic is on.
+const CONE: Rgb = Rgb(0x16, 0x16, 0x16);
 
 fn mic_index(mic: CabMic) -> usize {
     match mic {
@@ -487,7 +489,8 @@ pub(crate) fn mic_place(mic: CabMic, x: i32, y: i32) -> (f32, f32) {
 
 fn cab(ui: &UiState, l: &mut Layout) {
     let top = BODY_TOP;
-    l.push(Rect::new(0, top, WIDTH, 420), "", Look::Fill(BACKGROUND));
+    let background = l.palette.background;
+    l.push(Rect::new(0, top, WIDTH, 420), "", Look::Fill(background));
     if ui.param_page == 1 {
         filter_strip(ui, l);
         return;
@@ -500,29 +503,31 @@ fn cab(ui: &UiState, l: &mut Layout) {
 /// Page 2 (I: the stock `0x81e634` strip, 784 × 107 at 8,0, shows HPF, LPF and OUTPUT
 /// VOLUME in 156 × 95 cells with 1 × 78 `#121212` dividers; its page switch is inferred).
 fn filter_strip(ui: &UiState, l: &mut Layout) {
+    let palette = l.palette;
     let strip = Rect::new(8, BODY_TOP, 784, 107);
-    l.panel(strip, PANEL, 8.0, None);
+    l.panel(strip, palette.panel, 8.0, None);
     for (column, index) in [16, 17, 18].into_iter().enumerate() {
         let x = strip.x + column as i32 * 157;
         if column > 0 {
             l.push(
                 Rect::new(x - 1, strip.y + 15, 1, 78),
                 "",
-                Look::Fill(BACKGROUND),
+                Look::Fill(palette.background),
             );
         }
         if let Some(p) = parameter(ui, index) {
-            knob_cell(l, Rect::new(x, strip.y, 156, 107), p, TEXT);
+            knob_cell(l, Rect::new(x, strip.y, 156, 107), p, palette.text);
         }
     }
 }
 
 fn mic_panel(ui: &UiState, l: &mut Layout, mic: CabMic) {
+    let palette = l.palette;
     let base = mic.base();
     let hue = MIC_HUES[mic_index(mic)];
     let px = PANEL_X[mic_index(mic)];
     let top = BODY_TOP;
-    l.panel(Rect::new(px, top, 390, 413), PANEL, 8.0, None);
+    l.panel(Rect::new(px, top, 390, 413), palette.panel, 8.0, None);
     let row = top + 361;
     if ui.cab_ir[mic_index(mic)] {
         ir_mode(ui, l, mic);
@@ -540,7 +545,7 @@ fn mic_panel(ui: &UiState, l: &mut Layout, mic: CabMic) {
         None => speaker(ui, l, mic, bypassed),
     }
     let phase = Rect::new(px + 8, row, 66, 44);
-    l.panel(phase, SURFACE, 8.0, None);
+    l.panel(phase, palette.surface, 8.0, None);
     l.control(
         phase,
         Control::Editor(EditorControl::Phase(mic)),
@@ -553,12 +558,16 @@ fn mic_panel(ui: &UiState, l: &mut Layout, mic: CabMic) {
         phase,
         "Ø",
         Font::new(TextSize::Px24, Weight::Regular),
-        if toggle(ui, base + 6) { TEXT } else { MUTED },
+        if toggle(ui, base + 6) {
+            palette.text
+        } else {
+            palette.muted
+        },
         Align::Center,
     );
     ir_selector(ui, l, mic, Rect::new(px + 82, row, 226, 44));
     let power = Rect::new(px + 316, row, 66, 44);
-    l.panel(power, SURFACE, 8.0, None);
+    l.panel(power, palette.surface, 8.0, None);
     l.control(
         power,
         Control::Editor(EditorControl::MicBypass(mic)),
@@ -572,7 +581,11 @@ fn mic_panel(ui: &UiState, l: &mut Layout, mic: CabMic) {
         Look::Glyph {
             icon: Icon::Power,
             size: IconSize::Medium,
-            color: if bypassed { FAINT } else { TEXT },
+            color: if bypassed {
+                palette.faint
+            } else {
+                palette.text
+            },
         },
     );
 }
@@ -583,6 +596,7 @@ fn mic_panel(ui: &UiState, l: &mut Layout, mic: CabMic) {
 /// buttons (66 × 44 `#1e1e1e`) take the phase and power places. Owned: the glyphs, the row
 /// look (16 px text at x 16, `#1e1e1e` selected row); I: no "SPEAKER:" section rows.
 fn ir_mode(ui: &UiState, l: &mut Layout, mic: CabMic) {
+    let palette = l.palette;
     let px = PANEL_X[mic_index(mic)];
     let top = BODY_TOP;
     let table = Rect::new(px, top + 4, 390, 353);
@@ -603,7 +617,7 @@ fn ir_mode(ui: &UiState, l: &mut Layout, mic: CabMic) {
                     IR_ROW,
                 );
                 if Some(entry.name.as_str()) == current {
-                    l.push(row, "", Look::Fill(SURFACE));
+                    l.push(row, "", Look::Fill(palette.surface));
                 }
                 let control = Control::Editor(EditorControl::IrRow {
                     mic,
@@ -611,7 +625,7 @@ fn ir_mode(ui: &UiState, l: &mut Layout, mic: CabMic) {
                 });
                 l.control(row, control, true, entry.name.clone(), Look::Area);
                 let text = Rect::new(row.x + 16, row.y, row.width - 32, row.height);
-                l.text(text, entry.name.clone(), BODY, TEXT, Align::Left);
+                l.text(text, entry.name.clone(), BODY, palette.text, Align::Left);
             }
         },
     );
@@ -621,12 +635,12 @@ fn ir_mode(ui: &UiState, l: &mut Layout, mic: CabMic) {
         (316, EditorControl::IrClose(mic), "CLOSE", Icon::Close),
     ] {
         let button = Rect::new(px + x, row, 66, 44);
-        l.panel(button, SURFACE, 8.0, None);
+        l.panel(button, palette.surface, 8.0, None);
         l.control(button, Control::Editor(control), true, label, Look::Area);
         let look = Look::Glyph {
             icon,
             size: IconSize::Medium,
-            color: TEXT,
+            color: palette.text,
         };
         l.push(button, "", look);
     }
@@ -667,18 +681,26 @@ fn missing_ir(ui: &UiState, mic: CabMic) -> Option<&str> {
 /// and the name 390 × 26 at (0, 223) in 20 px, both centred. I: the speaker hides while the
 /// note shows. The warning mark is an owned drawing (no stock `warning.png`).
 fn missing_ir_note(l: &mut Layout, px: i32, name: &str) {
+    let p = l.palette;
     let top = BODY_TOP;
     let mark = Rect::new(px + 184, top + 162, 24, 24);
-    l.push(mark, "", Look::Dot { color: WARNING });
-    l.text(mark, "!", BODY_BOLD, CANVAS, Align::Center);
+    l.push(mark, "", Look::Dot { color: p.warning });
+    l.text(mark, "!", BODY_BOLD, p.canvas, Align::Center);
     let line = |y, height| Rect::new(px, top + y, 390, height);
-    l.text(line(194, 21), "Missing IR file:", BODY, TEXT, Align::Center);
-    l.text(line(223, 26), name, LARGE, TEXT, Align::Center);
+    l.text(
+        line(194, 21),
+        "Missing IR file:",
+        BODY,
+        p.text,
+        Align::Center,
+    );
+    l.text(line(223, 26), name, LARGE, p.text, Align::Center);
 }
 
 /// A 96 × 68 cab knob (`0x820c4c`); the compact face is owned: label, a 34 px dial and the
 /// value under it.
 pub(super) fn mini_knob(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb) {
+    let palette = l.palette;
     l.control(
         cell,
         Control::Editor(EditorControl::Knob(p.index)),
@@ -690,7 +712,7 @@ pub(super) fn mini_knob(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb)
         Rect::new(cell.x, cell.y, cell.width, 16),
         p.label.clone(),
         CAPTION,
-        TEXT,
+        palette.text,
         Align::Center,
     );
     let dial = Rect::new(cell.x + 31, cell.y + 17, 34, 34);
@@ -701,7 +723,7 @@ pub(super) fn mini_knob(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb)
         _ => 0.0,
     };
     for (start, sweep, color) in [
-        (135.0, 270.0, ROW_SELECTED),
+        (135.0, 270.0, palette.row_selected),
         (135.0, 270.0 * position.clamp(0.0, 1.0), hue),
     ] {
         if sweep > 0.0 {
@@ -721,11 +743,16 @@ pub(super) fn mini_knob(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb)
         Rect::new(cell.x, cell.y + 52, cell.width, 16),
         p.value.clone(),
         CAPTION,
-        MUTED,
+        palette.muted,
         Align::Center,
     );
     if p.scene {
-        l.panel(Rect::new(cell.x + 4, cell.y + 20, 7, 7), TEXT, 1.0, None);
+        l.panel(
+            Rect::new(cell.x + 4, cell.y + 20, 7, 7),
+            palette.text,
+            1.0,
+            None,
+        );
     }
 }
 
@@ -733,6 +760,7 @@ pub(super) fn mini_knob(l: &mut Layout, cell: Rect, p: &ParameterView, hue: Rgb)
 /// (black while the mic is bypassed, I) and a 76 px `#1e1e1e` cap; white marks at 30 % and
 /// 60 % of the way to the mic, and the mic, all larger as DISTANCE grows.
 fn speaker(ui: &UiState, l: &mut Layout, mic: CabMic, bypassed: bool) {
+    let p = l.palette;
     let (gx, gy, w, h) = GRAPH;
     let px = PANEL_X[mic_index(mic)];
     let (ox, oy) = ((px + gx) as f32, (BODY_TOP + gy) as f32);
@@ -752,16 +780,12 @@ fn speaker(ui: &UiState, l: &mut Layout, mic: CabMic, bypassed: bool) {
             width: 2.0,
             start: 0.0,
             sweep: 360.0,
-            color: CANVAS,
+            color: p.canvas,
         },
     );
-    let cone = if bypassed {
-        CANVAS
-    } else {
-        Rgb(0x16, 0x16, 0x16)
-    };
+    let cone = if bypassed { p.canvas } else { p.tone(CONE) };
     disc(l, cx, cy, 83.0, cone);
-    disc(l, cx, cy, 38.0, SURFACE);
+    disc(l, cx, cy, 38.0, p.surface);
     let base = mic.base();
     let (position, distance) = (position_of(ui, base + 5), position_of(ui, base + 4));
     let reach = w / 2.0 - GRAPH_MARGIN;
@@ -777,10 +801,10 @@ fn speaker(ui: &UiState, l: &mut Layout, mic: CabMic, bypassed: bool) {
             cx + (mx - cx) * at,
             cy + (my - cy) * at,
             radius * (1.0 + grow),
-            TEXT,
+            p.text,
         );
     }
-    disc(l, mx, my, 20.0 * (1.0 + grow), TEXT);
+    disc(l, mx, my, 20.0 * (1.0 + grow), p.text);
     l.control(
         Rect::new(ox as i32, oy as i32, w as u32, h as u32),
         Control::Editor(EditorControl::Mic(mic)),
@@ -796,7 +820,8 @@ fn speaker(ui: &UiState, l: &mut Layout, mic: CabMic, bypassed: bool) {
 /// IR selector (`0x34377c`, 226 × 44): ‹ name ›. The arrows step the mic of this cab; the
 /// name opens the IR picker.
 fn ir_selector(ui: &UiState, l: &mut Layout, mic: CabMic, bounds: Rect) {
-    l.panel(bounds, SURFACE, 8.0, None);
+    let palette = l.palette;
+    l.panel(bounds, palette.surface, 8.0, None);
     let name = parameter(ui, mic.base() + 1).map_or("-", |p| p.value.as_str());
     let (back, rest) = (
         Rect::new(bounds.x, bounds.y, 44, 44),
@@ -812,9 +837,9 @@ fn ir_selector(ui: &UiState, l: &mut Layout, mic: CabMic, bounds: Rect) {
     );
     // A missing IR's name is grey (`0x8221f8`: `#959595`, else white).
     let color = if missing_ir(ui, mic).is_some() {
-        MUTED
+        palette.muted
     } else {
-        TEXT
+        palette.text
     };
     l.text(rest, name, CAPTION, color, Align::Center);
     for (rect, forward_step, icon) in [
@@ -836,7 +861,7 @@ fn ir_selector(ui: &UiState, l: &mut Layout, mic: CabMic, bounds: Rect) {
             Look::Glyph {
                 icon,
                 size: IconSize::Small,
-                color: TEXT,
+                color: palette.text,
             },
         );
     }

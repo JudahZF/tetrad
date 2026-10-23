@@ -83,6 +83,8 @@ pub enum Icon {
     Timer,
     Clock,
     Device,
+    /// Owned: Settings → Appearance.
+    Palette,
     // Global EQ band types (TYPE dropdown, shot 009).
     EqPeak,
     EqHighPass,
@@ -552,6 +554,7 @@ impl Icon {
             | Self::Timer
             | Self::Clock
             | Self::Device
+            | Self::Palette
             | Self::EqPeak
             | Self::EqHighPass
             | Self::EqLowPass
@@ -929,6 +932,18 @@ impl Icon {
                         l(16.24, 7.76, 18.15, 5.85),
                         l(7.76, 16.24, 5.85, 18.15),
                         l(16.24, 16.24, 18.15, 18.15),
+                    ]
+                },
+            ),
+            // A painter's palette: a ring with four paint dots (owned, Appearance).
+            Self::Palette => Art::ink(
+                const {
+                    &[
+                        circle(12.0, 12.0, 10.0),
+                        disc(7.5, 9.0, 1.8),
+                        disc(11.5, 6.5, 1.8),
+                        disc(16.0, 8.5, 1.8),
+                        disc(16.5, 13.5, 1.8),
                     ]
                 },
             ),
@@ -1709,6 +1724,7 @@ mod tests {
         Icon::Timer,
         Icon::Clock,
         Icon::Device,
+        Icon::Palette,
         Icon::EqPeak,
         Icon::EqHighPass,
         Icon::EqLowPass,

@@ -7,7 +7,7 @@
 //! type (I): MULTI SELECT, FILTER, SORT and SEARCH are the Directory controls and
 //! pop-ups over this list. The "Factory IRs" label is owned (I).
 
-use tetrad_assets::{ACCENT, ACCENT_FILL, BACKGROUND, FAINT, Icon, MUTED, PANEL, SURFACE, TEXT};
+use tetrad_assets::Icon;
 
 use super::directory::{MediaDetails, media_sort_text};
 use super::directory_glyph::Glyph;
@@ -26,7 +26,8 @@ const CONTENT: Rect = Rect::new(272, 60, WIDTH - 280, HEIGHT - 68);
 const TREE: tetrad_assets::Rgb = tetrad_assets::Rgb(0x50, 0x50, 0x50);
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
-    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(BACKGROUND));
+    let p = l.palette;
+    l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.background));
     l.control(
         CLOSE_BUTTON,
         Control::Back,
@@ -34,7 +35,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         "CLOSE",
         Look::IconButton {
             icon: Icon::Check,
-            fill: SURFACE,
+            fill: p.surface,
         },
     );
     let Some(pick) = ui.media else {
@@ -76,7 +77,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             .count()
     };
 
-    l.panel(SIDEBAR, PANEL, 8.0, None);
+    l.panel(SIDEBAR, p.panel, 8.0, None);
     l.scroll(
         ListId::MediaFolders,
         SIDEBAR,
@@ -94,7 +95,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                 );
                 let selected = pick.folder == folder;
                 if selected {
-                    l.push(row, "", Look::Fill(SURFACE));
+                    l.push(row, "", Look::Fill(p.surface));
                 }
                 l.control(
                     row,
@@ -117,9 +118,9 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                     l.push(
                         Rect::new(x, row.y, 1, if last { ROW / 2 } else { ROW }),
                         "",
-                        Look::Fill(TREE),
+                        Look::Fill(p.tone(TREE)),
                     );
-                    l.push(Rect::new(x, middle, 12, 1), "", Look::Fill(TREE));
+                    l.push(Rect::new(x, middle, 12, 1), "", Look::Fill(p.tone(TREE)));
                     l.push(
                         icon,
                         "",
@@ -130,20 +131,25 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                         },
                     );
                 } else {
-                    glyph(l, Mark::Library, icon, if selected { ACCENT } else { TEXT });
+                    glyph(
+                        l,
+                        Mark::Library,
+                        icon,
+                        if selected { p.accent } else { p.text },
+                    );
                 }
                 l.text(
                     Rect::new(text_x, row.y, (row.right() - 48 - text_x) as u32, ROW),
                     label,
                     BODY,
-                    if selected { ACCENT } else { TEXT },
+                    if selected { p.accent } else { p.text },
                     Align::Left,
                 );
                 l.text(
                     Rect::new(row.right() - 52, row.y, 40, ROW),
                     count(folder).to_string(),
                     BODY,
-                    MUTED,
+                    p.muted,
                     Align::Right,
                 );
             }
@@ -174,7 +180,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         .collect();
     items.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
     let items: Vec<(usize, &MediaEntry)> = items.into_iter().map(|(item, _)| item).collect();
-    l.panel(CONTENT, PANEL, 8.0, None);
+    l.panel(CONTENT, p.panel, 8.0, None);
     l.scroll(
         ListId::MediaItems,
         CONTENT,
@@ -210,7 +216,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                     Rect::new(row.x + 16, row.y + 8, text_width, 24),
                     entry.name.clone(),
                     BODY,
-                    if selected { ACCENT } else { TEXT },
+                    if selected { p.accent } else { p.text },
                     Align::Left,
                 );
                 let sort_text = media_sort_text(ui, &details, entry);
@@ -222,7 +228,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                         sort_text
                     },
                     CAPTION,
-                    MUTED,
+                    p.muted,
                     Align::Left,
                 );
                 if let Some(checked) = checked {
@@ -237,14 +243,14 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
                         .map(|initial| initial.to_uppercase().to_string())
                         .unwrap_or_default(),
                     BODY,
-                    MUTED,
+                    p.muted,
                     Align::Center,
                 );
                 if row_index + 1 < items.len() {
                     l.push(
                         Rect::new(row.x + 16, row.bottom() - 1, row.width - 32, 1),
                         "",
-                        Look::Fill(SURFACE),
+                        Look::Fill(p.surface),
                     );
                 }
             }
@@ -259,7 +265,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             Rect::new(CONTENT.x, CONTENT.y + 40, CONTENT.width, 30),
             text,
             BODY,
-            FAINT,
+            p.faint,
             Align::Center,
         );
     }
@@ -269,13 +275,14 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
 /// The Directory header for the picked media type: the drop-down selects the library
 /// root, then REFRESH (IRs) or UPLOAD (captures), the icon buttons and ✓.
 fn header(ui: &UiState, l: &mut Layout, kind: MediaKind, title: &str, mark: Mark) {
+    let p = l.palette;
     let dir = &ui.directory;
     presets::dropdown(
         l,
         Control::Media(MediaControl::Library),
         |l, area| {
             let (cx, cy) = area.center();
-            glyph(l, mark, Rect::new(cx - 11, cy - 11, 22, 22), TEXT);
+            glyph(l, mark, Rect::new(cx - 11, cy - 11, 22, 22), p.text);
         },
         title,
     );
@@ -287,7 +294,7 @@ fn header(ui: &UiState, l: &mut Layout, kind: MediaKind, title: &str, mark: Mark
             "REFRESH",
             Look::IconButton {
                 icon: Icon::Sync,
-                fill: SURFACE,
+                fill: p.surface,
             },
         ),
         MediaKind::Capture => directory_lists::glyph_button(
@@ -297,7 +304,7 @@ fn header(ui: &UiState, l: &mut Layout, kind: MediaKind, title: &str, mark: Mark
             true,
             "UPLOAD",
             Glyph::CloudUp,
-            SURFACE,
+            p.surface,
         ),
     }
     presets::divider(l, 379);
@@ -306,7 +313,7 @@ fn header(ui: &UiState, l: &mut Layout, kind: MediaKind, title: &str, mark: Mark
         label,
         mark,
         enabled: true,
-        fill: if active { ACCENT_FILL } else { SURFACE },
+        fill: if active { p.accent_fill } else { p.surface },
     };
     let mut buttons = vec![button(
         LibraryControl::MultiSelect,

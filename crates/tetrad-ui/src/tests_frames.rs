@@ -202,6 +202,51 @@ fn frames_match_the_golden_hashes() {
     }
 }
 
+/// Every built-in theme over the same walk, on a renderer that first drew it in Stock: a
+/// theme switch repaints everything (no frame kept from the old palette comes back), partial
+/// frames equal full renders, and no stock chrome grey a screen forgot to take from the
+/// palette shows. That check needs tinted greys: edges between a grey theme's greys can mix to
+/// the stock background or card by chance.
+#[test]
+fn themes_repaint_fully_and_leave_no_stock_chrome() {
+    let stock = tetrad_assets::Palette::STOCK;
+    let mut renderer = Renderer::new();
+    let mut ui = start();
+    for (_, step) in STEPS {
+        step(&mut ui);
+        renderer.render(&ui);
+    }
+    for theme in &tetrad_theme::BUILTINS[1..] {
+        let mut ui = start();
+        let mut themed = ui.snapshot.clone();
+        themed.appearance.palette = theme.palette;
+        ui.set_snapshot(themed).unwrap();
+        for (name, step) in STEPS {
+            step(&mut ui);
+            renderer.render(&ui);
+            let full = ui.render();
+            assert!(
+                renderer.frame() == &full,
+                "{} {name}: partial frame differs",
+                theme.id
+            );
+            let tinted = theme.palette.background.0 != theme.palette.background.2;
+            let leaked = (full.rgb().chunks_exact(3))
+                .filter(|px| {
+                    [stock.background, stock.panel]
+                        .iter()
+                        .any(|c| px == &[c.0, c.1, c.2])
+                })
+                .count();
+            assert!(
+                !tinted || leaked == 0,
+                "{} {name}: {leaked} stock chrome pixels",
+                theme.id
+            );
+        }
+    }
+}
+
 /// The ⋮ menu by touch, twice, drawn after every pointer event as the device does: each partial
 /// frame equals the full render. A press outside the open menu closes it at once, as Qt closes
 /// a popup (stock: ~50 ms after the press); its release then changes nothing.

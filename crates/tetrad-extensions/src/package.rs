@@ -1,11 +1,11 @@
 //! The `.tetradext` package: one UTF-8 JSON document.
 //!
-//! - Format 1: `{format: 1, manifest, module}`, one bundled, self-contained ES module.
+//! - Format 1: `{format: 1, manifest, module?}`, one bundled, self-contained ES module.
 //! - Format 2: `{format: 2, manifest, module?, blocks?}`. `blocks` maps each static block ID
-//!   of the manifest to its qcdsp IR. A blocks-only package (static blocks; no settings,
-//!   commands, capabilities or generated blocks) has no module.
+//!   of the manifest to its qcdsp IR.
 //!
-//! Every IR is checked with qcdsp when a package is decoded or encoded.
+//! A data-only package ([`Manifest::data_only`]: themes or static blocks, no code) has no
+//! module. Every IR is checked with qcdsp when a package is decoded or encoded.
 
 use std::collections::BTreeMap;
 
@@ -13,19 +13,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::manifest::{Manifest, ManifestError};
 
-/// The format [`Package::encode`] writes for a package with blocks or without a module.
+/// The format [`Package::encode`] writes for a package with blocks.
 pub const PACKAGE_FORMAT: u32 = 2;
-/// The format of a package with a module and no blocks, which every host reads.
-pub const PACKAGE_FORMAT_MODULE_ONLY: u32 = 1;
+/// The format of a package without blocks, which every host reads.
+pub const PACKAGE_FORMAT_NO_BLOCKS: u32 = 1;
 /// Largest package in bytes. The IR of a large block can take most of it.
 pub const MAX_PACKAGE: usize = 4 * 1024 * 1024;
 pub const PACKAGE_SUFFIX: &str = ".tetradext";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Package {
     pub manifest: Manifest,
     /// ES module source whose default export has `activate(ctx)`. `None` only in a
-    /// blocks-only package.
+    /// data-only package.
     pub module: Option<String>,
     /// The validated IR of every static block, by block ID.
     pub blocks: BTreeMap<String, qcdsp::Block>,
@@ -64,8 +64,8 @@ pub enum PackageError {
     #[error("manifest: {0}")]
     Manifest(#[from] ManifestError),
     #[error(
-        "the package has no module source (only a package of static blocks without settings, \
-         commands or capabilities can omit it)"
+        "the package has no module source (only a package of themes or static blocks without \
+         settings, commands or capabilities can omit it)"
     )]
     EmptyModule,
     #[error("format 1 packages cannot hold blocks")]
@@ -81,10 +81,10 @@ impl Package {
         }
         let envelope: Envelope = serde_json::from_slice(bytes)?;
         match envelope.format {
-            PACKAGE_FORMAT_MODULE_ONLY if !envelope.blocks.is_empty() => {
+            PACKAGE_FORMAT_NO_BLOCKS if !envelope.blocks.is_empty() => {
                 return Err(PackageError::BlocksNeedFormat2);
             }
-            PACKAGE_FORMAT_MODULE_ONLY | PACKAGE_FORMAT => {}
+            PACKAGE_FORMAT_NO_BLOCKS | PACKAGE_FORMAT => {}
             other => return Err(PackageError::Format(other)),
         }
         let blocks = envelope
@@ -107,8 +107,8 @@ impl Package {
 
     pub fn encode(&self) -> Result<Vec<u8>, PackageError> {
         self.validate()?;
-        let format = if self.blocks.is_empty() && self.module.is_some() {
-            PACKAGE_FORMAT_MODULE_ONLY
+        let format = if self.blocks.is_empty() {
+            PACKAGE_FORMAT_NO_BLOCKS
         } else {
             PACKAGE_FORMAT
         };
@@ -138,16 +138,8 @@ impl Package {
         match &self.module {
             Some(module) if module.trim().is_empty() => return Err(PackageError::EmptyModule),
             Some(_) => {}
-            None => {
-                let blocks_only = !manifest.blocks.is_empty()
-                    && manifest.capabilities.is_empty()
-                    && manifest.settings.is_empty()
-                    && manifest.commands.is_empty()
-                    && manifest.blocks.iter().all(|b| !b.generated);
-                if !blocks_only {
-                    return Err(PackageError::EmptyModule);
-                }
-            }
+            None if manifest.data_only() => {}
+            None => return Err(PackageError::EmptyModule),
         }
         let fail = |id: &str, reason: &str| Err(PackageError::Block(id.into(), reason.into()));
         for spec in &manifest.blocks {
@@ -174,6 +166,7 @@ impl Package {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::ManifestError;
     use serde_json::{Value, json};
 
     fn package() -> Package {
@@ -302,10 +295,67 @@ mod tests {
                 Package::decode(&bytes).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             // API 1 packages keep their format 1 shape; API 2 packages may have blocks.
             if package.manifest.api == 1 {
-                assert!(package.module.is_some() && package.blocks.is_empty());
+                assert!(package.blocks.is_empty());
             }
             decoded += 1;
         }
         assert!(decoded > 0, "no packages in {}", dir.display());
+    }
+
+    /// The theme pack fixture, the example in docs/extensions.md, packs without a module.
+    #[test]
+    fn theme_pack_fixture_packs() {
+        let manifest: Manifest = serde_json::from_str(include_str!(
+            "../../../extensions/fixtures/theme-pack/tetrad-extension.json"
+        ))
+        .unwrap();
+        assert!(manifest.data_only());
+        let pack = Package {
+            manifest,
+            module: None,
+            blocks: BTreeMap::new(),
+        };
+        assert_eq!(Package::decode(&pack.encode().unwrap()).unwrap(), pack);
+    }
+
+    /// A theme pack can never run code or ask for access: without a module it must add
+    /// themes and nothing else, and a bad theme fails the whole package.
+    #[test]
+    fn data_only_packages_carry_themes_and_nothing_else() {
+        let decode = |manifest: serde_json::Value| {
+            let bytes = serde_json::to_vec(&json!({ "format": 1, "manifest": manifest })).unwrap();
+            Package::decode(&bytes)
+        };
+        let dusk = json!({ "id": "dusk", "name": "Dusk", "colors": { "accent": "#ff8fab" } });
+        let base = json!({ "id": "judah.dusk-pack", "name": "Dusk", "version": "1.0.0", "api": 1 });
+        let with = |extra: serde_json::Value| {
+            let mut manifest = base.clone();
+            manifest
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            manifest
+        };
+
+        let pack = decode(with(json!({ "themes": [dusk] }))).unwrap();
+        assert!(pack.manifest.data_only());
+        assert_eq!(pack.module, None);
+        assert_eq!(Package::decode(&pack.encode().unwrap()).unwrap(), pack);
+
+        let capability = with(json!({ "themes": [dusk], "capabilities": ["midiSend"] }));
+        assert!(matches!(decode(capability), Err(PackageError::EmptyModule)));
+        assert!(matches!(
+            decode(base.clone()),
+            Err(PackageError::EmptyModule)
+        ));
+        let light = json!({ "id": "day", "name": "Day", "colors": { "background": "#ffffff" } });
+        assert!(matches!(
+            decode(with(json!({ "themes": [light] }))),
+            Err(PackageError::Manifest(ManifestError::Theme(..)))
+        ));
+        assert!(matches!(
+            decode(with(json!({ "themes": [dusk, dusk] }))),
+            Err(PackageError::Manifest(ManifestError::Duplicate(_)))
+        ));
     }
 }

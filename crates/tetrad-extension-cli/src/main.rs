@@ -76,7 +76,9 @@ enum Cmd {
     /// when `src/index.ts` exists), and validate `blocks/<id>.qcdsp.json` of every static block.
     Build { dir: PathBuf },
     /// Pack `tetrad-extension.json`, `dist/index.mjs` (when there is a module) and the static
-    /// block IR into a `.tetradext` file.
+    /// block IR into a `.tetradext` file. A data-only manifest (themes or static blocks, no
+    /// capabilities, settings or commands) without `src/index.ts` packs without a module;
+    /// themes and blocks are checked here, as the device checks them.
     Package {
         dir: PathBuf,
         #[arg(long)]
@@ -500,6 +502,9 @@ fn check(file: &Path) -> Result {
         if let Some(block) = package.blocks.get(&spec.id) {
             println!("    {}", estimate(block)?);
         }
+    }
+    for t in &m.themes {
+        println!("  theme {} \"{}\"", t.id, t.name);
     }
     println!(
         "  module {} bytes, package {} bytes, sha256 {}",

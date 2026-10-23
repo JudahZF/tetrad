@@ -26,4 +26,4 @@ pub use preset_out::{
     PresetMidiOut, RemoteMidiError, SlotError, ToggleState,
 };
 pub use settings::{ChannelSetting, ClockOut, MidiSettings};
-pub use usb::UsbMidiEvent;
+pub use usb::{UsbMidiEvent, UsbMidiReceiver};

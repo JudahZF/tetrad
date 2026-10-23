@@ -214,6 +214,7 @@ impl Glyph {
 /// Draw `glyph` in a 24 px box centred in `area`.
 pub(crate) fn glyph(l: &mut Layout, area: Rect, glyph: Glyph, color: Rgb) {
     const BOX: f32 = 24.0;
+    let p = l.palette;
     let scale = BOX / 10.0;
     let (cx, cy) = area.center();
     let (x0, y0) = (cx as f32 - BOX / 2.0, cy as f32 - BOX / 2.0);
@@ -242,7 +243,7 @@ pub(crate) fn glyph(l: &mut Layout, area: Rect, glyph: Glyph, color: Rgb) {
         disc(l, 3.4, 1.4, 4.6, 4.6);
         if glyph == Glyph::CloudUp {
             for &(ax, ay, bx, by) in glyph.segments() {
-                l.line(point(ax, ay), point(bx, by), width, tetrad_assets::CANVAS);
+                l.line(point(ax, ay), point(bx, by), width, p.canvas);
             }
         }
         return;
@@ -264,6 +265,7 @@ pub(crate) fn glyph(l: &mut Layout, area: Rect, glyph: Glyph, color: Rgb) {
 
 /// Solid setlist folder with its index cut out in the page colour (shot 054).
 pub(crate) fn numbered_folder(l: &mut Layout, area: Rect, index: usize, color: Rgb) {
+    let p = l.palette;
     let (cx, cy) = area.center();
     let body = Rect::new(cx - 12, cy - 8, 24, 18);
     l.panel(Rect::new(body.x, body.y - 3, 10, 6), color, 1.5, None);
@@ -272,7 +274,7 @@ pub(crate) fn numbered_folder(l: &mut Layout, area: Rect, index: usize, color: R
         Rect::new(body.x, body.y - 3, body.width, body.height),
         index.to_string(),
         crate::layout::CAPTION,
-        tetrad_assets::CANVAS,
+        p.canvas,
         crate::render::Align::Center,
     );
 }

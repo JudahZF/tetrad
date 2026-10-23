@@ -47,6 +47,9 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Mappings.** One page (⋮ → Mappings) for what footswitches, pedals, MIDI messages and
   extensions do: scenes, presets, tuner, tap tempo, Looper, block bypass and parameters, and
   Send MIDI. See [docs/mappings.md](docs/mappings.md).
+- **Themes.** Choose the colours of the UI in Settings → System → Appearance: Stock, Stage
+  High Contrast, Slate, Ember, or your own theme files and extension themes. See
+  [docs/themes.md](docs/themes.md).
 - **Extensions.** Install small TypeScript programs from signed GitHub repositories
   (Settings → System → Extensions), such as MIDI Mapper for a second MIDI channel. See
   [docs/extensions.md](docs/extensions.md).
@@ -60,6 +63,8 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Remote.** Add IRs from a browser on the same Wi-Fi: open the address the unit shows
   (Settings → System → Remote), enter the PIN and drop the files. See
   [docs/remote.md](docs/remote.md).
+- **Tetrad over USB.** The `tetrad-usb` tool takes screenshots and sends a Tetrad release
+  over the USB cable. See [docs/usb.md](docs/usb.md).
 - **Tetrad updates.** Update Tetrad from the touchscreen (Settings → System → Tetrad Updates).
   CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates).
 - **CorOS updates.** Update CorOS from the touchscreen (Settings → System → CorOS Updates). Tetrad
