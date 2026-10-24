@@ -3,6 +3,16 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- Analog inputs were silent when the unit booted straight into Tetrad: the tuner showed no
+  signal and nothing played. Stock ZenUI loads the codec kernel module itself
+  (`zencodec_cs4385_cs5364`, or `zencodec_es9017_es9826` on QC-007 and the mini), and that module
+  sets up the ADC and DAC. Tetrad now loads it at start. Earlier hardware tests passed only because
+  stock had booted first and loaded it.
+
 ## [0.1.0-alpha.5](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.5) (2026-10-23)
 
 ### Added

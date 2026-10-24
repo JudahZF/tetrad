@@ -1190,7 +1190,8 @@ impl ServiceBackends for LinuxServices {
 
 /// libzenhal opens its nodes before ZenUI picks the board platform, and the platform needs two
 /// revision reads (`0x004962ac`). So: every node but the codec and the UART, then the
-/// detection (`device::identify` rule), then the codec when `has_ess_codec`. The UART is
+/// detection (`device::identify` rule), then `modprobe` of the platform's codec module as
+/// ZenUI does (`0x87782c`), then the codec node when `has_ess_codec`. The UART is
 /// [`MidiPort`]'s.
 fn open_hal(
     root: &LinuxRoot,
@@ -1218,11 +1219,31 @@ fn open_hal(
         root.marker(Marker::AtmaEmulation)?,
         root.marker(Marker::EssEmulation)?,
     );
+    let codec = load_codec_module(platform.codec_module());
     let mut driver = hal.into_driver();
     if platform.has_ess_codec() {
         attach(&mut driver, Node::Codec);
     }
+    failures.extend(codec.err());
     Ok((StockHal::open(driver, product), platform))
+}
+
+/// `modprobe <module>`, as ZenUI's `popen("modprobe … 2>&1")`. A module that is already loaded
+/// (stock ran first, or a restart) is a success. A failure is a platform notice: the UI runs
+/// on, with silent analog inputs.
+fn load_codec_module(module: &str) -> Result<(), String> {
+    let output = std::process::Command::new("modprobe")
+        .arg(module)
+        .output()
+        .map_err(|error| format!("modprobe {module}: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "modprobe {module}: {} {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
 
 /// Keeps an opened node, or records why it did not open.

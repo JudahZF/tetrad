@@ -92,6 +92,17 @@ impl Platform {
         self != Self::QcOriginal
     }
 
+    /// The codec kernel module ZenUI loads itself (`0x87782c`: `modprobe` strings `0x120b0d8`,
+    /// `0x120b0f8`); no rootfs script loads it. Its init sets up the ADC and DAC, so without
+    /// it the analog inputs are silent.
+    pub fn codec_module(self) -> &'static str {
+        if self.has_ess_codec() {
+            "zencodec_es9017_es9826"
+        } else {
+            "zencodec_cs4385_cs5364"
+        }
+    }
+
     /// 0x0049c14c: `CMIDI::Open(true)` opens `/dev/ttySC1`; real ATMA routes MIDI via the DSP.
     pub fn uses_midi_uart(self) -> bool {
         self != Self::Atma
@@ -213,6 +224,13 @@ mod tests {
         assert!(Platform::AtmaEmulation.power_button_pressed(1));
         assert!(Platform::AtmaEmulation.uses_midi_uart());
         assert!(!Platform::Atma.uses_midi_uart());
+        assert_eq!(
+            Platform::QcOriginal.codec_module(),
+            "zencodec_cs4385_cs5364"
+        );
+        for platform in [Platform::QcEss, Platform::Atma, Platform::AtmaEmulation] {
+            assert_eq!(platform.codec_module(), "zencodec_es9017_es9826");
+        }
         let level = |panel, pct| DisplayPanel::backlight(panel, pct).percent();
         assert_eq!(level(None, 50), 50);
         assert_eq!(level(Some(DisplayPanel::Fvd), 50), 5);
