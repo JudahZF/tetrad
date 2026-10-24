@@ -996,7 +996,14 @@ impl Mappings {
                     save_global: None,
                 }
             }
-            MappingId::Tetrad(index) if !stock_pair(&stored) => {
+            // Decide with the new mode: Toggle or Momentary takes a Stomp → bypass row back to
+            // stock data.
+            MappingId::Tetrad(index)
+                if !stock_pair(&Stored {
+                    mode: Some(mode),
+                    ..stored.clone()
+                }) =>
+            {
                 let mut list = self.list(scope).clone();
                 list[index as usize].mode = Some(mode);
                 self.focus = Some((scope, id));

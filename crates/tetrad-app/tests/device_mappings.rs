@@ -564,4 +564,15 @@ fn footswitch_releases_and_the_stock_momentary_flag() {
     assert!(matches!(moved, MappingId::Tetrad(_)), "{moved:?}");
     let preset = &device.state().current.as_ref().unwrap().preset;
     assert!(preset.stomp_mode_assignments.is_empty());
+
+    // Toggle takes it back to stock data and clears the flag; Momentary sets it again.
+    set_mode(&mut device, &moved, ModeKind::Toggle);
+    let (_, back) = view(&device).focus.unwrap();
+    assert!(
+        matches!(back, MappingId::Stomp { stomp: 0, .. }),
+        "{back:?}"
+    );
+    assert!(!momentary(&device));
+    set_mode(&mut device, &back, ModeKind::Momentary);
+    assert!(momentary(&device));
 }
