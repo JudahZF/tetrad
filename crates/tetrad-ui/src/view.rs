@@ -2532,6 +2532,9 @@ pub struct DirectoryView {
     /// Every filled slot of every setlist: Directory search spans all setlists (manual
     /// "SEARCHING ITEMS").
     pub presets: Vec<DirectoryPreset>,
+    /// Setlists (`SetlistItem::id`) whose slots could not be read: they have no rows in
+    /// `presets`, so an empty slot there cannot be told from a full one.
+    pub unread_setlists: Vec<u64>,
     pub media: Vec<DirectoryMedia>,
     pub folders: Vec<DirectoryFolder>,
     pub favorites: Vec<DirectoryItem>,

@@ -3189,7 +3189,7 @@ fn directory_sorts_follow_the_stock_natural_order_and_role_fallbacks() {
 #[test]
 fn directory_preset_copy_and_move_choose_any_setlist_and_slot() {
     let mut snapshot = rich();
-    snapshot.setlists = ["Factory Presets", "My Presets", "Tour"]
+    snapshot.setlists = ["Factory Presets", "My Presets", "Tour", "Unread"]
         .into_iter()
         .enumerate()
         .map(|(id, title)| SetlistItem {
@@ -3198,8 +3198,9 @@ fn directory_preset_copy_and_move_choose_any_setlist_and_slot() {
         })
         .collect();
     snapshot.active_setlist = Some(1);
-    // My Presets holds slots 0 and 1, Tour slot 1.
-    std::sync::Arc::make_mut(&mut snapshot.directory).presets = [(1, 0), (1, 1), (2, 1)]
+    // My Presets holds slots 0 and 1, Tour slot 1; the slots of Unread could not be read.
+    let directory = std::sync::Arc::make_mut(&mut snapshot.directory);
+    directory.presets = [(1, 0), (1, 1), (2, 1)]
         .into_iter()
         .map(|(setlist, slot)| DirectoryPreset {
             setlist,
@@ -3207,7 +3208,22 @@ fn directory_preset_copy_and_move_choose_any_setlist_and_slot() {
             title: format!("PRESET {slot}"),
         })
         .collect();
-    let mut ui = ui_with(snapshot);
+    directory.unread_setlists = vec![3];
+    directory.slots = (0..8)
+        .map(|id| DirectorySlot {
+            title: if id < 2 {
+                format!("PRESET {id}")
+            } else {
+                String::new()
+            },
+            id,
+            key: if id < 2 { 10 + id } else { 0 },
+            empty: id >= 2,
+            author: String::new(),
+            date: String::new(),
+        })
+        .collect();
+    let mut ui = ui_with(snapshot.clone());
     activate(&mut ui, Control::Navigate(Screen::Presets));
     let library = Control::Library;
     let open = |ui: &mut UiState, action| {
@@ -3280,6 +3296,23 @@ fn directory_preset_copy_and_move_choose_any_setlist_and_slot() {
     assert!(slots(&ui) > 0);
     activate(&mut ui, Control::Back);
     assert_eq!(slots(&ui), 0);
+
+    // A setlist whose slots were not read cannot be chosen: its "Empty" may be full.
+    open(&mut ui, ItemAction::Copy);
+    activate(&mut ui, library(LibraryControl::TargetSetlist(3)));
+    assert_eq!(
+        activate(&mut ui, library(LibraryControl::TargetSlot(5))),
+        paste(false, 1, 5)
+    );
+
+    // Another preset with the same title in the asked slot closes the question.
+    open(&mut ui, ItemAction::Move);
+    activate(&mut ui, library(LibraryControl::TargetSlot(1)));
+    let directory = std::sync::Arc::make_mut(&mut snapshot.directory);
+    directory.slots[1].key = 99;
+    ui.set_snapshot(snapshot).unwrap();
+    assert!(activate(&mut ui, answer(true)).is_empty());
+    assert!(slots(&ui) > 0, "the page stays open");
 }
 
 /// Plugin folders list their presets per sidebar folder; a row auditions the preset.

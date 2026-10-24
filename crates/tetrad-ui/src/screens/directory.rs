@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use super::preset_target::{PresetTarget, slot_title};
+use super::preset_target::{PresetTarget, is_target, slot_title};
 use crate::layout::ListId;
 use crate::state::{Confirm, DirectoryNameEdit, Overlay, TextTarget};
 use crate::*;
@@ -1841,13 +1841,15 @@ impl UiState {
             self.keyboard = None;
             self.directory.rename_queue.clear();
         }
-        // The page follows its preset and its setlist; a question closes when its slot now
-        // holds another title.
+        // The page follows its preset and its setlist while that setlist can be chosen. A
+        // question closes when its slot now holds another title or, in the browsed setlist,
+        // another preset (its key).
         let target = self.directory.target.take().and_then(|mut target| {
             let shown = target.setlist;
-            target.setlist = setlist(shown)?;
+            target.setlist = setlist(shown).filter(|id| is_target(s, *id))?;
             if let Some(slot) = target.conflict
-                && slot_title(old, shown, slot) != slot_title(s, target.setlist, slot)
+                && (slot_title(old, shown, slot) != slot_title(s, target.setlist, slot)
+                    || (old.active_setlist == Some(shown) && !slot_kept(slot)))
             {
                 target.conflict = None;
             }

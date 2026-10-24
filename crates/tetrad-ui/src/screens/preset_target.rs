@@ -37,6 +37,17 @@ pub(crate) fn writable(snapshot: &UiSnapshot) -> impl Iterator<Item = (usize, &S
     (snapshot.setlists.iter().enumerate()).filter(|(_, setlist)| setlist.title != FACTORY)
 }
 
+/// The writable setlists whose slots were read: only there is an "Empty" slot known to be
+/// empty, so only they can be chosen.
+pub(crate) fn targets(snapshot: &UiSnapshot) -> impl Iterator<Item = (usize, &SetlistItem)> {
+    let unread = &snapshot.directory.unread_setlists;
+    writable(snapshot).filter(|(_, setlist)| !unread.contains(&setlist.id))
+}
+
+pub(crate) fn is_target(snapshot: &UiSnapshot, id: u64) -> bool {
+    targets(snapshot).any(|(_, setlist)| setlist.id == id)
+}
+
 /// The title of slot `slot` of setlist `setlist`; `None` when the slot is empty.
 pub(crate) fn slot_title(snapshot: &UiSnapshot, setlist: u64, slot: u64) -> Option<&str> {
     (snapshot.directory.presets.iter())
@@ -53,11 +64,11 @@ impl PresetTarget {
 
 impl UiState {
     /// Preset ⋮ Copy or Move: the page opens on the browsed setlist, or on the first
-    /// writable one when Factory Presets is browsed.
+    /// target when the browsed one is not a target (Factory Presets).
     pub(crate) fn open_target(&mut self, slot: u64, remove: bool) {
         let s = &self.snapshot;
-        let setlist = (writable(s).find(|(_, setlist)| s.active_setlist == Some(setlist.id)))
-            .or_else(|| writable(s).next())
+        let setlist = (targets(s).find(|(_, setlist)| s.active_setlist == Some(setlist.id)))
+            .or_else(|| targets(s).next())
             .map(|(_, setlist)| setlist.id);
         let Some(setlist) = setlist else {
             return;
@@ -73,9 +84,9 @@ impl UiState {
     }
 
     pub(crate) fn target_setlist(&mut self, id: u64) {
-        let shown = writable(&self.snapshot).any(|(_, setlist)| setlist.id == id);
+        let chosen = is_target(&self.snapshot, id);
         if let Some(target) = &mut self.directory.target
-            && shown
+            && chosen
         {
             target.setlist = id;
             target.conflict = None;
@@ -89,7 +100,7 @@ impl UiState {
             return Vec::new();
         };
         let own = self.snapshot.active_setlist == Some(target.setlist) && slot == target.slot;
-        if own || slot >= SETLIST_SLOTS {
+        if own || slot >= SETLIST_SLOTS || !is_target(&self.snapshot, target.setlist) {
             return Vec::new();
         }
         if slot_title(&self.snapshot, target.setlist, slot).is_some() {
@@ -136,7 +147,8 @@ impl UiState {
     }
 }
 
-/// The page: CANCEL and the title, the writable setlists, then the slots of the chosen one.
+/// The page: CANCEL and the title, the writable setlists (an unread one dimmed), then the
+/// slots of the chosen one.
 pub(super) fn page(ui: &UiState, l: &mut Layout, target: &PresetTarget) {
     let p = l.palette;
     let s = &ui.snapshot;
@@ -182,6 +194,7 @@ fn setlists(ui: &UiState, l: &mut Layout, target: &PresetTarget) {
     let rows: Vec<SideRow> = writable(&ui.snapshot)
         .map(|(index, setlist)| SideRow {
             selected: setlist.id == target.setlist,
+            enabled: is_target(&ui.snapshot, setlist.id),
             ..SideRow::new(
                 Control::Library(LibraryControl::TargetSetlist(setlist.id)),
                 setlist.title.clone(),

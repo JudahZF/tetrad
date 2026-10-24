@@ -791,11 +791,13 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
         }
         Popup::Filter => filter_menu(ui, l),
         // The application favorites only the loaded, saved preset (Grid ⋮, manual §5).
-        // Copy needs a writable setlist; Move also needs the browsed one to be writable.
+        // Copy needs a setlist to go to; Move also needs the browsed one to be writable.
         Popup::Preset(id) => {
             let favorite = s.preset_id == Some(id) && s.preset_file;
-            let writable = || super::preset_target::writable(s);
-            let movable = writable().any(|(_, setlist)| s.active_setlist == Some(setlist.id));
+            let target = super::preset_target::targets(s).next().is_some();
+            let movable = target
+                && super::preset_target::writable(s)
+                    .any(|(_, setlist)| s.active_setlist == Some(setlist.id));
             crate::widgets::popover_menu(
                 l,
                 anchor,
@@ -803,7 +805,7 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
                     item(ItemAction::Load, "Load", true),
                     item(ItemAction::EditName, "Edit Name", true),
                     item(ItemAction::Duplicate, "Duplicate", true),
-                    item(ItemAction::Copy, "Copy", writable().next().is_some()),
+                    item(ItemAction::Copy, "Copy", target),
                     item(
                         ItemAction::Favorite,
                         if favorite && s.favorite {
