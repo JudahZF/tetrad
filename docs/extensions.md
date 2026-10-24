@@ -7,8 +7,9 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 
 - **MIDI Mapper** reserves a second MIDI channel and offers it as a trigger on the
   [Mappings](mappings.md) page.
-- **Neural Amp Modeler** plays Neural Amp Modeler (NAM) LSTM and WaveNet models, including the
-  NAM trainer's nano, feather and lite sizes, as amp blocks.
+- **Neural Amp Modeler A1** plays Neural Amp Modeler (NAM) LSTM and WaveNet models, including
+  the NAM trainer's nano, feather and lite sizes, as amp blocks.
+- **Neural Amp Modeler A2** plays NAM A2 models (A2-Lite) as amp blocks.
 - **Sweep Synth** adds two synth blocks, one for guitar and one for bass, with a filter that
   sweeps on each note.
 - **Custom Footswitch Mode** adds a fourth footswitch mode: four pages of ten switches, each
@@ -123,16 +124,25 @@ and [Mappings](mappings.md).
 
 ### Neural Amp Modeler
 
-Neural Amp Modeler plays [NAM](https://www.neuralampmodeler.com/) models of the LSTM and WaveNet
-types, up to the NAM trainer's **lite** size.
+Two extensions play [NAM](https://www.neuralampmodeler.com/) models. Both are `.nam` files, so
+look at the model's page (for example on TONE3000) to see which one you have:
 
-1. Install **Neural Amp Modeler** from the default repository: on a Tetrad build with DSP
-   blocks, open Settings → System → Extensions, push **REFRESH** and install it.
-2. Copy your `.nam` files to `/media/p4/tetrad/assets/tetrad.nam/` on the unit, for example
-   with `scp "Plexi.nam" qc:/media/p4/tetrad/assets/tetrad.nam/`. Tetrad makes the folder at
+| Extension | Plays | Asset folder | Blocks |
+| --- | --- | --- | --- |
+| **Neural Amp Modeler A1** | LSTM and WaveNet models, up to the NAM trainer's **lite** size | `/media/p4/tetrad/assets/tetrad.nam/` | **NAM A1 …** |
+| **Neural Amp Modeler A2** | A2 models (NAM's default since June 2026) | `/media/p4/tetrad/assets/tetrad.nam-a2/` | **NAM A2 …** |
+
+An A2 file holds two sizes of the same model: A2-Full and A2-Lite. Neural Amp Modeler A2 plays
+A2-Lite. A2-Full needs more DSP memory and CPU than one core has. A file in the wrong folder
+does not load, and the extension's page says which extension plays it.
+
+1. Install the extension from the default repository: on a Tetrad build with DSP blocks, open
+   Settings → System → Extensions, push **REFRESH** and install it.
+2. Copy your `.nam` files to the extension's asset folder on the unit, for example with
+   `scp "Plexi.nam" qc:/media/p4/tetrad/assets/tetrad.nam-a2/`. Tetrad makes the folder at
    the first start. A file name can have letters, digits, spaces, `.`, `_` and `-`.
 3. Turn the extension off and on (or restart Tetrad). Each file becomes a block, such as
-   **NAM Plexi**, in the **Guitar Amplifier** list.
+   **NAM A2 Plexi**, in the **Guitar Amplifier** list.
 
 Each block has an **Input** and an **Output** level (0 to 4, 1 is unchanged). The model runs in
 mono: both channels get its output. The page of the extension says why a file did not load.
@@ -145,6 +155,7 @@ CPU and memory. On the test unit:
 | WaveNet nano | below 25% | 57 KB |
 | WaveNet feather | about 48% | 115 KB |
 | WaveNet lite | about 75% | 129 KB |
+| A2-Lite | about 29% (estimate) | 112 KB |
 
 Lite needs most of a core: put it in a row whose core is otherwise light, or the preset does not
 fit (as with a heavy stock amp). The trainer's **standard** size needs more DSP memory than one
@@ -333,10 +344,11 @@ For convolutional models, `dsp.network()` starts a **network** (qcdsp IR 3): vec
 on channel buffers that run before the graph, over a whole 32-sample call on the DSP. `input()`
 is the block input; `buffer(channels)`, `gain(buffer, parameter)`, `conv(input, output, {kernel,
 dilation, weights, bias, accumulate})` (a causal dilated convolution; kernel 1 is a dense layer),
-`activation(buffer, "tanh" | "hardtanh" | "relu")`, `add` and `copy` build it, and
+`activation(buffer, "tanh" | "hardtanh" | "relu" | { leakyRelu: slope })` (a leaky ReLU,
+`max(x, slope · x)`, slope 0 to 1), `add` and `copy` build it, and
 `output(buffer)` returns its output as a signal for the graph. A block with a network is mono.
 The DSP code computes two output channels per instruction (SIMD); Neural Amp Modeler's WaveNets
-use it (`extensions/nam/src/wavenet.ts`).
+use it (`extensions/nam/src/wavenet.ts`, which Neural Amp Modeler A2 shares).
 
 Limits of one block: 65 536 nodes (24 576 after `tanh` and the other approximations expand),
 256 parameters, and 4096 states and delay lines. Up to 32 KB of state and delay memory lives in

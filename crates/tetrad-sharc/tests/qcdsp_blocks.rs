@@ -573,7 +573,7 @@ fn network_block_runs_its_frame_kernels() {
 
 /// The less common kernel paths: a convolution that accumulates into its output, a fused
 /// condition on a one-term convolution (its loads need instructions of their own), odd channel
-/// counts, relu and hardtanh, and a gain.
+/// counts, relu, hardtanh and a leaky relu, and a gain.
 #[test]
 fn network_kernels_cover_accumulate_and_short_convolutions() {
     use qcdsp::{Activation, BlockBuilder, Category, NetworkBuilder, Parameter};
@@ -617,6 +617,12 @@ fn network_kernels_cover_accumulate_and_short_convolutions() {
         true,
     );
     net.activation(b, Activation::Hardtanh);
+    net.activation(
+        b,
+        Activation::LeakyRelu {
+            negative_slope: 0.1,
+        },
+    );
     let y = net.buffer(1);
     net.conv(b, y, 1, 1, vec![0.6, -0.5, 0.4], Some(vec![0.05]), false);
     let output = dsp.network(net.finish(y)).unwrap();

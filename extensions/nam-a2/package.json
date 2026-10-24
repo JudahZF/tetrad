@@ -1,0 +1,13 @@
+{
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "name": "tetrad.nam-a2",
+  "private": true,
+  "scripts": {
+    "build": "tetrad-ext build .",
+    "check": "tsc -p . --noEmit"
+  },
+  "type": "module"
+}

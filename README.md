@@ -58,8 +58,9 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
   (Settings → System → Extensions), such as MIDI Mapper for a second MIDI channel. See
   [docs/extensions.md](docs/extensions.md).
 - **DSP blocks (experimental).** Extensions can add DSP blocks that Tetrad compiles for the
-  DSP, such as Neural Amp Modeler for NAM LSTM and WaveNet models (up to the trainer's lite
-  size). Presets keep a stock block in their slot,
+  DSP, such as Neural Amp Modeler A1 for NAM LSTM and WaveNet models (up to the trainer's lite
+  size) and Neural Amp Modeler A2 for NAM A2 models (A2-Lite). Presets keep a stock block in
+  their slot,
   so stock CorOS still loads them. See [DSP blocks](docs/extensions.md#dsp-blocks).
 - **Cortex Control.** Connect the desktop app over USB to change settings and the Global EQ,
   browse files, make backups and update CorOS.

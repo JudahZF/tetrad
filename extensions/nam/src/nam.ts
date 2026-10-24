@@ -23,15 +23,22 @@ export type LstmModel = {
   readonly weights: readonly number[];
 };
 
-/** Reads the parts that all architectures share. Throws with a reason the user can act on. */
-export function read(name: string, text: string): NamFile {
+/** Parses a `.nam` file's JSON. Throws with a reason the user can act on. */
+export function parse(name: string, text: string): { readonly [key: string]: unknown } {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
     throw new Error(`${name} is not a .nam file (it is not JSON)`);
   }
-  const file = record(json, name);
+  return record(json, name);
+}
+
+/**
+ * Reads the parts that single models share, from a parsed file or a submodel of an A2 file.
+ * Throws with a reason the user can act on.
+ */
+export function namFile(name: string, file: { readonly [key: string]: unknown }): NamFile {
   const rate = file["sample_rate"];
   if (rate !== undefined && rate !== null && rate !== SAMPLE_RATE) {
     throw new Error(`${name} is for ${String(rate)} Hz; the QC runs at ${SAMPLE_RATE} Hz`);

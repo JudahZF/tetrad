@@ -1,8 +1,8 @@
-//! The newest Neural Amp Modeler package in the real runner, driven by a small fake host.
-//! Synthetic LSTM and WaveNet `.nam` files go in as assets; the graph the extension publishes
-//! must do what NeuralAmpModelerCore's `nam::lstm::LSTM` and `nam::wavenet::WaveNet` do (ported
-//! below with exact activations), within the error of qcdsp's approximations. Skips when the
-//! package is not built.
+//! The newest Neural Amp Modeler A1 and A2 packages in the real runner, driven by a small fake
+//! host. Synthetic LSTM, WaveNet and A2 `.nam` files go in as assets; the graph the extension
+//! publishes must do what NeuralAmpModelerCore's `nam::lstm::LSTM` and `nam::wavenet::WaveNet`
+//! do (ported below with exact activations), within the error of qcdsp's approximations. Skips
+//! when the package is not built.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
@@ -17,7 +17,11 @@ use tetrad_extensions::protocol::{
 };
 use tetrad_extensions::runner::{self, Limits};
 
-fn package() -> Option<Package> {
+const A1: &str = "tetrad.nam";
+const A2: &str = "tetrad.nam-a2";
+
+/// The newest package of extension `id`.
+fn package(id: &str) -> Option<Package> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/repository/packages");
     std::fs::read_dir(&dir)
         .ok()?
@@ -25,9 +29,10 @@ fn package() -> Option<Package> {
         .map(|e| e.path())
         .filter(|p| {
             let name = p.file_name().unwrap().to_string_lossy();
-            name.starts_with("tetrad.nam-") && name.ends_with(".tetradext")
+            name.starts_with(&format!("{id}-")) && name.ends_with(".tetradext")
         })
         .map(|p| Package::decode(&std::fs::read(p).unwrap()).unwrap())
+        .filter(|package| package.manifest.id == id)
         .max_by(|a, b| a.manifest.version.cmp(&b.manifest.version))
 }
 
@@ -38,10 +43,10 @@ struct Host {
 }
 
 impl Host {
-    /// The newest package, activated in the runner; `None` when it is not built.
-    fn start() -> Option<Self> {
-        let Some(package) = package() else {
-            eprintln!("skipped: build extensions/repository/packages/tetrad.nam-*.tetradext first");
+    /// The newest package of `id`, activated in the runner; `None` when it is not built.
+    fn start(id: &str) -> Option<Self> {
+        let Some(package) = package(id) else {
+            eprintln!("skipped: build extensions/repository/packages/{id}-*.tetradext first");
             return None;
         };
         let (input, to_runner) = std::io::pipe().unwrap();
@@ -269,6 +274,9 @@ impl Lstm {
     }
 }
 
+/// NAM's LeakyReLU slope, which A2 files write.
+const LEAKY_SLOPE: f32 = 0.01;
+
 /// One layer array of a WaveNet config, as the NAM trainer writes it.
 #[derive(Clone)]
 struct ArrayConfig {
@@ -276,10 +284,14 @@ struct ArrayConfig {
     channels: usize,
     head_size: usize,
     kernel: usize,
+    /// A2's kernel size per layer, in place of `kernel`.
+    kernel_sizes: Option<Vec<usize>>,
     dilations: Vec<usize>,
     activation: &'static str,
     gated: bool,
     head_bias: bool,
+    /// Above 1, the head is A2's convolution (a nested `head`).
+    head_kernel: usize,
 }
 
 impl ArrayConfig {
@@ -290,14 +302,42 @@ impl ArrayConfig {
             channels,
             head_size,
             kernel: 3,
+            kernel_sizes: None,
             dilations: (0..10).map(|i| 1 << i).collect(),
             activation: "Tanh",
             gated: false,
             head_bias,
+            head_kernel: 1,
         }
     }
 
+    /// An A2 size (`C` channels): 23 layers in three stacks of 7 and a degrid pair, LeakyReLU,
+    /// and a 16-tap head, as in NeuralAmpModelerCore's `example_models/A2.nam`.
+    fn a2(channels: usize) -> Self {
+        let stack = [1, 3, 7, 17, 41, 101, 239];
+        let degrid = [(15, 1), (15, 13)];
+        let layers: Vec<(usize, usize)> = (stack.map(|d| (6, d)).into_iter())
+            .chain(stack.map(|d| (6, d)))
+            .chain(degrid)
+            .chain(stack.map(|d| (6, d)))
+            .collect();
+        Self {
+            kernel_sizes: Some(layers.iter().map(|&(k, _)| k).collect()),
+            dilations: layers.iter().map(|&(_, d)| d).collect(),
+            activation: "LeakyReLU",
+            head_kernel: 16,
+            ..Self::trainer(1, channels, 1, true)
+        }
+    }
+
+    fn kernel_of(&self, layer: usize) -> usize {
+        self.kernel_sizes.as_ref().map_or(self.kernel, |k| k[layer])
+    }
+
     fn json(&self) -> Value {
+        if self.kernel_sizes.is_some() {
+            return self.a2_json();
+        }
         json!({
             "input_size": self.input_size,
             "condition_size": 1,
@@ -309,6 +349,43 @@ impl ArrayConfig {
             "gated": self.gated,
             "head_bias": self.head_bias,
         })
+    }
+
+    /// The keys of an A2 file's layer array (NAM core `example_models/A2.nam`, v0.7.0): lists
+    /// per layer, a nested head, and every option written out as inactive.
+    fn a2_json(&self) -> Value {
+        let n = self.dilations.len();
+        let off = json!({"active": false, "shift": true, "groups": 1});
+        let mut layer = json!({
+            "input_size": self.input_size,
+            "condition_size": 1,
+            "head": {"out_channels": self.head_size, "kernel_size": self.head_kernel, "bias": self.head_bias},
+            "channels": self.channels,
+            "kernel_sizes": self.kernel_sizes,
+            "dilations": self.dilations,
+            "activation": vec![json!({"type": self.activation, "negative_slope": LEAKY_SLOPE}); n],
+            "bottleneck": self.channels,
+            "head1x1": {"active": false, "out_channels": 1, "groups": 1},
+            "layer1x1": {"active": true, "groups": 1},
+            "groups_input": 1,
+            "groups_input_mixin": 1,
+            "gating_mode": vec!["none"; n],
+            "secondary_activation": vec![Value::Null; n],
+            "slimmable": null,
+        });
+        for key in [
+            "conv_pre_film",
+            "conv_post_film",
+            "input_mixin_pre_film",
+            "input_mixin_post_film",
+            "activation_pre_film",
+            "activation_post_film",
+            "layer1x1_post_film",
+            "head1x1_post_film",
+        ] {
+            layer[key] = off.clone();
+        }
+        layer
     }
 
     /// Rows of the dilated conv and the input mixin: twice the channels when gated.
@@ -323,8 +400,10 @@ impl ArrayConfig {
     fn weight_count(&self) -> usize {
         let (c, z) = (self.channels, self.z());
         c * self.input_size
-            + self.dilations.len() * (z * c * self.kernel + z + z + c * c + c)
-            + self.head_size * c
+            + (0..self.dilations.len())
+                .map(|layer| z * c * self.kernel_of(layer) + z + z + c * c + c)
+                .sum::<usize>()
+            + self.head_size * c * self.head_kernel
             + if self.head_bias { self.head_size } else { 0 }
     }
 }
@@ -339,7 +418,10 @@ fn weight_count(arrays: &[ArrayConfig]) -> usize {
 /// 173-179, `WaveNet::set_weights_` 310-329, `WaveNet::process` 368-400), `NAM/wavenet.h`
 /// (`_Layer` 26-33: conv with bias, mixin without, 1x1 with) and `NAM/dsp.cpp`
 /// (`Conv1D::set_weights_` 207-221, `Conv1D::process_` 244-260, `Conv1x1::set_weights_`
-/// 288-296). The current `NAM/wavenet/model.cpp` keeps these semantics for these configs.
+/// 288-296). The current `NAM/wavenet/model.cpp` (v0.6.0) keeps these semantics and adds
+/// what A2 uses: a kernel size and activation per layer (`LayerArray` 400-417), LeakyReLU
+/// (`NAM/activations.h` `leaky_relu`) and a head that is a causal Conv1D (`_head_rechannel`
+/// 402-403, `LayerArray::Process` 550-551).
 struct WaveNet {
     arrays: Vec<Array>,
     head_scale: f32,
@@ -349,11 +431,15 @@ struct Array {
     config: ArrayConfig,
     rechannel: Vec<f32>,
     layers: Vec<WaveNetLayer>,
+    /// `head[(out * channels + in) * head_kernel + k]`, like a layer's `conv`.
     head: Vec<f32>,
     head_bias: Vec<f32>,
+    /// The head sums, newest first.
+    head_history: VecDeque<Vec<f32>>,
 }
 
 struct WaveNetLayer {
+    kernel: usize,
     dilation: usize,
     /// `conv[(out * channels + in) * kernel + k]` is NAM's `_weight[k](out, in)`.
     conv: Vec<f32>,
@@ -385,22 +471,24 @@ impl WaveNet {
         let arrays = arrays
             .iter()
             .map(|config| {
-                let (c, z, k) = (config.channels, config.z(), config.kernel);
+                let (c, z) = (config.channels, config.z());
                 let rechannel = take(c * config.input_size);
-                let layers = config
-                    .dilations
-                    .iter()
-                    .map(|&dilation| WaveNetLayer {
-                        dilation,
-                        conv: take(z * c * k),
-                        conv_bias: take(z),
-                        mixin: take(z),
-                        layer1x1: take(c * c),
-                        layer1x1_bias: take(c),
-                        history: vec![vec![0.0; c]; (k - 1) * dilation + 1].into(),
+                let layers = (config.dilations.iter().enumerate())
+                    .map(|(layer, &dilation)| {
+                        let k = config.kernel_of(layer);
+                        WaveNetLayer {
+                            kernel: k,
+                            dilation,
+                            conv: take(z * c * k),
+                            conv_bias: take(z),
+                            mixin: take(z),
+                            layer1x1: take(c * c),
+                            layer1x1_bias: take(c),
+                            history: vec![vec![0.0; c]; (k - 1) * dilation + 1].into(),
+                        }
                     })
                     .collect();
-                let head = take(config.head_size * c);
+                let head = take(config.head_size * c * config.head_kernel);
                 let head_bias = take(if config.head_bias {
                     config.head_size
                 } else {
@@ -412,6 +500,7 @@ impl WaveNet {
                     layers,
                     head,
                     head_bias,
+                    head_history: vec![vec![0.0; c]; config.head_kernel].into(),
                 }
             })
             .collect();
@@ -426,10 +515,11 @@ impl WaveNet {
         let mut head: Option<Vec<f32>> = None;
         for array in &mut self.arrays {
             let config = &array.config;
-            let (c, k) = (config.channels, config.kernel);
+            let c = config.channels;
             let mut v = matvec(&array.rechannel, &input, &[]);
             let mut sum = head.take().unwrap_or_else(|| vec![0.0; c]);
             for layer in &mut array.layers {
+                let k = layer.kernel;
                 layer.history.pop_back();
                 layer.history.push_front(v.clone());
                 // Conv1D::process_: `_weight[k]` reads the input `dilation * (K - 1 - k)` ago.
@@ -449,6 +539,8 @@ impl WaveNet {
                     "Tanh" | "Fasttanh" => v.tanh(),
                     "Hardtanh" => v.clamp(-1.0, 1.0),
                     "ReLU" => v.max(0.0),
+                    "LeakyReLU" if v > 0.0 => v,
+                    "LeakyReLU" => LEAKY_SLOPE * v,
                     other => panic!("no {other} in the port"),
                 };
                 let a: Vec<f32> = (0..c)
@@ -469,7 +561,23 @@ impl WaveNet {
                     *v += m;
                 }
             }
-            head = Some(matvec(&array.head, &sum, &array.head_bias));
+            // The head Conv1D (dilation 1): `head[k]` reads the sum `head_kernel - 1 - k` ago.
+            let k = config.head_kernel;
+            array.head_history.pop_back();
+            array.head_history.push_front(sum);
+            let out = (0..config.head_size)
+                .map(|o| {
+                    let mut value = array.head_bias.get(o).copied().unwrap_or(0.0);
+                    for j in 0..c {
+                        for tap in 0..k {
+                            value += array.head[(o * c + j) * k + tap]
+                                * array.head_history[k - 1 - tap][j];
+                        }
+                    }
+                    value
+                })
+                .collect();
+            head = Some(out);
             input = v;
         }
         self.head_scale * head.unwrap()[0]
@@ -526,7 +634,7 @@ fn scaled(weights: &[f32], factor: f32) -> Vec<f32> {
 
 #[test]
 fn builds_lstm_models_that_match_nam_core() {
-    let Some(mut host) = Host::start() else {
+    let Some(mut host) = Host::start(A1) else {
         return;
     };
     // Two layers of 6: both the layer input and the hidden recurrence are exercised.
@@ -563,7 +671,7 @@ fn builds_lstm_models_that_match_nam_core() {
 
 #[test]
 fn builds_wavenet_models_that_match_nam_core() {
-    let Some(mut host) = Host::start() else {
+    let Some(mut host) = Host::start(A1) else {
         return;
     };
     // Two arrays, as the trainer makes them: the second reads the first's output and
@@ -600,20 +708,24 @@ fn builds_wavenet_models_that_match_nam_core() {
             channels: 2,
             head_size: 2,
             kernel: 2,
+            kernel_sizes: None,
             dilations: vec![1, 3],
             activation: "Hardtanh",
             gated: true,
             head_bias: false,
+            head_kernel: 1,
         },
         ArrayConfig {
             input_size: 2,
             channels: 2,
             head_size: 1,
             kernel: 3,
+            kernel_sizes: None,
             dilations: vec![2, 1],
             activation: "ReLU",
             gated: false,
             head_bias: true,
+            head_kernel: 1,
         },
     ];
     let w = scaled(&wavenet_weights(&arrays), 3.0);
@@ -662,7 +774,7 @@ fn builds_wavenet_models_that_match_nam_core() {
 
 #[test]
 fn builds_trainer_wavenets_and_refuses_what_does_not_fit() {
-    let Some(mut host) = Host::start() else {
+    let Some(mut host) = Host::start(A1) else {
         return;
     };
     // The trainer's sizes, with nonzero weights so that no product is skipped. Each builds as
@@ -738,7 +850,12 @@ fn builds_trainer_wavenets_and_refuses_what_does_not_fit() {
         ("groups_input", json!(2), "grouped convolutions"),
         ("gating_mode", json!("blended"), "blended gating mode"),
         ("activation", json!("SiLU"), "SiLU activation"),
-        ("kernel_sizes", json!([3, 3]), "\"kernel_sizes\""),
+        ("slimmable", json!({"method": "slice"}), "slimmable layers"),
+        (
+            "activation",
+            json!({"type": "LeakyReLU", "negative_slope": 1.5}),
+            "LeakyReLU slope of 1.5",
+        ),
     ];
     for (scope, (key, value, reason)) in (10..).zip(refusals) {
         let mut config = wavenet_config(&arrays);
@@ -760,5 +877,75 @@ fn builds_trainer_wavenets_and_refuses_what_does_not_fit() {
         nam("WaveNet", wavenet_config(&arrays), &w[1..]),
     );
     assert!(error.contains("weights; its config needs"), "{error}");
+
+    // An A2 file is for the A2 extension. A2-Full alone, as a WaveNet file, builds; the device
+    // refuses it: its history does not fit the DM heap.
+    let lite = ArrayConfig::a2(3);
+    let error = host.refused(22, "A2.nam", a2_file(&[(0.5, &lite), (1.0, &lite)]));
+    assert!(error.contains("Neural Amp Modeler A2 extension"), "{error}");
+    let full = [ArrayConfig::a2(8)];
+    let block = host.block(
+        23,
+        "Full.nam",
+        nam("WaveNet", wavenet_config(&full), &wavenet_weights(&full)),
+    );
+    let Err(error) = qcdsp::device::generate(&block) else {
+        panic!("A2-Full does not fit the DM heap");
+    };
+    assert!(error.to_string().contains("bytes of DM heap"), "{error}");
+    host.stop();
+}
+
+/// An A2 file: a `SlimmableContainer` of WaveNet sizes, each with its `max_value`.
+fn a2_file(sizes: &[(f64, &ArrayConfig)]) -> String {
+    let submodels: Vec<Value> = sizes
+        .iter()
+        .map(|&(max_value, array)| {
+            let arrays = [array.clone()];
+            let model = nam(
+                "WaveNet",
+                wavenet_config(&arrays),
+                &wavenet_weights(&arrays),
+            );
+            json!({"max_value": max_value, "model": serde_json::from_str::<Value>(&model).unwrap()})
+        })
+        .collect();
+    json!({
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "config": {"submodels": submodels},
+        "sample_rate": 48000,
+        "metadata": {"name": "test"}
+    })
+    .to_string()
+}
+
+#[test]
+fn builds_a2_lite_from_an_a2_file() {
+    let Some(mut host) = Host::start(A2) else {
+        return;
+    };
+    // The A2 extension plays the smallest size, A2-Lite: a network (IR 3) that matches NAM core
+    // and fits one DSP core. LeakyReLU is exact on the DSP, so only the sum order differs.
+    let (lite, full) = (ArrayConfig::a2(3), ArrayConfig::a2(8));
+    let block = host.block(1, "A2.nam", a2_file(&[(0.5, &lite), (1.0, &full)]));
+    assert_eq!(block.version(), 3, "A2-Lite is a network");
+    let arrays = [lite.clone()];
+    let mut reference = WaveNet::new(&arrays, &wavenet_weights(&arrays));
+    // 8000 samples pass the receptive field (6,332 samples) once.
+    let (worst, peak) = compare(&block, 8000, |x| reference.process(x));
+    eprintln!("A2-Lite: largest error against NAM core {worst:e}, peak {peak}");
+    assert!(peak > 1e-3, "the model makes a signal: peak {peak}");
+    assert!(worst <= 1e-5 * peak, "{worst} (peak {peak})");
+    report("A2-Lite", &block);
+
+    // Files it does not play give a reason the user can act on.
+    let w = wavenet_weights(&arrays);
+    let a1 = host.refused(2, "A1.nam", nam("WaveNet", wavenet_config(&arrays), &w));
+    assert!(a1.contains("Neural Amp Modeler A1 extension"), "{a1}");
+    let disordered = host.refused(3, "Odd.nam", a2_file(&[(1.0, &full), (0.5, &lite)]));
+    assert!(disordered.contains("not in order"), "{disordered}");
+    let partial = host.refused(4, "Odd.nam", a2_file(&[(0.5, &lite)]));
+    assert!(partial.contains("not in order"), "{partial}");
     host.stop();
 }

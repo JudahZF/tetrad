@@ -211,8 +211,11 @@ export interface NetworkBuilder {
    * input[i](t − (kernel − 1 − k) · dilation)`.
    */
   conv(input: NetBuffer, output: NetBuffer, options: ConvOptions): void;
-  /** In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`. */
-  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu"): void;
+  /**
+   * In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`.
+   * `{ leakyRelu: s }` is `max(x, s · x)`, with `s` from 0 to 1.
+   */
+  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu" | { readonly leakyRelu: number }): void;
   /** `output += input` (same channel count). */
   add(input: NetBuffer, output: NetBuffer): void;
   /** `output = input` (same channel count). */
@@ -315,6 +318,16 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
     provide(block: string, provider: BlockProvider): void;
     /** A new, empty IR builder. Works in `activate` and in handlers. */
     builder(): BlockBuilder;
+  };
+  readonly usb: {
+    /**
+     * Answers messages from a computer over the USB cable (`tetrad-usb ext <id> <json>`).
+     * The handler's return value, as JSON, is the reply; nothing returned replies `null`, and
+     * a throw replies with an error. One handler. Needs the `usb` capability.
+     */
+    onMessage(
+      handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,
+    ): void;
   };
 }
 

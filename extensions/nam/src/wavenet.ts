@@ -1,24 +1,28 @@
-// WaveNet `.nam` models. NeuralAmpModelerCore (MIT, © Steven Atkinson) defines the weight order
-// and the per-sample computation: `NAM/wavenet.cpp` and `NAM/dsp.cpp` (Conv1D, Conv1x1) in
-// v0.3.0, `NAM/wavenet/model.cpp` and `NAM/conv1d.cpp` on main. For each sample, with `x` the
-// input sample (NAM's condition):
+// WaveNet `.nam` models, A1 (the trainer's standard to nano sizes) and A2 (one size of an A2
+// file). NeuralAmpModelerCore (MIT, © Steven Atkinson) defines the weight order and the
+// per-sample computation: `NAM/wavenet.cpp` and `NAM/dsp.cpp` (Conv1D, Conv1x1) in v0.3.0,
+// `NAM/wavenet/model.cpp` and `NAM/conv1d.cpp` in v0.6.0. For each sample, with `x` the input
+// sample (NAM's condition):
 //
 //   input = [x]
-//   each layer array (C channels, kernel K, head size H):
+//   each layer array (C channels, head size H, head kernel Kh and dilation dh):
 //     v = rechannel · input                                   1x1, no bias
-//     each layer (dilation d):
+//     each layer (kernel K, dilation d, activation act):
 //       z = bias + Σ_k conv[k] · v(t - (K-1-k)·d) + mixin · x
 //       a = act(z)                     gated: act(z[0..C]) · sigmoid(z[C..2C])
 //       head += a                      the first array's head sum starts at zero
 //       v = v + layer1x1 · a + bias    residual
-//     head = head_rechannel · head (+ bias if head_bias)       the next array's sum starts here
+//     head = bias + Σ_k head_rechannel[k] · head(t - (Kh-1-k)·dh)   the next array's sum starts here
 //     input = v
 //   output = head_scale · head[0]
 //
+// A1 files have one kernel size and activation per array and a 1x1 head; A2 files list a kernel
+// size and activation (LeakyReLU) per layer and have a convolutional head (kernel 16).
+//
 // Weights, in file order: for each array, rechannel [C][in]; for each layer, conv [Z][C][K]
 // and its bias [Z] (Z = 2C when gated, else C), mixin [Z][1], layer1x1 [C][C] and its bias
-// [C]; then head_rechannel [H][C] and its bias [H] when head_bias. Last, head_scale: NAM reads
-// it from the weights, not from the config.
+// [C]; then head_rechannel [H][C][Kh] and its bias [H] when the head has one. Last,
+// head_scale: NAM reads it from the weights, not from the config.
 
 import type { BlockBuilder, BlockIr, Delay, NetBuffer, NetworkBuilder, Signal, State } from "@tetrad/extensions";
 
@@ -42,6 +46,8 @@ const SIZES: { readonly [channels: string]: string } = {
   "4/2": "nano",
 };
 const MAX_DILATION = 1 << 16;
+/** NAM's LeakyReLU slope when the file names none. */
+const LEAKY_RELU_SLOPE = 0.01;
 /** The network builder's limits (`NetworkBuilder` in the SDK). */
 const NETWORK_MAX_KERNEL = 16;
 const NETWORK_MAX_CHANNELS = 64;
@@ -67,6 +73,7 @@ const KNOWN_KEYS = new Set([
   "channels",
   "bottleneck",
   "kernel_size",
+  "kernel_sizes",
   "dilations",
   "activation",
   "gated",
@@ -76,21 +83,31 @@ const KNOWN_KEYS = new Set([
   "groups_input_mixin",
   "layer1x1",
   "head1x1",
+  "slimmable",
   ...FILM_KEYS,
 ]);
 
-/** Fasttanh is NAM's fast approximation of tanh; the graph computes tanh for both. */
-type Activation = "Tanh" | "Hardtanh" | "ReLU";
+/**
+ * Fasttanh is NAM's fast approximation of tanh; the graph computes tanh for both. A leaky ReLU
+ * has the SDK's network form, `max(x, slope · x)`.
+ */
+type Activation = "Tanh" | "Hardtanh" | "ReLU" | { readonly leakyRelu: number };
+
+export type Layer = {
+  readonly kernelSize: number;
+  readonly dilation: number;
+  readonly activation: Activation;
+  readonly gated: boolean;
+};
 
 export type LayerArray = {
   readonly inputSize: number;
   readonly channels: number;
   readonly headSize: number;
   readonly headBias: boolean;
-  readonly kernelSize: number;
-  readonly dilations: readonly number[];
-  readonly activation: Activation;
-  readonly gated: boolean;
+  readonly headKernelSize: number;
+  readonly headDilation: number;
+  readonly layers: readonly Layer[];
 };
 
 export type WavenetModel = {
@@ -149,6 +166,7 @@ function layerArray(
   if ((config["groups_input"] ?? 1) !== 1 || (config["groups_input_mixin"] ?? 1) !== 1) {
     throw refuse("grouped convolutions");
   }
+  if (config["slimmable"] != null) throw refuse("slimmable layers");
   const channels = count(config["channels"], `${where} channels`);
   if ((config["bottleneck"] ?? channels) !== channels) throw refuse("a bottleneck");
   const layer1x1 = config["layer1x1"];
@@ -160,37 +178,70 @@ function layerArray(
     throw refuse("a condition of more than one channel");
   }
 
-  // Newer trainer exports nest the head; older files have head_size and head_bias.
+  // Newer trainer exports nest the head (A2 heads are convolutions); older files have
+  // head_size and head_bias.
   let headSize: number;
   let headBias: unknown;
+  let headKernelSize = 1;
+  let headDilation = 1;
   const head = config["head"];
   if (head != null) {
     const nested = record(head, `${where} head`);
-    if (nested["kernel_size"] !== 1 || (nested["head_dilation"] ?? 1) !== 1) {
-      throw refuse("a head kernel wider than 1");
-    }
     headSize = count(nested["out_channels"], `${where} head out_channels`);
     headBias = nested["bias"];
+    headKernelSize = count(nested["kernel_size"], `${where} head kernel_size`);
+    headDilation = dilation(nested["head_dilation"] ?? 1, `${where} head_dilation`);
   } else {
     headSize = count(config["head_size"], `${where} head_size`);
     headBias = config["head_bias"];
   }
   if (typeof headBias !== "boolean") throw new Error(`${where} head bias is not true or false`);
 
+  const dilations = config["dilations"];
+  if (!Array.isArray(dilations) || dilations.length === 0)
+    throw new Error(`${where} dilations is not a list of layers`);
+  const n = dilations.length;
+  const kernelSizes = kernels(config, n, where);
+  const activations = perLayer(config["activation"], n, `${where} activation`).map((value) =>
+    activation(value, where, refuse),
+  );
+  const gates = gating(config, n, where, refuse);
   return {
     inputSize: count(config["input_size"], `${where} input_size`),
     channels,
     headSize,
     headBias,
-    kernelSize: count(config["kernel_size"], `${where} kernel_size`),
-    dilations: dilations(config["dilations"], `${where} dilations`),
-    activation: activation(config["activation"], where, refuse),
-    gated: gated(config, where, refuse),
+    headKernelSize,
+    headDilation,
+    layers: dilations.map((value: unknown, i) => ({
+      kernelSize: at0(kernelSizes, i),
+      dilation: dilation(value, `${where} dilations`),
+      activation: at0(activations, i),
+      gated: at0(gates, i),
+    })),
   };
 }
 
+/** A setting that is one value for every layer, or a list with one value per layer. */
+function perLayer(value: unknown, n: number, what: string): readonly unknown[] {
+  if (!Array.isArray(value)) return Array.from({ length: n }, () => value);
+  if (value.length !== n) throw new Error(`${what} has ${value.length} entries for ${n} layers`);
+  return value;
+}
+
+function kernels(config: { readonly [key: string]: unknown }, n: number, where: string): number[] {
+  // `kernel_size` for the whole array, or A2's `kernel_sizes` per layer; not both.
+  const single = config["kernel_size"];
+  const list = config["kernel_sizes"];
+  if ((single === undefined) === (list === undefined)) {
+    throw new Error(`${where} needs one of kernel_size and kernel_sizes`);
+  }
+  if (list !== undefined && !Array.isArray(list)) throw new Error(`${where} kernel_sizes is not a list`);
+  return perLayer(list ?? single, n, `${where} kernel_sizes`).map((value) => count(value, `${where} kernel size`));
+}
+
 function activation(value: unknown, where: string, refuse: (what: string) => Error): Activation {
-  // A string, or an object with a `type`; Tanh, Hardtanh and ReLU take no parameters.
+  // A string, or an object with a `type`; only LeakyReLU takes a parameter.
   const type = isObject(value) ? value["type"] : value;
   switch (type) {
     case "Tanh":
@@ -200,41 +251,58 @@ function activation(value: unknown, where: string, refuse: (what: string) => Err
       return "Hardtanh";
     case "ReLU":
       return "ReLU";
+    case "LeakyReLU": {
+      const slope = (isObject(value) ? value["negative_slope"] : undefined) ?? LEAKY_RELU_SLOPE;
+      if (typeof slope !== "number" || !(slope >= 0 && slope <= 1)) {
+        throw refuse(`a LeakyReLU slope of ${String(slope)} (it plays slopes from 0 to 1)`);
+      }
+      return { leakyRelu: slope };
+    }
     default:
       if (typeof type !== "string") throw new Error(`${where} activation is not one activation name`);
       throw refuse(`the ${type} activation`);
   }
 }
 
-function gated(config: { readonly [key: string]: unknown }, where: string, refuse: (what: string) => Error): boolean {
-  // Newer files have `gating_mode`; older ones the `gated` flag.
+function gating(
+  config: { readonly [key: string]: unknown },
+  n: number,
+  where: string,
+  refuse: (what: string) => Error,
+): boolean[] {
+  // Newer files have `gating_mode`, one or one per layer; older ones the `gated` flag.
   const mode = config["gating_mode"];
-  let result: boolean;
+  let gates: boolean[];
   if (mode === undefined) {
     const flag = config["gated"] ?? false;
     if (typeof flag !== "boolean") throw new Error(`${where} gated is not true or false`);
-    result = flag;
-  } else if (mode === "gated" || mode === "none") {
-    result = mode === "gated";
+    gates = Array.from({ length: n }, () => flag);
   } else {
-    throw refuse(typeof mode === "string" ? `the ${mode} gating mode` : "a gating mode for each layer");
+    gates = perLayer(mode, n, `${where} gating_mode`).map((value) => {
+      if (value === "gated" || value === "none") return value === "gated";
+      throw refuse(typeof value === "string" ? `the ${value} gating mode` : "a gating mode that is not a name");
+    });
   }
+  // NAM reads the secondary activation of gated layers only (a Sigmoid when there is none).
   const secondary = config["secondary_activation"];
-  const type = isObject(secondary) ? secondary["type"] : secondary;
-  if (secondary !== undefined && !(result && type === "Sigmoid")) {
-    throw refuse("a secondary activation other than a Sigmoid gate");
-  }
-  return result;
+  const secondaries = Array.isArray(secondary)
+    ? perLayer(secondary, n, `${where} secondary_activation`)
+    : gates.map(() => secondary);
+  gates.forEach((gated, i) => {
+    const value = secondaries[i];
+    const type = isObject(value) ? value["type"] : value;
+    if (gated && value !== undefined && type !== "Sigmoid") {
+      throw refuse("a secondary activation other than a Sigmoid gate");
+    }
+  });
+  return gates;
 }
 
-function dilations(value: unknown, what: string): number[] {
-  if (!Array.isArray(value) || value.length === 0) throw new Error(`${what} is not a list of layers`);
-  return value.map((item: unknown) => {
-    if (typeof item !== "number" || !Number.isInteger(item) || item < 1 || item > MAX_DILATION) {
-      throw new Error(`${what} must be whole numbers from 1 to ${MAX_DILATION}`);
-    }
-    return item;
-  });
+function dilation(value: unknown, what: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MAX_DILATION) {
+    throw new Error(`${what} must be whole numbers from 1 to ${MAX_DILATION}`);
+  }
+  return value;
 }
 
 function isObject(value: unknown): value is { readonly [key: string]: unknown } {
@@ -244,9 +312,12 @@ function isObject(value: unknown): value is { readonly [key: string]: unknown } 
 /** The weights the arrays read, in NAM's order (see the top of this file), and head_scale. */
 export function weightCount(arrays: readonly LayerArray[]): number {
   let total = 1;
-  for (const { inputSize, channels: c, headSize: h, headBias, kernelSize: k, dilations, gated } of arrays) {
-    const z = gated ? 2 * c : c;
-    total += c * inputSize + dilations.length * (z * c * k + z + z + c * c + c) + h * c + (headBias ? h : 0);
+  for (const { inputSize, channels: c, headSize: h, headBias, headKernelSize, layers } of arrays) {
+    total += c * inputSize + h * c * headKernelSize + (headBias ? h : 0);
+    for (const { kernelSize: k, gated } of layers) {
+      const z = gated ? 2 * c : c;
+      total += z * c * k + z + z + c * c + c;
+    }
   }
   return total;
 }
@@ -260,12 +331,12 @@ export function weightCount(arrays: readonly LayerArray[]): number {
  */
 export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   const fits = (array: LayerArray) =>
-    !array.gated &&
-    array.kernelSize <= NETWORK_MAX_KERNEL &&
+    array.layers.every((layer) => !layer.gated && layer.kernelSize <= NETWORK_MAX_KERNEL) &&
+    array.headKernelSize <= NETWORK_MAX_KERNEL &&
     [array.inputSize, array.channels, array.headSize].every((n) => n <= NETWORK_MAX_CHANNELS);
   // What `network` allocates: the input, the head sum, and per array its input mix and head;
   // per layer a mixed buffer, the next residual and six operations.
-  const layers = model.arrays.reduce((n, array) => n + array.dilations.length, 0);
+  const layers = model.arrays.reduce((n, array) => n + array.layers.length, 0);
   const arrays = model.arrays.length;
   const buffers = 2 + 2 * arrays + 2 * layers;
   const ops = 1 + 2 * arrays + 6 * layers;
@@ -302,15 +373,15 @@ function network(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   let input = x;
   let head: NetBuffer | undefined;
   for (const array of model.arrays) {
-    const { channels: c, kernelSize: k, activation } = array;
+    const { channels: c } = array;
     let v = net.buffer(c);
     net.conv(input, v, { weights: take(c * array.inputSize) });
     let sum = head;
-    for (const dilation of array.dilations) {
+    for (const { kernelSize: k, dilation, activation } of array.layers) {
       const z = net.buffer(c);
       net.conv(v, z, { kernel: k, dilation, weights: take(c * c * k), bias: take(c) });
       net.conv(x, z, { weights: take(c), accumulate: true });
-      net.activation(z, ACTIVATIONS[activation]);
+      activate(net, z, activation);
       if (sum === undefined) {
         sum = net.buffer(c);
         net.copy(z, sum);
@@ -324,8 +395,9 @@ function network(dsp: BlockBuilder, model: WavenetModel): BlockIr {
     }
     if (sum === undefined) throw new Error("a layer array has no layers");
     const out = net.buffer(array.headSize);
-    const weights = take(array.headSize * c);
-    net.conv(sum, out, { weights, ...(array.headBias ? { bias: take(array.headSize) } : {}) });
+    const { headKernelSize: kernel, headDilation: dilation } = array;
+    const weights = take(array.headSize * c * kernel);
+    net.conv(sum, out, { kernel, dilation, weights, ...(array.headBias ? { bias: take(array.headSize) } : {}) });
     head = out;
     input = v;
   }
@@ -335,6 +407,20 @@ function network(dsp: BlockBuilder, model: WavenetModel): BlockIr {
 }
 
 const ACTIVATIONS = { Tanh: "tanh", Hardtanh: "hardtanh", ReLU: "relu" } as const;
+
+function activate(net: NetworkBuilder, buffer: NetBuffer, activation: Activation): void {
+  if (typeof activation === "string") {
+    net.activation(buffer, ACTIVATIONS[activation]);
+    return;
+  }
+  try {
+    net.activation(buffer, activation);
+  } catch (e) {
+    // Tetrad before leaky ReLU networks knows the three named activations only.
+    if (e instanceof TypeError) throw new Error("this model uses LeakyReLU; update Tetrad to play it");
+    throw e;
+  }
+}
 
 function graph(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   let at = 0;
@@ -350,42 +436,65 @@ function graph(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   let input: readonly Signal[] = [x];
   let head: readonly Signal[] | undefined;
   for (const array of model.arrays) {
-    const { channels: c, kernelSize: k } = array;
-    const z = array.gated ? 2 * c : c;
+    const { channels: c } = array;
     let v = matrix(dsp, take(c * input.length), input);
     let sum = head;
-    for (const dilation of array.dilations) {
-      const conv = take(z * c * k);
+    for (const layer of array.layers) {
+      const z = layer.gated ? 2 * c : c;
+      const conv = take(z * c * layer.kernelSize);
       const convBias = take(z);
       const mixin = take(z);
       const layer1x1 = take(c * c);
       const layerBias = take(c);
-      const past = taps(dsp, v, k, dilation);
-      // conv[k] reads the input (K-1-k)·d samples ago; NAM orders its weights [out][in][k].
-      const pre = range(z).map((o) => {
-        const terms: [number, Signal][] = [[at0(mixin, o), x]];
-        for (let j = 0; j < c; j++) {
-          for (let tap = 0; tap < k; tap++) {
-            terms.push([at0(conv, (o * c + j) * k + tap), at0(at0(past, k - 1 - tap), j)]);
-          }
-        }
-        return affine(dsp, terms, at0(convBias, o));
-      });
+      const past = taps(dsp, v, layer.kernelSize, layer.dilation);
+      const pre = convolve(dsp, conv, past, convBias, (o) => [[at0(mixin, o), x]]);
       const a = range(c).map((o) => {
-        const value = activate(dsp, array.activation, at0(pre, o));
-        return array.gated ? dsp.mul(value, dsp.sigmoid(at0(pre, c + o))) : value;
+        const value = activateSignal(dsp, layer.activation, at0(pre, o));
+        return layer.gated ? dsp.mul(value, dsp.sigmoid(at0(pre, c + o))) : value;
       });
       sum = sum === undefined ? a : sum.map((s, j) => dsp.add(s, at0(a, j)));
       const mixed = matrix(dsp, layer1x1, a, layerBias);
       v = v.map((value, o) => dsp.add(value, at0(mixed, o)));
     }
     if (sum === undefined) throw new Error("a layer array has no layers");
-    head = matrix(dsp, take(array.headSize * c), sum, array.headBias ? take(array.headSize) : undefined);
+    const { headSize: h, headKernelSize: k } = array;
+    const weights = take(h * c * k);
+    head = convolve(
+      dsp,
+      weights,
+      taps(dsp, sum, k, array.headDilation),
+      array.headBias ? take(h) : range(h).map(() => 0),
+    );
     input = v;
   }
   const [scale = 0] = take(1);
   const out = dsp.mul(dsp.mul(at0(head ?? [], 0), dsp.constant(scale)), outputGain);
   return dsp.finish(out);
+}
+
+/**
+ * A causal dilated convolution of `past` (from [`taps`]): one output per bias, `bias[o] +
+ * Σ_j Σ_k weights[o][j][k] · past[K-1-k][j]` (NAM orders its weights [out][in][k]), plus the
+ * `extra` terms of each output.
+ */
+function convolve(
+  dsp: BlockBuilder,
+  weights: readonly number[],
+  past: readonly (readonly Signal[])[],
+  bias: readonly number[],
+  extra: (output: number) => [number, Signal][] = () => [],
+): Signal[] {
+  const k = past.length;
+  const inputs = at0(past, 0).length;
+  return bias.map((b, o) => {
+    const terms = extra(o);
+    for (let j = 0; j < inputs; j++) {
+      for (let tap = 0; tap < k; tap++) {
+        terms.push([at0(weights, (o * inputs + j) * k + tap), at0(at0(past, k - 1 - tap), j)]);
+      }
+    }
+    return affine(dsp, terms, b);
+  });
 }
 
 /**
@@ -435,7 +544,8 @@ function affine(dsp: BlockBuilder, terms: readonly (readonly [number, Signal])[]
   return sum ?? dsp.constant(0);
 }
 
-function activate(dsp: BlockBuilder, activation: Activation, value: Signal): Signal {
+function activateSignal(dsp: BlockBuilder, activation: Activation, value: Signal): Signal {
+  if (typeof activation === "object") return dsp.max(value, dsp.mul(dsp.constant(activation.leakyRelu), value));
   switch (activation) {
     case "Tanh":
       return dsp.tanh(value);
