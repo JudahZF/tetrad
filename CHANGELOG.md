@@ -3,7 +3,13 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [0.1.0-alpha.6](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.6) (2026-10-24)
+
+### Added
+
+- Sweep Synth extension (`tetrad.sweep-synth` 0.1.0): two mono DSP blocks in the Synth list,
+  Sweep Synth and Bass Sweep Synth, at about half the CPU of the stereo synth. DSP Examples
+  0.3.0 drops its synth, so a unit with both extensions does not show it twice.
 
 ### Fixed
 

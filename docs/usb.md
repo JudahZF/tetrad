@@ -52,7 +52,7 @@ It uses [hidapi](https://github.com/libusb/hidapi). On Linux it needs `libudev` 
 1. Download the release assets into one folder: `tetrad`, `tetrad-launch.sh`,
    `tetrad-launcher.sh`, `tetrad-update.sh`, `tetrad-update.json` and
    `tetrad-update.json.sig`. For example:
-   `gh release download v0.1.0-alpha.5 -R JudahZF/tetrad -D release`.
+   `gh release download v0.1.0-alpha.6 -R JudahZF/tetrad -D release`.
 2. Run `tetrad-usb install release`. The unit checks the signature of `tetrad-update.json`
    with the Tetrad release key first, so only a real Tetrad release is accepted. Then the files
    go to the unit. The binary takes some minutes at about 24 KiB/s.
@@ -121,7 +121,7 @@ body. Each request has an `id`, and its reply has the same `id`.
 
 | Request | Body | Reply | Reply body |
 | --- | --- | --- | --- |
-| `{"id":1,"op":"hello"}` | — | `{"id":1,"reply":"hello","tetrad":"0.1.0-alpha.5","protocol":1}` | — |
+| `{"id":1,"op":"hello"}` | — | `{"id":1,"reply":"hello","tetrad":"0.1.0-alpha.6","protocol":1}` | — |
 | `{"id":2,"op":"screenshot"}` | — | `{"id":2,"reply":"screenshot","width":800,"height":480}` | PNG |
 | `{"id":3,"op":"log"}` | — | `{"id":3,"reply":"log","lines":12}` | UTF-8 text, one notice per line |
 | `{"id":4,"op":"install-begin","manifest":"…","signature":"…"}` | — | `{"id":4,"reply":"install-begin","version":"…","files":[{"path":"bin/tetrad","size":…},…]}` | — |
