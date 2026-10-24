@@ -17,7 +17,7 @@ use tetrad_services::fake::MemFiles;
 use tetrad_settings::controls::FootswitchMode;
 use tetrad_ui::{
     BlockTarget, FieldId, GridPosition, MappingAction, MappingCommand, MappingId, MappingScope,
-    MappingsView, MidiInput, ModeKind, SystemAction, Trigger,
+    MappingsView, MidiInput, ModeChoice, ModeKind, SystemAction, Trigger,
 };
 
 /// The Light block of [`light_preset`] at column 2: GAIN is parameter 0.
@@ -491,6 +491,31 @@ fn footswitch_releases_and_the_stock_momentary_flag() {
     }));
     settle(&mut device);
     assert_eq!(gain(&device), start, "released");
+
+    // A press that also leaves Stomp mode still releases its Momentary.
+    let leave = MappingAction::System(SystemAction::Mode(ModeChoice::Scene));
+    let mode_row = map(&mut device, Trigger::Stomp(1), leave);
+    device.push(Event::Hal(HalEvent::Stomp {
+        element: switch_b,
+        value: 1,
+    }));
+    settle(&mut device);
+    assert_ne!(gain(&device), start, "held");
+    device.push(Event::Hal(HalEvent::Stomp {
+        element: switch_b,
+        value: 0,
+    }));
+    settle(&mut device);
+    assert_eq!(gain(&device), start, "released in Scene mode");
+    send(
+        &mut device,
+        MappingCommand::Remove {
+            scope,
+            id: mode_row,
+        },
+    );
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
 
     let bypass = MappingAction::Block {
         position: light(),

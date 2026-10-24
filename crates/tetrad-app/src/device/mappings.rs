@@ -343,7 +343,9 @@ impl Mappings {
             label: fired.label.clone(),
             continuous: fired.continuous,
         };
+        let mut learned = Step::default();
         let input = if fired.continuous {
+            learned = self.learn_level(&trigger);
             let value = (fired.value.clamp(0.0, 1.0) * 127.0).round() as u8;
             self.level(&trigger, value, now)
         } else if fired.pressed {
@@ -351,7 +353,37 @@ impl Mappings {
         } else {
             Input::Release
         };
-        self.fire(trigger, input, state, now)
+        let mut step = self.fire(trigger, input, state, now);
+        step.effects.splice(0..0, learned.effects);
+        step.save_global = step.save_global.or(learned.save_global);
+        step
+    }
+
+    /// Rows of a continuous extension source that were learned without the `continuous` flag
+    /// (before it was stored) get it from the first firing that reports a level.
+    fn learn_level(&mut self, trigger: &StoredTrigger) -> Step {
+        let key = level_key(trigger);
+        let mut step = Step::default();
+        for scope in [MappingScope::Preset, MappingScope::Global] {
+            let mut list = self.list(scope).clone();
+            let mut changed = false;
+            for stored in &mut list {
+                let press = source(&stored.trigger) == Source::Press;
+                if press
+                    && level_key(&stored.trigger) == key
+                    && let StoredTrigger::Extension { continuous, .. } = &mut stored.trigger
+                {
+                    *continuous = true;
+                    changed = true;
+                }
+            }
+            if changed {
+                let mut stored = self.store(scope, list);
+                step.effects.append(&mut stored.effects);
+                step.save_global = step.save_global.or(stored.save_global);
+            }
+        }
+        step
     }
 
     /// A Stomp-mode footswitch press or release, 0..=7. Stock assignments toggle their blocks
@@ -581,9 +613,10 @@ impl Mappings {
                 next
             }
             (Input::Level { value, .. }, Mode::Relative { encoding }) => {
-                match mode::ticks(encoding, value) {
-                    0 => return None,
-                    ticks => param.spec.scale.encoder(current, ticks),
+                // One parameter step per tick, without the hardware encoder's acceleration.
+                match i8::try_from(mode::ticks(encoding, value)) {
+                    Ok(0) | Err(_) => return None,
+                    Ok(ticks) => param.stepped(current, ticks, false),
                 }
             }
             (Input::Press, Mode::Set { value }) => value,

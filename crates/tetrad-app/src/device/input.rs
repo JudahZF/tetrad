@@ -88,6 +88,9 @@ pub struct Input {
     midi_pressed: u16,
     /// Physical mask of letters whose press ended a Looper X assignment; their release is quiet.
     assigned: u16,
+    /// Owned: stomps (bit per index) whose press reached the mappings. Their release goes there
+    /// too, even when the press changed the footswitch mode.
+    mapping_held: u8,
 }
 
 #[derive(Debug, Default)]
@@ -470,7 +473,20 @@ impl Input {
             self.press(switch, state, now)
         } else {
             state.performance.held &= !stomp.mask();
-            self.release(switch, state)
+            let mut effects = self.release(switch, state);
+            if let Some(letter) = switch.letter()
+                && self.mapping_held & (1 << letter) != 0
+            {
+                self.mapping_held &= !(1 << letter);
+                let release = Effect::MappingStomp {
+                    stomp: letter,
+                    pressed: false,
+                };
+                if !effects.contains(&release) {
+                    effects.push(release);
+                }
+            }
+            effects
         };
         // tetrad-ui lights its tiles from the raw edge; tetrad-core above owns the meaning.
         effects.extend(view(pressed));
@@ -665,6 +681,7 @@ impl Input {
             }
             FootswitchAction::StompPress(stomp) => {
                 let mut effects = act(Action::ToggleStomp(stomp));
+                self.mapping_held |= 1 << stomp.get();
                 effects.push(Effect::MappingStomp {
                     stomp: stomp.get(),
                     pressed: true,
