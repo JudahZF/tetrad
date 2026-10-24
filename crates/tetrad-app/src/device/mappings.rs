@@ -733,8 +733,9 @@ impl Mappings {
                     _ => Vec::new(),
                 }
             }
-            // A slot press follows its trigger: a Momentary row holds it from the press to the
-            // release, a CC level inside the window holds it, any other press taps it.
+            // A slot press follows its trigger: a Momentary row holds it from its own press to
+            // its own release (as a Looper button), a CC level inside the window holds it, any
+            // other press taps it.
             SystemAction::CustomSlot(slot) => {
                 let edge = |pressed| Action::CustomSlot {
                     slot,
@@ -742,8 +743,18 @@ impl Mappings {
                     origin: super::custom::Origin::Mapping,
                 };
                 match (drive.input, drive.mode) {
-                    (Input::Press, Mode::Momentary { .. }) => vec![edge(true)],
-                    (Input::Release, Mode::Momentary { .. }) => vec![edge(false)],
+                    (Input::Press, Mode::Momentary { .. }) => {
+                        match self.held.insert(drive.key, 1.0) {
+                            Some(_) => Vec::new(),
+                            None => vec![edge(true)],
+                        }
+                    }
+                    (Input::Release, Mode::Momentary { .. }) => {
+                        match self.held.remove(&drive.key) {
+                            Some(_) => vec![edge(false)],
+                            None => Vec::new(),
+                        }
+                    }
                     (Input::Press, _) => vec![edge(true), edge(false)],
                     (Input::Level { value, .. }, _) => vec![edge(drive.window.contains(value))],
                     (Input::Release, _) => Vec::new(),
