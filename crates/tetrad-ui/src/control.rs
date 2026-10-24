@@ -276,10 +276,15 @@ pub enum LibraryControl {
     PluginChild(u16),
     /// A plugin preset row (index into the open plugin's `presets`): audition it.
     PluginPreset(u16),
-    /// SWAP (`false`) or OVERWRITE (`true`) of the Move conflict dialog.
+    /// SWAP (`false`) or OVERWRITE (`true`) of the occupied-slot question of the Copy and
+    /// Move page.
     ConfirmMove {
         overwrite: bool,
     },
+    /// A setlist row of the Copy and Move page: show its slots.
+    TargetSetlist(u64),
+    /// A slot row of the Copy and Move page: copy or move the preset there.
+    TargetSlot(u64),
     ConfirmDirectoryDelete {
         remove_products: bool,
     },
@@ -429,6 +434,8 @@ pub enum ItemAction {
     Load,
     EditName,
     Duplicate,
+    /// Preset ⋮ Copy and Move: open the Copy and Move page.
+    Copy,
     Favorite,
     Move,
     Upload,

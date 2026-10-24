@@ -1227,6 +1227,28 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 activate(&mut ui, Control::Library(LibraryControl::Check(id)));
             }
         }
+        // Preset ⋮, and its Copy page with an occupied slot of another setlist tapped.
+        "preset-menu" | "preset-copy" | "preset-copy-conflict" => {
+            let mut snapshot = ui.snapshot().clone();
+            let titles = snapshot.presets.iter().map(|preset| preset.title.clone());
+            let presets = (0..12).zip(titles).map(|(slot, title)| DirectoryPreset {
+                setlist: if slot < 8 { 0 } else { 1 },
+                slot: slot % 8 * 2,
+                title,
+            });
+            std::sync::Arc::make_mut(&mut snapshot.directory).presets = presets.collect();
+            ui.set_snapshot(snapshot)?;
+            let library = Control::Library;
+            activate(&mut ui, Control::Navigate(Screen::Presets));
+            activate(&mut ui, Control::PresetMenu(2));
+            if view != "preset-menu" {
+                activate(&mut ui, library(LibraryControl::Item(ItemAction::Copy)));
+                activate(&mut ui, library(LibraryControl::TargetSetlist(1)));
+            }
+            if view == "preset-copy-conflict" {
+                activate(&mut ui, library(LibraryControl::TargetSlot(2)));
+            }
+        }
         "paste-option" | "paste-bar" => {
             let library = Control::Library;
             activate(&mut ui, Control::Navigate(Screen::Presets));

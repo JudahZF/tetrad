@@ -1990,11 +1990,16 @@ impl Ui {
             .map(|entry| entry.item)
             .collect();
         // Every filled slot for Device Storage and the Directory search; a setlist that
-        // cannot be read counts as empty (its own slots report the error).
+        // cannot be read counts as empty (its own slots report the error) and is named in
+        // `unread_setlists`.
+        let mut unread_setlists = Vec::new();
         directory.presets = (0u64..)
             .zip(&setlists)
             .filter_map(|(id, setlist)| {
-                let slots = library.presets.directory_slots(&setlist.name).ok()?;
+                let Ok(slots) = library.presets.directory_slots(&setlist.name) else {
+                    unread_setlists.push(id);
+                    return None;
+                };
                 Some(
                     slots
                         .into_iter()
@@ -2008,6 +2013,7 @@ impl Ui {
             })
             .flatten()
             .collect();
+        directory.unread_setlists = unread_setlists;
         let presets = directory.presets.len() as u32;
         // Clamped once here, so `set_snapshot` finds it clamped and keeps the shared copy.
         directory.clamp();

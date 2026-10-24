@@ -3,6 +3,15 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Presets: the preset ⋮ menu has Copy, and Copy and Move open one page with every setlist you
+  can write and all slots of the chosen one. An empty slot takes the preset at once; an
+  occupied slot asks to OVERWRITE it (or SWAP, for a move inside the same setlist). Move
+  before only changed the slot inside the open setlist.
+
 ## [0.1.0-alpha.6](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.6) (2026-10-24)
 
 ### Added
