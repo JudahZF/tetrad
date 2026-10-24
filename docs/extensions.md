@@ -233,7 +233,8 @@ The full API, with comments, is in `tetrad.d.ts` (`tetrad-ext sdk` writes it):
 
 A firing with `continuous: false` is a press. To release it, fire the same `source` again with
 `pressed: false` (MIDI Mapper does this on a note-off). A mapping in Momentary mode holds its
-value until the release; if an extension never sends one, the value stays until the next press.
+value until the release; a second press does nothing. If an extension never sends a release, the
+value stays held.
 
 `ctx.controls.list` and `ctx.storage.get` work only during `activate`; handlers use their
 scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail
