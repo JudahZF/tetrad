@@ -11,7 +11,7 @@
 //! CC#45 tuner, …). Block actions are extension-style edits: stored, not reported back to the
 //! extensions as touch edits.
 //!
-//! Each row has a value mode ([`mode`]): Set, Toggle, Momentary, Step, Follow, Relative or On
+//! Each row has a value mode (`mode`): Set, Toggle, Momentary, Step, Follow, Relative or On
 //! press. A row without a stored mode uses the first mode its trigger and action allow, which
 //! is the behaviour from before modes.
 
