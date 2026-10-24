@@ -37,6 +37,8 @@ pub enum Screen {
     MidiOut,
     /// Owned (Tetrad): the Mappings page of the grid ⋮ menu (`crate::mappings`).
     Mappings,
+    /// Owned (Tetrad): the slot editor of the Custom footswitch mode (`crate::custom_mode`).
+    CustomMode,
     /// Boot recovery menu (A + H held at startup, manual §12): "Choose a Recovery option".
     Recovery,
     /// I/O Settings → GLOBAL EQ (shot 009) on one band tab or OUT.
@@ -845,6 +847,45 @@ pub enum MappingControl {
     EditMessages,
 }
 
+/// Controls of the Custom footswitch mode: its Gig View tiles and the slot editor
+/// (`screens::custom_mode`). Editor controls act on the selected slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustomControl {
+    /// A Gig View tile: press and release slot 0..=9 of the current page.
+    Tap(u8),
+    /// The Gig View page button: the next page.
+    NextPage,
+    /// Open the slot editor.
+    Edit,
+    /// An editor page tab, 0-based.
+    Tab(u8),
+    /// An editor tile: select slot 0..=9.
+    Select(u8),
+    /// The Action row: the action menu.
+    Actions,
+    /// The Label row: the keyboard.
+    Label,
+    /// A colour swatch; `None` is Auto.
+    Colour(Option<u8>),
+    /// The value stepper of a parameter action, in 5 % steps.
+    Value(i8),
+    /// The Momentary switch of a bypass action.
+    Momentary,
+    /// Edit messages of a Send MIDI action: the message editor.
+    Messages,
+    Clear,
+    /// ALL PRESETS or THIS PRESET.
+    Scope(crate::LayoutScope),
+    /// COPY: the next switch tapped becomes a copy of the selected one (again: cancel).
+    Copy,
+    /// MOVE: the next switch tapped swaps with the selected one (again: cancel).
+    Move,
+    /// COPY PAGE: the next page tab tapped becomes a copy of this page (again: cancel).
+    CopyPage,
+    /// THIS PRESET gets its own layout (`true`), or goes back to ALL PRESETS (`false`).
+    PresetLayout(bool),
+}
+
 /// The dropdowns of the Mappings detail page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MappingChoice {
@@ -965,6 +1006,8 @@ pub enum Control {
     Extension(ExtensionControl),
     /// The Mappings page (`screens::mappings`).
     Mapping(MappingControl),
+    /// The Custom footswitch mode (`screens::custom_mode`, Gig View).
+    Custom(CustomControl),
     /// Settings → Appearance: pick the theme of row n ([`crate::AppearanceView::themes`]).
     Theme(u16),
     /// The switch of the Remote page (`screens::remote`).
@@ -1233,6 +1276,8 @@ pub enum UiCommand {
     Extension(crate::ExtensionCommand),
     /// A Mappings page request (`crate::mappings`).
     Mapping(crate::MappingCommand),
+    /// A Custom footswitch mode request (`crate::custom_mode`).
+    Custom(crate::CustomCommand),
     /// Apply and store a theme (Settings → Appearance, owned).
     SetTheme(tetrad_theme::ThemeId),
     /// The Remote page switch (`crate::remote`).
@@ -1822,6 +1867,7 @@ impl fmt::Debug for UiCommand {
         match self {
             C::Extension(command) => f.debug_tuple("Extension").field(command).finish(),
             C::Mapping(command) => f.debug_tuple("Mapping").field(command).finish(),
+            C::Custom(command) => f.debug_tuple("Custom").field(command).finish(),
             C::SetTheme(id) => f.debug_tuple("SetTheme").field(id).finish(),
             C::WifiConnect { ssid, password } => f
                 .debug_struct("WifiConnect")

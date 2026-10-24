@@ -31,8 +31,8 @@ use tetrad_ui::{
     BlockTarget, ExtensionTriggerChoice, FieldId, Footswitch, GridPosition, LooperButton,
     MappingAction, MappingBlock, MappingCommand, MappingId, MappingParameter, MappingRow,
     MappingScope, MappingsView, MidiInput, MidiMessageKind, MidiOutMessage, MidiOutTarget,
-    ModeChoice, ModeKind, ModeView, PresetMidiView, ResponseView, Screen, SystemAction, Trigger,
-    ValueField,
+    ModeChoice, ModeKind, ModeView, PageStep, PresetMidiView, ResponseView, SLOT_NAMES, Screen,
+    SystemAction, Trigger, ValueField,
 };
 
 use self::mode::{Input, Mode, Param, Source, Target, Window};
@@ -117,14 +117,14 @@ enum StoredAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-enum StoredTarget {
+pub(super) enum StoredTarget {
     Bypass,
     Parameter { index: u32 },
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "SystemAction", rename_all = "camelCase")]
-enum SystemDef {
+pub(super) enum SystemDef {
     NextPreset,
     PreviousPreset,
     Scene(u8),
@@ -136,6 +136,16 @@ enum SystemDef {
     NextMode,
     GigView,
     Looper(#[serde(with = "LooperDef")] LooperButton),
+    CustomPage(#[serde(with = "PageDef")] PageStep),
+    CustomSlot(u8),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "PageStep", rename_all = "camelCase")]
+enum PageDef {
+    Next,
+    Previous,
+    Go(u8),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -144,6 +154,7 @@ enum ModeDef {
     Preset,
     Scene,
     Stomp,
+    Custom,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -691,21 +702,6 @@ impl Mappings {
         state: &State,
         now: Duration,
     ) -> Vec<Action> {
-        let scene = |step: i32| {
-            let current = state.current.as_ref()?.deployment.scene().index();
-            SceneIndex::new((current as i32 + step).rem_euclid(8) as u8).ok()
-        };
-        let preset = |step: i32| {
-            let last = &state.settings.settings().last_preset;
-            let index = u32::try_from(last.preset_index + step).ok()?;
-            Some(Action::LoadPreset {
-                target: PresetRef {
-                    setlist: last.setlist.clone(),
-                    index,
-                },
-                reload: false,
-            })
-        };
         match action {
             SystemAction::Tuner => (self.switch(drive, state.screen == Screen::Tuner))
                 .map(Action::ShowTuner)
@@ -737,31 +733,24 @@ impl Mappings {
                     _ => Vec::new(),
                 }
             }
-            _ if drive.input != Input::Press => Vec::new(),
-            SystemAction::NextPreset => preset(1).into_iter().collect(),
-            SystemAction::PreviousPreset => preset(-1).into_iter().collect(),
-            SystemAction::Scene(index) => (SceneIndex::new(index).ok())
-                .map(Action::SelectScene)
-                .into_iter()
-                .collect(),
-            SystemAction::NextScene => scene(1).map(Action::SelectScene).into_iter().collect(),
-            SystemAction::PreviousScene => scene(-1).map(Action::SelectScene).into_iter().collect(),
-            SystemAction::TapTempo => {
-                let interval = (self.last_tap).map(|last| now.saturating_sub(last).as_millis());
-                self.last_tap = Some(now);
-                match interval {
-                    Some(ms) if super::ui::TAP_INTERVAL_MS.contains(&ms) => {
-                        vec![Action::SetTempo(60_000.0 / ms as f32)]
-                    }
-                    _ => Vec::new(),
+            // A slot press follows its trigger: a Momentary row holds it from the press to the
+            // release, a CC level inside the window holds it, any other press taps it.
+            SystemAction::CustomSlot(slot) => {
+                let edge = |pressed| Action::CustomSlot {
+                    slot,
+                    pressed,
+                    origin: super::custom::Origin::Mapping,
+                };
+                match (drive.input, drive.mode) {
+                    (Input::Press, Mode::Momentary { .. }) => vec![edge(true)],
+                    (Input::Release, Mode::Momentary { .. }) => vec![edge(false)],
+                    (Input::Press, _) => vec![edge(true), edge(false)],
+                    (Input::Level { value, .. }, _) => vec![edge(drive.window.contains(value))],
+                    (Input::Release, _) => Vec::new(),
                 }
             }
-            SystemAction::Mode(mode) => vec![Action::SetMode(match mode {
-                ModeChoice::Preset => FootswitchMode::Preset,
-                ModeChoice::Scene => FootswitchMode::Scene,
-                ModeChoice::Stomp => FootswitchMode::Stomp,
-            })],
-            SystemAction::NextMode => vec![Action::CycleMode],
+            _ if drive.input != Input::Press => Vec::new(),
+            action => press(action, state, now, &mut self.last_tap),
         }
     }
 
@@ -1305,6 +1294,70 @@ fn source(trigger: &StoredTrigger) -> Source {
     }
 }
 
+/// The device actions of one press of a system action that has no switch state of its own:
+/// as an On press mapping, and the Custom mode's slots. The Tuner and Gig View toggle and a
+/// Looper button presses and releases; a slot press (`CustomSlot`) does nothing here.
+/// `last_tap` is the caller's tap tempo memory.
+pub(super) fn press(
+    action: SystemAction,
+    state: &State,
+    now: Duration,
+    last_tap: &mut Option<Duration>,
+) -> Vec<Action> {
+    let scene = |step: i32| {
+        let current = state.current.as_ref()?.deployment.scene().index();
+        SceneIndex::new((current as i32 + step).rem_euclid(8) as u8).ok()
+    };
+    let preset = |step: i32| {
+        let last = &state.settings.settings().last_preset;
+        let index = u32::try_from(last.preset_index + step).ok()?;
+        Some(Action::LoadPreset {
+            target: PresetRef {
+                setlist: last.setlist.clone(),
+                index,
+            },
+            reload: false,
+        })
+    };
+    match action {
+        SystemAction::Tuner => vec![Action::ShowTuner(state.screen != Screen::Tuner)],
+        SystemAction::GigView => vec![Action::ShowGigView(state.screen != Screen::Gig)],
+        SystemAction::Looper(button) => {
+            let button = looper_button(button);
+            [true, false]
+                .map(|pressed| Action::Looper { button, pressed })
+                .into()
+        }
+        SystemAction::NextPreset => preset(1).into_iter().collect(),
+        SystemAction::PreviousPreset => preset(-1).into_iter().collect(),
+        SystemAction::Scene(index) => (SceneIndex::new(index).ok())
+            .map(Action::SelectScene)
+            .into_iter()
+            .collect(),
+        SystemAction::NextScene => scene(1).map(Action::SelectScene).into_iter().collect(),
+        SystemAction::PreviousScene => scene(-1).map(Action::SelectScene).into_iter().collect(),
+        SystemAction::TapTempo => {
+            let interval = last_tap.map(|last| now.saturating_sub(last).as_millis());
+            *last_tap = Some(now);
+            match interval {
+                Some(ms) if super::ui::TAP_INTERVAL_MS.contains(&ms) => {
+                    vec![Action::SetTempo(60_000.0 / ms as f32)]
+                }
+                _ => Vec::new(),
+            }
+        }
+        SystemAction::Mode(ModeChoice::Custom) => vec![Action::SetCustomMode(true)],
+        SystemAction::Mode(mode) => vec![Action::SetMode(match mode {
+            ModeChoice::Preset => FootswitchMode::Preset,
+            ModeChoice::Scene => FootswitchMode::Scene,
+            ModeChoice::Stomp | ModeChoice::Custom => FootswitchMode::Stomp,
+        })],
+        SystemAction::NextMode => vec![Action::CycleMode],
+        SystemAction::CustomPage(step) => vec![Action::CustomPage(step)],
+        SystemAction::CustomSlot(_) => Vec::new(),
+    }
+}
+
 fn target(action: &StoredAction) -> Target {
     match action {
         StoredAction::Block {
@@ -1316,7 +1369,7 @@ fn target(action: &StoredAction) -> Target {
             action: SystemAction::Tuner | SystemAction::GigView,
         } => Target::Switch,
         StoredAction::System {
-            action: SystemAction::Looper(_),
+            action: SystemAction::Looper(_) | SystemAction::CustomSlot(_),
         } => Target::Looper,
         StoredAction::System { .. } => Target::Command,
         StoredAction::SendMidi => Target::SendMidi,
@@ -1423,6 +1476,12 @@ fn action_allowed(
         } if *trigger == StoredTrigger::PresetLoaded => {
             Err("A preset load cannot load another preset".into())
         }
+        StoredAction::System {
+            action: SystemAction::CustomSlot(slot),
+        } if usize::from(*slot) >= SLOT_NAMES.len() => Err("Custom mode has slots 1 to 10".into()),
+        StoredAction::System {
+            action: SystemAction::CustomPage(PageStep::Go(page)),
+        } if *page >= tetrad_ui::CUSTOM_PAGES => Err("Custom mode has pages 1 to 4".into()),
         StoredAction::System { .. } => Ok(()),
     }
 }
@@ -1581,14 +1640,14 @@ fn stored_target(target: BlockTarget) -> StoredTarget {
     }
 }
 
-fn ui_target(target: StoredTarget) -> BlockTarget {
+pub(super) fn ui_target(target: StoredTarget) -> BlockTarget {
     match target {
         StoredTarget::Bypass => BlockTarget::Bypass,
         StoredTarget::Parameter { index } => BlockTarget::Parameter(index),
     }
 }
 
-fn looper_button(button: LooperButton) -> tetrad_midi::LooperButton {
+pub(super) fn looper_button(button: LooperButton) -> tetrad_midi::LooperButton {
     use tetrad_midi::LooperButton as L;
     match button {
         LooperButton::RecordOverdub => L::RecordOverdub,
@@ -1622,21 +1681,23 @@ fn midi_out_trigger(target: MidiOutTarget) -> StoredTrigger {
         },
         MidiOutTarget::Expression1 => StoredTrigger::Expression { pedal: 1 },
         MidiOutTarget::Expression2 => StoredTrigger::Expression { pedal: 2 },
+        // Not a preset list: the Custom mode sends a slot's messages itself.
+        MidiOutTarget::Slot { .. } => StoredTrigger::PresetLoaded,
     }
 }
 
-fn position(row: u8, column: u8) -> Option<GridPosition> {
+pub(super) fn position(row: u8, column: u8) -> Option<GridPosition> {
     GridPosition::new(row, column).ok()
 }
 
-fn engine_slot(position: GridPosition) -> Option<Slot> {
+pub(super) fn engine_slot(position: GridPosition) -> Option<Slot> {
     Some(Slot {
         row: Row::new(position.row()).ok()?,
         column: Column::new(position.column()).ok()?,
     })
 }
 
-fn model_at(state: &State, position: GridPosition) -> Option<u32> {
+pub(super) fn model_at(state: &State, position: GridPosition) -> Option<u32> {
     let current = state.current.as_ref()?;
     let instance = current
         .deployment
@@ -1698,13 +1759,13 @@ fn preset_midi(state: &State) -> PresetMidiView {
 
 // ---- rows ----------------------------------------------------------------------------------
 
-fn block_name(state: &State, position: GridPosition) -> Option<String> {
+pub(super) fn block_name(state: &State, position: GridPosition) -> Option<String> {
     let model = model_at(state, position)?;
     let specs = state.specs.as_ref()?;
     Some(specs.model(model)?.name.clone())
 }
 
-fn target_name(state: &State, position: GridPosition, target: BlockTarget) -> String {
+pub(super) fn target_name(state: &State, position: GridPosition, target: BlockTarget) -> String {
     match target {
         BlockTarget::Bypass => "Bypass".into(),
         BlockTarget::Parameter(index) => (model_at(state, position))
@@ -1759,7 +1820,7 @@ fn trigger_text(
     }
 }
 
-fn message_text(message: &MidiOutMessage) -> String {
+pub(super) fn message_text(message: &MidiOutMessage) -> String {
     let value = |index: usize| message.values[index].map_or_else(|| "-".into(), |v| v.to_string());
     match message.kind {
         MidiMessageKind::Cc => format!("CC {} = {} · Ch {}", value(0), value(1), message.channel),
@@ -1805,7 +1866,7 @@ fn action_text(
     }
 }
 
-fn system_text(action: SystemAction) -> (String, String) {
+pub(super) fn system_text(action: SystemAction) -> (String, String) {
     let (label, detail): (&str, String) = match action {
         SystemAction::NextPreset => ("Preset", "Next preset".into()),
         SystemAction::PreviousPreset => ("Preset", "Previous preset".into()),
@@ -1820,10 +1881,26 @@ fn system_text(action: SystemAction) -> (String, String) {
                 ModeChoice::Preset => "Preset mode",
                 ModeChoice::Scene => "Scene mode",
                 ModeChoice::Stomp => "Stomp mode",
+                ModeChoice::Custom => "Custom mode",
             }
             .into(),
         ),
         SystemAction::NextMode => ("Mode", "Next mode".into()),
+        SystemAction::CustomPage(step) => (
+            "Custom mode",
+            match step {
+                PageStep::Next => "Next page".into(),
+                PageStep::Previous => "Previous page".into(),
+                PageStep::Go(page) => format!("Page {}", u16::from(page) + 1),
+            },
+        ),
+        SystemAction::CustomSlot(slot) => (
+            "Custom mode",
+            format!(
+                "Press {}",
+                SLOT_NAMES.get(usize::from(slot)).copied().unwrap_or("?")
+            ),
+        ),
         SystemAction::GigView => ("Gig View", "Open and close".into()),
         SystemAction::Looper(button) => (
             "Looper",

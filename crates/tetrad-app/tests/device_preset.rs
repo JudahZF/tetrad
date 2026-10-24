@@ -665,6 +665,7 @@ fn held_momentary_stomps_save_their_blocks_inverted() {
 
     let saved = preset::save_resting(
         held,
+        &[],
         &specs,
         |_| false,
         &mut current,

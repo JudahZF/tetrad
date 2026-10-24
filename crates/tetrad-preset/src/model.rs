@@ -76,6 +76,11 @@ pub const TETRAD_MAPPINGS_FIELD: u32 = 7001;
 /// [`crate::community`]). Stock does not know it and keeps it as an unknown field when it saves.
 pub const TETRAD_BLOCKS_FIELD: u32 = 7002;
 
+/// Owned (Tetrad): the preset field that holds the preset's own Custom footswitch mode layout
+/// (UTF-8 JSON, the layout file's format). Stock does not know it and keeps it as an unknown
+/// field when it saves.
+pub const TETRAD_FOOTSWITCH_FIELD: u32 = 7003;
+
 /// A protobuf map that keeps stored entry order. A repeated key keeps its
 /// first position and its last value, as the stock map parser keeps one entry.
 #[derive(Debug, Clone, PartialEq, Eq)]

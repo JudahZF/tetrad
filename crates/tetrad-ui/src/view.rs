@@ -56,6 +56,8 @@ pub enum FootswitchMode {
     Scene,
     Stomp,
     Hybrid,
+    /// (O) An extension's Custom mode ([`crate::CustomModeView`]): ten slots and pages.
+    Custom,
 }
 
 impl FootswitchMode {
@@ -65,6 +67,7 @@ impl FootswitchMode {
             Self::Scene => "SCENE",
             Self::Stomp => "STOMP",
             Self::Hybrid => "HYB",
+            Self::Custom => "CUSTOM",
         }
     }
 }
@@ -1751,6 +1754,13 @@ pub enum MidiOutTarget {
     Footswitch(Footswitch),
     Expression1,
     Expression2,
+    /// (O) The messages of a Custom mode slot ([`crate::CustomSlotView::messages`]) in the
+    /// layout of `scope`. They are not Preset MIDI Out data.
+    Slot {
+        scope: crate::LayoutScope,
+        page: u8,
+        slot: u8,
+    },
 }
 
 /// Message types of the editor TYPE list. The on-load list offers CC and PC only.
@@ -1794,6 +1804,7 @@ impl PresetMidiView {
                 .map_or(&[][..], |tile| self.footswitches[tile].as_slice()),
             MidiOutTarget::Expression1 => &self.expression[0],
             MidiOutTarget::Expression2 => &self.expression[1],
+            MidiOutTarget::Slot { .. } => &[],
         }
     }
 
@@ -2048,6 +2059,8 @@ pub struct UiSnapshot {
     pub extensions: crate::ExtensionsView,
     /// Mappings page (`crate::mappings`).
     pub mappings: crate::MappingsView,
+    /// (O) The Custom footswitch mode; `None` when no extension adds one.
+    pub custom: Option<crate::CustomModeView>,
     /// Remote page (`crate::remote`).
     pub remote: crate::RemoteView,
     /// The application's last toast (`crate::remote::ToastView`).
@@ -2263,6 +2276,7 @@ impl Default for UiSnapshot {
             wifi: WifiView::default(),
             extensions: crate::ExtensionsView::default(),
             mappings: crate::MappingsView::default(),
+            custom: None,
             remote: crate::RemoteView::default(),
             toast: None,
             updater: UpdaterView::default(),

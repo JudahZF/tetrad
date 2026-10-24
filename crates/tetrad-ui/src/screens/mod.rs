@@ -3,6 +3,7 @@
 mod appearance;
 mod capture;
 mod capture_browser;
+mod custom;
 mod directory;
 mod directory_glyph;
 mod directory_lists;
@@ -95,6 +96,7 @@ pub(crate) fn layout(ui: &UiState) -> Layout {
         Screen::Expression => expression::layout(ui, &mut l),
         Screen::MidiOut => midi_out::layout(ui, &mut l),
         Screen::Mappings => mappings::layout(ui, &mut l),
+        Screen::CustomMode => custom::layout(ui, &mut l),
         Screen::Recovery => recovery::layout(ui, &mut l),
         Screen::GlobalEq(tab) => global_eq::layout(ui, &mut l, tab),
     }
@@ -257,4 +259,13 @@ pub(crate) fn scene_stepper(ui: &UiState, l: &mut Layout, bounds: Rect, badge_px
         Align::Center,
     );
     l.control(next, step(1), true, "NEXT SCENE", key(Icon::StepForward));
+}
+
+/// The mode button text: the stock label, or the Custom mode's own name.
+pub(super) fn mode_label(s: &UiSnapshot) -> String {
+    match (s.footswitch_mode, &s.custom) {
+        (Some(FootswitchMode::Custom), Some(custom)) => custom.name.to_uppercase(),
+        (Some(mode), _) => mode.label().to_owned(),
+        (None, _) => format!("MODE {}", s.mode_id),
+    }
 }

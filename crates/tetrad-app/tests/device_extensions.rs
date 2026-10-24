@@ -24,6 +24,7 @@ use tetrad_extensions::catalog::sha256_hex;
 use tetrad_extensions::package::Package;
 use tetrad_extensions::repository::{Fetch, FetchError};
 use tetrad_midi::{Channel, MidiMessage, U7};
+use tetrad_services::fake::MemFiles;
 use tetrad_ui::{
     Control, ExtensionCommand, ExtensionState, ExtensionsView, GridPosition, InputEvent,
     ParamControl,
@@ -76,7 +77,8 @@ fn repository() -> Web {
 
 /// [`repository`] with another module and capabilities.
 fn repository_with(module: &str, capabilities: &[&str]) -> Web {
-    let manifest = json!({
+    repository_of(
+        json!({
         "id": "test.mapper",
         "name": "Test Mapper",
         "version": "1.0.0",
@@ -90,10 +92,18 @@ fn repository_with(module: &str, capabilities: &[&str]) -> Web {
             "options": [{ "value": 2, "label": "2" }, { "value": 3, "label": "3" }],
             "default": 0
         }]
-    });
+        }),
+        Some(module),
+    )
+}
+
+/// A signed repository at `SOURCE` with one release of `test.mapper` 1.0.0: `manifest` (its
+/// ID, name, version and description as above) and `module`.
+fn repository_of(manifest: serde_json::Value, module: Option<&str>) -> Web {
+    let api = manifest["api"].clone();
     let package = Package {
         manifest: serde_json::from_value(manifest).unwrap(),
-        module: Some(module.into()),
+        module: module.map(Into::into),
         blocks: Default::default(),
     }
     .encode()
@@ -105,7 +115,7 @@ fn repository_with(module: &str, capabilities: &[&str]) -> Web {
             "name": "Test Mapper",
             "version": "1.0.0",
             "description": "Maps CC to gain.",
-            "api": 1,
+            "api": api,
             "asset": {
                 "tag": "v1",
                 "name": "test.mapper-1.0.0.tetradext",
@@ -145,9 +155,14 @@ fn mirror(web: &Web, to: &str) {
 }
 
 fn boot(media: Media, web: Web) -> (Device<Sim>, Media) {
+    boot_over(media, web, MemFiles::default())
+}
+
+/// [`boot`] over the service files `files`.
+fn boot_over(media: Media, web: Web, files: MemFiles) -> (Device<Sim>, Media) {
     let root = media.0.join("tetrad/extensions");
     let backend = LocalBackend::threads().with_worker(root, web);
-    let (mut device, _log, media) = common::boot_extensions(media, backend);
+    let (mut device, _log, media) = common::boot_extensions(media, backend, files);
     while !device.state().splash_dismissed {
         assert!(device.step().is_none());
     }
@@ -761,7 +776,7 @@ fn a_usb_message_is_answered_by_the_extension() {
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
     let root = media.0.join("tetrad/extensions");
     let backend = LocalBackend::threads().with_worker(root, repository_with(PONG, &["usb"]));
-    let (mut device, log, _media) = common::boot_extensions(media, backend);
+    let (mut device, log, _media) = common::boot_extensions(media, backend, MemFiles::default());
     while !device.state().splash_dismissed {
         assert!(device.step().is_none());
     }
@@ -827,5 +842,209 @@ fn a_usb_message_is_answered_by_the_extension() {
         &Answer::Extension {
             value: json!({ "pong": 8 })
         }
+    );
+}
+
+/// The Custom footswitch mode of a data-only package, end to end: the mode follows the stock
+/// cycle, a momentary bypass held across a page change comes back on its release, Bank Up
+/// leaves the mode, and the layout and the mode come back after a restart.
+#[test]
+fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
+    use tetrad_app::device::Action;
+    use tetrad_app::device::custom;
+    use tetrad_hal::hal::Event as HalEvent;
+    use tetrad_hal::node::Element;
+    use tetrad_ui::{
+        BlockTarget, CustomCommand, LayoutScope, PageStep, SlotAction, SlotEdit, SystemAction,
+    };
+
+    let web = repository_of(
+        json!({
+            "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0",
+            "description": "Maps CC to gain.", "api": 4,
+            "footswitchMode": { "name": "Custom", "pages": 2 }
+        }),
+        None,
+    );
+    let files = MemFiles::default();
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, media) = boot_over(media, web, files.clone());
+    install(&mut device);
+    pump(&mut device, "the provider", |d| {
+        d.state().custom.provider().is_some_and(|p| p.pages == 2)
+    });
+    let light = GridPosition::new(0, 2).unwrap();
+    let edit = |scope, page, slot, edit| CustomCommand::Slot {
+        scope,
+        page,
+        slot,
+        edit,
+    };
+    let all = LayoutScope::Global;
+    let bypass = SlotAction::Block {
+        position: light,
+        target: BlockTarget::Bypass,
+    };
+    for command in [
+        edit(all, 0, 0, SlotEdit::SetAction(bypass.clone())),
+        edit(all, 0, 0, SlotEdit::SetMomentary(true)),
+        edit(all, 0, 0, SlotEdit::CopyTo { page: 0, slot: 1 }),
+        edit(
+            all,
+            0,
+            8,
+            SlotEdit::SetAction(SlotAction::System(SystemAction::CustomPage(PageStep::Next))),
+        ),
+        edit(
+            all,
+            1,
+            0,
+            SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(2))),
+        ),
+    ] {
+        device.push(Event::Custom(command));
+        assert!(device.step().is_none());
+    }
+    let custom = |d: &Device<Sim>| d.state().performance.footswitch.custom;
+    let bypassed = |d: &Device<Sim>| {
+        let current = d.state().current.as_ref().unwrap();
+        let site = Site::Slot(Slot {
+            row: Row::new(0).unwrap(),
+            column: Column::new(2).unwrap(),
+        });
+        let block = current.deployment.layout().instance(site).unwrap();
+        block.bypass.at(current.deployment.scene())
+    };
+    let scene = |d: &Device<Sim>| {
+        d.state()
+            .current
+            .as_ref()
+            .unwrap()
+            .deployment
+            .scene()
+            .index()
+    };
+    let switch = |d: &mut Device<Sim>, index: u8, value: i32| {
+        let element = Element::all().nth(usize::from(index)).unwrap();
+        d.push(Event::Hal(HalEvent::Stomp { element, value }));
+        for _ in 0..4 {
+            assert!(d.step().is_none());
+        }
+    };
+
+    // Preset → Scene → Stomp → Custom.
+    for _ in 0..3 {
+        device.push(Event::Action(Action::CycleMode));
+        assert!(device.step().is_none());
+    }
+    assert!(custom(&device));
+    let before = bypassed(&device);
+    // Two momentary switches of one block, overlapping: the block ends where it started.
+    switch(&mut device, 0, 1);
+    switch(&mut device, 1, 1);
+    switch(&mut device, 0, 0);
+    switch(&mut device, 1, 0);
+    assert_eq!(bypassed(&device), before);
+    // A (hardware 0) held, Down (hardware 4) turns the page, then A's release still ends
+    // the momentary bypass of page 1.
+    switch(&mut device, 0, 1);
+    assert_eq!(bypassed(&device), !before);
+    // A refused mode change (CC#47 to a slot the cycle does not have) keeps the mode and the
+    // held switch.
+    device.push(Event::Action(Action::ModeSlot(7)));
+    assert!(device.step().is_none());
+    assert!(custom(&device));
+    switch(&mut device, 4, 1);
+    switch(&mut device, 4, 0);
+    assert_eq!(device.state().custom.page(), 1);
+    switch(&mut device, 0, 0);
+    assert_eq!(bypassed(&device), before);
+    // Page 2's A selects scene C.
+    switch(&mut device, 0, 1);
+    switch(&mut device, 0, 0);
+    assert_eq!(scene(&device), 2);
+
+    // Bank Up (hardware 10) goes back to the first stock mode; the cycle comes back to Custom.
+    switch(&mut device, 10, 1);
+    switch(&mut device, 10, 0);
+    assert!(!custom(&device));
+    // A switch held while the mode ends releases quietly: no stock action from Custom's press.
+    for _ in 0..3 {
+        device.push(Event::Action(Action::CycleMode));
+        assert!(device.step().is_none());
+    }
+    switch(&mut device, 4, 1);
+    device.push(Event::Action(Action::CycleMode));
+    assert!(device.step().is_none());
+    assert!(!custom(&device));
+    let preset = device.state().performance.footswitch.current_preset;
+    switch(&mut device, 4, 0);
+    let footswitch = &device.state().performance.footswitch;
+    assert_eq!(
+        (footswitch.current_preset, footswitch.overlay),
+        (preset, None)
+    );
+    for _ in 0..3 {
+        device.push(Event::Action(Action::CycleMode));
+        assert!(device.step().is_none());
+    }
+    assert!(custom(&device));
+
+    // A restart keeps the layout and the mode.
+    drop(device);
+    let (mut device, _media) = boot_over(media, Web::default(), files);
+    pump(&mut device, "the restored mode", custom);
+    assert_eq!(device.state().custom.page(), 0);
+    let before = bypassed(&device);
+    switch(&mut device, 0, 1);
+    assert_eq!(bypassed(&device), !before);
+    switch(&mut device, 0, 0);
+    assert_eq!(bypassed(&device), before);
+
+    // Copy page 2's A to C of page 1: C selects scene C.
+    let send = |d: &mut Device<Sim>, command| {
+        d.push(Event::Custom(command));
+        assert!(d.step().is_none());
+    };
+    send(
+        &mut device,
+        edit(all, 1, 0, SlotEdit::CopyTo { page: 0, slot: 2 }),
+    );
+    switch(&mut device, 2, 1);
+    switch(&mut device, 2, 0);
+    assert_eq!(scene(&device), 2);
+
+    // THIS PRESET: a copy of the layout, then its own A (scene D) plays instead.
+    send(&mut device, CustomCommand::PresetLayout(true));
+    send(
+        &mut device,
+        edit(
+            LayoutScope::Preset,
+            0,
+            0,
+            SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(3))),
+        ),
+    );
+    switch(&mut device, 0, 1);
+    switch(&mut device, 0, 0);
+    assert_eq!(scene(&device), 3);
+    assert!(device.state().preset_dirty(), "the preset holds its layout");
+    // Back to ALL PRESETS: A is the momentary bypass again.
+    send(&mut device, CustomCommand::PresetLayout(false));
+    let before = bypassed(&device);
+    switch(&mut device, 0, 1);
+    assert_eq!(bypassed(&device), !before);
+    switch(&mut device, 0, 0);
+
+    // Choose a preset: a slot of the browsed setlist becomes a Load preset action.
+    send(
+        &mut device,
+        edit(all, 0, 9, SlotEdit::SetAction(SlotAction::PresetSlot(0))),
+    );
+    let view = custom::view(device.state()).unwrap();
+    let tap = &view.slots[0][9];
+    assert_eq!(
+        (tap.action.clone(), tap.label.as_str(), tap.detail.as_str()),
+        (Some(SlotAction::LoadPreset), "Light", "Load preset")
     );
 }

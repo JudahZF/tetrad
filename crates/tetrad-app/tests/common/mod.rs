@@ -1430,15 +1430,18 @@ pub fn boot_remote(media: Media, files: MemFiles, remote: FakeRemote) -> (Device
     (device, media)
 }
 
-/// [`boot`] with extension runners on threads and the store under the media root.
+/// [`boot`] with extension runners on threads and the store under the media root, over the
+/// service files `files` (kept across restarts by the caller: clones share their contents).
 #[allow(dead_code)]
 pub fn boot_extensions(
     media: Media,
     backend: tetrad_app::device::extensions::LocalBackend,
+    files: MemFiles,
 ) -> (Device<Sim>, Rc<RefCell<Log>>, Media) {
     use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
     let log = Rc::new(RefCell::new(Log::default()));
     let mut sim = Sim::new(STOCK, &media, &log);
+    sim.services.files = files;
     for marker in [CAPTURE_CORRUPTION_CHECKED, CAPTURE_CONVERSION_FINISHED] {
         sim.services.files.put(marker, "");
     }

@@ -208,6 +208,21 @@ fn title(target: MidiOutTarget) -> String {
         ),
         MidiOutTarget::Expression1 => "Expression pedal 1".into(),
         MidiOutTarget::Expression2 => "Expression pedal 2".into(),
+        MidiOutTarget::Slot { page, slot, .. } => format!(
+            "Switch {} · page {}",
+            SLOT_NAMES.get(usize::from(slot)).copied().unwrap_or("?"),
+            u16::from(page) + 1
+        ),
+    }
+}
+
+/// The messages behind an editor target: a preset list, or a Custom mode slot's own.
+fn messages(ui: &UiState, target: MidiOutTarget) -> &[MidiOutMessage] {
+    match target {
+        MidiOutTarget::Slot { scope, page, slot } => (ui.snapshot.custom.as_ref())
+            .and_then(|custom| custom.slot(scope, page, usize::from(slot)))
+            .map_or(&[][..], |slot| &slot.messages),
+        target => ui.snapshot.preset_midi.messages(target),
     }
 }
 
@@ -257,7 +272,7 @@ fn summary(message: &MidiOutMessage) -> String {
 
 fn editor(ui: &UiState, l: &mut Layout, target: MidiOutTarget, selected: usize) {
     let p = l.palette;
-    let messages = ui.snapshot.preset_midi.messages(target);
+    let messages = messages(ui, target);
     crate::widgets::page_header(l, &title(target), Control::Back, Icon::Check);
     l.control(
         Rect::new(548, 8, 66, 44),
@@ -444,7 +459,7 @@ impl UiState {
         let Some((target, selected)) = self.midi_edit else {
             return Vec::new();
         };
-        let mut messages = self.snapshot.preset_midi.messages(target).to_vec();
+        let mut messages = messages(self, target).to_vec();
         match control {
             MidiOutControl::Select(index) => {
                 self.midi_edit = Some((target, usize::from(index)));
@@ -470,7 +485,17 @@ impl UiState {
             }
             _ => return Vec::new(),
         }
-        vec![UiCommand::SetPresetMidi { target, messages }]
+        match target {
+            MidiOutTarget::Slot { scope, page, slot } => {
+                vec![UiCommand::Custom(crate::CustomCommand::Slot {
+                    scope,
+                    page,
+                    slot,
+                    edit: crate::SlotEdit::SetMessages(messages),
+                })]
+            }
+            target => vec![UiCommand::SetPresetMidi { target, messages }],
+        }
     }
 
     /// Encoders 0..=4 turn TYPE, CHANNEL and the three values of the selected message.

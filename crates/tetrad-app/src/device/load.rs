@@ -249,6 +249,9 @@ impl<P: Platform> Device<P> {
             }
             copy_to => copy_to,
         };
+        // (O) Held Custom mode momentary bypasses save at rest too.
+        let custom_held = super::custom::held_bypass_slots(&self.state);
+        let custom_down = self.bridges.input.custom_down();
         let state = &mut self.state;
         let (Some(specs), Some(current), Some(library)) =
             (&state.specs, state.current.get_mut(), &mut state.library)
@@ -278,7 +281,7 @@ impl<P: Platform> Device<P> {
         let held = if state.platform.is_atma() {
             0
         } else {
-            state.performance.held
+            state.performance.held & !custom_down
         };
         let licences = &state.licences;
         let locked = |model| {
@@ -292,24 +295,29 @@ impl<P: Platform> Device<P> {
             .map(PresetFile::read);
         // The clean frame is the saved copy, so a held momentary stomp shows clean after its
         // release (review r14 P-10).
-        let (saved, clean) = preset::save_resting(held, specs, locked, current, |current| {
-            let saved = match copy_to {
-                Some((setlist, slot)) => preset::save_as_with(
-                    &mut library.presets,
-                    current,
-                    specs,
-                    &request,
-                    (setlist.as_deref(), slot),
-                    instrument,
-                )
-                .map(|(saved, slot)| (saved, Some(slot))),
-                None => {
-                    preset::save_with(&mut library.presets, current, specs, &request, instrument)
-                        .map(|saved| (saved, None))
-                }
-            };
-            (saved, preset::Snapshot::of(current))
-        });
+        let (saved, clean) =
+            preset::save_resting(held, &custom_held, specs, locked, current, |current| {
+                let saved = match copy_to {
+                    Some((setlist, slot)) => preset::save_as_with(
+                        &mut library.presets,
+                        current,
+                        specs,
+                        &request,
+                        (setlist.as_deref(), slot),
+                        instrument,
+                    )
+                    .map(|(saved, slot)| (saved, Some(slot))),
+                    None => preset::save_with(
+                        &mut library.presets,
+                        current,
+                        specs,
+                        &request,
+                        instrument,
+                    )
+                    .map(|saved| (saved, None)),
+                };
+                (saved, preset::Snapshot::of(current))
+            });
         let (saved, copy) = saved?;
         // `0x5b7438` → `0x51327c` (`0x2e0df8`): the save commits every block's bypass.
         state.perform.bypass.clear();
@@ -865,6 +873,9 @@ impl<P: Platform> Device<P> {
     /// expression, a frame, then the tempo and the metronome resend unless a capture preset
     /// runs, and last the preset-loaded MIDI.
     fn finish_load(&mut self, expression: features::Expression, capturing: bool) {
+        // First: no load-triggered action (a mapping, an extension) may release a held Custom
+        // momentary bypass into the new preset's blocks.
+        super::custom::preset_loaded(&mut self.state);
         let refresh = actions::reduce(
             Action::ExpressionDeployed(Box::new(expression)),
             &mut self.state,

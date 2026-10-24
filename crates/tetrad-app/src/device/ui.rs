@@ -126,6 +126,8 @@ pub enum Handoff {
     Extensions(tetrad_ui::ExtensionCommand),
     /// Mappings page requests → mappings bridge.
     Mappings(tetrad_ui::MappingCommand),
+    /// Custom footswitch mode requests → `Device::custom_command`.
+    Custom(tetrad_ui::CustomCommand),
     /// Settings → Appearance picked a theme → appearance bridge.
     Theme(tetrad_theme::ThemeId),
     /// The Remote page switch → `Device::set_remote`.
@@ -770,6 +772,16 @@ impl Ui {
         Some((setlist.name.clone(), loaded))
     }
 
+    /// The preset file and title in `slot` of the browsed setlist (a Custom mode slot's "Choose
+    /// a preset").
+    pub(in crate::device) fn browsed_preset(&self, slot: u64) -> Option<(String, String)> {
+        let library = self.library.as_ref()?;
+        let path = library.slots.get(usize::try_from(slot).ok()?)?.clone()?;
+        let title =
+            (library.titles.get(&slot).cloned()).unwrap_or_else(|| project::preset_title(&path));
+        Some((path, title))
+    }
+
     fn favorite(&self, index: u64) -> Option<String> {
         self.library
             .as_ref()?
@@ -786,6 +798,7 @@ impl Ui {
         match command {
             C::Extension(command) => vec![Request::Handoff(Handoff::Extensions(command))],
             C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
+            C::Custom(command) => vec![Request::Handoff(Handoff::Custom(command))],
             C::SetTheme(id) => vec![Request::Handoff(Handoff::Theme(id))],
             C::SetRemote { enabled } => vec![Request::Handoff(Handoff::Remote { enabled })],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
@@ -2331,6 +2344,8 @@ fn stored_modes(mode: FootswitchMode, rows: tetrad_ui::HybridRows) -> Vec<Stored
         FootswitchMode::Scene => vec![StoredMode::Scene],
         FootswitchMode::Stomp => vec![StoredMode::Stomp],
         FootswitchMode::Hybrid => hybrid_mode(rows).into_iter().collect(),
+        // Not a stored mode: the Custom mode follows the stock cycle.
+        FootswitchMode::Custom => Vec::new(),
     }
 }
 

@@ -68,6 +68,8 @@ pub(crate) enum TextTarget {
     WifiPassword(String),
     CaptureName,
     StompLabel(Footswitch),
+    /// (O) A Custom footswitch mode slot label: layout, page, slot.
+    SlotLabel(crate::LayoutScope, u8, u8),
     LoginEmail,
     LoginPassword(String),
     /// Virtual Device Preset "Edit Name".
@@ -93,7 +95,7 @@ impl TextTarget {
             Self::DirectoryName(_) => "Edit Name",
             Self::SceneLabel => "Name",
             Self::PresetSaveAs => "Name your Preset",
-            Self::PresetRename(_) | Self::StompLabel(_) => "Edit name",
+            Self::PresetRename(_) | Self::StompLabel(_) | Self::SlotLabel(..) => "Edit name",
             Self::PresetDetails => "Name your Preset",
             Self::SetlistName => "Name your Setlist",
             Self::LibrarySearch | Self::ModelSearch => "Search for ...",
@@ -154,6 +156,7 @@ impl TextTarget {
             | Self::CaptureName => (4, 20),
             Self::DirectoryName(edit) => edit.limits(),
             Self::SceneLabel | Self::StompLabel(_) => (0, 20),
+            Self::SlotLabel(..) => (0, 16),
             Self::LibrarySearch | Self::ModelSearch => (0, 40),
             Self::WifiPassword(_) => (8, 63),
             Self::LoginEmail => (3, 254),
@@ -428,6 +431,35 @@ pub(crate) enum ActionMenu {
     Looper,
     /// Bypass and the parameters of this block.
     Block(GridPosition),
+    /// The Custom mode's pages, and (Mappings) its slot presses.
+    Custom,
+    /// The setlists, to choose a preset for a Custom mode slot.
+    Setlists,
+    /// The presets of a setlist ([`crate::DirectoryView::slots`] once it is the browsed one).
+    Setlist(u64),
+    /// The commands of the running extensions (Custom mode slots).
+    Extensions,
+}
+
+/// The layout, page and slot that the Custom mode editor shows, and a copy or move that waits
+/// for its target.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CustomEdit {
+    pub scope: crate::LayoutScope,
+    pub page: u8,
+    pub slot: u8,
+    pub pending: Option<CustomPending>,
+}
+
+/// A Custom mode editor action that waits for a tap on its target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CustomPending {
+    /// COPY: the next switch tapped becomes a copy of this one.
+    Copy { page: u8, slot: u8 },
+    /// MOVE: the next switch tapped swaps with this one.
+    Move { page: u8, slot: u8 },
+    /// COPY PAGE: the next page tab tapped becomes a copy of this page.
+    Page { page: u8 },
 }
 
 /// Looper X swap dialog (`zenUI::LooperSwapActionsDialog`, `0x37c7ac`): pick a tile, then
@@ -675,6 +707,8 @@ pub struct UiState {
     pub(crate) trust_answered: Option<crate::PendingTrust>,
     /// Mappings tab and detail page.
     pub(crate) mappings: MappingsPage,
+    /// The Custom mode editor's page and slot.
+    pub(crate) custom_edit: CustomEdit,
     /// Footswitch Statistics rows in stock order `A B C D DOWN E F G H TEMPO UP`.
     pub(crate) switch_stats: [SwitchStats; 11],
     /// Numeric keyboard of a parameter value (`ParameterValueDialog` `0x64b518`).
@@ -749,6 +783,7 @@ impl Default for UiState {
             extensions: ExtensionsPage::List,
             trust_answered: None,
             mappings: MappingsPage::default(),
+            custom_edit: CustomEdit::default(),
             switch_stats: [SwitchStats::default(); 11],
             numeric: None,
             capture_download_failed: None,
@@ -2294,6 +2329,10 @@ impl UiState {
         {
             return Vec::new();
         }
+        // A copy or move that waits for its target ends first.
+        if self.screen() == Screen::CustomMode && self.custom_edit.pending.take().is_some() {
+            return Vec::new();
+        }
         // A mapping's Values page goes back to its detail page, the detail page to the list.
         if self.screen() == Screen::Mappings
             && (std::mem::take(&mut self.mappings.values) || self.mappings.detail.take().is_some())
@@ -2321,10 +2360,14 @@ impl UiState {
         if self.editing_block().is_some() || self.editing_site().is_some() {
             return vec![UiCommand::ClearBlockSelection];
         }
-        // The editor goes back to the matrix; opened from a mapping, it closes to the mapping.
+        // The editor goes back to the matrix; opened from a mapping or a Custom mode slot,
+        // it closes to that page.
         if self.screen() == Screen::MidiOut
             && self.midi_edit.take().is_some()
-            && self.stack.iter().rev().nth(1) != Some(&Screen::Mappings)
+            && !matches!(
+                self.stack.iter().rev().nth(1),
+                Some(Screen::Mappings | Screen::CustomMode)
+            )
         {
             return Vec::new();
         }

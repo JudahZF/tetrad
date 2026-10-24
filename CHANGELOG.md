@@ -25,6 +25,23 @@ All notable changes to Tetrad are in this file. The version numbers follow
   MIDI Mapper 0.3.0 sends note-offs as releases.
 - Extension API 3: trigger firings can carry `pressed: false` (a release). Builds before API 3
   do not install API 3 packages, so they keep MIDI Mapper 0.2.0.
+- Custom footswitch mode (docs/footswitch-modes.md): an extension can add a fourth footswitch
+  mode with 1 to 4 pages of ten switches (A–D and Down over E–H and Tap). Each switch runs one
+  action: a Mappings system action, a page change, a block bypass (toggle or momentary) or
+  parameter, Load preset, its own Send MIDI messages, or a command of a running extension.
+  Tetrad runs the switches, paints their LEDs and shows the page in Gig View; an editor (Gig
+  View → EDIT) sets the actions, labels and colours. In the mode, Bank Up goes to the next mode
+  (a hold opens the tuner). The mode joins the end of the mode cycle, comes back after a
+  restart and is saved in `/media/p4/tetrad/footswitch-modes/` and
+  `/media/p4/tetrad/footswitch-mode.json`. COPY, MOVE and COPY PAGE copy or swap switches and
+  pages; Preset → Choose a preset picks any preset of a setlist; THIS PRESET gives a preset its
+  own layout, saved in the preset (field 7003) and played while it is loaded.
+- Extension API 4: `footswitchMode` in the manifest (data only, no capability). Hosts before API
+  4 do not offer such packages.
+- The Custom Footswitch Mode extension (`extensions/custom-footswitch`, 0.1.0): a 4-page Custom
+  mode, no code.
+- Mappings: the SYSTEM actions Mode → Custom mode, the Custom mode's pages, and a press of each
+  of its switches, so MIDI controls the mode.
 
 ### Changed
 

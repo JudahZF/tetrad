@@ -7,6 +7,7 @@
 mod actions;
 mod boot_select;
 mod control;
+mod custom_mode;
 mod damage;
 mod draw;
 mod extensions;
@@ -24,6 +25,7 @@ mod widgets;
 
 pub use boot_select::{BootChoice, BootMenu};
 pub use control::*;
+pub use custom_mode::*;
 pub use damage::Renderer;
 pub use extensions::*;
 pub use mappings::*;

@@ -155,6 +155,17 @@ pub enum LedView {
         functions: [LooperFunction; 8],
         assigning: bool,
     },
+    /// (O) A Custom footswitch mode: slot i (logical A..=H, DOWN, TEMPO) in its colour, at
+    /// the LED brightness when engaged and at the dimmed brightness when not; `None` is an
+    /// empty slot (off). UP, the mode switch, is dimmed white.
+    Custom { slots: [Option<CustomLed>; 10] },
+}
+
+/// (O) One assigned slot of [`LedView::Custom`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CustomLed {
+    pub rgb: [u8; 3],
+    pub engaged: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -284,6 +295,16 @@ pub fn frame(inputs: &LedInputs<'_>) -> Option<[Led; 11]> {
                     output[usize::from(LOGICAL_TO_LED[logical])] = normal(function.rgb());
                 }
             }
+        }
+        LedView::Custom { .. } if mini => return None,
+        LedView::Custom { slots } => {
+            for (logical, slot) in slots.into_iter().enumerate() {
+                if let Some(slot) = slot {
+                    output[usize::from(LOGICAL_TO_LED[logical])] =
+                        resolve(slot.rgb, -1.0, !slot.engaged, &inputs.settings);
+                }
+            }
+            output[usize::from(LOGICAL_TO_LED[10])] = resolve(WHITE, -1.0, true, &inputs.settings);
         }
         LedView::SwapActions {
             functions,
@@ -739,6 +760,34 @@ mod tests {
         assert!((0..8).all(|logical| lit(output, logical).rgb == WHITE));
         assert_eq!(LooperFunction::from_stock(6), Some(PunchIn));
         assert_eq!(LooperFunction::from_stock(8), None);
+    }
+
+    /// Custom mode lights DOWN and TEMPO as slots: engaged at the LED brightness, others
+    /// dimmed, empty slots off, UP dimmed white.
+    #[test]
+    fn custom_view_paints_ten_slots_and_the_mode_switch() {
+        let mut inputs = inputs();
+        let mut slots = [None; 10];
+        slots[0] = Some(CustomLed {
+            rgb: PALETTE[1],
+            engaged: true,
+        });
+        slots[8] = Some(CustomLed {
+            rgb: PALETTE[2],
+            engaged: false,
+        });
+        slots[9] = Some(CustomLed {
+            rgb: PALETTE[3],
+            engaged: true,
+        });
+        inputs.view = LedView::Custom { slots };
+        let output = frame(&inputs).unwrap();
+        let led = |rgb, brightness| Led { rgb, brightness };
+        assert_eq!(output[0], led(PALETTE[1], 0.27));
+        assert_eq!(output[4], led(PALETTE[2], 0.06), "DOWN is hardware 4");
+        assert_eq!(output[9], led(PALETTE[3], 0.27), "TEMPO is hardware 9");
+        assert_eq!(output[10], led(WHITE, 0.06));
+        assert!([1, 2, 3, 5, 6, 7, 8].iter().all(|&h| output[h] == Led::OFF));
     }
 
     #[test]

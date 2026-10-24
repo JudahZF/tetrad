@@ -150,6 +150,10 @@ pub struct FootswitchContext {
     pub gig_view_access: bool,
     /// From the product and the mode cycle; the caller updates it when the cycle changes.
     pub bank_size: BankSize,
+    /// (O) A Custom footswitch mode (an extension's) is on over `mode`: the ten switches
+    /// A..=H, DOWN and TEMPO are its slots and UP is the mode switch. `mode` stays the stored
+    /// stock mode.
+    pub custom: bool,
 }
 
 /// Releases still owed to a mode chord, as a bit mask of logical indices. The
@@ -192,6 +196,11 @@ pub enum FootswitchAction {
     CopyScene(SceneIndex),
     StompPress(StompIndex),
     StompRelease(StompIndex),
+    /// (O) Custom mode: slot 0..=9 (the logical index: A..=H, DOWN, TEMPO) went down or up.
+    CustomPress(u8),
+    CustomRelease(u8),
+    /// (O) Custom mode: UP held. Tap is a slot there, so the tuner moves to UP.
+    ShowTuner,
 }
 
 /// A Cortex Control Gig View button (GigViewButton 55, `0x109ab4`) on the page of its tile.
@@ -224,6 +233,10 @@ impl FootswitchContext {
         held: u16,
         chord: &mut ChordReleases,
     ) -> Option<FootswitchAction> {
+        if self.custom {
+            return (switch != Footswitch::UP)
+                .then_some(FootswitchAction::CustomPress(switch.logical()));
+        }
         if held & MODE_CHORD_MASK == MODE_CHORD_MASK
             && matches!(switch, Footswitch::DOWN | Footswitch::TEMPO)
         {
@@ -264,6 +277,16 @@ impl FootswitchContext {
         long_pressed: bool,
         chord: &mut ChordReleases,
     ) -> Option<FootswitchAction> {
+        if self.custom {
+            // The releases of a chord that cycled into Custom stay quiet.
+            if chord.settle(switch) {
+                return None;
+            }
+            return match switch {
+                Footswitch::UP => (!long_pressed).then_some(FootswitchAction::CycleMode),
+                _ => Some(FootswitchAction::CustomRelease(switch.logical())),
+            };
+        }
         if let Some(partner) = chord_partner(switch) {
             if chord.settle(switch) {
                 return None;
@@ -298,6 +321,9 @@ impl FootswitchContext {
     /// Long press of UP/DOWN (`0x20e054`): overlay bank step; release is then
     /// suppressed.
     pub fn long_press(&self, switch: Footswitch) -> Option<FootswitchAction> {
+        if self.custom {
+            return (switch == Footswitch::UP).then_some(FootswitchAction::ShowTuner);
+        }
         match switch {
             Footswitch::UP => Some(FootswitchAction::StepBank(1)),
             Footswitch::DOWN => Some(FootswitchAction::StepBank(-1)),
@@ -323,6 +349,9 @@ impl FootswitchContext {
     /// scene press and a release elsewhere do nothing. I: the bank overlay and scene copy
     /// mode are not consulted.
     pub fn gig_button(&self, tile: u8, pressed: bool) -> Option<GigButton> {
+        if self.custom {
+            return None;
+        }
         let letter = Footswitch::of_stomp(StompIndex::new(u32::from(tile))?).letter()?;
         Some(match (Footswitch(letter).kind_in(self.mode)?, pressed) {
             (FootswitchKind::Preset, false) => GigButton::LoadPreset(self.slot_target(letter)),
@@ -380,7 +409,72 @@ mod tests {
             scene_copy: false,
             gig_view_access: false,
             bank_size: BankSize::QC,
+            custom: false,
         }
+    }
+
+    /// Custom mode: the ten slots press and release, UP cycles on release or opens the tuner
+    /// when held, and neither the DOWN+TEMPO chord nor the Gig buttons act.
+    #[test]
+    fn custom_mode_owns_ten_slots_and_up_switches_mode() {
+        let custom = FootswitchContext {
+            custom: true,
+            ..ctx(FootswitchMode::Stomp)
+        };
+        let mut chord = ChordReleases::default();
+        for physical in 0..10 {
+            let switch = hal(physical);
+            let slot = switch.logical();
+            assert_eq!(
+                custom.press(switch, 0, &mut chord),
+                Some(FootswitchAction::CustomPress(slot))
+            );
+            assert_eq!(
+                custom.release(switch, 0, false, &mut chord),
+                Some(FootswitchAction::CustomRelease(slot))
+            );
+        }
+        let held = MODE_CHORD_MASK;
+        assert_eq!(
+            custom.press(Footswitch::TEMPO, held, &mut chord),
+            Some(FootswitchAction::CustomPress(9))
+        );
+        assert_eq!(custom.press(Footswitch::UP, 0, &mut chord), None);
+        assert_eq!(
+            custom.release(Footswitch::UP, 0, false, &mut chord),
+            Some(FootswitchAction::CycleMode)
+        );
+        assert_eq!(
+            custom.long_press(Footswitch::UP),
+            Some(FootswitchAction::ShowTuner)
+        );
+        assert_eq!(custom.release(Footswitch::UP, 0, true, &mut chord), None);
+        assert_eq!(custom.long_press(Footswitch::DOWN), None);
+        assert_eq!(custom.gig_button(0, true), None);
+    }
+
+    /// The chord that cycled into Custom owes its releases: they reach no slot.
+    #[test]
+    fn a_chord_into_custom_mode_releases_quietly() {
+        let stomp = ctx(FootswitchMode::Stomp);
+        let mut chord = ChordReleases::default();
+        assert_eq!(
+            stomp.press(Footswitch::TEMPO, MODE_CHORD_MASK, &mut chord),
+            Some(FootswitchAction::CycleMode)
+        );
+        let custom = FootswitchContext {
+            custom: true,
+            ..stomp
+        };
+        assert_eq!(custom.release(Footswitch::DOWN, 0, false, &mut chord), None);
+        assert_eq!(
+            custom.release(Footswitch::TEMPO, 0, false, &mut chord),
+            None
+        );
+        assert_eq!(
+            custom.release(Footswitch::DOWN, 0, false, &mut chord),
+            Some(FootswitchAction::CustomRelease(8))
+        );
     }
 
     #[test]

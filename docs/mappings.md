@@ -32,7 +32,9 @@ The page has two tabs:
    message: the next free message becomes the trigger.
 3. Tap the **Action** row. The action menu has three parts:
    - **SYSTEM**: next or previous preset, a scene (or next/previous scene), the tuner, tap
-     tempo, a footswitch mode, Gig View, and the Looper buttons.
+     tempo, a footswitch mode, Gig View, and the Looper buttons. With the
+     [Custom footswitch mode](footswitch-modes.md#control-it-with-midi) installed, also its
+     pages and a press of each of its switches.
    - **BLOCKS** (This preset only): a block of the preset, then its bypass or one of its
      parameters.
    - **MIDI OUT** (This preset only): Send MIDI. Tap **Edit messages** to set the messages in
@@ -67,6 +69,8 @@ that fit the trigger and the action. A new mapping starts in the first one.
 - **On press** runs an action once on each press: scene, preset, mode and tap tempo actions
   always, a Looper button as a tap. A Looper button can also be **Momentary** (held while you
   hold).
+- A press of a [Custom mode](footswitch-modes.md#control-it-with-midi) switch works as a Looper
+  button: **On press** taps the switch, **Momentary** holds it while you hold.
 - An EXP pedal on a block is the stock expression link: set its range and switch in the block's
   ⋮ menu.
 

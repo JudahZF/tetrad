@@ -302,6 +302,10 @@ impl<P: Platform> Device<P> {
         // cost ~250 µs a pass on the QC); else the old view moves over.
         let extensions = take(&mut self.bridges.extensions.view_stale)
             .then(|| self.bridges.extensions.view(&self.state.community));
+        // The Custom footswitch mode and its command list follow the extensions too.
+        if extensions.is_some() {
+            self.sync_custom();
+        }
         // Extension themes follow the installed extensions.
         if extensions.is_some()
             && let Some(themes) = self.bridges.extensions.themes()

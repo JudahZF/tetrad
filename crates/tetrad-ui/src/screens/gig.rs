@@ -43,6 +43,11 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     let p = l.palette;
     header(ui, l);
     tuner_bar(&ui.snapshot.tuner, l);
+    if let (Some(FootswitchMode::Custom), Some(custom)) =
+        (ui.snapshot.footswitch_mode, &ui.snapshot.custom)
+    {
+        return super::custom::gig(ui, l, custom);
+    }
     for (tile, switch) in Footswitch::TILES.into_iter().enumerate() {
         let bounds = Rect::new(
             8 + (tile % 4) as i32 * 198,
@@ -54,7 +59,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
             FootswitchMode::Scene => scene_tile(ui, l, bounds, tile),
             FootswitchMode::Stomp => stomp_tile(ui, l, bounds, tile, switch),
             FootswitchMode::Preset => preset_tile(ui, l, bounds, tile),
-            FootswitchMode::Hybrid => {
+            FootswitchMode::Hybrid | FootswitchMode::Custom => {
                 l.panel(bounds, p.surface, 8.0, None);
                 l.control(bounds, Control::Tile(switch), false, "-", Look::Area);
             }
@@ -70,18 +75,24 @@ fn header(ui: &UiState, l: &mut Layout) {
         Some(FootswitchMode::Hybrid) => Rect::new(536, 8, 98, 44),
         _ => Rect::new(568, 8, 66, 44),
     };
+    // The Custom mode's EDIT and page buttons sit left of the mode button.
+    let custom = (s.custom.as_ref()).filter(|_| s.footswitch_mode == Some(FootswitchMode::Custom));
+    let title_right = match custom {
+        Some(custom) => {
+            super::custom::gig_header(l, custom, mode.x);
+            mode.x - 8 - 82 - 8 - 56
+        }
+        None => mode.x,
+    };
     preset_title(
         l,
         s,
-        Rect::new(16, 8, (mode.x - 28) as u32, 44),
+        Rect::new(16, 8, (title_right - 28) as u32, 44),
         TITLE,
         false,
     );
     l.panel(mode, p.surface, 8.0, None);
-    let label = s.footswitch_mode.map_or_else(
-        || format!("MODE {}", s.mode_id),
-        |mode| mode.label().to_owned(),
-    );
+    let label = super::mode_label(s);
     l.control(mode, Control::CycleMode, true, label, Look::Area);
     match s.footswitch_mode {
         Some(FootswitchMode::Hybrid) => {
@@ -425,6 +436,7 @@ fn mode_glyph(l: &mut Layout, mode: FootswitchMode, x: i32, y: i32) {
         FootswitchMode::Preset => Icon::ModePreset,
         FootswitchMode::Scene => Icon::ModeScene,
         FootswitchMode::Stomp | FootswitchMode::Hybrid => Icon::Footswitch,
+        FootswitchMode::Custom => Icon::Grid,
     };
     glyph(l, Rect::new(x, y, 24, 24), icon, IconSize::Medium, p.text);
 }

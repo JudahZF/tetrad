@@ -160,6 +160,7 @@ impl UiState {
             Control::Wifi(WifiControl::Scan) => return vec![UiCommand::WifiScan],
             Control::Extension(control) => return self.extension_control(control),
             Control::Mapping(control) => return self.mapping_control(control),
+            Control::Custom(control) => return self.custom_control(control),
             Control::Theme(index) => {
                 let themes = &self.snapshot.appearance.themes;
                 return (themes.get(usize::from(index)))
@@ -1367,6 +1368,14 @@ impl UiState {
                 switch,
                 label: stomp_name(&text),
             }],
+            TextTarget::SlotLabel(scope, page, slot) => {
+                vec![UiCommand::Custom(crate::CustomCommand::Slot {
+                    scope,
+                    page,
+                    slot,
+                    edit: crate::SlotEdit::SetLabel(text),
+                })]
+            }
             TextTarget::LoginEmail => {
                 self.open_keyboard(TextTarget::LoginPassword(text), String::new());
                 Vec::new()

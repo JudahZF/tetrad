@@ -84,6 +84,12 @@ pub enum Action {
         site: Site,
         bypassed: bool,
     },
+    /// (O) [`Self::SetBypass`] as a momentary edge (source 3, as a stock momentary stomp): a
+    /// Custom mode momentary slot. Under Scene Bypass Behaviour the committed scene state stays.
+    MomentaryBypass {
+        site: Site,
+        bypassed: bool,
+    },
     /// Stomp press (`0x5239d0`, footswitch source; also a UI stomp tile): engaged blocks of
     /// categories {0,1,2,3,5,14} switch off first, 10 ms settle, then each other block
     /// toggles its own bypass, or its secondary stomp parameter when assigned SECONDARY
@@ -147,6 +153,16 @@ pub enum Action {
     CycleMode,
     /// MIDI CC#47 `setModeWithIndex(slot)`: entry `slot` of the allowed list (inferred).
     ModeSlot(u8),
+    /// (O) The Custom footswitch mode of an extension on or off ([`super::custom`]).
+    SetCustomMode(bool),
+    /// (O) A page change of the Custom mode, while it is on.
+    CustomPage(tetrad_ui::PageStep),
+    /// (O) A press or release of slot 0..=9 of the Custom mode's current page.
+    CustomSlot {
+        slot: u8,
+        pressed: bool,
+        origin: super::custom::Origin,
+    },
     /// Scoped tempo in BPM, clamped to 40..=240, then `0x16` TempoChange (`0x875a48`).
     SetTempo(f32),
     /// A normalized metronome/tempo slot (`0x513410`): UI settings, tap tempo, Cortex.
@@ -694,14 +710,15 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
             });
         }
         Action::SetBypass { site, bypassed } => {
-            let mode = bypass_mode(state);
-            let (specs, current, commits) = loaded_bypass(state)?;
-            effects.push(Effect::Deploy(match site {
-                Site::Slot(slot) => {
-                    commits.write(current, specs, slot, bypassed, ChangeSource::Touch, mode)?
-                }
-                site => preset::set_bypass(current, specs, site, bypassed)?,
-            }));
+            effects.push(write_bypass(state, site, bypassed, ChangeSource::Touch)?);
+        }
+        Action::MomentaryBypass { site, bypassed } => {
+            effects.push(write_bypass(
+                state,
+                site,
+                bypassed,
+                ChangeSource::Momentary,
+            )?);
         }
         Action::SetText { site, index, text } => {
             let (specs, current) = loaded(state)?;
@@ -823,7 +840,18 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
                 .insert(stomp, label);
         }
         Action::ChangeSetting { id, value } => effects.extend(change_setting(state, id, value)?),
-        Action::SetMode(mode) => effects.extend(set_mode(state, mode)?),
+        // A refused mode keeps the Custom mode and its held switches.
+        Action::SetMode(mode) => {
+            effects.extend(set_mode(state, mode)?);
+            effects.extend(super::custom::set_active(state, false));
+        }
+        Action::SetCustomMode(active) => effects.extend(super::custom::set_active(state, active)),
+        Action::CustomPage(step) => effects.extend(super::custom::turn(state, step)),
+        Action::CustomSlot {
+            slot,
+            pressed,
+            origin,
+        } => effects.extend(super::custom::slot(state, slot, pressed, origin)),
         Action::SetConnector { id, value } => {
             effects.extend(super::jacks::set(state, id, value)?);
         }
@@ -892,18 +920,27 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
                 }
             }));
             result?;
+            effects.extend(super::custom::set_active(state, false));
         }
+        // (O) A Custom mode comes after the allowed stock modes, then the cycle starts again.
         Action::CycleMode => {
             let mode = &state.settings.settings().mode;
             let available = mode.available();
-            let next = available
-                .iter()
-                .position(|candidate| *candidate == mode.mode())
-                .map_or(0, |index| (index + 1) % available.len().max(1));
+            let position = (available.iter()).position(|candidate| *candidate == mode.mode());
+            let last = position.is_none_or(|index| index + 1 >= available.len());
+            if !state.performance.footswitch.custom && last && state.custom.provider().is_some() {
+                effects.extend(super::custom::set_active(state, true));
+                return Ok(effects);
+            }
+            let next = match state.performance.footswitch.custom {
+                true => 0,
+                false => position.map_or(0, |index| (index + 1) % available.len().max(1)),
+            };
             let next = *available
                 .get(next)
                 .ok_or(ActionError::Unavailable("an allowed footswitch mode"))?;
             effects.extend(set_mode(state, next)?);
+            effects.extend(super::custom::set_active(state, false));
         }
         Action::ModeSlot(slot) => {
             let mode = *state
@@ -914,6 +951,7 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
                 .get(usize::from(slot))
                 .ok_or(ActionError::Unavailable("that mode slot"))?;
             effects.extend(set_mode(state, mode)?);
+            effects.extend(super::custom::set_active(state, false));
         }
         Action::SetTempo(bpm) => {
             let bpm = bpm.clamp(TEMPO_BPM.0, TEMPO_BPM.1);
@@ -1868,6 +1906,21 @@ pub fn settings_flush(settings: &DeviceSettings) -> Option<Effect> {
             timer: Timer::SettingsFlush,
             after,
         })
+}
+
+/// A block bypass at the current scene from `source` (`SetBypass`, `MomentaryBypass`).
+fn write_bypass(
+    state: &mut State,
+    site: Site,
+    bypassed: bool,
+    source: ChangeSource,
+) -> Result<Effect, ActionError> {
+    let mode = bypass_mode(state);
+    let (specs, current, commits) = loaded_bypass(state)?;
+    Ok(Effect::Deploy(match site {
+        Site::Slot(slot) => commits.write(current, specs, slot, bypassed, source, mode)?,
+        site => preset::set_bypass(current, specs, site, bypassed)?,
+    }))
 }
 
 /// Keeps the performance state that mirrors settings in step and reports each group.

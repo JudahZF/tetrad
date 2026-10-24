@@ -14,6 +14,7 @@ pub mod bringup;
 pub mod capture;
 pub mod community;
 pub mod control;
+pub mod custom;
 pub mod dsp;
 pub mod extension_jobs;
 pub mod extensions;
@@ -152,6 +153,8 @@ pub enum Event {
     Extensions(tetrad_ui::ExtensionCommand),
     /// A Mappings page request from outside the UI (tests, automation).
     Mappings(tetrad_ui::MappingCommand),
+    /// A Custom footswitch mode request (the slot editor's, Gig View's).
+    Custom(tetrad_ui::CustomCommand),
     /// A request of the Remote page (`remote`).
     Remote(tetrad_remote::Call),
     Shutdown(PowerAction),
@@ -327,8 +330,16 @@ pub enum Effect {
         stomp: u8,
         pressed: bool,
     },
-    /// MIDI output an extension sent, through the controller's transmit path.
+    /// MIDI output an extension or a Custom mode slot sent, through the controller's
+    /// transmit path.
     ExtensionMidiOut(tetrad_midi::MidiMessage),
+    /// A Custom mode slot runs a command that an extension registered.
+    ExtensionCommand {
+        key: String,
+        command: String,
+    },
+    /// The Custom mode went on or off: [`custom::ACTIVE_FILE`] follows.
+    CustomModeChanged,
     /// Input for the UI bridge: screens, knob steps, footswitch edges, the power button.
     UiInput(ui::UiInput),
     /// A settings group changed; the device tells consumers outside `State` (MIDI).
@@ -812,6 +823,8 @@ pub struct State {
     pub global_eq_default: Option<BTreeMap<u16, f32>>,
     /// Committed bypass copies and the scene copy clipboard (`actions::PerformState`).
     pub perform: actions::PerformState,
+    /// (O) The Custom footswitch mode of an extension: layout, page and held slots.
+    pub custom: custom::CustomMode,
     /// DSP response kinds without a consumer yet; each is noted once.
     unrouted: HashSet<Discriminant<DspEvent>>,
 }
@@ -830,6 +843,7 @@ impl State {
                 scene_copy: false,
                 gig_view_access: stored.general.gig_view_stomp_access,
                 bank_size: input::bank_size(platform, &stored.mode),
+                custom: false,
             },
             tap: TapTempo::default(),
             held: 0,
@@ -908,6 +922,7 @@ impl State {
             voice_notes: BTreeMap::new(),
             global_eq_default: None,
             perform: actions::PerformState::default(),
+            custom: custom::CustomMode::default(),
             unrouted: HashSet::new(),
         }
     }
@@ -1125,6 +1140,7 @@ impl<P: Platform> Device<P> {
         device.migrate_settings(boot_count);
         // Before the first Tetrad frame, so a boot shows the chosen theme from the start.
         device.load_appearance();
+        device.load_custom();
         // Review r30 C7: one `fw_printenv` per boot for both readers below (stock loads the map
         // once per process, `0x47d994`); a failure is reported by each reader.
         let mut boot_env = None;
@@ -1636,6 +1652,7 @@ impl<P: Platform> Device<P> {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
             Event::Mappings(command) => self.mapping_command(command),
+            Event::Custom(command) => self.custom_command(command),
             Event::Remote(call) => {
                 self.remote_call(call);
                 Vec::new()
@@ -2132,6 +2149,7 @@ impl<P: Platform> Device<P> {
                 self.extensions(|extensions, backend, _| extensions.on_ui(command, backend))
             }
             ui::Handoff::Mappings(command) => self.mapping_command(command),
+            ui::Handoff::Custom(command) => self.custom_command(command),
             ui::Handoff::Theme(id) => self.set_theme(id),
             ui::Handoff::Remote { enabled } => {
                 self.set_remote(enabled);
@@ -2419,6 +2437,19 @@ impl<P: Platform> Device<P> {
             Effect::ExtensionMidiOut(message) => {
                 let effects = self.bridges.midi.transmit(&message, &self.state);
                 self.apply(effects);
+                Ok(())
+            }
+            Effect::ExtensionCommand { key, command } => {
+                let effects = self.extensions(|extensions, backend, _| {
+                    extensions.run_command(&key, &command, backend)
+                });
+                self.apply(Ok::<_, DeviceError>(effects));
+                Ok(())
+            }
+            Effect::CustomModeChanged => {
+                let bytes =
+                    (self.state.custom).active_file(self.state.performance.footswitch.custom);
+                self.write_file(custom::ACTIVE_FILE, &bytes, "Footswitch mode not saved");
                 Ok(())
             }
             Effect::UiInput(input) => {
@@ -2870,6 +2901,9 @@ impl<P: Platform> Device<P> {
     /// One UI frame and one LED frame (`leds::Leds::update`) per pass.
     fn present_frame(&mut self) {
         self.present = false;
+        // The loaded preset's own Custom layout follows its edits (and undo) before the frame
+        // and the LEDs read it.
+        custom::sync(&mut self.state);
         self.renders += 1;
         let presented = match self.bridges.ui.render_for_display(&self.state) {
             Ok(Some(frame)) => (self.platform)
@@ -3011,6 +3045,74 @@ impl<P: Platform> Device<P> {
                 format!("Theme not saved: {error}"),
             )],
         }
+    }
+
+    /// Writes `bytes` atomically to `path`, making its folder; a failure is a notice.
+    fn write_file(&mut self, path: &str, bytes: &[u8], failure: &str) {
+        use tetrad_services::exec::Files;
+        let files = self.platform.services().files();
+        let path = Path::new(path);
+        let saved = (path.parent())
+            .map_or(Ok(()), |dir| files.create_dirs(dir))
+            .and_then(|()| files.write_atomic(path, bytes));
+        if let Err(error) = saved {
+            self.notice(Subsystem::Extensions, format!("{failure}: {error}"));
+        }
+    }
+
+    /// Reads the Custom mode's stored state ([`custom::ACTIVE_FILE`]) at start-up.
+    fn load_custom(&mut self) {
+        use tetrad_services::exec::Files;
+        let files = self.platform.services().files();
+        let stored = files.read_bounded(Path::new(custom::ACTIVE_FILE), custom::MAX_FILE);
+        let problem = match stored {
+            Ok(bytes) => self.state.custom.load_active(bytes.as_deref()),
+            Err(error) => Some(error.to_string()),
+        };
+        if let Some(problem) = problem {
+            self.notice(Subsystem::Extensions, format!("Footswitch mode: {problem}"));
+        }
+    }
+
+    /// The installation that provides the Custom mode, after any extension change: a new one
+    /// brings its stored layout.
+    pub(in crate::device) fn sync_custom(&mut self) {
+        use tetrad_services::exec::Files;
+        let provider = self.bridges.extensions.footswitch_mode();
+        self.state
+            .custom
+            .set_commands(self.bridges.extensions.command_choices());
+        let changed =
+            (self.state.custom.provider()).map(|p| &p.key) != provider.as_ref().map(|p| &p.key);
+        let layout = (provider.as_ref())
+            .filter(|_| changed)
+            .and_then(|provider| {
+                let files = self.platform.services().files();
+                let path = provider.layout_path();
+                match files.read_bounded(Path::new(&path), custom::MAX_FILE) {
+                    Ok(None) => None,
+                    Ok(Some(bytes)) if bytes.len() as u64 > custom::MAX_FILE => {
+                        Some(Err("the file is too large".to_owned()))
+                    }
+                    Ok(Some(bytes)) => Some(Ok(bytes)),
+                    Err(error) => Some(Err(error.to_string())),
+                }
+            });
+        let effects = custom::set_provider(&mut self.state, provider, layout);
+        if !effects.is_empty() {
+            self.present = true;
+        }
+        self.apply(Ok::<_, DeviceError>(effects));
+    }
+
+    fn custom_command(&mut self, command: tetrad_ui::CustomCommand) -> Vec<Effect> {
+        let ui = &self.bridges.ui;
+        let step = custom::command(&mut self.state, command, &|slot| ui.browsed_preset(slot));
+        if let Some((path, bytes)) = step.save {
+            self.write_file(&path, &bytes, "Footswitch layout not saved");
+        }
+        self.present = true;
+        step.effects
     }
 
     fn mapping_command(&mut self, command: tetrad_ui::MappingCommand) -> Vec<Effect> {
