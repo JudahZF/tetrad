@@ -390,6 +390,7 @@ enum Part<'a> {
     Commands(usize),
     StatusLine(&'a str),
     Block(&'a ExtensionBlock),
+    Mode(&'a ExtensionMode),
     Log(&'a [String]),
     Remove,
 }
@@ -404,6 +405,7 @@ impl Part<'_> {
             Self::Commands(_) => COMMAND_PITCH,
             Self::StatusLine(_) => STATUS_LINE,
             Self::Block(_) => BLOCK_ROW,
+            Self::Mode(_) => ROW,
             Self::Log(lines) => lines.len() as u32 * LOG_LINE + 16,
             Self::Enabled | Self::Update(_) | Self::Setting(..) | Self::Remove => ROW,
         }
@@ -443,6 +445,10 @@ fn parts(extension: &InstalledExtension, width: u32) -> Vec<Part<'_>> {
     if !extension.blocks.is_empty() {
         parts.push(Part::Header("DSP blocks"));
         parts.extend(extension.blocks.iter().map(Part::Block));
+    }
+    if let Some(mode) = &extension.footswitch_mode {
+        parts.push(Part::Header("Footswitch mode"));
+        parts.push(Part::Mode(mode));
     }
     if !extension.themes.is_empty() {
         parts.push(Part::Header("Themes (Settings → Appearance)"));
@@ -579,6 +585,33 @@ fn detail_part(
                     BODY,
                 );
             }
+        }
+        Part::Mode(mode) => {
+            let button = Rect::new(row.right() - 8 - 104, row.y + 10, 104, HEADER_BUTTON);
+            l.button_in(
+                button,
+                Control::Custom(CustomControl::Edit),
+                mode.provides,
+                "EDIT",
+                ButtonStyle::Inset,
+                BODY,
+            );
+            let width = (button.x - 16 - row.x).max(0) as u32;
+            l.text(
+                Rect::new(row.x, row.y + 8, width, 22),
+                mode.name.as_str(),
+                BODY,
+                p.text,
+                Align::Left,
+            );
+            l.text(
+                Rect::new(row.x, row.y + 32, width, 18),
+                fit(&mode.detail, CAPTION, width as f32),
+                CAPTION,
+                if mode.provides { p.muted } else { p.warning },
+                Align::Left,
+            );
+            divider(l, row);
         }
         Part::Block(block) => {
             let width = row.width - 8;
@@ -1162,6 +1195,7 @@ pub(crate) mod tests {
             blocks: Vec::new(),
             log: Vec::new(),
             themes: Vec::new(),
+            footswitch_mode: None,
         };
         let mapper = InstalledExtension {
             update: Some("1.1.0".into()),

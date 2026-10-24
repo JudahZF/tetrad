@@ -10,7 +10,7 @@
 //! themselves are edited in the stock message editor ([`crate::Screen::MidiOut`] with
 //! [`crate::UiCommand::SetPresetMidi`]).
 
-use crate::{GridPosition, MidiOutTarget};
+use crate::{GridPosition, MidiOutTarget, PageStep};
 
 /// Which list a row belongs to. Block actions are always [`MappingScope::Preset`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -97,6 +97,8 @@ pub enum ModeChoice {
     Preset,
     Scene,
     Stomp,
+    /// The Custom mode of an extension ([`crate::CustomModeView`]); nothing without one.
+    Custom,
 }
 
 /// Device actions of the action menu's SYSTEM section.
@@ -116,6 +118,11 @@ pub enum SystemAction {
     /// Open or close Gig View.
     GigView,
     Looper(LooperButton),
+    /// A page change of the Custom mode, while it is on.
+    CustomPage(PageStep),
+    /// Slot 0..=9 of the Custom mode's current page, while the mode is on: a press (a CC
+    /// presses at 64 or more and releases below).
+    CustomSlot(u8),
 }
 
 /// What a mapping does.

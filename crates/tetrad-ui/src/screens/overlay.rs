@@ -1865,6 +1865,7 @@ fn mode_name(mode: FootswitchMode) -> &'static str {
         FootswitchMode::Scene => "Scene",
         FootswitchMode::Stomp => "Stomp",
         FootswitchMode::Hybrid => "Hybrid",
+        FootswitchMode::Custom => "Custom",
     }
 }
 
@@ -1874,6 +1875,7 @@ fn mode_icon(l: &mut Layout, mode: FootswitchMode, x: i32, y: i32, color: Rgb) {
         FootswitchMode::Preset => Icon::ModePreset,
         FootswitchMode::Scene => Icon::ModeScene,
         FootswitchMode::Stomp | FootswitchMode::Hybrid => Icon::Footswitch,
+        FootswitchMode::Custom => Icon::Grid,
     };
     let size = IconSize::Medium;
     l.push(

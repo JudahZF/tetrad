@@ -11,6 +11,8 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
   NAM trainer's nano, feather and lite sizes, as amp blocks.
 - **Sweep Synth** adds two synth blocks, one for guitar and one for bass, with a filter that
   sweeps on each note.
+- **Custom Footswitch Mode** adds a fourth footswitch mode: four pages of ten switches, each
+  with an action that you choose. See [footswitch-modes.md](footswitch-modes.md).
 
 - [Use extensions](#use-extensions)
 - [DSP blocks](#dsp-blocks)
@@ -185,9 +187,10 @@ tetrad-ext package --out ../packages .
 Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`,
 `triggers`, `usb` and `blocks`. The host refuses every call that needs a capability the manifest
 does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); API 3 adds
-`pressed` on trigger firings (see below). An API 1 or 2 manifest still works. Use API 3 only to
-send releases: Tetrad before API 3 does not install API 3 packages, because it would take a
-release for a press.
+`pressed` on trigger firings (see below); API 4 adds `footswitchMode`
+([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)). An API 1, 2
+or 3 manifest still works. Use API 3 only to send releases: Tetrad before API 3 does not install
+API 3 packages, because it would take a release for a press.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`).
 
@@ -261,7 +264,8 @@ An extension can add up to 8 [themes](themes.md) to Settings → Appearance. Lis
 }
 ```
 
-A manifest with themes and no capabilities, settings or commands is **theme-only**:
+A manifest with themes (or a footswitch mode) and no capabilities, settings or commands is
+**data only**:
 
 - It needs no `src/` and no build. `tetrad-ext package` packs it without a module.
 - Tetrad runs no code for it.

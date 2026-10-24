@@ -44,6 +44,19 @@ pub struct InstalledExtension {
     pub log: Vec<String>,
     /// Names of the themes it adds to Settings → Appearance.
     pub themes: Vec<String>,
+    /// The footswitch mode it adds.
+    pub footswitch_mode: Option<ExtensionMode>,
+}
+
+/// The footswitch mode of a package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionMode {
+    /// "Custom".
+    pub name: String,
+    /// "4 pages · Bank Up switches to it", or why the mode is not used.
+    pub detail: String,
+    /// This installation provides the Custom mode now: its EDIT button opens the editor.
+    pub provides: bool,
 }
 
 /// One community DSP block of a package.

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -690,6 +690,11 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             };
             snapshot.dsp_diagnostics = [Some(core), None, Some(core), None];
         }
+        view if view.starts_with("custom-") => {
+            snapshot.mappings = mappings_fixture()?;
+            snapshot.custom = Some(custom_fixture()?);
+            snapshot.footswitch_mode = Some(FootswitchMode::Custom);
+        }
         view if view.starts_with("map-") => {
             snapshot.mappings = mappings_fixture()?;
             if view == "map-learn" {
@@ -1029,6 +1034,33 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
         "grid" | "params" | "params-tabs" | "params-bypassed" => {}
         "map-menu" => {
             activate(&mut ui, Control::OpenMainMenu);
+        }
+        view if view.starts_with("custom-") => {
+            ui.show(Screen::Gig);
+            if view != "custom-gig" {
+                activate(&mut ui, Control::Custom(CustomControl::Edit));
+                activate(&mut ui, Control::Custom(CustomControl::Select(3)));
+            }
+            match view {
+                "custom-actions" | "custom-picker" => {
+                    activate(&mut ui, Control::Custom(CustomControl::Actions));
+                }
+                "custom-copy" => {
+                    activate(&mut ui, Control::Custom(CustomControl::Copy));
+                }
+                "custom-preset" => {
+                    activate(
+                        &mut ui,
+                        Control::Custom(CustomControl::Scope(LayoutScope::Preset)),
+                    );
+                }
+                _ => {}
+            }
+            if view == "custom-picker" {
+                for row in [1, 4] {
+                    activate(&mut ui, Control::Mapping(MappingControl::Pick(row)));
+                }
+            }
         }
         view if view.starts_with("map-") => {
             activate(&mut ui, Control::OpenMainMenu);
@@ -2835,6 +2867,7 @@ fn extensions_fixture() -> ExtensionsView {
         blocks: Vec::new(),
         log: Vec::new(),
         themes: Vec::new(),
+        footswitch_mode: None,
     };
     let setting = |key: &str, label: &str, value| ExtensionSetting {
         key: key.into(),
@@ -2976,4 +3009,107 @@ fn extensions_fixture() -> ExtensionsView {
         status: Some("Installed MIDI Mapper 1.2.0".into()),
         busy: false,
     }
+}
+
+/// A Custom footswitch mode with four pages; page 1 holds one action of each kind.
+fn custom_fixture() -> Result<CustomModeView, UiError> {
+    let slot = |label: &str, detail: &str, colour, engaged, action| CustomSlotView {
+        action: Some(action),
+        label: label.into(),
+        detail: detail.into(),
+        colour,
+        engaged,
+        available: true,
+        ..CustomSlotView::default()
+    };
+    let scene = |index: u8| SlotAction::System(SystemAction::Scene(index));
+    let page = |step| SlotAction::System(SystemAction::CustomPage(step));
+    let mut first = [
+        slot("Scene A", "Scene", [0x45, 0xf8, 0x62], true, scene(0)),
+        slot("Scene B", "Scene", [0x0a, 0x74, 0xe0], false, scene(1)),
+        slot("Scene C", "Scene", [0xff, 0x70, 0x00], false, scene(2)),
+        slot(
+            "Delay",
+            "Bypass · momentary",
+            [0x87, 0xda, 0xff],
+            true,
+            SlotAction::Block {
+                position: GridPosition::new(0, 2)?,
+                target: BlockTarget::Bypass,
+            },
+        ),
+        slot(
+            "Worship 4B",
+            "Load preset",
+            [0xff, 0xd2, 0x36],
+            false,
+            SlotAction::LoadPreset,
+        ),
+        slot(
+            "Synth",
+            "PC 12 · Ch 1",
+            [0x69, 0x54, 0xff],
+            false,
+            SlotAction::SendMidi,
+        ),
+        slot(
+            "Rec / Overdub",
+            "Looper",
+            [0xff, 0x27, 0x27],
+            false,
+            SlotAction::System(SystemAction::Looper(LooperButton::RecordOverdub)),
+        ),
+        slot(
+            "Swell",
+            "Control Macro",
+            [0xff, 0x02, 0xc2],
+            false,
+            SlotAction::Command {
+                key: "tetrad-dev/extensions:control-macro".into(),
+                command: "swell".into(),
+            },
+        ),
+        slot(
+            "‹ Page",
+            "Previous page",
+            [255; 3],
+            false,
+            page(PageStep::Previous),
+        ),
+        slot("Page ›", "Next page", [255; 3], false, page(PageStep::Next)),
+    ];
+    first[3].momentary = Some(true);
+    first[3].custom_label = Some("Delay".into());
+    first[3].swatch = Some(4);
+    Ok(CustomModeView {
+        name: "Custom".into(),
+        extension: "Custom Footswitch Mode".into(),
+        pages: 4,
+        page: 0,
+        active: true,
+        slots: vec![
+            first,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ],
+        preset_slots: None,
+        preset: "Studio Crunch".into(),
+        commands: vec![CommandChoice {
+            key: "tetrad-dev/extensions:control-macro".into(),
+            command: "swell".into(),
+            label: "Control Macro · Swell".into(),
+        }],
+        colours: [
+            [0x45, 0xf8, 0x62],
+            [0x0a, 0x74, 0xe0],
+            [0xff, 0x70, 0x00],
+            [0xff, 0x02, 0xc2],
+            [0x87, 0xda, 0xff],
+            [0x69, 0x54, 0xff],
+            [0xff, 0xd2, 0x36],
+            [0xff, 0x27, 0x27],
+        ],
+        notice: None,
+    })
 }

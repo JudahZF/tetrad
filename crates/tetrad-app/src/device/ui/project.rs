@@ -133,7 +133,12 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
             slot: (index % size.get()) as u8,
         }),
         mode_id: mode as u8,
-        footswitch_mode: Some(footswitch_mode),
+        footswitch_mode: Some(if state.performance.footswitch.custom {
+            FootswitchMode::Custom
+        } else {
+            footswitch_mode
+        }),
+        custom: super::super::custom::view(state),
         // The Modes configuration shows the cycle's hybrid slot while another mode is active.
         hybrid: hybrid
             .or_else(|| {

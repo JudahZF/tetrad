@@ -1440,9 +1440,12 @@ fn restore_live(
 /// stored bypass of every assigned block, any role (`0x2e2c44`): every scene, or only the
 /// playing scene when the bypass is in scene mode (`+0xcc`). Category 27 and `locked` models
 /// (plugin licence lock, `0x2e02d0` → `+0xfc`) are skipped. A block under two held stomps is
-/// inverted twice, as stock. The live records come back after the save.
+/// inverted twice, as stock. (O) The blocks in `also` (the held momentary bypasses of the
+/// Custom footswitch mode) are inverted in the same way. The live records come back after the
+/// save.
 pub fn save_resting<T>(
     held: u16,
+    also: &[Slot],
     specs: &Specs,
     locked: impl Fn(u32) -> bool,
     current: &mut Current,
@@ -1459,6 +1462,7 @@ pub fn save_resting<T>(
         .collect();
     let slots: Vec<Slot> = (held_stomps.iter())
         .flat_map(|&stomp| super::actions::stomp_slots(&current.preset, stomp))
+        .chain(also.iter().copied())
         .collect();
     let mut live = BTreeMap::new();
     for slot in slots {
@@ -1633,6 +1637,9 @@ pub enum PresetEdit {
     /// Owned (Tetrad): the per-preset mappings as stored JSON
     /// (`tetrad_preset::model::TETRAD_MAPPINGS_FIELD`), or none.
     Mappings(Option<Vec<u8>>),
+    /// Owned (Tetrad): the preset's own Custom footswitch layout as stored JSON
+    /// (`tetrad_preset::model::TETRAD_FOOTSWITCH_FIELD`), or none.
+    CustomLayout(Option<Vec<u8>>),
     /// A model update notification on a grid block (`0x514fd8` → `0x2e1e70`, slot `+0xe4`).
     /// Inferred: stored as `model_update_notifications`.
     Notify(Slot),
@@ -1688,6 +1695,9 @@ pub fn apply_edit(
         PresetEdit::Mappings(json) => preset
             .unknown
             .set_bytes_field(tetrad_preset::model::TETRAD_MAPPINGS_FIELD, json)?,
+        PresetEdit::CustomLayout(json) => preset
+            .unknown
+            .set_bytes_field(tetrad_preset::model::TETRAD_FOOTSWITCH_FIELD, json)?,
         PresetEdit::Stomp { slot, assignment } => match assignment {
             Some((stomp, role)) => preset.assign_stomp(stored_slot(slot), stomp, role)?,
             None => drop(preset.unassign_stomp(stored_slot(slot))),

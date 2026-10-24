@@ -1,0 +1,11 @@
+{
+  "id": "tetrad.custom-footswitch",
+  "name": "Custom Footswitch Mode",
+  "version": "0.1.0",
+  "description": "Adds a Custom footswitch mode: four pages of ten switches (A–D, Down, E–H, Tap). Give each switch a scene, a preset, a block, MIDI, a system action, a page change or an extension command. No code runs.",
+  "api": 4,
+  "footswitchMode": {
+    "name": "Custom",
+    "pages": 4
+  }
+}

@@ -1935,7 +1935,7 @@ pub fn native_change(action: &Action, state: &State) -> Option<ControlChange> {
         Action::SetParameter { site, index, value } => {
             (site, ControlKind::Parameter { index }, value)
         }
-        Action::SetBypass { site, bypassed } => {
+        Action::SetBypass { site, bypassed } | Action::MomentaryBypass { site, bypassed } => {
             (site, ControlKind::Bypass, f32::from(u8::from(bypassed)))
         }
         // Touch edits arrive wrapped for undo.
@@ -2353,9 +2353,57 @@ impl Extensions {
         })
     }
 
+    /// Enabled installations with a footswitch mode, by key: the first provides the Custom
+    /// mode, the others wait (their pages say so).
+    fn footswitch_modes(&self) -> impl Iterator<Item = (&String, &Loaded)> {
+        (self.repositories.records.iter())
+            .filter(|(_, record)| record.installed.enabled)
+            .filter(|(_, record)| record.installed.current.manifest.footswitch_mode.is_some())
+    }
+
+    /// The installation that provides the Custom footswitch mode.
+    pub fn footswitch_mode(&self) -> Option<super::custom::Provider> {
+        let (key, record) = self.footswitch_modes().next()?;
+        let manifest = &record.installed.current.manifest;
+        let mode = manifest.footswitch_mode.as_ref()?;
+        Some(super::custom::Provider {
+            key: key.clone(),
+            stem: record.installed.key.file_stem(),
+            extension: manifest.name.clone(),
+            name: mode.name.clone(),
+            pages: mode.pages.clamp(1, tetrad_ui::CUSTOM_PAGES),
+        })
+    }
+
+    /// The registered commands of the running extensions, for Custom mode slots.
+    pub fn command_choices(&self) -> Vec<tetrad_ui::CommandChoice> {
+        let records = &self.repositories.records;
+        (self.slots.iter())
+            .filter(|(_, slot)| slot.state == RunState::Running)
+            .flat_map(|(key, slot)| {
+                let manifest = records
+                    .get(key)
+                    .map(|record| &record.installed.current.manifest);
+                (slot.registrations.commands.iter()).map(move |id| {
+                    let label = (manifest.into_iter())
+                        .flat_map(|manifest| &manifest.commands)
+                        .find(|command| &command.id == id)
+                        .map_or(id.as_str(), |command| command.label.as_str());
+                    let name = manifest.map_or(key.as_str(), |manifest| manifest.name.as_str());
+                    tetrad_ui::CommandChoice {
+                        key: key.clone(),
+                        command: id.clone(),
+                        label: format!("{name} · {label}"),
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// Everything the Extensions pages show.
     pub fn view(&self, community: &super::community::Installed) -> ExtensionsView {
         let repositories = &self.repositories;
+        let provider = self.footswitch_mode();
         let installed = (repositories.records.iter())
             .map(|(key, record)| {
                 let manifest = &record.installed.current.manifest;
@@ -2433,6 +2481,28 @@ impl Extensions {
                         .iter()
                         .map(|theme| theme.name.clone())
                         .collect(),
+                    footswitch_mode: (manifest.footswitch_mode.as_ref()).map(|mode| {
+                        let provides = provider.as_ref().is_some_and(|p| &p.key == key);
+                        let detail = match &provider {
+                            _ if provides => format!(
+                                "{} {} · the mode button or Down + Tap switches to it",
+                                mode.pages,
+                                if mode.pages == 1 { "page" } else { "pages" }
+                            ),
+                            _ if !record.installed.enabled => {
+                                "Turn the extension on to use it".to_owned()
+                            }
+                            Some(other) => {
+                                format!("Not used: {} adds the Custom mode", other.extension)
+                            }
+                            None => String::new(),
+                        };
+                        tetrad_ui::ExtensionMode {
+                            name: mode.name.clone(),
+                            detail,
+                            provides,
+                        }
+                    }),
                 }
             })
             .collect();

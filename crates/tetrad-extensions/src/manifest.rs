@@ -1,10 +1,11 @@
 //! The extension manifest: identity, API level, capabilities, settings, command labels, DSP
-//! blocks and themes.
+//! blocks, themes and a footswitch mode.
 //!
 //! A manifest is authored as `tetrad-extension.json` and travels inside every package. The
 //! host trusts nothing in it until [`Manifest::validate`] passes. API 2 adds `blocks`; an API 1
 //! manifest cannot use them. API 3 adds `pressed` on trigger firings (a release of a press); a
-//! host before API 3 would take a release for a press, so it skips API 3 packages.
+//! host before API 3 would take a release for a press, so it skips API 3 packages. API 4 adds
+//! `footswitchMode`; a manifest of an older API cannot use it.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,7 @@ use serde_json::{Map, Value};
 use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
-pub const API_VERSION: u32 = 3;
+pub const API_VERSION: u32 = 4;
 /// The oldest extension API level this host still runs.
 pub const MIN_API_VERSION: u32 = 1;
 
@@ -31,6 +32,10 @@ pub const MAX_ASSET_EXTENSION: usize = 16;
 pub const MAX_THEMES: usize = 8;
 /// Longest setting key, setting label, option label, command ID and command label.
 pub const MAX_LABEL: usize = 32;
+/// Longest footswitch mode name: the Grid and Gig View headers show it.
+pub const MAX_MODE_NAME: usize = 16;
+/// Most pages of a footswitch mode.
+pub const MAX_MODE_PAGES: u8 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -57,6 +62,21 @@ pub struct Manifest {
     /// manifest and runs no code for them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub themes: Vec<ThemeSpec>,
+    /// A footswitch mode (API 4). Data only: Tetrad runs its switches; the extension declares
+    /// its name and page count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footswitch_mode: Option<FootswitchModeSpec>,
+}
+
+/// A footswitch mode next to Preset, Scene and Stomp: `pages` pages of ten switches (A–D,
+/// Down, E–H, Tap) whose actions the user chooses on the unit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FootswitchModeSpec {
+    /// 1..=[`MAX_MODE_NAME`] characters, such as "Custom".
+    pub name: String,
+    /// 1..=[`MAX_MODE_PAGES`].
+    pub pages: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -186,6 +206,10 @@ pub enum ManifestError {
     TooManyThemes,
     #[error("theme {0:?}: {1}")]
     Theme(String, String),
+    #[error(
+        "footswitch mode: the name must be 1..={MAX_MODE_NAME} characters and pages 1..={MAX_MODE_PAGES}"
+    )]
+    FootswitchMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -210,6 +234,14 @@ impl Manifest {
         }
         if self.api < 2 && (!self.blocks.is_empty() || self.has(Capability::Blocks)) {
             return Err(ManifestError::NeedsApi(2, "blocks"));
+        }
+        if self.api < 4 && self.footswitch_mode.is_some() {
+            return Err(ManifestError::NeedsApi(4, "footswitchMode"));
+        }
+        if let Some(mode) = &self.footswitch_mode
+            && (!label_ok(&mode.name, MAX_MODE_NAME) || !(1..=MAX_MODE_PAGES).contains(&mode.pages))
+        {
+            return Err(ManifestError::FootswitchMode);
         }
         for (i, capability) in self.capabilities.iter().enumerate() {
             if self.capabilities[..i].contains(capability) {
@@ -263,12 +295,12 @@ impl Manifest {
         self.blocks.iter().find(|b| b.id == id)
     }
 
-    /// A data-only manifest adds themes or static DSP blocks and nothing else: no
-    /// capabilities, settings, commands or generated blocks. Its package may leave out the
+    /// A data-only manifest adds themes, static DSP blocks or a footswitch mode and nothing
+    /// else: no capabilities, settings, commands or generated blocks. Its package may leave out the
     /// module; the host runs nothing for a package without one (a package with a module still
     /// runs it).
     pub fn data_only(&self) -> bool {
-        !(self.themes.is_empty() && self.blocks.is_empty())
+        !(self.themes.is_empty() && self.blocks.is_empty() && self.footswitch_mode.is_none())
             && self.capabilities.is_empty()
             && self.settings.is_empty()
             && self.commands.is_empty()
@@ -526,6 +558,40 @@ mod tests {
         let mut m = manifest();
         m.api = API_VERSION + 1;
         assert_eq!(m.validate(), Err(ManifestError::Api(API_VERSION + 1)));
+    }
+
+    #[test]
+    fn a_footswitch_mode_needs_api_4_and_is_data_only() {
+        let mode: Manifest = serde_json::from_value(json!({
+            "id": "tetrad.custom-footswitch", "name": "Custom Footswitch", "version": "0.1.0",
+            "api": 4, "footswitchMode": {"name": "Custom", "pages": 4}
+        }))
+        .unwrap();
+        assert_eq!(mode.validate(), Ok(()));
+        assert!(mode.data_only());
+        let mut old = mode.clone();
+        old.api = 3;
+        assert_eq!(
+            old.validate(),
+            Err(ManifestError::NeedsApi(4, "footswitchMode"))
+        );
+        for (name, pages) in [
+            ("", 4),
+            ("Seventeen chars!!", 4),
+            ("Custom", 0),
+            ("Custom", 5),
+        ] {
+            let mut bad = mode.clone();
+            bad.footswitch_mode = Some(FootswitchModeSpec {
+                name: name.into(),
+                pages,
+            });
+            assert_eq!(
+                bad.validate(),
+                Err(ManifestError::FootswitchMode),
+                "{name:?} {pages}"
+            );
+        }
     }
 
     fn block(extra: serde_json::Value) -> BlockSpec {

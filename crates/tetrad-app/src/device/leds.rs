@@ -104,7 +104,10 @@ impl Leds {
             leds::tempo_led_colour(tempo),
             display.led_brightness.get() as f32 / 100.0,
         );
-        if self.tempo_colour.replace(colour) != Some(colour) {
+        // (O) In the Custom mode the TEMPO LED is a slot's; the colour comes back after it.
+        if state.performance.footswitch.custom {
+            self.tempo_colour = None;
+        } else if self.tempo_colour.replace(colour) != Some(colour) {
             effects.push(Effect::Hal(Command::TempoLed(colour)));
         }
         let blink = tempo_blink(state, actions::tempo_bpm(state));
@@ -146,7 +149,10 @@ fn tempo_blink(state: &State, bpm: i32) -> TempoConfig {
 /// 0.0 is off; a missing value is on (migration default).
 fn tempo_led_on(state: &State) -> bool {
     let overlay = state.performance.footswitch.overlay.is_some();
-    let off = state.ui_leds.standby || (overlay && product(state) != Product::QuadCortex);
+    // (O) The Custom mode's Tap slot owns the TEMPO LED.
+    let off = state.ui_leds.standby
+        || (overlay && product(state) != Product::QuadCortex)
+        || state.performance.footswitch.custom;
     !off && (state.settings.settings().tempo.params)
         .get(&TEMPO_LED_PARAM)
         .is_none_or(|&value| value >= 0.5)
@@ -217,6 +223,9 @@ fn view(state: &State) -> LedView {
                 }),
             // I: tile "Inactive" states are not recovered (`0x611d14`).
             inactive: [false; 8],
+        },
+        _ if state.performance.footswitch.custom => LedView::Custom {
+            slots: super::custom::leds(state),
         },
         _ => LedView::Normal,
     }

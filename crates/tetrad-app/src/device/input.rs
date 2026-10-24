@@ -69,6 +69,8 @@ pub enum InputError {
 struct Hold {
     switch: Footswitch,
     until: Duration,
+    /// (O) Armed in the Custom mode: it expires only while the mode is still on.
+    custom: bool,
 }
 
 #[derive(Debug, Default)]
@@ -91,6 +93,9 @@ pub struct Input {
     /// Owned: stomps (bit per index) whose press reached the mappings. Their release goes there
     /// too, even when the press changed the footswitch mode.
     mapping_held: u8,
+    /// (O) Physical mask of switches pressed in the Custom mode. Their slot ends with the mode,
+    /// so a release after the mode is left is quiet (no stock action from a Custom press).
+    custom_down: u16,
 }
 
 #[derive(Debug, Default)]
@@ -121,6 +126,12 @@ impl Input {
             .map(|range| PedalCalibration::saved(range.min, range.max));
     }
 
+    /// (O) Physical mask of the switches held since a Custom mode press: they are not stock
+    /// stomps (a save does not treat them as held momentary stomps).
+    pub fn custom_down(&self) -> u16 {
+        self.custom_down
+    }
+
     /// When the pending TEMPO or UP/DOWN hold is due. Call [`Self::on_hold_expired`] then.
     pub fn hold_deadline(&self) -> Option<Duration> {
         self.hold.map(|hold| hold.until)
@@ -132,7 +143,9 @@ impl Input {
             return Vec::new();
         };
         self.hold = None;
-        if state.performance.held & hold.switch.physical().mask() == 0 {
+        if state.performance.held & hold.switch.physical().mask() == 0
+            || hold.custom != state.performance.footswitch.custom
+        {
             return Vec::new();
         }
         match hold.switch {
@@ -159,7 +172,7 @@ impl Input {
     /// of its element (table `0xa19268` = [`LOGICAL_TO_PHYSICAL`]), so the result follows the
     /// current mode. A stomp stored momentary (`0x002e220c`) gets one edge per message,
     /// alternating press and release (`+0x1a0`; the first edge being a press is inferred).
-    /// Any other switch gets a press, then a release.
+    /// Any other switch, and every slot of the Custom mode (O), gets a press, then a release.
     pub fn midi_footswitch(
         &mut self,
         letter: u8,
@@ -170,10 +183,11 @@ impl Input {
             .get(usize::from(letter))
             .and_then(|&index| Element::try_from(index).ok())
             .ok_or(InputError::Unsupported("MIDI footswitch outside A..=H"))?;
-        let momentary = state.current.as_ref().is_some_and(|current| {
-            let stored = &current.preset.stomp_is_momentary;
-            stored.get(u32::from(letter)).copied().unwrap_or(false)
-        });
+        let momentary = !state.performance.footswitch.custom
+            && state.current.as_ref().is_some_and(|current| {
+                let stored = &current.preset.stomp_is_momentary;
+                stored.get(u32::from(letter)).copied().unwrap_or(false)
+            });
         if momentary {
             let bit = 1 << element.index();
             self.midi_pressed ^= bit;
@@ -468,6 +482,20 @@ impl Input {
                 _ => {}
             }
         }
+        let custom = state.performance.footswitch.custom;
+        if pressed && custom {
+            self.custom_down |= stomp.mask();
+        } else if !pressed && self.custom_down & stomp.mask() != 0 {
+            self.custom_down &= !stomp.mask();
+            if !custom {
+                state.performance.held &= !stomp.mask();
+                self.long &= !stomp.mask();
+                if self.hold.is_some_and(|hold| hold.switch == switch) {
+                    self.hold = None;
+                }
+                return Ok(view(false).into_iter().collect());
+            }
+        }
         let mut effects = if pressed {
             state.performance.held |= stomp.mask();
             self.press(switch, state, now)
@@ -510,6 +538,23 @@ impl Input {
                 _ => Vec::new(),
             };
         }
+        // (O) Custom mode: DOWN and TEMPO are slots (no tap tempo, no TEMPO hold); UP holds for
+        // the tuner. An UP press that closes the Tuner or Tempo page (tetrad-ui) cycles nothing.
+        if state.performance.footswitch.custom {
+            if switch == Footswitch::UP {
+                if matches!(state.screen, Screen::Tuner | Screen::Tempo) {
+                    self.long |= switch.physical().mask();
+                    self.hold = None;
+                } else {
+                    self.hold = Some(Hold {
+                        switch,
+                        until: now + hold_timing(state),
+                        custom: true,
+                    });
+                }
+            }
+            return action.map_or_else(Vec::new, |action| self.apply(action, state));
+        }
         let mut effects = Vec::new();
         // While the Tuner shows, one TEMPO click closes it and is not a tap (gtest
         // `testQCTunerAccess` `0x43c288`). The press handler `0x20db38` resets the count and
@@ -542,6 +587,7 @@ impl Input {
             self.hold = Some(Hold {
                 switch,
                 until: now + hold_timing(state),
+                custom: false,
             });
         }
         if let Some(action) = action {
@@ -696,6 +742,14 @@ impl Input {
                 }
                 effects
             }
+            FootswitchAction::CustomPress(slot) | FootswitchAction::CustomRelease(slot) => {
+                act(Action::CustomSlot {
+                    slot,
+                    pressed: matches!(action, FootswitchAction::CustomPress(_)),
+                    origin: super::custom::Origin::Footswitch,
+                })
+            }
+            FootswitchAction::ShowTuner => act(Action::ShowTuner(true)),
             FootswitchAction::StompRelease(stomp) => {
                 let mut effects = act(Action::ReleaseStomp(stomp));
                 effects.push(Effect::MappingStomp {

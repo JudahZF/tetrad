@@ -119,6 +119,18 @@ sends the generated blob for each core through the stock `BlobLoad` path. A pres
 (`tetrad_preset::community`); `preset::prepare` restores it. When the set of blocks changes,
 the loaded preset leaves with the old catalog and is recalled with the new one.
 
+## Custom footswitch mode
+
+An extension manifest can declare a footswitch mode (`footswitchMode`, API 4). Tetrad runs it:
+`tetrad-core` `FootswitchContext::custom` turns the ten switches into slot presses and Bank Up
+into the mode switch, and `tetrad-app` `device/custom.rs` keeps the layout, the page and the
+held presses in `State::custom`. A press runs through the action reducer
+(`Action::CustomSlot`) and reuses the Mappings system and block actions; its release effects
+are captured at the press. A preset can carry its own layout in the preset field 7003
+(`TETRAD_FOOTSWITCH_FIELD`); `custom::sync` decodes it again at each change of the preset, and
+it plays instead of the device layout. The mode is a layer over the stored stock mode, so the stock INI,
+Cortex Control and MIDI CC#47 never see it. See [footswitch-modes.md](footswitch-modes.md).
+
 ## Wi-Fi recovery
 
 Stock only reports a lost internet. Tetrad also recovers the link, because a Wi-Fi link once

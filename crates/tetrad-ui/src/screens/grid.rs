@@ -518,10 +518,8 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
     preset_title(l, s, text_box, TITLE, true);
 
     // Mode label: tap cycles, hold opens Modes Configuration (manual "Modes").
-    let mode = s.footswitch_mode.map_or_else(
-        || format!("MODE {}", s.mode_id),
-        |mode| mode.label().to_owned(),
-    );
+    // A Custom mode's own name is up to 16 characters: it fits the mode area.
+    let mode = fit(&super::mode_label(s), MODE, 130.0);
     // Stock `updateMode` (`0x674ed0`): with a Preset MIDI Out message stored
     // (`0x0032da4c`), every mode but Preset shows `icons/mainMenuPopup/midi.png` in place of
     // its own glyph (`sn-0`: a 22 px DIN disc at x 657–678, y 61–81).
@@ -531,6 +529,7 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
         Some(FootswitchMode::Scene) => Icon::ModeScene,
         Some(FootswitchMode::Stomp) => Icon::Footswitch,
         Some(FootswitchMode::Hybrid) => Icon::Gig,
+        Some(FootswitchMode::Custom) => Icon::Grid,
     };
     // Stock (`st-mp1c`): "STOMP" pen x 692 to 766, ink x 693–765, y 64–79.
     let area = Rect::new(600, 52, 192, 40);

@@ -664,8 +664,24 @@ pub(super) fn preset_midi_list(target: MidiOutTarget) -> Option<(MidiList, Optio
         MidiOutTarget::Footswitch(switch) => u8::try_from(switch.tile()?).ok()?,
         MidiOutTarget::Expression1 => 8,
         MidiOutTarget::Expression2 => 9,
+        MidiOutTarget::Slot { .. } => return None,
     };
     Some((MidiList::Group(usize::from(source)), Some(source)))
+}
+
+/// The wire messages of one editor message (a Custom mode slot's), as Preset MIDI Out sends
+/// it: `toggle_low` sends a CC Toggle's MIN VALUE, else its MAX VALUE. A message with values
+/// out of range sends nothing.
+pub(super) fn out_messages(message: &MidiOutMessage, toggle_low: bool) -> Vec<MidiMessage> {
+    let stored = stored_message(message);
+    let info = MidiMessageInfo {
+        message_type: stored.kind,
+        channel: stored.channel,
+        param1: stored.param1,
+        param2: stored.param2,
+        param3: stored.param3,
+    };
+    (tetrad_midi::MidiOutSlot::from_info(info).messages(toggle_low)).unwrap_or_default()
 }
 
 /// One editor message as the stock 40-byte entry: types 1..=3, one-based channel; an

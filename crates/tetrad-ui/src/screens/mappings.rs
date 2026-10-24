@@ -7,6 +7,8 @@
 //! Full-screen chrome as Preset MIDI Out: a muted title, 66 × 44 header icons, the ✓ and
 //! 64 px rows on `#2e2e2e` panels. The action menu has the ⋮ menu's look.
 
+use std::borrow::Cow;
+
 use tetrad_assets::{Icon, IconSize, Palette, Rgb};
 
 use super::NumericPurpose;
@@ -85,7 +87,7 @@ fn trigger_icon(trigger: &Trigger) -> Icon {
 }
 
 /// The icon of a system action: the one of its action menu entry.
-fn system_icon(action: SystemAction) -> Icon {
+pub(super) fn system_icon(action: SystemAction) -> Icon {
     use SystemAction as S;
     match action {
         S::NextPreset | S::PreviousPreset => Icon::SaveArrow,
@@ -95,15 +97,17 @@ fn system_icon(action: SystemAction) -> Icon {
         S::Mode(_) | S::NextMode => Icon::Footswitch,
         S::GigView => Icon::Gig,
         S::Looper(_) => Icon::Looper,
+        S::CustomPage(_) => Icon::StepForward,
+        S::CustomSlot(_) => Icon::Footswitch,
     }
 }
 
-fn glyph(l: &mut Layout, bounds: Rect, icon: Icon, size: IconSize, color: Rgb) {
+pub(super) fn glyph(l: &mut Layout, bounds: Rect, icon: Icon, size: IconSize, color: Rgb) {
     l.push(bounds, "", Look::Glyph { icon, size, color });
 }
 
 /// A grid block tile at a small size: the category ring, the tile fill and the device glyph.
-fn block_tile(l: &mut Layout, s: &UiSnapshot, position: GridPosition, bounds: Rect) {
+pub(super) fn block_tile(l: &mut Layout, s: &UiSnapshot, position: GridPosition, bounds: Rect) {
     let p = l.palette;
     let (info, capture) = (s.blocks[position.index()], s.captures[position.index()]);
     l.panel(bounds, info.hue(capture).unwrap_or(p.muted), 8.0, None);
@@ -140,7 +144,7 @@ fn action_text<'a>(p: &Palette, row: &'a MappingRow) -> (&'a str, &'a str, Rgb) 
 }
 
 /// An 18 px label over a 14 px muted line, from `x` to `right`, centred in `row`.
-fn lines(
+pub(super) fn lines(
     l: &mut Layout,
     row: Rect,
     (x, right): (i32, i32),
@@ -175,27 +179,27 @@ fn arrow(l: &mut Layout, x: i32, cy: i32) {
     l.line((x + 12.0, y + 6.0), (x + 18.0, y), 2.0, p.faint);
 }
 
-fn chevron(l: &mut Layout, row: Rect) {
+pub(super) fn chevron(l: &mut Layout, row: Rect) {
     let p = l.palette;
     let bounds = Rect::new(row.right() - 40, row.y, 24, row.height);
     glyph(l, bounds, Icon::Forward, IconSize::Small, p.faint);
 }
 
 /// A 1 px divider under a panel row, 16 px in from the panel edges.
-fn divider(l: &mut Layout, row: Rect) {
+pub(super) fn divider(l: &mut Layout, row: Rect) {
     let p = l.palette;
     let line = Rect::new(row.x + 16, row.bottom() - 1, row.width - 32, 1);
     l.push(line, "", Look::Fill(p.divider));
 }
 
-fn label(l: &mut Layout, row: Rect, text: &str) {
+pub(super) fn label(l: &mut Layout, row: Rect, text: &str) {
     let p = l.palette;
     let bounds = Rect::new(row.x + 16, row.y, 260, row.height);
     l.text(bounds, text, MEDIUM, p.text, Align::Left);
 }
 
 /// A 14 px muted section caption above a panel.
-fn caption(l: &mut Layout, y: i32, text: &str) {
+pub(super) fn caption(l: &mut Layout, y: i32, text: &str) {
     let p = l.palette;
     l.text(
         Rect::new(16, y, 300, 32),
@@ -846,8 +850,10 @@ pub(super) fn choice(ui: &UiState, choice: MappingChoice) -> Option<(Vec<&str>, 
     })
 }
 
-/// One row of the action menu.
-enum Entry<'a> {
+/// One row of the action menu. The menu serves the Mappings page and the Custom mode's slot
+/// editor ([`slot_menu`]); its actions are [`SlotAction`]s, which a mapping takes as
+/// [`mapping_action`].
+pub(super) enum Entry<'a> {
     Header(&'static str),
     /// Back to the root: the submenu title and, for a block, its location.
     Back(&'a str, Option<&'a str>),
@@ -855,15 +861,46 @@ enum Entry<'a> {
     Open {
         icon: Option<Icon>,
         block: Option<GridPosition>,
-        label: &'a str,
+        label: Cow<'a, str>,
         menu: ActionMenu,
     },
     Set {
         icon: Option<Icon>,
-        label: &'a str,
-        action: MappingAction,
+        label: Cow<'a, str>,
+        action: SlotAction,
     },
 }
+
+/// The menu edits a Custom mode slot, not a mapping.
+fn slot_menu(ui: &UiState) -> bool {
+    ui.screen() == Screen::CustomMode
+}
+
+/// The mapping form of a menu action; `None` for the slot-only actions.
+fn mapping_action(action: SlotAction) -> Option<MappingAction> {
+    Some(match action {
+        SlotAction::System(action) => MappingAction::System(action),
+        SlotAction::Block { position, target } => MappingAction::Block { position, target },
+        SlotAction::SendMidi => MappingAction::SendMidi,
+        SlotAction::LoadPreset | SlotAction::PresetSlot(_) | SlotAction::Command { .. } => {
+            return None;
+        }
+    })
+}
+
+const PAGES: [&str; CUSTOM_PAGES as usize] = ["Page 1", "Page 2", "Page 3", "Page 4"];
+const PRESSES: [&str; CUSTOM_SLOTS] = [
+    "Press A",
+    "Press B",
+    "Press C",
+    "Press D",
+    "Press E",
+    "Press F",
+    "Press G",
+    "Press H",
+    "Press Down",
+    "Press Tap",
+];
 
 impl Entry<'_> {
     fn height(&self) -> u32 {
@@ -881,61 +918,124 @@ fn system<'a>(
 ) -> Vec<Entry<'a>> {
     let items = items.into_iter().map(|(label, action)| Entry::Set {
         icon: None,
-        label,
-        action: MappingAction::System(action),
+        label: Cow::Borrowed(label),
+        action: SlotAction::System(action),
     });
     std::iter::once(Entry::Back(title, None))
         .chain(items)
         .collect()
 }
 
-/// The rows of an action menu level. Block and Send MIDI actions exist only in a preset.
-fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
+/// The rows of an action menu level. Block and Send MIDI actions exist only in a preset or a
+/// slot; loading the loaded preset, pages and extension commands only in a slot.
+pub(super) fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
     use SystemAction as S;
     let view = &ui.snapshot.mappings;
+    let slot = slot_menu(ui);
+    let custom = ui.snapshot.custom.as_ref();
     match menu {
         ActionMenu::Root => {
             let open = |icon, label, menu| Entry::Open {
                 icon: Some(icon),
                 block: None,
-                label,
+                label: Cow::Borrowed(label),
                 menu,
             };
             let set = |icon, label, action| Entry::Set {
                 icon: Some(icon),
-                label,
+                label: Cow::Borrowed(label),
                 action,
             };
             let mut entries = vec![
                 Entry::Header("SYSTEM"),
                 open(Icon::SaveArrow, "Preset", ActionMenu::Preset),
                 open(Icon::Copy, "Scene", ActionMenu::Scene),
-                set(Icon::Tuner, "Tuner", MappingAction::System(S::Tuner)),
+                set(Icon::Tuner, "Tuner", SlotAction::System(S::Tuner)),
                 open(Icon::Metronome, "Tempo", ActionMenu::Tempo),
                 open(Icon::Footswitch, "Mode", ActionMenu::Mode),
-                set(Icon::Gig, "Gig View", MappingAction::System(S::GigView)),
+                set(Icon::Gig, "Gig View", SlotAction::System(S::GigView)),
                 open(Icon::Looper, "Looper", ActionMenu::Looper),
             ];
-            if ui.mappings.tab == MappingScope::Preset {
+            if let Some(custom) = custom {
+                let label = if slot { "Page" } else { custom.name.as_str() };
+                entries.push(open(Icon::StepForward, label, ActionMenu::Custom));
+            }
+            if slot || ui.mappings.tab == MappingScope::Preset {
                 entries.push(Entry::Header("BLOCKS"));
                 entries.extend(view.blocks.iter().map(|block| Entry::Open {
                     icon: None,
                     block: Some(block.position),
-                    label: &block.name,
+                    label: Cow::Borrowed(&block.name),
                     menu: ActionMenu::Block(block.position),
                 }));
                 entries.push(Entry::Header("MIDI OUT"));
-                entries.push(set(Icon::Midi, "Send MIDI", MappingAction::SendMidi));
+                entries.push(set(Icon::Midi, "Send MIDI", SlotAction::SendMidi));
+            }
+            if slot && custom.is_some_and(|custom| !custom.commands.is_empty()) {
+                entries.push(Entry::Header("EXTENSIONS"));
+                entries.push(open(Icon::Plugin, "Commands", ActionMenu::Extensions));
             }
             entries
         }
-        ActionMenu::Preset => system(
-            "Preset",
-            [
-                ("Next preset", S::NextPreset),
-                ("Previous preset", S::PreviousPreset),
-            ],
-        ),
+        ActionMenu::Preset => {
+            let mut entries = system(
+                "Preset",
+                [
+                    ("Next preset", S::NextPreset),
+                    ("Previous preset", S::PreviousPreset),
+                ],
+            );
+            if let Some(custom) = custom.filter(|custom| slot && !custom.preset.is_empty()) {
+                entries.push(Entry::Set {
+                    icon: None,
+                    label: Cow::Owned(format!("Load {}", custom.preset)),
+                    action: SlotAction::LoadPreset,
+                });
+            }
+            if slot {
+                entries.push(Entry::Open {
+                    icon: None,
+                    block: None,
+                    label: Cow::Borrowed("Choose a preset"),
+                    menu: ActionMenu::Setlists,
+                });
+            }
+            entries
+        }
+        ActionMenu::Setlists => std::iter::once(Entry::Back("Choose a preset", None))
+            .chain(ui.snapshot.setlists.iter().map(|setlist| Entry::Open {
+                icon: Some(Icon::Folder),
+                block: None,
+                label: Cow::Borrowed(&setlist.title),
+                menu: ActionMenu::Setlist(setlist.id),
+            }))
+            .collect(),
+        ActionMenu::Setlist(id) => {
+            let title = (ui.snapshot.setlists.iter())
+                .find(|setlist| setlist.id == id)
+                .map_or("Setlist", |setlist| setlist.title.as_str());
+            let mut entries = vec![Entry::Back(title, None)];
+            // The presets arrive once this setlist is the browsed one.
+            if ui.snapshot.active_setlist != Some(id) {
+                entries.push(Entry::Header("LOADING"));
+                return entries;
+            }
+            entries.extend(
+                (ui.snapshot.directory.slots.iter())
+                    .filter(|slot| !slot.empty)
+                    .map(|slot| Entry::Set {
+                        icon: None,
+                        label: Cow::Owned(format!(
+                            "{}{} {}",
+                            slot.id / 8 + 1,
+                            char::from(b'A' + (slot.id % 8) as u8),
+                            slot.title
+                        )),
+                        action: SlotAction::PresetSlot(slot.id),
+                    }),
+            );
+            entries
+        }
         ActionMenu::Scene => system(
             "Scene",
             (SCENES
@@ -954,9 +1054,45 @@ fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
                 ("Preset mode", S::Mode(ModeChoice::Preset)),
                 ("Scene mode", S::Mode(ModeChoice::Scene)),
                 ("Stomp mode", S::Mode(ModeChoice::Stomp)),
-                ("Next mode", S::NextMode),
-            ],
+            ]
+            .into_iter()
+            .chain(custom.map(|_| ("Custom mode", S::Mode(ModeChoice::Custom))))
+            .chain([("Next mode", S::NextMode)]),
         ),
+        ActionMenu::Custom => {
+            let Some(custom) = custom else {
+                return Vec::new();
+            };
+            let pages = (PAGES.iter().take(usize::from(custom.pages)))
+                .zip(0..)
+                .map(|(label, page)| (*label, S::CustomPage(PageStep::Go(page))));
+            let presses = (PRESSES.iter().zip(0..))
+                .filter(|_| !slot)
+                .map(|(label, index)| (*label, S::CustomSlot(index)));
+            system(
+                if slot { "Page" } else { &custom.name },
+                [
+                    ("Next page", S::CustomPage(PageStep::Next)),
+                    ("Previous page", S::CustomPage(PageStep::Previous)),
+                ]
+                .into_iter()
+                .chain(pages)
+                .chain(presses),
+            )
+        }
+        ActionMenu::Extensions => {
+            let commands = custom.map_or(&[][..], |custom| &custom.commands);
+            std::iter::once(Entry::Back("Commands", None))
+                .chain(commands.iter().map(|choice| Entry::Set {
+                    icon: None,
+                    label: Cow::Borrowed(&choice.label),
+                    action: SlotAction::Command {
+                        key: choice.key.clone(),
+                        command: choice.command.clone(),
+                    },
+                }))
+                .collect()
+        }
         ActionMenu::Looper => system(
             "Looper",
             LOOPER.map(|(label, button)| (label, S::Looper(button))),
@@ -967,8 +1103,8 @@ fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
             };
             let set = |label, target| Entry::Set {
                 icon: None,
-                label,
-                action: MappingAction::Block { position, target },
+                label: Cow::Borrowed(label),
+                action: SlotAction::Block { position, target },
             };
             let parameters = (block.parameters.iter())
                 .map(|parameter| set(&parameter.name, BlockTarget::Parameter(parameter.index)));
@@ -1037,9 +1173,9 @@ fn menu_entry(ui: &UiState, l: &mut Layout, row: Rect, index: u16, entry: &Entry
             icon, block, label, ..
         } => {
             chevron(l, Rect::new(row.x, row.y, row.width - 8, row.height));
-            (*icon, *block, *label)
+            (*icon, *block, &**label)
         }
-        Entry::Set { icon, label, .. } => (*icon, None, *label),
+        Entry::Set { icon, label, .. } => (*icon, None, &**label),
     };
     l.control(row, pick, true, text, Look::Area);
     let mark = Rect::new(row.x + 14, row.y + 14, 32, 32);
@@ -1089,6 +1225,12 @@ impl UiState {
         use MappingControl as C;
         let send = |command| vec![UiCommand::Mapping(command)];
         let scope = self.mappings.tab;
+        if slot_menu(self) {
+            return match control {
+                C::Pick(index) => self.custom_pick(index),
+                _ => Vec::new(),
+            };
+        }
         match control {
             C::Tab(tab) => {
                 self.mappings = MappingsPage {
@@ -1163,6 +1305,9 @@ impl UiState {
                     Some(Entry::Back(..)) => ActionMenu::Root,
                     Some(Entry::Set { action, .. }) => {
                         self.overlay = None;
+                        let Some(action) = mapping_action(action) else {
+                            return Vec::new();
+                        };
                         if row.action.as_ref() == Some(&action) {
                             return Vec::new();
                         }
@@ -1275,10 +1420,10 @@ impl UiState {
         let page = &self.mappings;
         let stale = match &self.overlay {
             Some(Overlay::MappingActions(ActionMenu::Block(position))) => {
-                page.detail.is_none()
+                (page.detail.is_none() && !slot_menu(self))
                     || !view.blocks.iter().any(|block| block.position == *position)
             }
-            Some(Overlay::MappingActions(_)) => page.detail.is_none(),
+            Some(Overlay::MappingActions(_)) => page.detail.is_none() && !slot_menu(self),
             // A dropdown whose options no longer fit the open row (its trigger kind changed,
             // or the extension triggers behind the Type list did) would pick the wrong thing.
             Some(Overlay::Choice(ChoicePurpose::Mapping(dropdown))) => {
@@ -1506,7 +1651,7 @@ pub(crate) mod tests {
     }
 
     /// Taps the action menu row labelled `label`, scrolling the menu as a user does.
-    fn pick(ui: &mut UiState, label: &str) -> Vec<UiCommand> {
+    pub(crate) fn pick(ui: &mut UiState, label: &str) -> Vec<UiCommand> {
         for _ in 0..4 {
             let regions = ui.hit_regions();
             let found = regions.iter().find(|region| {

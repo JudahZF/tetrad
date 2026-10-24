@@ -150,6 +150,25 @@ fn tempo_hold_shows_the_tuner_when_due() {
     assert_eq!(actions(&effects), [&Action::ShowTuner(true)]);
 }
 
+/// Custom mode: an UP hold opens the tuner, and only while the mode is on. A hold armed in
+/// Custom that comes due after the mode ended does nothing, and so does its release.
+#[test]
+fn a_custom_up_hold_ends_with_the_mode() {
+    let (mut input, mut state) = (Input::new(), qc(FootswitchMode::Stomp));
+    state.performance.footswitch.custom = true;
+    stomp(&mut input, &mut state, UP, 1);
+    let due = input.hold_deadline().expect("UP arms a hold in Custom");
+    let effects = input.on_hold_expired(&mut state, due);
+    assert_eq!(actions(&effects), [&Action::ShowTuner(true)]);
+    assert!(actions(&stomp(&mut input, &mut state, UP, 0)).is_empty());
+
+    stomp(&mut input, &mut state, UP, 1);
+    let due = input.hold_deadline().unwrap();
+    state.performance.footswitch.custom = false;
+    assert!(input.on_hold_expired(&mut state, due).is_empty());
+    assert!(actions(&stomp(&mut input, &mut state, UP, 0)).is_empty());
+}
+
 /// Stock gtest `testQCTunerAccess` (`0x43c288`): while the Tuner shows, one TEMPO click
 /// closes it; the press is not a tap (`0x20db38` resets the count) and starts no hold.
 #[test]
