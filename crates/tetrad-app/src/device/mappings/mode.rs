@@ -187,7 +187,9 @@ impl Mode {
             Mode::Follow { min, max, .. } => unit(min) && unit(max),
             Mode::Set { value } | Mode::Momentary { value } => unit(value),
             Mode::Toggle { a, b } => unit(a) && unit(b),
-            Mode::Step { amount, .. } => amount != 0 && amount.abs() <= MAX_AMOUNT,
+            Mode::Step { amount, .. } => {
+                amount != 0 && (-MAX_AMOUNT..=MAX_AMOUNT).contains(&amount)
+            }
         }
     }
 

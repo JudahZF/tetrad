@@ -333,10 +333,12 @@ fn press_modes_drive_a_parameter_from_a_note() {
     note(&mut device, 60, true);
     assert_eq!(gain(&device), start);
 
-    // Momentary: held is the value, the release restores the value from before.
+    // Momentary: held is the value, the release restores the value from before, also after an
+    // edit of the list while held.
     set_mode(&mut device, &id, ModeKind::Momentary);
     note(&mut device, 60, true);
     assert_ne!(gain(&device), start);
+    send(&mut device, MappingCommand::Add(MappingScope::Preset));
     note(&mut device, 60, false);
     assert_eq!(gain(&device), start);
 
@@ -355,7 +357,10 @@ fn press_modes_drive_a_parameter_from_a_note() {
     step(&mut device, &id, FieldId::Value, -10);
     note(&mut device, 60, true);
     assert!(gain(&device) < start);
-    let row = view(&device).preset[0].clone();
+    let row = view(&device)
+        .row(MappingScope::Preset, &id)
+        .cloned()
+        .unwrap();
     assert_eq!(row.mode.unwrap().kind, ModeKind::Set);
     assert_eq!(row.fields.len(), 1);
 }

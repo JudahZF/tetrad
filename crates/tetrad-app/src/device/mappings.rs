@@ -92,6 +92,9 @@ enum StoredTrigger {
         trigger: String,
         source: String,
         label: String,
+        /// The source reports a level, as its learned firing said (`cc:` sources always do).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        continuous: bool,
     },
 }
 
@@ -277,10 +280,12 @@ impl Mappings {
             return;
         }
         self.preset_revision = Some(revision);
-        self.preset = (state.current.as_ref())
+        let preset = (state.current.as_ref())
             .and_then(|current| current.preset.unknown.bytes_field(TETRAD_MAPPINGS_FIELD))
             .and_then(|bytes| decode(&bytes, MappingScope::Preset).ok())
             .unwrap_or_default();
+        self.rekey(MappingScope::Preset, &preset);
+        self.preset = preset;
         let levels = std::mem::take(&mut self.levels);
         self.levels = (levels.into_iter())
             .filter(|(key, _)| self.mapped(key))
@@ -336,6 +341,7 @@ impl Mappings {
             trigger: fired.trigger.clone(),
             source: fired.source.clone(),
             label: fired.label.clone(),
+            continuous: fired.continuous,
         };
         let input = if fired.continuous {
             let value = (fired.value.clamp(0.0, 1.0) * 127.0).round() as u8;
@@ -405,7 +411,27 @@ impl Mappings {
         (self.preset.iter().chain(&self.global)).any(|stored| level_key(&stored.trigger) == *key)
     }
 
-    /// Runtime state of a list's rows: indexes move when the list changes.
+    /// Moves the runtime state of `scope`'s rows to their indexes in `new`, the next contents
+    /// of that list. Changed and removed rows lose theirs.
+    fn rekey(&mut self, scope: MappingScope, new: &[Stored]) {
+        let moved: Vec<Option<usize>> = (self.list(scope).iter())
+            .map(|row| new.iter().position(|other| other == row))
+            .collect();
+        for map in [&mut self.held, &mut self.set] {
+            *map = (std::mem::take(map).into_iter())
+                .filter_map(|((s, index), value)| {
+                    let index = if s == scope {
+                        (*moved.get(index)?)?
+                    } else {
+                        index
+                    };
+                    Some(((s, index), value))
+                })
+                .collect();
+        }
+    }
+
+    /// Drops the runtime state of a list's rows (another preset loaded).
     fn forget(&mut self, scope: MappingScope) {
         self.held.retain(|(s, _), _| *s != scope);
         self.set.retain(|(s, _), _| *s != scope);
@@ -829,6 +855,18 @@ impl Mappings {
         let Some((mut stored, mut effects, list)) = self.take(scope, &id, state) else {
             return Step::default();
         };
+        let same = level_key(&trigger) == level_key(&stored.trigger);
+        let mut trigger = trigger;
+        if let (
+            StoredTrigger::Extension { continuous, .. },
+            StoredTrigger::Extension {
+                continuous: was, ..
+            },
+        ) = (&mut trigger, &stored.trigger)
+            && same
+        {
+            *continuous |= *was;
+        }
         stored.trigger = trigger;
         if source(&stored.trigger) != Source::Level {
             stored.window = None;
@@ -1095,7 +1133,7 @@ impl Mappings {
     /// global file.
     fn store(&mut self, scope: MappingScope, list: Vec<Stored>) -> Step {
         self.view_stale = true;
-        self.forget(scope);
+        self.rekey(scope, &list);
         let bytes = (!list.is_empty()).then(|| encode(&list));
         match scope {
             MappingScope::Preset => {
@@ -1204,7 +1242,9 @@ fn source(trigger: &StoredTrigger) -> Source {
         StoredTrigger::Stomp { .. } | StoredTrigger::Note { .. } => Source::Press,
         StoredTrigger::Expression { .. } => Source::Pedal,
         StoredTrigger::Cc { .. } => Source::Level,
-        StoredTrigger::Extension { source, .. } if source.starts_with("cc:") => Source::Level,
+        StoredTrigger::Extension {
+            source, continuous, ..
+        } if *continuous || source.starts_with("cc:") => Source::Level,
         StoredTrigger::Extension { .. } => Source::Press,
     }
 }
@@ -1227,7 +1267,8 @@ fn target(action: &StoredAction) -> Target {
     }
 }
 
-/// The trigger without its display label: rows and CC values match on this.
+/// The trigger without its display label and kind of source: rows and CC values match on
+/// this.
 fn level_key(trigger: &StoredTrigger) -> StoredTrigger {
     match trigger {
         StoredTrigger::Extension {
@@ -1240,6 +1281,7 @@ fn level_key(trigger: &StoredTrigger) -> StoredTrigger {
             trigger: trigger.clone(),
             source: source.clone(),
             label: String::new(),
+            continuous: false,
         },
         other => other.clone(),
     }
@@ -1408,6 +1450,8 @@ fn stored_trigger(trigger: Trigger) -> StoredTrigger {
             key,
             trigger,
             source,
+            // A learned firing tells; `set_trigger` keeps what an earlier one told.
+            continuous: false,
         },
     }
 }
@@ -1642,6 +1686,7 @@ fn trigger_text(
             trigger,
             source,
             label,
+            ..
         } => {
             let declared = (extension_triggers.iter())
                 .find(|choice| &choice.key == key && &choice.trigger == trigger)
@@ -1990,7 +2035,9 @@ fn stock_rows(
     let mut rows = Vec::new();
     let mut push = |id: MappingId, trigger: StoredTrigger, action: StoredAction| {
         let mut stored = Stored::new(trigger, Some(action));
-        if let StoredTrigger::Stomp { stomp } = stored.trigger {
+        if let StoredTrigger::Stomp { stomp } = stored.trigger
+            && stock_pair(&stored)
+        {
             stored.mode = Some(stomp_mode(state, stomp));
         }
         let row = mappings.row(state, midi, &[], id, &stored, None);
@@ -2171,6 +2218,7 @@ mod tests {
             {{"trigger":{{"kind":"note","key":2}},{block},"window":{{"low":0,"high":10}}}},
             {{"trigger":{{"kind":"cc","controller":20}},{block},"window":{{"low":90,"high":10}}}},
             {{"trigger":{{"kind":"cc","controller":21}},{block},"mode":{{"kind":"set","value":1.5}}}},
+            {{"trigger":{{"kind":"stomp","stomp":3}},{block},"mode":{{"kind":"step","amount":-128}}}},
             {{"trigger":{{"kind":"cc","controller":22}},{block},
                 "mode":{{"kind":"follow","min":1,"max":0,"pickup":true}},"window":{{"low":10,"high":20}}}}
         ]}}"#
@@ -2197,5 +2245,21 @@ mod tests {
         // The old percent is never written again.
         let written = String::from_utf8(encode(&rows)).unwrap();
         assert!(!written.contains("\"value\":60"), "{written}");
+    }
+
+    /// An extension source is a level when its learned firing was continuous, whatever its
+    /// name; rows match it without that flag.
+    #[test]
+    fn extension_sources_keep_their_kind() {
+        let pedal = |continuous| StoredTrigger::Extension {
+            key: "owner/repo:x".into(),
+            trigger: "midi".into(),
+            source: "pedal:1".into(),
+            label: "Pedal".into(),
+            continuous,
+        };
+        assert_eq!(source(&pedal(true)), Source::Level);
+        assert_eq!(source(&pedal(false)), Source::Press);
+        assert_eq!(level_key(&pedal(true)), level_key(&pedal(false)));
     }
 }
