@@ -10,12 +10,14 @@ use tetrad_app::device::mappings::GLOBAL_FILE;
 use tetrad_app::device::platform::Input;
 use tetrad_app::device::{Action, Device, Event};
 use tetrad_engine::{Column, Row, Site, Slot};
+use tetrad_hal::hal::Event as HalEvent;
+use tetrad_hal::node::Element;
 use tetrad_preset::model::TETRAD_MAPPINGS_FIELD;
 use tetrad_services::fake::MemFiles;
 use tetrad_settings::controls::FootswitchMode;
 use tetrad_ui::{
-    BlockTarget, GridPosition, MappingAction, MappingCommand, MappingId, MappingScope,
-    MappingsView, MidiInput, SystemAction, Trigger,
+    BlockTarget, FieldId, GridPosition, MappingAction, MappingCommand, MappingId, MappingScope,
+    MappingsView, MidiInput, ModeChoice, ModeKind, SystemAction, Trigger,
 };
 
 /// The Light block of [`light_preset`] at column 2: GAIN is parameter 0.
@@ -73,14 +75,65 @@ fn scene(device: &Device<Sim>) -> usize {
         .index()
 }
 
-fn gain(device: &Device<Sim>) -> f32 {
-    let current = device.state().current.as_ref().unwrap();
-    let site = Site::Slot(Slot {
+fn light_site() -> Site {
+    Site::Slot(Slot {
         row: Row::new(0).unwrap(),
         column: Column::new(2).unwrap(),
-    });
-    let block = current.deployment.layout().instance(site).unwrap();
+    })
+}
+
+fn gain(device: &Device<Sim>) -> f32 {
+    let current = device.state().current.as_ref().unwrap();
+    let block = current.deployment.layout().instance(light_site()).unwrap();
     block.params[0].at(current.deployment.scene())
+}
+
+fn bypassed(device: &Device<Sim>) -> bool {
+    let current = device.state().current.as_ref().unwrap();
+    let block = current.deployment.layout().instance(light_site()).unwrap();
+    block.bypass.at(current.deployment.scene())
+}
+
+/// A new preset row: `trigger` → `action`. Answers its id.
+fn map(device: &mut Device<Sim>, trigger: Trigger, action: MappingAction) -> MappingId {
+    let scope = MappingScope::Preset;
+    let (_, id) = send(device, MappingCommand::Add(scope)).unwrap();
+    let (_, id) = send(device, MappingCommand::SetTrigger { scope, id, trigger }).unwrap();
+    send(device, MappingCommand::SetAction { scope, id, action })
+        .unwrap()
+        .1
+}
+
+fn gain_action() -> MappingAction {
+    MappingAction::Block {
+        position: light(),
+        target: BlockTarget::Parameter(0),
+    }
+}
+
+fn set_mode(device: &mut Device<Sim>, id: &MappingId, mode: ModeKind) {
+    let scope = MappingScope::Preset;
+    let id = id.clone();
+    send(device, MappingCommand::SetMode { scope, id, mode });
+    assert_eq!(view(device).notice, None);
+}
+
+fn step(device: &mut Device<Sim>, id: &MappingId, field: FieldId, ticks: i32) {
+    let scope = MappingScope::Preset;
+    let id = id.clone();
+    let command = MappingCommand::StepField {
+        scope,
+        id,
+        field,
+        ticks,
+    };
+    send(device, command);
+}
+
+/// Note `key` on the QC channel: on (velocity 100) or off.
+fn note(device: &mut Device<Sim>, key: u8, on: bool) {
+    let status = if on { 0x90 } else { 0x80 };
+    midi(device, &[status, key, if on { 100 } else { 0 }]);
 }
 
 /// The full global flow: a stock-map CC is refused, LEARN takes a free CC, the CC selects a
@@ -256,4 +309,270 @@ fn a_stomp_press_runs_its_preset_mapping() {
     settle(&mut device);
     midi(&mut device, &[0xb0, 35, 127]);
     assert_eq!(scene(&device), 3);
+}
+
+/// The press modes on a parameter, from a note: note-on presses, note-off releases.
+#[test]
+fn press_modes_drive_a_parameter_from_a_note() {
+    let (mut device, _media) = boot(media(), &MemFiles::default());
+    let id = map(
+        &mut device,
+        Trigger::Midi(MidiInput::Note(60)),
+        gain_action(),
+    );
+    let start = gain(&device);
+    assert_eq!(start, 0.5);
+
+    // Toggle: A is the value now, B the other value; the release does nothing.
+    set_mode(&mut device, &id, ModeKind::Toggle);
+    note(&mut device, 60, true);
+    let b = gain(&device);
+    assert_ne!(b, start);
+    note(&mut device, 60, false);
+    assert_eq!(gain(&device), b);
+    note(&mut device, 60, true);
+    assert_eq!(gain(&device), start);
+
+    // Momentary: held is the value, the release restores the value from before, also after an
+    // edit of the list while held.
+    set_mode(&mut device, &id, ModeKind::Momentary);
+    note(&mut device, 60, true);
+    assert_ne!(gain(&device), start);
+    send(&mut device, MappingCommand::Add(MappingScope::Preset));
+    note(&mut device, 60, false);
+    assert_eq!(gain(&device), start);
+
+    // Step: +3 steps per press, then -3.
+    set_mode(&mut device, &id, ModeKind::Step);
+    step(&mut device, &id, FieldId::Amount, 2);
+    note(&mut device, 60, true);
+    let up = gain(&device);
+    assert!(up > start, "{up}");
+    step(&mut device, &id, FieldId::Amount, -6);
+    note(&mut device, 60, true);
+    assert!((gain(&device) - start).abs() < 1e-4);
+
+    // Set: the stepper moves the value; each press sets it.
+    set_mode(&mut device, &id, ModeKind::Set);
+    step(&mut device, &id, FieldId::Value, -10);
+    note(&mut device, 60, true);
+    assert!(gain(&device) < start);
+    let row = view(&device)
+        .row(MappingScope::Preset, &id)
+        .cloned()
+        .unwrap();
+    assert_eq!(row.mode.unwrap().kind, ModeKind::Set);
+    assert_eq!(row.fields.len(), 1);
+}
+
+/// A CC in Follow maps its window, in Relative steps the value, and with Pickup waits until it
+/// reaches the value.
+#[test]
+fn cc_modes_follow_relative_and_pickup() {
+    let (mut device, _media) = boot(media(), &MemFiles::default());
+    let id = map(&mut device, Trigger::Midi(MidiInput::Cc(22)), gain_action());
+
+    // Follow with the window 10..=110: below Low is the minimum, above High the maximum.
+    step(&mut device, &id, FieldId::Low, 10);
+    step(&mut device, &id, FieldId::High, -17);
+    midi(&mut device, &[0xb0, 22, 5]);
+    assert_eq!(gain(&device), 0.0);
+    midi(&mut device, &[0xb0, 22, 60]);
+    assert!((gain(&device) - 0.5).abs() < 0.01);
+    midi(&mut device, &[0xb0, 22, 120]);
+    assert_eq!(gain(&device), 1.0);
+    let response = view(&device).preset[0].response.clone().unwrap();
+    assert_eq!(
+        (response.low, response.high, response.level),
+        (10, 110, Some(120))
+    );
+
+    // Pickup: after a touch edit to 0.5 the knob at 110 (= 1.0) waits; it catches when it moves
+    // across 0.5, then follows.
+    step(&mut device, &id, FieldId::Pickup, 1);
+    let touch = Action::SetParameter {
+        site: light_site(),
+        index: 0,
+        value: 0.5,
+    };
+    device.push(Event::Action(touch));
+    settle(&mut device);
+    midi(&mut device, &[0xb0, 22, 100]);
+    assert_eq!(gain(&device), 0.5, "not caught yet");
+    assert!(view(&device).preset[0].response.as_ref().unwrap().waiting);
+    midi(&mut device, &[0xb0, 22, 40]);
+    assert!(
+        (gain(&device) - 0.3).abs() < 0.01,
+        "caught on the way across"
+    );
+    midi(&mut device, &[0xb0, 22, 90]);
+    assert!((gain(&device) - 0.8).abs() < 0.01);
+
+    // Relative, two's complement: 1 is one step up, 127 one step down.
+    set_mode(&mut device, &id, ModeKind::Relative);
+    let before = gain(&device);
+    midi(&mut device, &[0xb0, 22, 1]);
+    let up = gain(&device);
+    assert!(up > before);
+    midi(&mut device, &[0xb0, 22, 127]);
+    assert!((gain(&device) - before).abs() < 1e-4);
+    assert!(
+        view(&device).preset[0].response.is_none(),
+        "Relative has no window"
+    );
+}
+
+/// A CC window turns a CC into a button (a repeated value presses again, a knob inside the
+/// window presses once), and rows with windows side by side map CC values to set values.
+#[test]
+fn cc_windows_make_buttons_and_value_maps() {
+    let (mut device, _media) = boot(media(), &MemFiles::default());
+    let bypass = MappingAction::Block {
+        position: light(),
+        target: BlockTarget::Bypass,
+    };
+    let id = map(&mut device, Trigger::Midi(MidiInput::Cc(23)), bypass);
+    set_mode(&mut device, &id, ModeKind::Toggle);
+    assert!(!bypassed(&device));
+    midi(&mut device, &[0xb0, 23, 127]);
+    assert!(bypassed(&device));
+    midi(&mut device, &[0xb0, 23, 127]);
+    assert!(!bypassed(&device), "a repeat presses again");
+    midi(&mut device, &[0xb0, 23, 0]);
+    midi(&mut device, &[0xb0, 23, 70]);
+    assert!(bypassed(&device));
+    midi(&mut device, &[0xb0, 23, 90]);
+    assert!(bypassed(&device), "a knob inside the window presses once");
+
+    // CC 24: 0..=42 sets less gain, 43..=85 the gain now, 86..=127 more.
+    let windows = [(-64, -85, -20), (-21, -42, 0), (22, 0, 20)];
+    for (low, high, value) in windows {
+        let id = map(&mut device, Trigger::Midi(MidiInput::Cc(24)), gain_action());
+        set_mode(&mut device, &id, ModeKind::Set);
+        step(&mut device, &id, FieldId::Low, low);
+        step(&mut device, &id, FieldId::High, high);
+        step(&mut device, &id, FieldId::Value, value);
+    }
+    let summaries: Vec<String> = (view(&device).preset.iter())
+        .map(|row| row.summary.clone())
+        .filter(|summary| summary.contains("CC "))
+        .collect();
+    assert!(summaries[1].ends_with("CC 0–42"), "{summaries:?}");
+    let start = gain(&device);
+    midi(&mut device, &[0xb0, 24, 64]);
+    assert_eq!(gain(&device), start);
+    midi(&mut device, &[0xb0, 24, 0]);
+    assert!(gain(&device) < start);
+    midi(&mut device, &[0xb0, 24, 127]);
+    assert!(gain(&device) > start);
+}
+
+/// A footswitch release reaches a Tetrad mapping (Momentary restores), and on a stock Stomp →
+/// bypass row Momentary is the footswitch's stock momentary flag.
+#[test]
+fn footswitch_releases_and_the_stock_momentary_flag() {
+    let (mut device, _media) = boot(media(), &MemFiles::default());
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+    let scope = MappingScope::Preset;
+    let id = map(&mut device, Trigger::Stomp(1), gain_action());
+    set_mode(&mut device, &id, ModeKind::Momentary);
+    let switch_b = Element::all().nth(1).unwrap();
+    let start = gain(&device);
+    device.push(Event::Hal(HalEvent::Stomp {
+        element: switch_b,
+        value: 1,
+    }));
+    settle(&mut device);
+    assert_ne!(gain(&device), start, "held");
+    device.push(Event::Hal(HalEvent::Stomp {
+        element: switch_b,
+        value: 0,
+    }));
+    settle(&mut device);
+    assert_eq!(gain(&device), start, "released");
+
+    // A press that also leaves Stomp mode still releases its Momentary.
+    let leave = MappingAction::System(SystemAction::Mode(ModeChoice::Scene));
+    let mode_row = map(&mut device, Trigger::Stomp(1), leave);
+    device.push(Event::Hal(HalEvent::Stomp {
+        element: switch_b,
+        value: 1,
+    }));
+    settle(&mut device);
+    assert_ne!(gain(&device), start, "held");
+    device.push(Event::Hal(HalEvent::Stomp {
+        element: switch_b,
+        value: 0,
+    }));
+    settle(&mut device);
+    assert_eq!(gain(&device), start, "released in Scene mode");
+    send(
+        &mut device,
+        MappingCommand::Remove {
+            scope,
+            id: mode_row,
+        },
+    );
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+
+    let bypass = MappingAction::Block {
+        position: light(),
+        target: BlockTarget::Bypass,
+    };
+    let stock = map(&mut device, Trigger::Stomp(0), bypass);
+    assert!(matches!(stock, MappingId::Stomp { stomp: 0, .. }));
+    let momentary = |device: &Device<Sim>| {
+        let preset = &device.state().current.as_ref().unwrap().preset;
+        preset.stomp_is_momentary.get(0).copied().unwrap_or(false)
+    };
+    set_mode(&mut device, &stock, ModeKind::Momentary);
+    assert!(momentary(&device));
+    let row = view(&device).row(scope, &stock).cloned().unwrap();
+    assert_eq!(row.mode.unwrap().kind, ModeKind::Momentary);
+
+    // A new trigger takes the stock Momentary along: a note holds the bypass while down.
+    let note_trigger = Trigger::Midi(MidiInput::Note(61));
+    let command = MappingCommand::SetTrigger {
+        scope,
+        id: stock.clone(),
+        trigger: note_trigger,
+    };
+    let (_, moved) = send(&mut device, command).unwrap();
+    let row = view(&device).row(scope, &moved).cloned().unwrap();
+    assert_eq!(row.mode.unwrap().kind, ModeKind::Momentary);
+    let engaged = !bypassed(&device);
+    note(&mut device, 61, true);
+    assert_eq!(bypassed(&device), engaged);
+    note(&mut device, 61, false);
+    assert_eq!(bypassed(&device), !engaged);
+    let command = MappingCommand::SetTrigger {
+        scope,
+        id: moved,
+        trigger: Trigger::Stomp(0),
+    };
+    let (_, stock) = send(&mut device, command).unwrap();
+    assert!(
+        matches!(stock, MappingId::Stomp { stomp: 0, .. }),
+        "{stock:?}"
+    );
+
+    // Set is not stock data: the row moves to the Tetrad list.
+    set_mode(&mut device, &stock, ModeKind::Set);
+    let (_, moved) = view(&device).focus.unwrap();
+    assert!(matches!(moved, MappingId::Tetrad(_)), "{moved:?}");
+    let preset = &device.state().current.as_ref().unwrap().preset;
+    assert!(preset.stomp_mode_assignments.is_empty());
+
+    // Toggle takes it back to stock data and clears the flag; Momentary sets it again.
+    set_mode(&mut device, &moved, ModeKind::Toggle);
+    let (_, back) = view(&device).focus.unwrap();
+    assert!(
+        matches!(back, MappingId::Stomp { stomp: 0, .. }),
+        "{back:?}"
+    );
+    assert!(!momentary(&device));
+    set_mode(&mut device, &back, ModeKind::Momentary);
+    assert!(momentary(&device));
 }

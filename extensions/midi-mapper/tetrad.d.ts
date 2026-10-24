@@ -1,4 +1,4 @@
-// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 2.
+// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 3.
 //
 // Types only. The runner provides every value at run time and has no module loader, so
 // import with `import type { ... } from "@tetrad/extensions"` and bundle to one ES module
@@ -102,6 +102,11 @@ export type TriggerFiring = {
   readonly value: number;
   /** `true` for a continuous source (a CC); `false` for a press (a note, a PC). */
   readonly continuous: boolean;
+  /**
+   * A press source only: `true` (the default) for a press, `false` for its release (a note-off).
+   * Momentary mappings hold their value until the release.
+   */
+  readonly pressed?: boolean;
 };
 
 /** An asset file the user chose for a generated block, as UTF-8 text. */

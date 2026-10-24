@@ -311,7 +311,8 @@ fn every_screen_has_disjoint_in_frame_touch_targets() {
     states.push(open(&|ui| {
         extensions(ui, Some(ExtensionControl::Sources), true)
     }));
-    // Mappings list, a detail page with its stepper and LEARN, and the action menu levels.
+    // Mappings list, a detail page with its steppers and LEARN, the Values page and the action
+    // menu levels.
     let mappings = |ui: &mut UiState, controls: &[MappingControl]| {
         let snapshot = UiSnapshot {
             mappings: crate::screens::mappings::tests::sample(),
@@ -326,6 +327,9 @@ fn every_screen_has_disjoint_in_frame_touch_targets() {
     states.push(open(&|ui| mappings(ui, &[])));
     states.push(open(&|ui| mappings(ui, &[MappingControl::Open(2)])));
     states.push(open(&|ui| mappings(ui, &[MappingControl::Open(3)])));
+    states.push(open(&|ui| {
+        mappings(ui, &[MappingControl::Open(2), MappingControl::Values])
+    }));
     states.push(open(&|ui| {
         mappings(ui, &[MappingControl::Open(1), MappingControl::Actions])
     }));

@@ -54,6 +54,19 @@
       }
     },
     {
+      "id": "tetrad.midi-mapper",
+      "name": "MIDI Mapper",
+      "version": "0.3.0",
+      "description": "Sends MIDI CCs, notes and program changes on one channel to Mappings as triggers. Choose what each one does on the Mappings page.",
+      "api": 3,
+      "asset": {
+        "tag": "extensions-2026-10-24.2",
+        "name": "tetrad.midi-mapper-0.3.0.tetradext",
+        "size": 2215,
+        "sha256": "e62c7f7813552d9384fc4033c04848125ee804b9534539d5c1972f19980d867a"
+      }
+    },
+    {
       "id": "tetrad.nam",
       "name": "Neural Amp Modeler",
       "version": "0.1.0",

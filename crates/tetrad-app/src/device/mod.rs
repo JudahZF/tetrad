@@ -321,9 +321,12 @@ pub enum Effect {
     ExtensionMidi(tetrad_midi::MidiMessage),
     /// A native-channel message the stock MIDI map gives no job (`mappings::Mappings::on_midi`).
     MappingMidi(tetrad_midi::MidiMessage),
-    /// A Stomp-mode footswitch press, 0..=7, for the preset's mappings
+    /// A Stomp-mode footswitch press or release, 0..=7, for the preset's mappings
     /// (`mappings::Mappings::on_stomp`).
-    MappingStomp(u8),
+    MappingStomp {
+        stomp: u8,
+        pressed: bool,
+    },
     /// MIDI output an extension sent, through the controller's transmit path.
     ExtensionMidiOut(tetrad_midi::MidiMessage),
     /// Input for the UI bridge: screens, knob steps, footswitch edges, the power button.
@@ -2407,9 +2410,9 @@ impl<P: Platform> Device<P> {
                 self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }
-            Effect::MappingStomp(stomp) => {
+            Effect::MappingStomp { stomp, pressed } => {
                 let effects =
-                    (self.bridges.mappings).on_stomp(stomp, &self.state, self.clock.now());
+                    (self.bridges.mappings).on_stomp(stomp, pressed, &self.state, self.clock.now());
                 self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }

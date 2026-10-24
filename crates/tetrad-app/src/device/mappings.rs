@@ -10,7 +10,14 @@
 //! System actions run through the same device actions as the stock MIDI map (CC#43 scenes,
 //! CC#45 tuner, …). Block actions are extension-style edits: stored, not reported back to the
 //! extensions as touch edits.
+//!
+//! Each row has a value mode (`mode`): Set, Toggle, Momentary, Step, Follow, Relative or On
+//! press. A row without a stored mode uses the first mode its trigger and action allow, which
+//! is the behaviour from before modes.
 
+mod mode;
+
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -21,12 +28,14 @@ use tetrad_preset::StompRole;
 use tetrad_preset::model::TETRAD_MAPPINGS_FIELD;
 use tetrad_settings::controls::FootswitchMode;
 use tetrad_ui::{
-    BlockTarget, ExtensionTriggerChoice, Footswitch, GridPosition, LooperButton, MappingAction,
-    MappingBlock, MappingCommand, MappingId, MappingParameter, MappingRow, MappingScope,
-    MappingsView, MidiInput, MidiMessageKind, MidiOutMessage, MidiOutTarget, ModeChoice,
-    PresetMidiView, Screen, SystemAction, Trigger,
+    BlockTarget, ExtensionTriggerChoice, FieldId, Footswitch, GridPosition, LooperButton,
+    MappingAction, MappingBlock, MappingCommand, MappingId, MappingParameter, MappingRow,
+    MappingScope, MappingsView, MidiInput, MidiMessageKind, MidiOutMessage, MidiOutTarget,
+    ModeChoice, ModeKind, ModeView, PresetMidiView, ResponseView, Screen, SystemAction, Trigger,
+    ValueField,
 };
 
+use self::mode::{Input, Mode, Param, Source, Target, Window};
 use super::extensions::FiredTrigger;
 use super::preset::PresetEdit;
 use super::{Action, Effect, PresetRef, State};
@@ -38,7 +47,10 @@ const MAX_MAPPINGS: usize = 128;
 /// Mappings one trigger runs at most, so a crafted list cannot make one MIDI message cost
 /// hundreds of preset edits.
 const MAX_RUN: usize = 8;
+/// Format 1 also covers `mode` and `window`: an older Tetrad ignores them.
 const FORMAT: u32 = 1;
+/// A CC refreshes the view (the Values page graph) at most this often.
+const LEVEL_VIEW_INTERVAL: Duration = Duration::from_millis(50);
 
 /// One Tetrad mapping as stored (JSON, [`StoredList`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,12 +59,19 @@ struct Stored {
     trigger: StoredTrigger,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     action: Option<StoredAction>,
-    /// The one-shot value of a parameter action, in percent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Read only: the percent of a one-shot parameter action from before modes, which
+    /// [`decode`] turns into [`Mode::Set`].
+    #[serde(default, skip_serializing)]
     value: Option<u8>,
+    /// `None`: the default mode of the trigger and action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode: Option<Mode>,
+    /// CC triggers only; `None`: the mode's default window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    window: Option<Window>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum StoredTrigger {
     PresetLoaded,
@@ -73,6 +92,9 @@ enum StoredTrigger {
         trigger: String,
         source: String,
         label: String,
+        /// The source reports a level, as its learned firing said (`cc:` sources always do).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        continuous: bool,
     },
 }
 
@@ -161,28 +183,46 @@ fn decode(bytes: &[u8], scope: MappingScope) -> Result<Vec<Stored>, String> {
     if list.mappings.len() > MAX_MAPPINGS {
         return Err(format!("more than {MAX_MAPPINGS} mappings"));
     }
-    list.mappings.retain(|stored| {
+    list.mappings.retain_mut(|stored| {
+        if let Some(percent) = stored.value.take() {
+            if percent > 100 {
+                return false;
+            }
+            stored.mode = stored.mode.or(Some(Mode::Set {
+                value: f32::from(percent) / 100.0,
+            }));
+        }
         trigger_allowed(scope, &stored.trigger).is_ok()
             && (stored.action.as_ref())
                 .is_none_or(|action| action_allowed(scope, &stored.trigger, action).is_ok())
-            && stored.value.is_none_or(|value| value <= 100)
+            && mode_allowed(stored).is_ok()
     });
     Ok(list.mappings)
 }
 
-/// How a trigger reports.
+/// A row of one list, for the runtime state of its mode.
+type RowKey = (MappingScope, usize);
+
+/// One input for one row, with the row's mode and CC window.
 #[derive(Debug, Clone, Copy)]
-struct Input {
-    /// 0..=1.
-    value: f32,
-    /// A CC or an extension's continuous source; otherwise a press.
-    continuous: bool,
+struct Drive {
+    key: RowKey,
+    mode: Mode,
+    window: Window,
+    input: Input,
 }
 
-const PRESS: Input = Input {
-    value: 1.0,
-    continuous: false,
-};
+impl Stored {
+    fn new(trigger: StoredTrigger, action: Option<StoredAction>) -> Stored {
+        Stored {
+            trigger,
+            action,
+            value: None,
+            mode: None,
+            window: None,
+        }
+    }
+}
 
 /// Work for the device after a call.
 #[derive(Debug, Default)]
@@ -202,6 +242,14 @@ pub struct Mappings {
     learning: Option<(MappingScope, MappingId)>,
     notice: Option<String>,
     last_tap: Option<Duration>,
+    /// The last value of each CC trigger (extension labels left out): window edges, Pickup and
+    /// the Values page graph.
+    levels: HashMap<StoredTrigger, u8>,
+    /// Momentary: the target's value from before the press, while held.
+    held: HashMap<RowKey, f32>,
+    /// The last value each parameter row set: Pickup has caught while the parameter keeps it.
+    set: HashMap<RowKey, f32>,
+    level_view: Option<Duration>,
     /// The global file was read (at the first preset load).
     pub(in crate::device) loaded: bool,
     /// Set by every step that reaches this bridge; the view is built again only then or when
@@ -232,10 +280,16 @@ impl Mappings {
             return;
         }
         self.preset_revision = Some(revision);
-        self.preset = (state.current.as_ref())
+        let preset = (state.current.as_ref())
             .and_then(|current| current.preset.unknown.bytes_field(TETRAD_MAPPINGS_FIELD))
             .and_then(|bytes| decode(&bytes, MappingScope::Preset).ok())
             .unwrap_or_default();
+        self.rekey(MappingScope::Preset, &preset);
+        self.preset = preset;
+        let levels = std::mem::take(&mut self.levels);
+        self.levels = (levels.into_iter())
+            .filter(|(key, _)| self.mapped(key))
+            .collect();
     }
 
     fn list(&self, scope: MappingScope) -> &Vec<Stored> {
@@ -257,19 +311,24 @@ impl Mappings {
                 StoredTrigger::Cc {
                     controller: controller.get(),
                 },
-                Input {
-                    value: f32::from(value.get()) / 127.0,
-                    continuous: true,
-                },
+                Some(value.get()),
             ),
-            MidiMessage::NoteOn { key, velocity, .. } if velocity.get() > 0 => (
-                StoredTrigger::Note { key: key.get() },
-                Input {
-                    value: f32::from(velocity.get()) / 127.0,
-                    continuous: false,
-                },
-            ),
+            MidiMessage::NoteOn { key, velocity, .. } if velocity.get() > 0 => {
+                (StoredTrigger::Note { key: key.get() }, None)
+            }
+            MidiMessage::NoteOn { key, .. } | MidiMessage::NoteOff { key, .. } => {
+                return self.fire(
+                    StoredTrigger::Note { key: key.get() },
+                    Input::Release,
+                    state,
+                    now,
+                );
+            }
             _ => return Step::default(),
+        };
+        let input = match input {
+            Some(value) => self.level(&trigger, value, now),
+            None => Input::Press,
         };
         self.fire(trigger, input, state, now)
     }
@@ -282,44 +341,141 @@ impl Mappings {
             trigger: fired.trigger.clone(),
             source: fired.source.clone(),
             label: fired.label.clone(),
-        };
-        let input = Input {
-            value: fired.value.clamp(0.0, 1.0),
             continuous: fired.continuous,
         };
-        self.fire(trigger, input, state, now)
+        let mut learned = Step::default();
+        let input = if fired.continuous {
+            learned = self.learn_level(&trigger);
+            let value = (fired.value.clamp(0.0, 1.0) * 127.0).round() as u8;
+            self.level(&trigger, value, now)
+        } else if fired.pressed {
+            Input::Press
+        } else {
+            Input::Release
+        };
+        let mut step = self.fire(trigger, input, state, now);
+        step.effects.splice(0..0, learned.effects);
+        step.save_global = step.save_global.or(learned.save_global);
+        step
     }
 
-    /// A Stomp-mode footswitch press, 0..=7. Stock assignments toggle their blocks as before.
-    pub fn on_stomp(&mut self, stomp: u8, state: &State, now: Duration) -> Vec<Effect> {
+    /// Rows of a continuous extension source that were learned without the `continuous` flag
+    /// (before it was stored) get it from the first firing that reports a level.
+    fn learn_level(&mut self, trigger: &StoredTrigger) -> Step {
+        let key = level_key(trigger);
+        let mut step = Step::default();
+        for scope in [MappingScope::Preset, MappingScope::Global] {
+            let mut list = self.list(scope).clone();
+            let mut changed = false;
+            for stored in &mut list {
+                let press = source(&stored.trigger) == Source::Press;
+                if press
+                    && level_key(&stored.trigger) == key
+                    && let StoredTrigger::Extension { continuous, .. } = &mut stored.trigger
+                {
+                    *continuous = true;
+                    changed = true;
+                }
+            }
+            if changed {
+                let mut stored = self.store(scope, list);
+                step.effects.append(&mut stored.effects);
+                step.save_global = step.save_global.or(stored.save_global);
+            }
+        }
+        step
+    }
+
+    /// A Stomp-mode footswitch press or release, 0..=7. Stock assignments toggle their blocks
+    /// as before.
+    pub fn on_stomp(
+        &mut self,
+        stomp: u8,
+        pressed: bool,
+        state: &State,
+        now: Duration,
+    ) -> Vec<Effect> {
         self.sync(state);
-        self.run_matching(
-            MappingScope::Preset,
-            &StoredTrigger::Stomp { stomp },
-            PRESS,
-            state,
-            now,
-        )
+        let input = if pressed {
+            Input::Press
+        } else {
+            Input::Release
+        };
+        let trigger = StoredTrigger::Stomp { stomp };
+        self.run_matching(MappingScope::Preset, &trigger, input, state, now)
     }
 
-    /// The preset finished loading.
+    /// The preset finished loading. Held and set values of the old preset's rows go.
     pub fn on_preset_loaded(&mut self, state: &State, now: Duration) -> Vec<Effect> {
         self.sync(state);
         self.view_stale = true;
         self.learning = None;
+        self.forget(MappingScope::Preset);
         self.run_matching(
             MappingScope::Preset,
             &StoredTrigger::PresetLoaded,
-            PRESS,
+            Input::Press,
             state,
             now,
         )
     }
 
+    /// Records the value of a mapped CC; the view follows at most every
+    /// [`LEVEL_VIEW_INTERVAL`]. Unmapped CCs are not kept, so an extension cannot grow the map.
+    fn level(&mut self, trigger: &StoredTrigger, value: u8, now: Duration) -> Input {
+        let key = level_key(trigger);
+        if !self.mapped(&key) {
+            return Input::Level {
+                value,
+                previous: None,
+            };
+        }
+        let previous = self.levels.insert(key, value);
+        if (self.level_view).is_none_or(|last| now.saturating_sub(last) >= LEVEL_VIEW_INTERVAL) {
+            self.level_view = Some(now);
+            self.view_stale = true;
+        }
+        Input::Level { value, previous }
+    }
+
+    /// A row of either list has this trigger (a [`level_key`]).
+    fn mapped(&self, key: &StoredTrigger) -> bool {
+        (self.preset.iter().chain(&self.global)).any(|stored| level_key(&stored.trigger) == *key)
+    }
+
+    /// Moves the runtime state of `scope`'s rows to their indexes in `new`, the next contents
+    /// of that list. Changed and removed rows lose theirs.
+    fn rekey(&mut self, scope: MappingScope, new: &[Stored]) {
+        let moved: Vec<Option<usize>> = (self.list(scope).iter())
+            .map(|row| new.iter().position(|other| other == row))
+            .collect();
+        for map in [&mut self.held, &mut self.set] {
+            *map = (std::mem::take(map).into_iter())
+                .filter_map(|((s, index), value)| {
+                    let index = if s == scope {
+                        (*moved.get(index)?)?
+                    } else {
+                        index
+                    };
+                    Some(((s, index), value))
+                })
+                .collect();
+        }
+    }
+
+    /// Drops the runtime state of a list's rows (another preset loaded).
+    fn forget(&mut self, scope: MappingScope) {
+        self.held.retain(|(s, _), _| *s != scope);
+        self.set.retain(|(s, _), _| *s != scope);
+    }
+
     /// LEARN takes the message (a native or an extension source becomes the row's trigger);
-    /// else the preset's mappings for it run, or the global ones when the preset has none.
+    /// else the preset's mappings for it run, or the global ones when the preset has none. A
+    /// release never learns: letting go of a learned note must not learn again.
     fn fire(&mut self, trigger: StoredTrigger, input: Input, state: &State, now: Duration) -> Step {
-        if let Some((scope, id)) = self.learning.take() {
+        if input != Input::Release
+            && let Some((scope, id)) = self.learning.take()
+        {
             return self.set_trigger(scope, id, trigger, state);
         }
         let scope = if self.matching(MappingScope::Preset, &trigger).is_empty() {
@@ -333,27 +489,12 @@ impl Mappings {
         }
     }
 
-    fn matching(&self, scope: MappingScope, trigger: &StoredTrigger) -> Vec<Stored> {
-        let same = |stored: &StoredTrigger| match (stored, trigger) {
-            (
-                StoredTrigger::Extension {
-                    key,
-                    trigger,
-                    source,
-                    ..
-                },
-                StoredTrigger::Extension {
-                    key: k,
-                    trigger: t,
-                    source: s,
-                    ..
-                },
-            ) => key == k && trigger == t && source == s,
-            (a, b) => a == b,
-        };
-        (self.list(scope).iter())
-            .filter(|stored| same(&stored.trigger))
-            .cloned()
+    /// The rows of `scope` for `trigger`, with their indexes.
+    fn matching(&self, scope: MappingScope, trigger: &StoredTrigger) -> Vec<(usize, Stored)> {
+        let key = level_key(trigger);
+        (self.list(scope).iter().enumerate())
+            .filter(|(_, stored)| level_key(&stored.trigger) == key)
+            .map(|(index, stored)| (index, stored.clone()))
             .collect()
     }
 
@@ -367,48 +508,189 @@ impl Mappings {
     ) -> Vec<Effect> {
         (self.matching(scope, trigger).iter())
             .take(MAX_RUN)
-            .flat_map(|stored| self.run(stored, input, state, now))
+            .flat_map(|(index, stored)| self.run((scope, *index), stored, input, state, now))
             .collect()
     }
 
     // ---- actions --------------------------------------------------------------------------
 
-    fn run(&mut self, stored: &Stored, input: Input, state: &State, now: Duration) -> Vec<Effect> {
-        match &stored.action {
-            Some(StoredAction::System { action }) => (self.system(*action, input, state, now))
+    fn run(
+        &mut self,
+        key: RowKey,
+        stored: &Stored,
+        input: Input,
+        state: &State,
+        now: Duration,
+    ) -> Vec<Effect> {
+        let Some(action) = &stored.action else {
+            return Vec::new();
+        };
+        let target = target(action);
+        let mode = effective_mode(stored);
+        let window = stored.window.unwrap_or(mode.default_window(target));
+        // Follow and Relative read the CC value; the other modes read presses inside the window.
+        let input = match (input, mode) {
+            (Input::Level { .. }, Mode::Follow { .. } | Mode::Relative { .. }) => input,
+            (Input::Level { value, previous }, _) => match mode::edge(value, previous, window) {
+                Some(input) => input,
+                None => return Vec::new(),
+            },
+            _ => input,
+        };
+        let drive = Drive {
+            key,
+            mode,
+            window,
+            input,
+        };
+        match action {
+            StoredAction::System { action } => (self.system(drive, *action, state, now))
                 .into_iter()
                 .map(Effect::Action)
                 .collect(),
-            Some(StoredAction::Block {
+            StoredAction::Block {
                 row,
                 column,
                 model,
                 target,
-            }) => block_action(state, *row, *column, *model, *target, stored.value, input)
+            } => (self.block(drive, state, (*row, *column, *model), *target))
                 .map(Effect::ExtensionAction)
                 .into_iter()
                 .collect(),
             // The stock Preset MIDI Out runtime sends the lists.
-            Some(StoredAction::SendMidi) | None => Vec::new(),
+            StoredAction::SendMidi => Vec::new(),
+        }
+    }
+
+    /// The next state of a switch that is `on` now, or `None` when it stays.
+    fn switch(&mut self, drive: Drive, on: bool) -> Option<bool> {
+        let Drive {
+            key,
+            mode,
+            window,
+            input,
+        } = drive;
+        let next = match (input, mode) {
+            (Input::Level { value, .. }, _) => window.contains(value),
+            (Input::Press, Mode::Set { value }) => value >= 0.5,
+            (Input::Press, Mode::Follow { .. }) => true,
+            (Input::Press, Mode::Momentary { .. }) => {
+                if self.held.contains_key(&key) {
+                    return None;
+                }
+                self.held.insert(key, f32::from(u8::from(on)));
+                !on
+            }
+            (Input::Press, _) => !on,
+            (Input::Release, Mode::Momentary { .. }) => self.held.remove(&key)? >= 0.5,
+            (Input::Release, Mode::Follow { .. }) => false,
+            (Input::Release, _) => return None,
+        };
+        (next != on).then_some(next)
+    }
+
+    /// The next value of a parameter, or `None` when it stays.
+    fn parameter(&mut self, drive: Drive, param: &Param) -> Option<f32> {
+        let Drive {
+            key,
+            mode,
+            window,
+            input,
+        } = drive;
+        let current = param.current;
+        let next = match (input, mode) {
+            (Input::Level { value, previous }, Mode::Follow { min, max, pickup }) => {
+                let next = mode::follow(value, window, min, max);
+                if pickup && !self.caught(key, param) {
+                    // Catch when the knob reaches the value, or moves across it.
+                    let before = previous.map(|p| mode::follow(p, window, min, max));
+                    let crossed =
+                        before.is_some_and(|before| (before - current) * (next - current) <= 0.0);
+                    if !crossed && !param.within_step(next, current) {
+                        return None;
+                    }
+                }
+                next
+            }
+            (Input::Level { value, .. }, Mode::Relative { encoding }) => {
+                // One parameter step per tick, without the hardware encoder's acceleration.
+                match i8::try_from(mode::ticks(encoding, value)) {
+                    Ok(0) | Err(_) => return None,
+                    Ok(ticks) => param.stepped(current, ticks, false),
+                }
+            }
+            (Input::Press, Mode::Set { value }) => value,
+            (Input::Press, Mode::Follow { max, .. }) => max,
+            (Input::Release, Mode::Follow { min, .. }) => min,
+            (Input::Press, Mode::Toggle { a, b }) => {
+                if param.near(current, a) {
+                    b
+                } else {
+                    a
+                }
+            }
+            (Input::Press, Mode::Momentary { value }) => {
+                if self.held.contains_key(&key) {
+                    return None;
+                }
+                self.held.insert(key, current);
+                value
+            }
+            (Input::Release, Mode::Momentary { .. }) => self.held.remove(&key)?,
+            (Input::Press, Mode::Step { amount, wrap }) => param.stepped(current, amount, wrap),
+            _ => return None,
+        }
+        .clamp(0.0, 1.0);
+        self.set.insert(key, next);
+        ((next - current).abs() > f32::EPSILON).then_some(next)
+    }
+
+    /// Pickup has caught: the parameter still has the value this row set last.
+    fn caught(&self, key: RowKey, param: &Param) -> bool {
+        (self.set.get(&key)).is_some_and(|set| param.near(*set, param.current))
+    }
+
+    /// A block action for one input, or `None` when the block is gone or replaced, or the
+    /// target stays as it is.
+    fn block(
+        &mut self,
+        drive: Drive,
+        state: &State,
+        (row, column, model): (u8, u8, u32),
+        target: StoredTarget,
+    ) -> Option<Action> {
+        let current = state.current.as_ref()?;
+        let slot = engine_slot(position(row, column)?)?;
+        let site = Site::Slot(slot);
+        let instance = current.deployment.layout().instance(site)?;
+        if instance.model.0 != model {
+            return None;
+        }
+        let scene = current.deployment.scene();
+        match target {
+            StoredTarget::Bypass => {
+                let engaged = !instance.bypass.at(scene);
+                let next = self.switch(drive, engaged)?;
+                Some(Action::SetBypass {
+                    site,
+                    bypassed: !next,
+                })
+            }
+            StoredTarget::Parameter { index } => {
+                let param = param_at(state, slot, model, index)?;
+                let value = self.parameter(drive, &param)?;
+                Some(Action::SetParameter { site, index, value })
+            }
         }
     }
 
     fn system(
         &mut self,
+        drive: Drive,
         action: SystemAction,
-        input: Input,
         state: &State,
         now: Duration,
     ) -> Vec<Action> {
-        // One-shot actions run on a press, or on a CC at 64 or more.
-        let on = !input.continuous || input.value >= 0.5;
-        let shown = |screen: Screen| {
-            if input.continuous {
-                input.value >= 0.5
-            } else {
-                state.screen != screen
-            }
-        };
         let scene = |step: i32| {
             let current = state.current.as_ref()?.deployment.scene().index();
             SceneIndex::new((current as i32 + step).rem_euclid(8) as u8).ok()
@@ -425,22 +707,37 @@ impl Mappings {
             })
         };
         match action {
-            SystemAction::Tuner => vec![Action::ShowTuner(shown(Screen::Tuner))],
-            SystemAction::GigView => vec![Action::ShowGigView(shown(Screen::Gig))],
+            SystemAction::Tuner => (self.switch(drive, state.screen == Screen::Tuner))
+                .map(Action::ShowTuner)
+                .into_iter()
+                .collect(),
+            SystemAction::GigView => (self.switch(drive, state.screen == Screen::Gig))
+                .map(Action::ShowGigView)
+                .into_iter()
+                .collect(),
             SystemAction::Looper(button) => {
                 let button = looper_button(button);
-                if input.continuous {
-                    vec![Action::Looper {
-                        button,
-                        pressed: input.value >= 0.5,
-                    }]
-                } else {
-                    [true, false]
-                        .map(|pressed| Action::Looper { button, pressed })
-                        .into()
+                let press = |pressed| Action::Looper { button, pressed };
+                // Momentary holds the button from the press to the release; presses between
+                // do nothing, as for every Momentary.
+                match (drive.input, drive.mode) {
+                    (Input::Press, Mode::Momentary { .. }) => {
+                        match self.held.insert(drive.key, 1.0) {
+                            Some(_) => Vec::new(),
+                            None => vec![press(true)],
+                        }
+                    }
+                    (Input::Release, Mode::Momentary { .. }) => {
+                        match self.held.remove(&drive.key) {
+                            Some(_) => vec![press(false)],
+                            None => Vec::new(),
+                        }
+                    }
+                    (Input::Press, _) => vec![press(true), press(false)],
+                    _ => Vec::new(),
                 }
             }
-            _ if !on => Vec::new(),
+            _ if drive.input != Input::Press => Vec::new(),
             SystemAction::NextPreset => preset(1).into_iter().collect(),
             SystemAction::PreviousPreset => preset(-1).into_iter().collect(),
             SystemAction::Scene(index) => (SceneIndex::new(index).ok())
@@ -484,20 +781,13 @@ impl Mappings {
                 Ok(action) => self.set_action(scope, id, action, state),
                 Err(reason) => self.refuse(reason),
             },
-            MappingCommand::SetValue { scope, id, value } => match id {
-                MappingId::Tetrad(index) => {
-                    let mut list = self.list(scope).clone();
-                    match list.get_mut(index as usize) {
-                        Some(stored) if stored.value.is_some() => {
-                            stored.value = Some(value.min(100));
-                            self.focus = Some((scope, MappingId::Tetrad(index)));
-                            self.store(scope, list)
-                        }
-                        _ => Step::default(),
-                    }
-                }
-                _ => Step::default(),
-            },
+            MappingCommand::SetMode { scope, id, mode } => self.set_mode(scope, id, mode, state),
+            MappingCommand::StepField {
+                scope,
+                id,
+                field,
+                ticks,
+            } => self.step_field(scope, id, field, ticks, state),
             MappingCommand::Learn { scope, id, on } => {
                 self.learning = on.then_some((scope, id));
                 Step::default()
@@ -529,11 +819,7 @@ impl Mappings {
                 .find(|trigger| !used(trigger))
                 .unwrap_or(StoredTrigger::Cc { controller: 3 }),
         };
-        list.push(Stored {
-            trigger,
-            action: None,
-            value: None,
-        });
+        list.push(Stored::new(trigger, None));
         self.focus = Some((scope, MappingId::Tetrad(list.len() as u32 - 1)));
         self.store(scope, list)
     }
@@ -553,16 +839,19 @@ impl Mappings {
             }
             MappingId::Stomp { stomp, position } => {
                 let model = model_at(state, position)?;
-                let stored = Stored {
-                    trigger: StoredTrigger::Stomp { stomp },
-                    action: Some(StoredAction::Block {
+                let mut stored = Stored::new(
+                    StoredTrigger::Stomp { stomp },
+                    Some(StoredAction::Block {
                         row: position.row(),
                         column: position.column(),
                         model,
                         target: StoredTarget::Bypass,
                     }),
-                    value: None,
-                };
+                );
+                // A stock Momentary goes with the row; Toggle is the default and stays unset, so
+                // a CC trigger gets its own default (Follow).
+                let mode = stomp_mode(state, stomp);
+                stored.mode = matches!(mode, Mode::Momentary { .. }).then_some(mode);
                 let effects = vec![Effect::Action(Action::PresetEdit(PresetEdit::Stomp {
                     slot: engine_slot(position)?,
                     assignment: None,
@@ -575,25 +864,20 @@ impl Mappings {
                 target,
             } => {
                 let model = model_at(state, position)?;
-                let stored = Stored {
-                    trigger: StoredTrigger::Expression { pedal },
-                    action: Some(StoredAction::Block {
+                let stored = Stored::new(
+                    StoredTrigger::Expression { pedal },
+                    Some(StoredAction::Block {
                         row: position.row(),
                         column: position.column(),
                         model,
                         target: stored_target(target),
                     }),
-                    value: None,
-                };
+                );
                 let effects = vec![link(position, target, pedal, false)?];
                 Some((stored, effects, list))
             }
             MappingId::MidiOut(target) => {
-                let stored = Stored {
-                    trigger: midi_out_trigger(target),
-                    action: Some(StoredAction::SendMidi),
-                    value: None,
-                };
+                let stored = Stored::new(midi_out_trigger(target), Some(StoredAction::SendMidi));
                 // Placeholders of the same list go with it.
                 list.retain(|other| {
                     !(other.trigger == stored.trigger && other.action == stored.action)
@@ -620,13 +904,32 @@ impl Mappings {
         let Some((mut stored, mut effects, list)) = self.take(scope, &id, state) else {
             return Step::default();
         };
+        let same = level_key(&trigger) == level_key(&stored.trigger);
+        let mut trigger = trigger;
+        if let (
+            StoredTrigger::Extension { continuous, .. },
+            StoredTrigger::Extension {
+                continuous: was, ..
+            },
+        ) = (&mut trigger, &stored.trigger)
+            && same
+        {
+            *continuous |= *was;
+        }
         stored.trigger = trigger;
+        if source(&stored.trigger) != Source::Level {
+            stored.window = None;
+        }
         if let Some(action) = &stored.action
             && let Err(reason) = action_allowed(scope, &stored.trigger, action)
         {
             stored.action = None;
-            stored.value = None;
+            stored.mode = None;
             self.notice = Some(format!("Choose a new action: {reason}"));
+        } else if mode_allowed(&stored).is_err() {
+            stored.mode = None;
+            let default = effective_mode(&stored).kind();
+            self.notice = Some(format!("The mode went back to {}", mode_label(default)));
         }
         let mut step = self.place(scope, stored, list, state);
         effects.append(&mut step.effects);
@@ -650,19 +953,134 @@ impl Mappings {
         let Some((mut stored, mut effects, list)) = self.take(scope, &id, state) else {
             return Step::default();
         };
-        let one_shot_parameter = matches!(
-            action,
-            StoredAction::Block {
-                target: StoredTarget::Parameter { .. },
-                ..
-            }
-        ) && !continuous(&stored.trigger);
-        stored.value = one_shot_parameter.then_some(stored.value.unwrap_or(100));
+        // A mode's values belong to its action: a new action starts at its default mode.
+        if stored.action.as_ref() != Some(&action) {
+            stored.mode = None;
+        }
         stored.action = Some(action);
         let mut step = self.place(scope, stored, list, state);
         effects.append(&mut step.effects);
         step.effects = effects;
         step
+    }
+
+    /// A mode from the row's mode menu. On a stock Stomp → bypass row, Toggle and Momentary
+    /// are the stock momentary flag of the footswitch; Set moves the row to Tetrad data.
+    fn set_mode(
+        &mut self,
+        scope: MappingScope,
+        id: MappingId,
+        kind: ModeKind,
+        state: &State,
+    ) -> Step {
+        let Some(stored) = self.row_of(scope, &id, state) else {
+            return Step::default();
+        };
+        let modes = modes_of(&stored.trigger, stored.action.as_ref()).unwrap_or_default();
+        if !modes.contains(&kind) {
+            return self.refuse(format!("{} does not fit this mapping", mode_label(kind)));
+        }
+        let action = stored
+            .action
+            .as_ref()
+            .expect("a row with modes has an action");
+        let mode = match action_param(state, action) {
+            Some(param) => Mode::fresh(kind, param.current, param.other()),
+            None => Mode::fresh(kind, 1.0, 0.0),
+        };
+        match id {
+            MappingId::Stomp { stomp, .. } if kind != ModeKind::Set => {
+                self.focus = Some((scope, id));
+                Step {
+                    effects: vec![momentary_edit(stomp, mode)],
+                    save_global: None,
+                }
+            }
+            // Decide with the new mode: Toggle or Momentary takes a Stomp → bypass row back to
+            // stock data.
+            MappingId::Tetrad(index)
+                if !stock_pair(&Stored {
+                    mode: Some(mode),
+                    ..stored.clone()
+                }) =>
+            {
+                let mut list = self.list(scope).clone();
+                list[index as usize].mode = Some(mode);
+                self.focus = Some((scope, id));
+                self.store(scope, list)
+            }
+            _ => {
+                let Some((mut stored, mut effects, list)) = self.take(scope, &id, state) else {
+                    return Step::default();
+                };
+                stored.mode = Some(mode);
+                let mut step = self.place(scope, stored, list, state);
+                effects.append(&mut step.effects);
+                step.effects = effects;
+                step
+            }
+        }
+    }
+
+    /// A stepper tap on one of a Tetrad row's values.
+    fn step_field(
+        &mut self,
+        scope: MappingScope,
+        id: MappingId,
+        field: FieldId,
+        ticks: i32,
+        state: &State,
+    ) -> Step {
+        let MappingId::Tetrad(index) = id else {
+            return Step::default();
+        };
+        let mut list = self.list(scope).clone();
+        let Some(stored) = list.get_mut(index as usize) else {
+            return Step::default();
+        };
+        let Some(action) = &stored.action else {
+            return Step::default();
+        };
+        let (source, target) = (source(&stored.trigger), target(action));
+        let param = action_param(state, action);
+        if target == Target::Parameter && param.is_none() {
+            return self.refuse("The block was moved or replaced: choose the action again".into());
+        }
+        let mut mode = effective_mode(stored);
+        let default_window = mode.default_window(target);
+        let mut window = stored.window.unwrap_or(default_window);
+        if !mode::fields(mode, source, target).contains(&field)
+            || !mode::step_field(&mut mode, &mut window, field, ticks, param.as_ref())
+        {
+            return Step::default();
+        }
+        stored.mode = Some(mode);
+        // The default window is not stored, so another mode gets its own default.
+        stored.window = (window != default_window).then_some(window);
+        self.focus = Some((scope, id));
+        self.store(scope, list)
+    }
+
+    /// A row as Tetrad data would hold it, stock rows included.
+    fn row_of(&self, scope: MappingScope, id: &MappingId, state: &State) -> Option<Stored> {
+        match *id {
+            MappingId::Tetrad(index) => self.list(scope).get(index as usize).cloned(),
+            MappingId::Stomp { stomp, position } => {
+                let mut stored = Stored::new(
+                    StoredTrigger::Stomp { stomp },
+                    Some(StoredAction::Block {
+                        row: position.row(),
+                        column: position.column(),
+                        model: model_at(state, position)?,
+                        target: StoredTarget::Bypass,
+                    }),
+                );
+                stored.mode = Some(stomp_mode(state, stomp));
+                Some(stored)
+            }
+            // Pedal links and Send MIDI lists have no modes to choose.
+            MappingId::Expression { .. } | MappingId::MidiOut(_) => None,
+        }
     }
 
     fn trigger_of(&self, scope: MappingScope, id: &MappingId) -> Option<StoredTrigger> {
@@ -691,13 +1109,15 @@ impl Mappings {
                     target: StoredTarget::Bypass,
                     ..
                 }),
-            ) => position(*row, *column).and_then(|position| {
-                let effect = Effect::Action(Action::PresetEdit(PresetEdit::Stomp {
+            ) if stock_pair(&stored) => position(*row, *column).and_then(|position| {
+                let assign = Effect::Action(Action::PresetEdit(PresetEdit::Stomp {
                     slot: engine_slot(position)?,
                     assignment: Some((u32::from(*stomp), StompRole::Primary)),
                 }));
+                // A chosen Toggle or Momentary is the footswitch's stock momentary flag.
+                let momentary = stored.mode.map(|mode| momentary_edit(*stomp, mode));
                 Some((
-                    effect,
+                    std::iter::once(assign).chain(momentary).collect(),
                     MappingId::Stomp {
                         stomp: *stomp,
                         position,
@@ -716,7 +1136,7 @@ impl Mappings {
                 let target = ui_target(*target);
                 let effect = link(position, target, *pedal, true)?;
                 Some((
-                    effect,
+                    vec![effect],
                     MappingId::Expression {
                         pedal: *pedal,
                         position,
@@ -728,10 +1148,10 @@ impl Mappings {
         };
         self.learning = None;
         match stock {
-            Some((effect, id)) if scope == MappingScope::Preset => {
+            Some((effects, id)) if scope == MappingScope::Preset => {
                 self.focus = Some((scope, id));
                 let mut step = self.store(scope, list);
-                step.effects.insert(0, effect);
+                step.effects.splice(0..0, effects);
                 step
             }
             _ => {
@@ -769,6 +1189,7 @@ impl Mappings {
     /// global file.
     fn store(&mut self, scope: MappingScope, list: Vec<Stored>) -> Step {
         self.view_stale = true;
+        self.rekey(scope, &list);
         let bytes = (!list.is_empty()).then(|| encode(&list));
         match scope {
             MappingScope::Preset => {
@@ -815,7 +1236,7 @@ impl Mappings {
         extension_triggers: Vec<ExtensionTriggerChoice>,
     ) -> MappingsView {
         let midi = preset_midi(state);
-        let mut preset = stock_rows(state, &midi);
+        let mut preset = stock_rows(self, state, &midi);
         let stock_lists: Vec<StoredTrigger> = (preset.iter())
             .filter(|(_, row)| matches!(row.id, MappingId::MidiOut(_)))
             .map(|(trigger, _)| trigger.clone())
@@ -830,12 +1251,13 @@ impl Mappings {
                         && stock_lists.contains(&stored.trigger))
                 })
                 .map(|(index, stored)| {
-                    let row = tetrad_row(
+                    let row = self.row(
                         state,
                         &midi,
                         &extension_triggers,
                         MappingId::Tetrad(index as u32),
                         stored,
+                        Some((MappingScope::Preset, index)),
                     );
                     (stored.trigger.clone(), row)
                 }),
@@ -843,12 +1265,13 @@ impl Mappings {
         preset.sort_by_key(|(trigger, _)| rank(trigger));
         let global = (self.global.iter().enumerate())
             .map(|(index, stored)| {
-                tetrad_row(
+                self.row(
                     state,
                     &midi,
                     &extension_triggers,
                     MappingId::Tetrad(index as u32),
                     stored,
+                    Some((MappingScope::Global, index)),
                 )
             })
             .collect();
@@ -869,11 +1292,88 @@ impl Mappings {
 
 // ---- rules ---------------------------------------------------------------------------------
 
-fn continuous(trigger: &StoredTrigger) -> bool {
-    matches!(
-        trigger,
-        StoredTrigger::Cc { .. } | StoredTrigger::Expression { .. }
-    ) || matches!(trigger, StoredTrigger::Extension { source, .. } if source.starts_with("cc:"))
+fn source(trigger: &StoredTrigger) -> Source {
+    match trigger {
+        StoredTrigger::PresetLoaded => Source::Load,
+        StoredTrigger::Stomp { .. } | StoredTrigger::Note { .. } => Source::Press,
+        StoredTrigger::Expression { .. } => Source::Pedal,
+        StoredTrigger::Cc { .. } => Source::Level,
+        StoredTrigger::Extension {
+            source, continuous, ..
+        } if *continuous || source.starts_with("cc:") => Source::Level,
+        StoredTrigger::Extension { .. } => Source::Press,
+    }
+}
+
+fn target(action: &StoredAction) -> Target {
+    match action {
+        StoredAction::Block {
+            target: StoredTarget::Parameter { .. },
+            ..
+        } => Target::Parameter,
+        StoredAction::Block { .. }
+        | StoredAction::System {
+            action: SystemAction::Tuner | SystemAction::GigView,
+        } => Target::Switch,
+        StoredAction::System {
+            action: SystemAction::Looper(_),
+        } => Target::Looper,
+        StoredAction::System { .. } => Target::Command,
+        StoredAction::SendMidi => Target::SendMidi,
+    }
+}
+
+/// The trigger without its display label and kind of source: rows and CC values match on
+/// this.
+fn level_key(trigger: &StoredTrigger) -> StoredTrigger {
+    match trigger {
+        StoredTrigger::Extension {
+            key,
+            trigger,
+            source,
+            ..
+        } => StoredTrigger::Extension {
+            key: key.clone(),
+            trigger: trigger.clone(),
+            source: source.clone(),
+            label: String::new(),
+            continuous: false,
+        },
+        other => other.clone(),
+    }
+}
+
+/// The modes of a row's trigger and action; `None` without an action.
+fn modes_of(trigger: &StoredTrigger, action: Option<&StoredAction>) -> Option<&'static [ModeKind]> {
+    Some(mode::modes(source(trigger), target(action?)))
+}
+
+/// The stored mode, or the default of the trigger and action (the behaviour from before
+/// modes). A pedal row has no modes and uses Follow.
+fn effective_mode(stored: &Stored) -> Mode {
+    stored.mode.unwrap_or_else(|| {
+        let kind = modes_of(&stored.trigger, stored.action.as_ref())
+            .and_then(|modes| modes.first().copied())
+            .unwrap_or(ModeKind::Follow);
+        Mode::fresh(kind, 1.0, 0.0)
+    })
+}
+
+/// A stored mode and window fit the row's trigger and action.
+fn mode_allowed(stored: &Stored) -> Result<(), String> {
+    if let Some(mode) = stored.mode {
+        let modes = modes_of(&stored.trigger, stored.action.as_ref()).unwrap_or_default();
+        if !modes.contains(&mode.kind()) || !mode.valid() {
+            return Err("this mode does not fit the trigger and action".into());
+        }
+    }
+    match stored.window {
+        Some(window) if !window.valid() => Err("the CC window goes from 0 to 127".into()),
+        Some(_) if source(&stored.trigger) != Source::Level => {
+            Err("only CC triggers have a window".into())
+        }
+        _ => Ok(()),
+    }
 }
 
 fn trigger_allowed(scope: MappingScope, trigger: &StoredTrigger) -> Result<(), String> {
@@ -927,6 +1427,48 @@ fn action_allowed(
     }
 }
 
+/// Stomp → bypass in a mode that stock data holds: Toggle or Momentary (the footswitch's
+/// momentary flag).
+fn stock_pair(stored: &Stored) -> bool {
+    matches!(
+        (&stored.trigger, &stored.action, stored.mode),
+        (
+            StoredTrigger::Stomp { .. },
+            Some(StoredAction::Block {
+                target: StoredTarget::Bypass,
+                ..
+            }),
+            None | Some(Mode::Toggle { .. } | Mode::Momentary { .. })
+        )
+    )
+}
+
+/// The mode of a stock Stomp → bypass row: the footswitch's momentary flag.
+fn stomp_mode(state: &State, stomp: u8) -> Mode {
+    let momentary = (state.current.as_ref())
+        .and_then(|current| {
+            current
+                .preset
+                .stomp_is_momentary
+                .get(u32::from(stomp))
+                .copied()
+        })
+        .unwrap_or(false);
+    let kind = if momentary {
+        ModeKind::Momentary
+    } else {
+        ModeKind::Toggle
+    };
+    Mode::fresh(kind, 1.0, 0.0)
+}
+
+fn momentary_edit(stomp: u8, mode: Mode) -> Effect {
+    Effect::Action(Action::PresetEdit(PresetEdit::Momentary {
+        stomp: u32::from(stomp),
+        momentary: matches!(mode, Mode::Momentary { .. }),
+    }))
+}
+
 fn stock_stomp_used(state: &State, trigger: &StoredTrigger) -> bool {
     let StoredTrigger::Stomp { stomp } = trigger else {
         return false;
@@ -964,6 +1506,8 @@ fn stored_trigger(trigger: Trigger) -> StoredTrigger {
             key,
             trigger,
             source,
+            // A learned firing tells; `set_trigger` keeps what an earlier one told.
+            continuous: false,
         },
     }
 }
@@ -1113,50 +1657,37 @@ fn link(position: GridPosition, target: BlockTarget, pedal: u8, linked: bool) ->
     }))
 }
 
-/// A block action for one trigger value, or `None` when the block is gone or replaced.
-fn block_action(
-    state: &State,
-    row: u8,
-    column: u8,
-    model: u32,
-    target: StoredTarget,
-    value: Option<u8>,
-    input: Input,
-) -> Option<Action> {
+/// The parameter at `index` of the block in `slot`, when the page offers it (no text or
+/// disabled parameters).
+fn param_at(state: &State, slot: Slot, model: u32, index: u32) -> Option<Param<'_>> {
     let current = state.current.as_ref()?;
-    let slot = engine_slot(position(row, column)?)?;
-    let site = Site::Slot(slot);
-    let instance = current.deployment.layout().instance(site)?;
+    let instance = current.deployment.layout().instance(Site::Slot(slot))?;
     if instance.model.0 != model {
         return None;
     }
-    if let StoredTarget::Parameter { index } = target {
-        // Only parameters the page offers: no text or disabled parameters.
-        let spec = state.specs.as_ref()?.model(model)?.parameter(index)?;
-        if spec.kind == tetrad_catalog::ParameterType::String || spec.scale.disabled {
-            return None;
-        }
+    let spec = state.specs.as_ref()?.model(model)?.parameter(index)?;
+    if spec.kind == tetrad_catalog::ParameterType::String || spec.scale.disabled {
+        return None;
     }
-    Some(match target {
-        StoredTarget::Bypass => Action::SetBypass {
-            site,
-            bypassed: if input.continuous {
-                input.value < 0.5
-            } else {
-                !instance.bypass.at(current.deployment.scene())
-            },
-        },
-        StoredTarget::Parameter { index } => Action::SetParameter {
-            site,
-            index,
-            value: if input.continuous {
-                input.value
-            } else {
-                f32::from(value.unwrap_or(100).min(100)) / 100.0
-            }
-            .clamp(0.0, 1.0),
-        },
-    })
+    let current = instance
+        .params
+        .get(index as usize)?
+        .at(current.deployment.scene());
+    Some(Param { spec, current })
+}
+
+/// The parameter a block action drives, when its block is still there.
+fn action_param<'a>(state: &'a State, action: &StoredAction) -> Option<Param<'a>> {
+    let StoredAction::Block {
+        row,
+        column,
+        model,
+        target: StoredTarget::Parameter { index },
+    } = *action
+    else {
+        return None;
+    };
+    param_at(state, engine_slot(position(row, column)?)?, model, index)
 }
 
 fn preset_midi(state: &State) -> PresetMidiView {
@@ -1211,6 +1742,7 @@ fn trigger_text(
             trigger,
             source,
             label,
+            ..
         } => {
             let declared = (extension_triggers.iter())
                 .find(|choice| &choice.key == key && &choice.trigger == trigger)
@@ -1311,92 +1843,261 @@ fn system_text(action: SystemAction) -> (String, String) {
     (label.into(), detail)
 }
 
-fn value_use(trigger: &StoredTrigger, action: Option<&StoredAction>) -> String {
-    let continuous = continuous(trigger);
-    match action {
-        None => "Choose an action".into(),
-        Some(StoredAction::SendMidi) => "Sends the messages on each trigger".into(),
-        Some(StoredAction::Block {
-            target: StoredTarget::Parameter { .. },
-            ..
-        }) if matches!(trigger, StoredTrigger::Expression { .. }) => {
-            "Follows the pedal (range in the block ⋮ menu)".into()
-        }
-        Some(StoredAction::Block {
-            target: StoredTarget::Parameter { .. },
-            ..
-        }) if continuous => "Continuous · 0–127 → 0–100 %".into(),
-        Some(StoredAction::Block {
-            target: StoredTarget::Parameter { .. },
-            ..
-        }) => "Sets the value below".into(),
-        Some(StoredAction::Block { .. }) if matches!(trigger, StoredTrigger::Expression { .. }) => {
-            "Pedal switch (settings in the block ⋮ menu)".into()
-        }
-        Some(StoredAction::Block { .. }) if continuous => "Switch · 64 or more engages".into(),
-        Some(StoredAction::Block { .. }) => "Toggles on each press".into(),
-        Some(StoredAction::System {
-            action: SystemAction::Tuner | SystemAction::GigView,
-        }) if !continuous => "Opens and closes on each press".into(),
-        Some(StoredAction::System { .. }) if continuous => "Switch · 64 or more = on".into(),
-        Some(StoredAction::System { .. }) => "Runs on each press".into(),
+fn mode_label(kind: ModeKind) -> &'static str {
+    match kind {
+        ModeKind::OnPress => "On press",
+        ModeKind::Follow => "Follow",
+        ModeKind::Relative => "Relative",
+        ModeKind::Set => "Set",
+        ModeKind::Toggle => "Toggle",
+        ModeKind::Momentary => "Momentary",
+        ModeKind::Step => "Step",
     }
 }
 
-fn row(
-    state: &State,
-    midi: &PresetMidiView,
-    extension_triggers: &[ExtensionTriggerChoice],
-    id: MappingId,
-    trigger: &StoredTrigger,
-    action: Option<&StoredAction>,
-    value: Option<u8>,
-) -> MappingRow {
-    let (trigger_label, trigger_detail) = trigger_text(trigger, extension_triggers);
-    let (action_label, action_detail) = action.map_or_else(Default::default, |action| {
-        action_text(state, midi, trigger, action)
-    });
-    MappingRow {
-        id,
-        trigger: ui_trigger(trigger),
-        action: action.and_then(ui_action),
-        trigger_label,
-        trigger_detail,
-        action_label,
-        action_detail,
-        value_use: value_use(trigger, action),
-        value,
+fn mode_view(kind: ModeKind, source: Source, target: Target) -> ModeView {
+    let detail = match (kind, target, source) {
+        (ModeKind::OnPress, Target::SendMidi, _) => "Sends the messages on each trigger",
+        (ModeKind::OnPress, _, Source::Load) => "Runs when the preset loads",
+        (ModeKind::OnPress, _, Source::Level) => "Runs when the CC enters its window",
+        (ModeKind::OnPress, Target::Looper, _) => "Taps the button on each press",
+        (ModeKind::OnPress, ..) => "Runs on each press",
+        (ModeKind::Follow, Target::Parameter, Source::Pedal) => {
+            "Follows the pedal (range in the block ⋮ menu)"
+        }
+        (ModeKind::Follow, _, Source::Pedal) => "Pedal switch (settings in the block ⋮ menu)",
+        (ModeKind::Follow, Target::Parameter, _) => "The CC sets the value",
+        (ModeKind::Follow, ..) => "On while the CC is in its window",
+        (ModeKind::Relative, ..) => "An endless encoder steps the value",
+        (ModeKind::Set, _, Source::Load) => "Sets the value when the preset loads",
+        (ModeKind::Set, ..) => "Each press sets the value",
+        (ModeKind::Toggle, Target::Parameter, _) => "Each press swaps A and B",
+        (ModeKind::Toggle, _, Source::Load) => "Switches when the preset loads",
+        (ModeKind::Toggle, ..) => "Each press switches on and off",
+        (ModeKind::Momentary, Target::Parameter, _) => "Held: the value; released: as before",
+        (ModeKind::Momentary, Target::Looper, _) => "The button is held while you hold",
+        (ModeKind::Momentary, ..) => "Switched while held",
+        (ModeKind::Step, ..) => "Each press moves the value",
+    };
+    ModeView {
+        kind,
+        label: mode_label(kind).into(),
+        detail: detail.into(),
     }
 }
 
-fn tetrad_row(
-    state: &State,
-    midi: &PresetMidiView,
-    extension_triggers: &[ExtensionTriggerChoice],
-    id: MappingId,
-    stored: &Stored,
-) -> MappingRow {
-    row(
-        state,
-        midi,
-        extension_triggers,
-        id,
-        &stored.trigger,
-        stored.action.as_ref(),
-        stored.value,
-    )
+/// On and off of a switch action.
+fn switch_text(action: &StoredAction, on: bool) -> &'static str {
+    match (action, on) {
+        (StoredAction::Block { .. }, true) => "Engaged",
+        (StoredAction::Block { .. }, false) => "Bypassed",
+        (_, true) => "Open",
+        (_, false) => "Closed",
+    }
+}
+
+fn field_label(field: FieldId) -> &'static str {
+    match field {
+        FieldId::Value => "Value",
+        FieldId::A => "A",
+        FieldId::B => "B",
+        FieldId::Amount => "Amount",
+        FieldId::Wrap => "At the ends",
+        FieldId::Min => "Min",
+        FieldId::Max => "Max",
+        FieldId::Pickup => "Pickup",
+        FieldId::Encoding => "Encoding",
+        FieldId::Low => "Low",
+        FieldId::High => "High",
+    }
+}
+
+/// The parts of a row that come from its mode.
+struct ModeParts {
+    mode: ModeView,
+    modes: Vec<ModeView>,
+    fields: Vec<ValueField>,
+    summary: String,
+    response: Option<ResponseView>,
+}
+
+/// A normalized value in thousandths, for the Values page graph.
+fn thousandths(value: f32) -> u16 {
+    (value.clamp(0.0, 1.0) * 1000.0).round() as u16
+}
+
+impl Mappings {
+    /// A row of the page; `key` names a Tetrad row (stock rows have no runtime state).
+    fn row(
+        &self,
+        state: &State,
+        midi: &PresetMidiView,
+        extension_triggers: &[ExtensionTriggerChoice],
+        id: MappingId,
+        stored: &Stored,
+        key: Option<RowKey>,
+    ) -> MappingRow {
+        let trigger = &stored.trigger;
+        let action = stored.action.as_ref();
+        let (trigger_label, trigger_detail) = trigger_text(trigger, extension_triggers);
+        let (action_label, action_detail) = action.map_or_else(Default::default, |action| {
+            action_text(state, midi, trigger, action)
+        });
+        let parts = action.map(|action| self.mode_parts(state, stored, action, key));
+        let (mode, modes, fields, summary, response) = match parts {
+            Some(parts) => (
+                Some(parts.mode),
+                parts.modes,
+                parts.fields,
+                parts.summary,
+                parts.response,
+            ),
+            None => Default::default(),
+        };
+        MappingRow {
+            id,
+            trigger: ui_trigger(trigger),
+            action: action.and_then(ui_action),
+            trigger_label,
+            trigger_detail,
+            action_label,
+            action_detail,
+            mode,
+            modes,
+            fields,
+            summary,
+            response,
+        }
+    }
+
+    fn mode_parts(
+        &self,
+        state: &State,
+        stored: &Stored,
+        action: &StoredAction,
+        key: Option<RowKey>,
+    ) -> ModeParts {
+        let (source, target) = (source(&stored.trigger), target(action));
+        let mode = effective_mode(stored);
+        let window = stored.window.unwrap_or(mode.default_window(target));
+        let param = action_param(state, action);
+        let modes = mode::modes(source, target);
+        let value_text = |value: f32| match &param {
+            Some(param) => param.text(value),
+            None if target == Target::Switch => switch_text(action, value >= 0.5).into(),
+            // The block was moved or replaced.
+            None => "-".into(),
+        };
+        let ids = mode::fields(mode, source, target);
+        let fields = (ids.iter())
+            .map(|&id| {
+                let text = match (id, mode) {
+                    (FieldId::Value, Mode::Set { value } | Mode::Momentary { value })
+                    | (FieldId::A, Mode::Toggle { a: value, .. })
+                    | (FieldId::B, Mode::Toggle { b: value, .. })
+                    | (FieldId::Min, Mode::Follow { min: value, .. })
+                    | (FieldId::Max, Mode::Follow { max: value, .. }) => value_text(value),
+                    (FieldId::Amount, Mode::Step { amount, .. }) => format!("{amount:+}"),
+                    (FieldId::Wrap, Mode::Step { wrap, .. }) => {
+                        if wrap { "Wrap" } else { "Stop" }.into()
+                    }
+                    (FieldId::Pickup, Mode::Follow { pickup, .. }) => {
+                        if pickup { "Pickup" } else { "Jump" }.into()
+                    }
+                    (FieldId::Encoding, Mode::Relative { encoding }) => {
+                        mode::encoding_text(encoding).into()
+                    }
+                    (FieldId::Low, _) => format!("CC {}", window.low),
+                    (FieldId::High, _) => format!("CC {}", window.high),
+                    _ => String::new(),
+                };
+                ValueField {
+                    id,
+                    label: field_label(id).into(),
+                    text,
+                }
+            })
+            .collect();
+        let values = match (target, mode) {
+            (Target::Parameter, Mode::Set { value }) | (Target::Switch, Mode::Set { value }) => {
+                value_text(value)
+            }
+            (Target::Parameter, Mode::Toggle { a, b }) => {
+                format!("{} ↔ {}", value_text(a), value_text(b))
+            }
+            (Target::Parameter, Mode::Momentary { value }) => {
+                format!("{} while held", value_text(value))
+            }
+            (Target::Parameter, Mode::Step { amount, wrap }) => {
+                let ends = if wrap { " · wrap" } else { "" };
+                format!("{amount:+} per press{ends}")
+            }
+            (Target::Parameter, Mode::Follow { min, max, pickup }) => {
+                let pickup = if pickup { " · pickup" } else { "" };
+                format!("{} – {}{pickup}", value_text(min), value_text(max))
+            }
+            (Target::Parameter, Mode::Relative { encoding }) => {
+                mode::encoding_text(encoding).into()
+            }
+            _ => String::new(),
+        };
+        let windowed = ids.contains(&FieldId::Low);
+        let window_text = windowed.then(|| format!("CC {}–{}", window.low, window.high));
+        let summary = [Some(values).filter(|v| !v.is_empty()), window_text]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let follow = match (mode, &param) {
+            (Mode::Follow { min, max, pickup }, Some(param)) => Some((min, max, pickup, param)),
+            _ => None,
+        };
+        let response = windowed.then(|| ResponseView {
+            low: window.low,
+            high: window.high,
+            line: follow.map(|(min, max, ..)| (thousandths(min), thousandths(max))),
+            level: self.levels.get(&level_key(&stored.trigger)).copied(),
+            current: follow.map(|(.., param)| thousandths(param.current)),
+            waiting: follow.is_some_and(|(_, _, pickup, param)| {
+                pickup && key.is_none_or(|key| !self.caught(key, param))
+            }),
+        });
+        ModeParts {
+            mode: mode_view(mode.kind(), source, target),
+            modes: if modes.len() > 1 {
+                (modes.iter())
+                    .map(|&kind| mode_view(kind, source, target))
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            fields,
+            summary,
+            response,
+        }
+    }
 }
 
 /// The stock rows of the loaded preset with their triggers (for ordering).
-fn stock_rows(state: &State, midi: &PresetMidiView) -> Vec<(StoredTrigger, MappingRow)> {
+fn stock_rows(
+    mappings: &Mappings,
+    state: &State,
+    midi: &PresetMidiView,
+) -> Vec<(StoredTrigger, MappingRow)> {
     let Some(current) = state.current.as_ref() else {
         return Vec::new();
     };
     let preset = &current.preset;
     let mut rows = Vec::new();
     let mut push = |id: MappingId, trigger: StoredTrigger, action: StoredAction| {
-        let row = row(state, midi, &[], id, &trigger, Some(&action), None);
-        rows.push((trigger, row));
+        let mut stored = Stored::new(trigger, Some(action));
+        if let StoredTrigger::Stomp { stomp } = stored.trigger
+            && stock_pair(&stored)
+        {
+            stored.mode = Some(stomp_mode(state, stomp));
+        }
+        let row = mappings.row(state, midi, &[], id, &stored, None);
+        rows.push((stored.trigger, row));
     };
     let block = |position: GridPosition, target: StoredTarget| StoredAction::Block {
         row: position.row(),
@@ -1558,5 +2259,63 @@ mod tests {
         // Global lists take only MIDI triggers and no block actions.
         let global = decode(json, MappingScope::Global).unwrap();
         assert_eq!(global.len(), 1);
+    }
+
+    /// A percent from before modes reads as Set; modes and windows that do not fit the row are
+    /// dropped with it.
+    #[test]
+    fn decode_reads_old_values_and_checks_modes() {
+        let block = r#""action":{"kind":"block","row":0,"column":2,"model":1,
+            "target":{"kind":"parameter","index":0}}"#;
+        let json = format!(
+            r#"{{"format":1,"mappings":[
+            {{"trigger":{{"kind":"stomp","stomp":0}},{block},"value":60}},
+            {{"trigger":{{"kind":"note","key":1}},{block},"mode":{{"kind":"relative","encoding":"offset"}}}},
+            {{"trigger":{{"kind":"note","key":2}},{block},"window":{{"low":0,"high":10}}}},
+            {{"trigger":{{"kind":"cc","controller":20}},{block},"window":{{"low":90,"high":10}}}},
+            {{"trigger":{{"kind":"cc","controller":21}},{block},"mode":{{"kind":"set","value":1.5}}}},
+            {{"trigger":{{"kind":"stomp","stomp":3}},{block},"mode":{{"kind":"step","amount":-128}}}},
+            {{"trigger":{{"kind":"cc","controller":22}},{block},
+                "mode":{{"kind":"follow","min":1,"max":0,"pickup":true}},"window":{{"low":10,"high":20}}}}
+        ]}}"#
+        );
+        let rows = decode(json.as_bytes(), MappingScope::Preset).unwrap();
+        let modes: Vec<_> = rows
+            .iter()
+            .map(|stored| (stored.mode, stored.window))
+            .collect();
+        assert_eq!(
+            modes,
+            [
+                (Some(Mode::Set { value: 0.6 }), None),
+                (
+                    Some(Mode::Follow {
+                        min: 1.0,
+                        max: 0.0,
+                        pickup: true
+                    }),
+                    Some(Window { low: 10, high: 20 })
+                ),
+            ]
+        );
+        // The old percent is never written again.
+        let written = String::from_utf8(encode(&rows)).unwrap();
+        assert!(!written.contains("\"value\":60"), "{written}");
+    }
+
+    /// An extension source is a level when its learned firing was continuous, whatever its
+    /// name; rows match it without that flag.
+    #[test]
+    fn extension_sources_keep_their_kind() {
+        let pedal = |continuous| StoredTrigger::Extension {
+            key: "owner/repo:x".into(),
+            trigger: "midi".into(),
+            source: "pedal:1".into(),
+            label: "Pedal".into(),
+            continuous,
+        };
+        assert_eq!(source(&pedal(true)), Source::Level);
+        assert_eq!(source(&pedal(false)), Source::Press);
+        assert_eq!(level_key(&pedal(true)), level_key(&pedal(false)));
     }
 }

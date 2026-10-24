@@ -88,6 +88,9 @@ pub struct Input {
     midi_pressed: u16,
     /// Physical mask of letters whose press ended a Looper X assignment; their release is quiet.
     assigned: u16,
+    /// Owned: stomps (bit per index) whose press reached the mappings. Their release goes there
+    /// too, even when the press changed the footswitch mode.
+    mapping_held: u8,
 }
 
 #[derive(Debug, Default)]
@@ -470,7 +473,20 @@ impl Input {
             self.press(switch, state, now)
         } else {
             state.performance.held &= !stomp.mask();
-            self.release(switch, state)
+            let mut effects = self.release(switch, state);
+            if let Some(letter) = switch.letter()
+                && self.mapping_held & (1 << letter) != 0
+            {
+                self.mapping_held &= !(1 << letter);
+                let release = Effect::MappingStomp {
+                    stomp: letter,
+                    pressed: false,
+                };
+                if !effects.contains(&release) {
+                    effects.push(release);
+                }
+            }
+            effects
         };
         // tetrad-ui lights its tiles from the raw edge; tetrad-core above owns the meaning.
         effects.extend(view(pressed));
@@ -665,7 +681,11 @@ impl Input {
             }
             FootswitchAction::StompPress(stomp) => {
                 let mut effects = act(Action::ToggleStomp(stomp));
-                effects.push(Effect::MappingStomp(stomp.get()));
+                self.mapping_held |= 1 << stomp.get();
+                effects.push(Effect::MappingStomp {
+                    stomp: stomp.get(),
+                    pressed: true,
+                });
                 // Driver hooks `+0x40`/`+0x44` of the stomp's blocks (`0x5239d0`, `0x523f80`).
                 effects.push(Effect::Dsp(DspCommand::Footswitch {
                     stomp,
@@ -678,6 +698,10 @@ impl Input {
             }
             FootswitchAction::StompRelease(stomp) => {
                 let mut effects = act(Action::ReleaseStomp(stomp));
+                effects.push(Effect::MappingStomp {
+                    stomp: stomp.get(),
+                    pressed: false,
+                });
                 effects.push(Effect::Dsp(DspCommand::Footswitch {
                     stomp,
                     pressed: false,

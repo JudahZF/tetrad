@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|appearance|remote";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -1041,6 +1041,19 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 "map-send" => map(&mut ui, MappingControl::Open(0)),
                 "map-detail" | "map-learn" | "map-actions" | "map-block" => {
                     map(&mut ui, MappingControl::Open(2));
+                }
+                // Stomp B and CC 4 are below the fold: scroll the list, then open the row.
+                "map-toggle" | "map-values" => {
+                    ui.handle_input(InputEvent::PointerDown { x: 400, y: 440 });
+                    ui.handle_input(InputEvent::PointerMove { x: 400, y: 100 });
+                    ui.handle_input(InputEvent::PointerUp { x: 400, y: 100 });
+                    match view {
+                        "map-toggle" => map(&mut ui, MappingControl::Open(7)),
+                        _ => {
+                            map(&mut ui, MappingControl::Open(8));
+                            map(&mut ui, MappingControl::Values);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -2490,11 +2503,37 @@ fn model_editor(snapshot: &mut UiSnapshot, view: &str) -> Result<(), UiError> {
     Ok(())
 }
 
-/// Synthetic Mappings page data on the fixture's blocks: seven preset rows of every trigger
-/// type, four global rows and the grid's blocks with their parameters.
+/// Synthetic Mappings page data on the fixture's blocks: nine preset rows of every trigger type
+/// and mode, four global rows and the grid's blocks with their parameters.
 fn mappings_fixture() -> Result<MappingsView, UiError> {
     let position = GridPosition::new;
-    let row = |id, trigger, action, labels: [&str; 5], value| MappingRow {
+    let label = |kind| match kind {
+        ModeKind::OnPress => "On press",
+        ModeKind::Follow => "Follow",
+        ModeKind::Relative => "Relative",
+        ModeKind::Set => "Set",
+        ModeKind::Toggle => "Toggle",
+        ModeKind::Momentary => "Momentary",
+        ModeKind::Step => "Step",
+    };
+    let mode = |kind, detail: &str| ModeView {
+        kind,
+        label: label(kind).into(),
+        detail: detail.into(),
+    };
+    let modes = |kinds: &[ModeKind]| kinds.iter().map(|kind| mode(*kind, "")).collect();
+    let field = |id, label: &str, text: &str| ValueField {
+        id,
+        label: label.into(),
+        text: text.into(),
+    };
+    let window = |low: &str, high: &str| {
+        [
+            field(FieldId::Low, "Low", low),
+            field(FieldId::High, "High", high),
+        ]
+    };
+    let row = |id, trigger, action, labels: [&str; 4], mode| MappingRow {
         id,
         trigger,
         action: Some(action),
@@ -2502,9 +2541,26 @@ fn mappings_fixture() -> Result<MappingsView, UiError> {
         trigger_detail: labels[1].into(),
         action_label: labels[2].into(),
         action_detail: labels[3].into(),
-        value_use: labels[4].into(),
-        value,
+        mode: Some(mode),
+        modes: Vec::new(),
+        fields: Vec::new(),
+        summary: String::new(),
+        response: None,
     };
+    let switch = [ModeKind::Set, ModeKind::Toggle, ModeKind::Momentary];
+    let cc_switch = [ModeKind::OnPress, ModeKind::Follow, ModeKind::Toggle];
+    let parameter = [
+        ModeKind::Set,
+        ModeKind::Toggle,
+        ModeKind::Momentary,
+        ModeKind::Step,
+    ];
+    let cc_parameter = [
+        ModeKind::Follow,
+        ModeKind::Relative,
+        ModeKind::Set,
+        ModeKind::Toggle,
+    ];
     let block = |position, target| MappingAction::Block { position, target };
     let system = MappingAction::System;
     let mapper = "tetrad-dev/extensions:midi-mapper";
@@ -2523,148 +2579,167 @@ fn mappings_fixture() -> Result<MappingsView, UiError> {
                 "Each time this preset loads",
                 "Send MIDI",
                 "PC 12 · Ch 1",
-                "Sends the messages on each trigger",
             ],
-            None,
+            mode(ModeKind::OnPress, "Sends the messages on each trigger"),
         ),
-        row(
-            MappingId::Stomp {
-                stomp: 0,
-                position: position(0, 1)?,
-            },
-            Trigger::Stomp(0),
-            block(position(0, 1)?, BlockTarget::Bypass),
-            [
-                "Stomp A",
-                "Footswitch press",
-                "Green Drive",
-                "Bypass",
-                "Toggles on each press",
+        MappingRow {
+            modes: modes(&switch),
+            ..row(
+                MappingId::Stomp {
+                    stomp: 0,
+                    position: position(0, 1)?,
+                },
+                Trigger::Stomp(0),
+                block(position(0, 1)?, BlockTarget::Bypass),
+                ["Stomp A", "Footswitch press", "Green Drive", "Bypass"],
+                mode(ModeKind::Toggle, "Each press engages or bypasses"),
+            )
+        },
+        MappingRow {
+            modes: modes(&parameter),
+            fields: vec![field(FieldId::Value, "Value", "7.5")],
+            summary: "7.5".into(),
+            ..row(
+                MappingId::Tetrad(0),
+                Trigger::Midi(MidiInput::Note(36)),
+                block(position(0, 2)?, BlockTarget::Parameter(0)),
+                ["Note 36", "MIDI · QC channel", "Crunch Amp", "Gain"],
+                mode(ModeKind::Set, "Each press sets the value"),
+            )
+        },
+        MappingRow {
+            modes: modes(&switch),
+            ..row(
+                MappingId::Tetrad(1),
+                Trigger::Stomp(7),
+                system(SystemAction::Tuner),
+                ["Stomp H", "Footswitch press", "Tuner", "Open and close"],
+                mode(ModeKind::Toggle, "Each press opens or closes"),
+            )
+        },
+        MappingRow {
+            fields: vec![
+                field(FieldId::Min, "Min", "0 %"),
+                field(FieldId::Max, "Max", "100 %"),
+                field(FieldId::Pickup, "Pickup", "Jump"),
             ],
-            None,
-        ),
-        row(
-            MappingId::Tetrad(0),
-            Trigger::Midi(MidiInput::Note(36)),
-            block(position(0, 2)?, BlockTarget::Parameter(0)),
-            [
-                "Note 36",
-                "MIDI · QC channel",
-                "Crunch Amp",
-                "Gain",
-                "Sets the value you choose",
+            summary: "0–100 % · Jump".into(),
+            ..row(
+                MappingId::Expression {
+                    pedal: 1,
+                    position: position(0, 5)?,
+                    target: BlockTarget::Parameter(2),
+                },
+                Trigger::Expression(1),
+                block(position(0, 5)?, BlockTarget::Parameter(2)),
+                ["EXP 1", "Expression pedal", "Tape Echo", "Mix"],
+                mode(ModeKind::Follow, "The value follows the pedal"),
+            )
+        },
+        MappingRow {
+            modes: modes(&cc_parameter),
+            fields: vec![field(FieldId::Encoding, "Encoding", "Offset 64")],
+            summary: "Offset 64".into(),
+            ..row(
+                MappingId::Tetrad(2),
+                extension("cc:21"),
+                block(position(0, 0)?, BlockTarget::Parameter(0)),
+                ["CC 21", "MIDI Mapper · Ch 3", "Gate", "Threshold"],
+                mode(ModeKind::Relative, "An endless encoder steps the value"),
+            )
+        },
+        MappingRow {
+            fields: window("CC 64", "CC 127").into(),
+            summary: "CC 64–127".into(),
+            ..row(
+                MappingId::Tetrad(3),
+                Trigger::Midi(MidiInput::Cc(22)),
+                system(SystemAction::Scene(2)),
+                ["CC 22", "MIDI · QC channel", "Scene", "Scene C"],
+                mode(ModeKind::OnPress, "Runs when the CC enters its window"),
+            )
+        },
+        MappingRow {
+            modes: modes(&parameter),
+            fields: vec![
+                field(FieldId::A, "A", "25 %"),
+                field(FieldId::B, "B", "60 %"),
             ],
-            Some(75),
-        ),
-        row(
-            MappingId::Tetrad(1),
-            Trigger::Stomp(7),
-            system(SystemAction::Tuner),
-            [
-                "Stomp H",
-                "Footswitch press",
-                "Tuner",
-                "Open and close",
-                "Toggles on each press",
-            ],
-            None,
-        ),
-        row(
-            MappingId::Expression {
-                pedal: 1,
-                position: position(0, 5)?,
-                target: BlockTarget::Parameter(2),
-            },
-            Trigger::Expression(1),
-            block(position(0, 5)?, BlockTarget::Parameter(2)),
-            [
-                "EXP 1",
-                "Expression pedal",
-                "Tape Echo",
-                "Mix",
-                "Continuous · 0–127 → 0–100 %",
-            ],
-            None,
-        ),
-        row(
-            MappingId::Tetrad(2),
-            extension("cc:21"),
-            block(position(0, 0)?, BlockTarget::Parameter(0)),
-            [
-                "CC 21",
-                "MIDI Mapper · Ch 3",
-                "Gate",
-                "Threshold",
-                "Continuous · 0–127 → 0–100 %",
-            ],
-            None,
-        ),
-        row(
-            MappingId::Tetrad(3),
-            Trigger::Midi(MidiInput::Cc(22)),
-            system(SystemAction::Scene(2)),
-            [
-                "CC 22",
-                "MIDI · QC channel",
-                "Scene",
-                "Scene C",
-                "Switch · 64 or more = on",
-            ],
-            None,
-        ),
+            summary: "25 % ↔ 60 %".into(),
+            ..row(
+                MappingId::Tetrad(4),
+                Trigger::Stomp(1),
+                block(position(0, 6)?, BlockTarget::Parameter(1)),
+                ["Stomp B", "Footswitch press", "Plate Verb", "Mix"],
+                mode(ModeKind::Toggle, "Each press swaps A and B"),
+            )
+        },
+        MappingRow {
+            modes: modes(&cc_parameter),
+            fields: [
+                window("CC 10", "CC 110").as_slice(),
+                &[
+                    field(FieldId::Min, "Min", "2.0"),
+                    field(FieldId::Max, "Max", "8.0"),
+                    field(FieldId::Pickup, "Pickup", "Pickup"),
+                ],
+            ]
+            .concat(),
+            summary: "2.0–8.0 · CC 10–110 · Pickup".into(),
+            response: Some(ResponseView {
+                low: 10,
+                high: 110,
+                line: Some((200, 800)),
+                level: Some(30),
+                current: Some(560),
+                waiting: true,
+            }),
+            ..row(
+                MappingId::Tetrad(5),
+                Trigger::Midi(MidiInput::Cc(4)),
+                block(position(0, 1)?, BlockTarget::Parameter(0)),
+                ["CC 4", "MIDI · QC channel", "Green Drive", "Drive"],
+                mode(ModeKind::Follow, "Low–High maps to Min–Max"),
+            )
+        },
     ];
     let global = vec![
-        row(
-            MappingId::Tetrad(0),
-            Trigger::Midi(MidiInput::Cc(20)),
-            system(SystemAction::Tuner),
-            [
-                "CC 20",
-                "MIDI · QC channel",
-                "Tuner",
-                "Open and close",
-                "Switch · 64 or more = on",
-            ],
-            None,
-        ),
+        MappingRow {
+            modes: modes(&cc_switch),
+            fields: window("CC 64", "CC 127").into(),
+            summary: "CC 64–127".into(),
+            ..row(
+                MappingId::Tetrad(0),
+                Trigger::Midi(MidiInput::Cc(20)),
+                system(SystemAction::Tuner),
+                ["CC 20", "MIDI · QC channel", "Tuner", "Open and close"],
+                mode(ModeKind::Follow, "Open while the CC is in its window"),
+            )
+        },
         row(
             MappingId::Tetrad(1),
             Trigger::Midi(MidiInput::Note(36)),
             system(SystemAction::TapTempo),
-            [
-                "Note 36",
-                "MIDI · QC channel",
-                "Tempo",
-                "Tap tempo",
-                "Runs on each trigger",
-            ],
-            None,
+            ["Note 36", "MIDI · QC channel", "Tempo", "Tap tempo"],
+            mode(ModeKind::OnPress, "Runs on each press"),
         ),
-        row(
-            MappingId::Tetrad(2),
-            extension("cc:64"),
-            system(SystemAction::Looper(LooperButton::RecordOverdub)),
-            [
-                "CC 64",
-                "MIDI Mapper · Ch 3",
-                "Looper",
-                "Rec / Overdub",
-                "Switch · 64 or more = on",
-            ],
-            None,
-        ),
+        MappingRow {
+            fields: window("CC 64", "CC 127").into(),
+            summary: "CC 64–127".into(),
+            ..row(
+                MappingId::Tetrad(2),
+                extension("cc:64"),
+                system(SystemAction::Looper(LooperButton::RecordOverdub)),
+                ["CC 64", "MIDI Mapper · Ch 3", "Looper", "Rec / Overdub"],
+                mode(ModeKind::OnPress, "Runs when the CC enters its window"),
+            )
+        },
         row(
             MappingId::Tetrad(3),
             extension("note:60"),
             system(SystemAction::NextPreset),
-            [
-                "Note 60",
-                "MIDI Mapper · Ch 3",
-                "Preset",
-                "Next preset",
-                "Runs on each trigger",
-            ],
-            None,
+            ["Note 60", "MIDI Mapper · Ch 3", "Preset", "Next preset"],
+            mode(ModeKind::OnPress, "Runs on each press"),
         ),
     ];
     let blocks = [

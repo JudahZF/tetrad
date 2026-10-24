@@ -412,6 +412,9 @@ pub(crate) struct MappingsPage {
     pub tab: MappingScope,
     /// The row whose detail page is open, in `tab`.
     pub detail: Option<MappingId>,
+    /// The open row's Values page shows over its detail page. Only a row with more than two
+    /// values has one.
+    pub values: bool,
 }
 
 /// A level of the Mappings action menu: the root or one of its submenus.
@@ -2291,8 +2294,10 @@ impl UiState {
         {
             return Vec::new();
         }
-        // A mapping's detail page goes back to the Mappings list.
-        if self.screen() == Screen::Mappings && self.mappings.detail.take().is_some() {
+        // A mapping's Values page goes back to its detail page, the detail page to the list.
+        if self.screen() == Screen::Mappings
+            && (std::mem::take(&mut self.mappings.values) || self.mappings.detail.take().is_some())
+        {
             return Vec::new();
         }
         if self.screen() == Screen::Presets && self.capture.edit.take().is_some() {

@@ -3,7 +3,8 @@
 //!
 //! A manifest is authored as `tetrad-extension.json` and travels inside every package. The
 //! host trusts nothing in it until [`Manifest::validate`] passes. API 2 adds `blocks`; an API 1
-//! manifest cannot use them.
+//! manifest cannot use them. API 3 adds `pressed` on trigger firings (a release of a press); a
+//! host before API 3 would take a release for a press, so it skips API 3 packages.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use serde_json::{Map, Value};
 use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
-pub const API_VERSION: u32 = 2;
+pub const API_VERSION: u32 = 3;
 /// The oldest extension API level this host still runs.
 pub const MIN_API_VERSION: u32 = 1;
 
@@ -523,8 +524,8 @@ mod tests {
         m.settings[1].key = "channel".into();
         assert!(matches!(m.validate(), Err(ManifestError::Duplicate(_))));
         let mut m = manifest();
-        m.api = 3;
-        assert_eq!(m.validate(), Err(ManifestError::Api(3)));
+        m.api = API_VERSION + 1;
+        assert_eq!(m.validate(), Err(ManifestError::Api(API_VERSION + 1)));
     }
 
     fn block(extra: serde_json::Value) -> BlockSpec {

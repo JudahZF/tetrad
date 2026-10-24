@@ -11,6 +11,25 @@ All notable changes to Tetrad are in this file. The version numbers follow
   can write and all slots of the chosen one. An empty slot takes the preset at once; an
   occupied slot asks to OVERWRITE it (or SWAP, for a move inside the same setlist). Move
   before only changed the slot inside the open setlist.
+- Mapping modes: each mapping chooses how its trigger's value drives the action. A parameter
+  can be Set, Toggle (between two values), Momentary (held, then back to the value from before),
+  Step (up or down by an amount, stop or wrap), Follow (a CC sets the value) or Relative (an
+  endless encoder steps it). Bypass, the tuner and Gig View can toggle, switch while held, be
+  set on or off, or follow a CC. Values show in the parameter's own units (docs/mappings.md).
+- CC window: every CC mapping has a Low and a High (0–127). A press mode presses when the CC
+  enters the window and releases when it leaves; Follow maps the window to its Min and Max.
+  Several rows on one CC with their own windows map CC values to exact values.
+- Pickup for Follow: the parameter waits until the knob reaches its value, then follows.
+- The Values page of a CC mapping shows the window, the map and the CC's last value.
+- Footswitch releases, note-offs and extension releases (`pressed: false`) reach Mappings.
+  MIDI Mapper 0.3.0 sends note-offs as releases.
+- Extension API 3: trigger firings can carry `pressed: false` (a release). Builds before API 3
+  do not install API 3 packages, so they keep MIDI Mapper 0.2.0.
+
+### Changed
+
+- A CC mapped to a scene, preset, mode or tap tempo runs once when it enters its window, not on
+  every message of 64 or more.
 
 ## [0.1.0-alpha.6](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.6) (2026-10-24)
 

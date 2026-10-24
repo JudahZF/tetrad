@@ -1,9 +1,9 @@
 {
   "id": "tetrad.midi-mapper",
   "name": "MIDI Mapper",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Sends MIDI CCs, notes and program changes on one channel to Mappings as triggers. Choose what each one does on the Mappings page.",
-  "api": 1,
+  "api": 3,
   "capabilities": ["midiReceive", "triggers"],
   "settings": [
     {
