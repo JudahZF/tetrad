@@ -35,6 +35,9 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         return;
     }
     let dir = &ui.directory;
+    if let Some(target) = &dir.target {
+        return super::preset_target::page(ui, l, target);
+    }
     match (dir.search, dir.multi.is_some()) {
         (Some(kind), _) => {
             search_header(ui, l, kind);
@@ -743,9 +746,7 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
     let library = |control| Control::Library(control);
     let trigger = match popup {
         Popup::Delete(target) => return confirm_directory_delete(ui, l, target),
-        Popup::MoveConflict { .. } => return confirm_move(l),
         Popup::DatabaseFolder(id) => library(LibraryControl::DatabaseFolderMenu(id)),
-        Popup::MovePreset(id) => Control::PresetMenu(id),
         Popup::Category => library(LibraryControl::Category),
         Popup::Sort => library(LibraryControl::Sort),
         Popup::Filter => library(LibraryControl::Filter),
@@ -779,26 +780,6 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
             let current = keys.iter().position(|key| *key == sort.key);
             crate::widgets::dropdown_list(l, anchor, &labels, current, offset);
         }
-        Popup::MovePreset(_) => {
-            let rows: Vec<_> = if s.directory.slots.is_empty() {
-                s.presets
-                    .iter()
-                    .map(|preset| (preset.id, preset.title.as_str()))
-                    .collect()
-            } else {
-                s.directory
-                    .slots
-                    .iter()
-                    .map(|slot| (slot.id, slot.title.as_str()))
-                    .collect()
-            };
-            let labels: Vec<String> = rows
-                .iter()
-                .map(|(id, name)| format!("{} {name}", slot_label(*id, bank_size(s))))
-                .collect();
-            let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-            crate::widgets::dropdown_list(l, anchor, &labels, None, offset);
-        }
         Popup::Target { .. } if dir.category.media().is_some() => {
             let folders = super::directory::link_targets(ui);
             let labels: Vec<&str> = folders.iter().map(|f| f.name.as_str()).collect();
@@ -810,8 +791,11 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
         }
         Popup::Filter => filter_menu(ui, l),
         // The application favorites only the loaded, saved preset (Grid ⋮, manual §5).
+        // Copy needs a writable setlist; Move also needs the browsed one to be writable.
         Popup::Preset(id) => {
             let favorite = s.preset_id == Some(id) && s.preset_file;
+            let writable = || super::preset_target::writable(s);
+            let movable = writable().any(|(_, setlist)| s.active_setlist == Some(setlist.id));
             crate::widgets::popover_menu(
                 l,
                 anchor,
@@ -819,6 +803,7 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
                     item(ItemAction::Load, "Load", true),
                     item(ItemAction::EditName, "Edit Name", true),
                     item(ItemAction::Duplicate, "Duplicate", true),
+                    item(ItemAction::Copy, "Copy", writable().next().is_some()),
                     item(
                         ItemAction::Favorite,
                         if favorite && s.favorite {
@@ -828,7 +813,7 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
                         },
                         favorite,
                     ),
-                    item(ItemAction::Move, "Move", true),
+                    item(ItemAction::Move, "Move", movable),
                     item(ItemAction::Upload, "Upload", true),
                     item(ItemAction::Delete, "Delete Preset", true),
                 ],
@@ -953,7 +938,7 @@ pub(super) fn popup(ui: &UiState, l: &mut Layout) {
                 None,
             );
         }
-        Popup::Delete(_) | Popup::MoveConflict { .. } => unreachable!("dialog handled above"),
+        Popup::Delete(_) => unreachable!("dialog handled above"),
         Popup::ConfirmDelete | Popup::Paste(_) => unreachable!("dialog handled above"),
     }
 }
@@ -1297,50 +1282,6 @@ fn confirm_delete(ui: &UiState, l: &mut Layout) {
         Control::Library(LibraryControl::ConfirmBulkDelete),
         true,
         "DELETE",
-        ButtonStyle::Danger,
-    );
-}
-
-/// Move onto an occupied slot (`0x1e8290`).
-fn confirm_move(l: &mut Layout) {
-    let p = l.palette;
-    l.overlay();
-    let panel = Rect::new(120, 110, 560, 260);
-    l.panel(panel, p.panel, 8.0, None);
-    l.text(
-        Rect::new(144, 126, 512, 28),
-        "You've dropped on an existing preset",
-        LARGE_BOLD,
-        p.text,
-        Align::Left,
-    );
-    l.paragraph(
-        Rect::new(144, 166, 512, 110),
-        "Swap - presets will change places with each other.\nOverwrite - will delete previous \
-         and leave the one you just dragged over.",
-        MEDIUM,
-        p.muted,
-    );
-    let library = |overwrite| Control::Library(LibraryControl::ConfirmMove { overwrite });
-    l.button(
-        Rect::new(144, 294, 160, 48),
-        Control::Back,
-        true,
-        "CANCEL",
-        ButtonStyle::Secondary,
-    );
-    l.button(
-        Rect::new(320, 294, 160, 48),
-        library(false),
-        true,
-        "SWAP",
-        ButtonStyle::Primary,
-    );
-    l.button(
-        Rect::new(496, 294, 160, 48),
-        library(true),
-        true,
-        "OVERWRITE",
         ButtonStyle::Danger,
     );
 }

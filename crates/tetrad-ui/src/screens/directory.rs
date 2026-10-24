@@ -5,6 +5,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use super::preset_target::{PresetTarget, slot_title};
 use crate::layout::ListId;
 use crate::state::{Confirm, DirectoryNameEdit, Overlay, TextTarget};
 use crate::*;
@@ -395,12 +396,6 @@ impl CloudGate {
 pub(crate) enum Popup {
     Category,
     DatabaseFolder(i64),
-    MovePreset(u64),
-    /// "You've dropped on an existing preset": SWAP / OVERWRITE / CANCEL (`0x1e8290`).
-    MoveConflict {
-        from: u64,
-        to: u64,
-    },
     Delete(DirectoryDelete),
     Sort,
     Filter,
@@ -475,6 +470,8 @@ pub(crate) struct Directory {
     /// Multi Select DOWNLOAD of cloud presets (`0x794768`): the product ids, while the
     /// destination setlist (Directory state `0x1b`) and then the slots are chosen.
     pub download: Option<PresetDownload>,
+    /// The Copy and Move page of one preset; it replaces the Directory while it is open.
+    pub target: Option<PresetTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -554,6 +551,12 @@ impl Directory {
             // O: CANCEL of the downloading option ends the download pick.
             if matches!(popup, Popup::Paste(_)) {
                 self.download = None;
+            }
+            return true;
+        }
+        if let Some(target) = &mut self.target {
+            if target.conflict.take().is_none() {
+                self.target = None;
             }
             return true;
         }
@@ -1041,11 +1044,9 @@ impl UiState {
                     })];
                 }
             }
-            L::ConfirmMove { overwrite } => {
-                if let Some(Popup::MoveConflict { from, to }) = dir.popup.take() {
-                    return self.move_preset(from, to, overwrite);
-                }
-            }
+            L::ConfirmMove { overwrite } => return self.confirm_target(overwrite),
+            L::TargetSetlist(id) => self.target_setlist(id),
+            L::TargetSlot(slot) => return self.target_slot(slot),
             L::NewFolder => {
                 if let Some(kind) = dir.category.media() {
                     let parent = dir.database_folder.or_else(|| {
@@ -1626,7 +1627,9 @@ impl UiState {
         self.open_keyboard(target, name);
     }
 
-    fn move_preset(&self, from: u64, to: u64, overwrite: bool) -> Vec<UiCommand> {
+    /// The Directory move of slot `from` of the browsed setlist to slot `to`: SWAP
+    /// (`overwrite` false) or OVERWRITE when `to` is occupied.
+    pub(super) fn move_preset(&self, from: u64, to: u64, overwrite: bool) -> Vec<UiCommand> {
         let setlist = self
             .snapshot
             .setlists
@@ -1807,8 +1810,7 @@ impl UiState {
             Some(Popup::Delete(DirectoryDelete::Setlist(id))) => {
                 setlist(id).map(|at| Popup::Delete(DirectoryDelete::Setlist(at)))
             }
-            Some(Popup::Preset(slot) | Popup::MovePreset(slot)) if !slot_kept(slot) => None,
-            Some(Popup::MoveConflict { from, to }) if !(slot_kept(from) && slot_kept(to)) => None,
+            Some(Popup::Preset(slot)) if !slot_kept(slot) => None,
             Some(Popup::ConfirmDelete) if presets && !checked_kept() => None,
             Some(Popup::Target { .. }) if slot_checks && !checked_kept() => None,
             other => other,
@@ -1839,7 +1841,20 @@ impl UiState {
             self.keyboard = None;
             self.directory.rename_queue.clear();
         }
+        // The page follows its preset and its setlist; a question closes when its slot now
+        // holds another title.
+        let target = self.directory.target.take().and_then(|mut target| {
+            let shown = target.setlist;
+            target.setlist = setlist(shown)?;
+            if let Some(slot) = target.conflict
+                && slot_title(old, shown, slot) != slot_title(s, target.setlist, slot)
+            {
+                target.conflict = None;
+            }
+            slot_kept(target.slot).then_some(target)
+        });
         self.directory.popup = popup;
+        self.directory.target = target;
         self.overlay = overlay;
     }
 
@@ -1891,26 +1906,6 @@ impl UiState {
                     dir.media_descending = dir.media_sort.descending;
                 }
                 self.reset_scroll(ListId::DirectoryItems);
-            }
-            Some(Popup::MovePreset(from)) => {
-                let slots = &self.snapshot.directory.slots;
-                let (target, occupied) = if slots.is_empty() {
-                    let target = self.snapshot.presets.get(index).map(|preset| preset.id);
-                    (target, true)
-                } else {
-                    let slot = slots.get(index);
-                    (
-                        slot.map(|slot| slot.id),
-                        slot.is_some_and(|slot| !slot.empty),
-                    )
-                };
-                match target {
-                    Some(to) if occupied && to != from => {
-                        self.open_popup(Popup::MoveConflict { from, to });
-                    }
-                    Some(to) => return self.move_preset(from, to, false),
-                    None => {}
-                }
             }
             Some(Popup::Target { remove }) if dir.category.media().is_some() => {
                 let checked = dir.multi.take().unwrap_or_default();
@@ -1993,7 +1988,8 @@ impl UiState {
                 }];
             }
             ItemAction::Delete => self.overlay = Some(Overlay::Confirm(Confirm::DeletePreset(id))),
-            ItemAction::Move => self.open_popup(Popup::MovePreset(id)),
+            ItemAction::Copy => self.open_target(id, false),
+            ItemAction::Move => self.open_target(id, true),
             ItemAction::Upload => {
                 return vec![UiCommand::Upload {
                     items: vec![UploadItem::Slot(id)],

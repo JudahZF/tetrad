@@ -3183,50 +3183,103 @@ fn directory_sorts_follow_the_stock_natural_order_and_role_fallbacks() {
     assert_eq!(order(&ui), [2, 0, 1], "a second tap flips the whole order");
 }
 
-/// A Move onto an occupied slot asks SWAP / OVERWRITE (`0x1e8290`); an empty slot moves.
+/// Preset ⋮ Copy and Move open one page with every writable setlist and its slots: an empty
+/// slot takes the preset at once, an occupied one asks first. SWAP is only for a move inside
+/// the browsed setlist (the Directory move); the rest is a one-preset PASTE.
 #[test]
-fn directory_move_onto_an_occupied_slot_asks_swap_or_overwrite() {
+fn directory_preset_copy_and_move_choose_any_setlist_and_slot() {
     let mut snapshot = rich();
-    snapshot.setlists = vec![SetlistItem {
-        id: 1,
-        title: "Tour".into(),
-    }];
+    snapshot.setlists = ["Factory Presets", "My Presets", "Tour"]
+        .into_iter()
+        .enumerate()
+        .map(|(id, title)| SetlistItem {
+            id: id as u64,
+            title: title.into(),
+        })
+        .collect();
     snapshot.active_setlist = Some(1);
-    std::sync::Arc::make_mut(&mut snapshot.directory).slots = (0..3)
-        .map(|id| DirectorySlot {
-            title: format!("PRESET {id}"),
-            id,
-            key: 0,
-            empty: id == 2,
-            author: String::new(),
-            date: String::new(),
+    // My Presets holds slots 0 and 1, Tour slot 1.
+    std::sync::Arc::make_mut(&mut snapshot.directory).presets = [(1, 0), (1, 1), (2, 1)]
+        .into_iter()
+        .map(|(setlist, slot)| DirectoryPreset {
+            setlist,
+            slot,
+            title: format!("PRESET {slot}"),
         })
         .collect();
     let mut ui = ui_with(snapshot);
     activate(&mut ui, Control::Navigate(Screen::Presets));
-    let open_move = |ui: &mut UiState| {
+    let library = Control::Library;
+    let open = |ui: &mut UiState, action| {
         activate(ui, Control::PresetMenu(0));
-        activate(ui, Control::Library(LibraryControl::Item(ItemAction::Move)))
+        activate(ui, library(LibraryControl::Item(action)))
     };
-    let request = |to, overwrite| {
+    let paste = |remove, setlist, slot| {
+        vec![UiCommand::CopyPresets {
+            ids: vec![0],
+            from: "My Presets".into(),
+            setlist,
+            remove,
+            to: PasteTarget::Slots(vec![slot]),
+        }]
+    };
+    let slots = |ui: &UiState| {
+        (ui.hit_regions().into_iter())
+            .filter(|region| {
+                matches!(
+                    region.control,
+                    Control::Library(LibraryControl::TargetSlot(_))
+                )
+            })
+            .count()
+    };
+
+    // Copy to an empty slot of another setlist; Factory Presets is not offered.
+    open(&mut ui, ItemAction::Copy);
+    assert!(slots(&ui) > 0, "the page shows the slots");
+    assert!(!(ui.hit_regions().iter()).any(|region| region.label == "Factory Presets"));
+    activate(&mut ui, library(LibraryControl::TargetSetlist(2)));
+    assert_eq!(
+        activate(&mut ui, library(LibraryControl::TargetSlot(3))),
+        paste(false, 2, 3)
+    );
+    assert_eq!(slots(&ui), 0, "the page closes");
+
+    // Move onto an occupied slot of another setlist: no SWAP, OVERWRITE pastes.
+    open(&mut ui, ItemAction::Move);
+    activate(&mut ui, library(LibraryControl::TargetSetlist(2)));
+    assert!(activate(&mut ui, library(LibraryControl::TargetSlot(1))).is_empty());
+    let answer = |overwrite| library(LibraryControl::ConfirmMove { overwrite });
+    assert!(activate(&mut ui, answer(false)).is_empty());
+    assert_eq!(activate(&mut ui, answer(true)), paste(true, 2, 1));
+
+    // Move inside the browsed setlist: the own slot is not a target, an occupied slot asks
+    // SWAP or OVERWRITE, an empty one moves.
+    let mv = |to, overwrite| {
         vec![UiCommand::Directory(DirectoryRequest::MovePreset {
-            setlist: "Tour".into(),
+            setlist: "My Presets".into(),
             from: 0,
             to,
             overwrite,
         })]
     };
-    open_move(&mut ui);
-    assert!(activate(&mut ui, Control::Choose(1)).is_empty());
+    open(&mut ui, ItemAction::Move);
+    assert!(activate(&mut ui, library(LibraryControl::TargetSlot(0))).is_empty());
+    assert!(activate(&mut ui, library(LibraryControl::TargetSlot(1))).is_empty());
+    assert_eq!(activate(&mut ui, answer(false)), mv(1, false));
+    open(&mut ui, ItemAction::Move);
     assert_eq!(
-        activate(
-            &mut ui,
-            Control::Library(LibraryControl::ConfirmMove { overwrite: true })
-        ),
-        request(1, true)
+        activate(&mut ui, library(LibraryControl::TargetSlot(5))),
+        mv(5, false)
     );
-    open_move(&mut ui);
-    assert_eq!(activate(&mut ui, Control::Choose(2)), request(2, false));
+
+    // Back closes the question first, then the page.
+    open(&mut ui, ItemAction::Copy);
+    activate(&mut ui, library(LibraryControl::TargetSlot(1)));
+    activate(&mut ui, Control::Back);
+    assert!(slots(&ui) > 0);
+    activate(&mut ui, Control::Back);
+    assert_eq!(slots(&ui), 0);
 }
 
 /// Plugin folders list their presets per sidebar folder; a row auditions the preset.

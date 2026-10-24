@@ -69,6 +69,9 @@ pub(crate) enum ListId {
     CabIrs(u8),
     /// Settings → Appearance theme rows.
     Themes,
+    /// The setlists and the slots of the Copy and Move page.
+    TargetSetlists,
+    TargetSlots,
 }
 
 /// The picker drawer veil: 65 % of `#636763`; black becomes `#404340`, white `#999b99`

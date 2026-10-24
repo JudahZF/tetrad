@@ -23,6 +23,7 @@ mod numeric;
 pub(crate) mod overlay;
 mod picker;
 mod preset_metadata;
+mod preset_target;
 mod presets;
 mod recovery;
 pub(crate) mod remote;
