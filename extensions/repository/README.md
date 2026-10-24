@@ -78,8 +78,10 @@ Check a package at any time with `$T check FILE.tetradext`.
 | `tetrad.dsp-examples-0.3.0.tetradext` (without the synth, which moved to Sweep Synth) | `extensions-2026-10-24` |
 | `tetrad.sweep-synth-0.1.0.tetradext` (mono guitar and bass synth blocks, API 2) | `extensions-2026-10-24` |
 | `tetrad.midi-mapper-0.3.0.tetradext` (note-offs release their note, API 3) | `extensions-2026-10-24.2` |
+| `tetrad.custom-footswitch-0.1.0.tetradext` (a 4-page Custom footswitch mode, data only, API 4) | `extensions-2026-10-24.3` |
 
-Devices before API 2 skip the API 2 packages, and devices before API 3 the API 3 packages:
+Devices before API 2 skip the API 2 packages, devices before API 3 the API 3 packages, and
+devices before API 4 the API 4 packages:
 `latest()` filters on the API version. The
 example graphs come from `cargo qcdsp export --example <name> --output <file>` (the slapback is
 `--example delay --delay-samples 3600`). Sweep Synth's graphs are `--example sweep-synth` and
