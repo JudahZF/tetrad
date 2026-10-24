@@ -1,4 +1,4 @@
-// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 2.
+// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 3.
 //
 // Types only. The runner provides every value at run time and has no module loader, so
 // import with `import type { ... } from "@tetrad/extensions"` and bundle to one ES module

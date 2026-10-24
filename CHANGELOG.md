@@ -23,6 +23,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - The Values page of a CC mapping shows the window, the map and the CC's last value.
 - Footswitch releases, note-offs and extension releases (`pressed: false`) reach Mappings.
   MIDI Mapper 0.3.0 sends note-offs as releases.
+- Extension API 3: trigger firings can carry `pressed: false` (a release). Builds before API 3
+  do not install API 3 packages, so they keep MIDI Mapper 0.2.0.
 
 ### Changed
 

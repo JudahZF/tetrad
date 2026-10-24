@@ -184,8 +184,10 @@ tetrad-ext package --out ../packages .
 
 Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`,
 `triggers`, `usb` and `blocks`. The host refuses every call that needs a capability the manifest
-does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); an API 1 manifest
-still works.
+does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); API 3 adds
+`pressed` on trigger firings (see below). An API 1 or 2 manifest still works. Use API 3 only to
+send releases: Tetrad before API 3 does not install API 3 packages, because it would take a
+release for a press.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`).
 
