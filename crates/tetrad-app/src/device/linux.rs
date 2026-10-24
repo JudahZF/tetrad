@@ -634,6 +634,7 @@ const EV_SYN: u16 = 0;
 const EV_KEY: u16 = 1;
 const EV_ABS: u16 = 3;
 const SYN_REPORT: u16 = 0;
+const SYN_MT_REPORT: u16 = 2;
 const BTN_TOUCH: u16 = 0x14a;
 const ABS_X: u16 = 0x00;
 const ABS_Y: u16 = 0x01;
@@ -655,6 +656,12 @@ struct TouchDecoder {
     y: i32,
     pressure: i32,
     changed: bool,
+    /// Type A multi-touch (no `BTN_TOUCH`, pressure or tracking id, as on the ILI2130): a frame
+    /// ends its contacts with `SYN_MT_REPORT`; a frame with a position is a press, one with none
+    /// is a release. The frame flags are cleared at each `SYN_REPORT`.
+    frame_mt: bool,
+    frame_position: bool,
+    frame_pressure: bool,
 }
 
 impl TouchDecoder {
@@ -669,11 +676,35 @@ impl TouchDecoder {
     fn push(&mut self, record: &InputRecord) -> Option<TouchSample> {
         let value = record.value;
         match (record.event_type, record.code) {
-            (EV_ABS, ABS_X | ABS_MT_POSITION_X) => self.x = value,
-            (EV_ABS, ABS_Y | ABS_MT_POSITION_Y) => self.y = value,
-            (EV_ABS, ABS_PRESSURE) | (EV_KEY, BTN_TOUCH) => self.pressure = value,
-            (EV_ABS, ABS_MT_TRACKING_ID) => self.pressure = i32::from(value >= 0),
+            (EV_ABS, ABS_X | ABS_MT_POSITION_X) => {
+                self.x = value;
+                self.frame_position = true;
+            }
+            (EV_ABS, ABS_Y | ABS_MT_POSITION_Y) => {
+                self.y = value;
+                self.frame_position = true;
+            }
+            (EV_ABS, ABS_PRESSURE) | (EV_KEY, BTN_TOUCH) => {
+                self.pressure = value;
+                self.frame_pressure = true;
+            }
+            (EV_ABS, ABS_MT_TRACKING_ID) => {
+                self.pressure = i32::from(value >= 0);
+                self.frame_pressure = true;
+            }
+            (EV_SYN, SYN_MT_REPORT) => {
+                self.frame_mt = true;
+                return None;
+            }
             (EV_SYN, SYN_REPORT) => {
+                if self.frame_mt && !self.frame_pressure {
+                    let pressure = i32::from(self.frame_position);
+                    self.changed |= pressure != self.pressure;
+                    self.pressure = pressure;
+                }
+                self.frame_mt = false;
+                self.frame_position = false;
+                self.frame_pressure = false;
                 return std::mem::take(&mut self.changed).then(|| self.sample());
             }
             _ => return None,
@@ -1647,6 +1678,28 @@ mod tests {
 
         assert_eq!(Calibration::parse("1 0 0 0 1 0 0"), None, "zero divisor");
         assert_eq!(Calibration::parse("1 0 0"), None, "too short");
+    }
+
+    /// The ILI2130 of the unit in this report sends only `ABS_MT_POSITION_X/Y`, `SYN_MT_REPORT`
+    /// and `SYN_REPORT`: a position is a press, an empty frame is the release.
+    #[test]
+    fn type_a_multitouch_without_pressure_presses_and_releases() {
+        let mut touch = TouchDecoder::new(Calibration::default());
+        let frame = |touch: &mut TouchDecoder, position: Option<(i32, i32)>| {
+            if let Some((x, y)) = position {
+                touch.push(&record(EV_ABS, ABS_MT_POSITION_X, x));
+                touch.push(&record(EV_ABS, ABS_MT_POSITION_Y, y));
+            }
+            assert_eq!(touch.push(&record(EV_SYN, SYN_MT_REPORT, 0)), None);
+            touch.push(&record(EV_SYN, SYN_REPORT, 0))
+        };
+        let down = frame(&mut touch, Some((700, 400))).unwrap();
+        assert_eq!((down.x, down.y, down.pressed), (100, 80, true));
+        let moved = frame(&mut touch, Some((690, 400))).unwrap();
+        assert_eq!((moved.x, moved.pressed), (110, true));
+        let up = frame(&mut touch, None).unwrap();
+        assert!(!up.pressed);
+        assert_eq!(frame(&mut touch, None), None, "no repeated release");
     }
 
     /// Stock `0x0088f974`: events come on a second, attached connection (the supplicant sends
