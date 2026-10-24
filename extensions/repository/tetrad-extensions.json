@@ -28,6 +28,19 @@
       }
     },
     {
+      "id": "tetrad.dsp-examples",
+      "name": "DSP Examples",
+      "version": "0.3.0",
+      "description": "Seven small DSP blocks from the qcdsp examples: gain, two drives, tremolo, a slapback delay, a 187 ms echo (its memory comes from the DSP heap) and an envelope filter. Use them to try DSP blocks on your unit. The synth is now the Sweep Synth extension.",
+      "api": 2,
+      "asset": {
+        "tag": "extensions-2026-10-24",
+        "name": "tetrad.dsp-examples-0.3.0.tetradext",
+        "size": 11005,
+        "sha256": "da4f59c1b4a5e064078daad82929f2eb47320d65f2d879bce35b59eea80835da"
+      }
+    },
+    {
       "id": "tetrad.midi-mapper",
       "name": "MIDI Mapper",
       "version": "0.2.0",
@@ -90,6 +103,19 @@
         "name": "tetrad.nam-0.3.1.tetradext",
         "size": 20460,
         "sha256": "84d8cf6839306fcb7d0c337291edb38b3b7ecbd8cc781e676e96cacdbbd9a8c8"
+      }
+    },
+    {
+      "id": "tetrad.sweep-synth",
+      "name": "Sweep Synth",
+      "version": "0.1.0",
+      "description": "An analog-style mono synth, as a guitar block and a bass block: sub octave, dry, octave up and square wave voices go into a resonant filter that sweeps on each note, then an attack delay. It plays one note at a time.",
+      "api": 2,
+      "asset": {
+        "tag": "extensions-2026-10-24",
+        "name": "tetrad.sweep-synth-0.1.0.tetradext",
+        "size": 22696,
+        "sha256": "742d75e5a80fde1c65e25ee79fb32e0e827adcc6e07c38721a366d5f14ed6cc9"
       }
     }
   ]

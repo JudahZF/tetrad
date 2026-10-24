@@ -9,6 +9,8 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
   [Mappings](mappings.md) page.
 - **Neural Amp Modeler** plays Neural Amp Modeler (NAM) LSTM and WaveNet models, including the
   NAM trainer's nano, feather and lite sizes, as amp blocks.
+- **Sweep Synth** adds two synth blocks, one for guitar and one for bass, with a filter that
+  sweeps on each note.
 
 - [Use extensions](#use-extensions)
 - [DSP blocks](#dsp-blocks)
@@ -67,6 +69,20 @@ the Mappings page.
 
 Choose a channel that is not the QC's own MIDI channel (Settings → Device → MIDI). If they are
 the same, the extension faults with that reason.
+
+### Sweep Synth
+
+Sweep Synth and Bass Sweep Synth are in the Synth list. Each makes four voices from the note
+you play: SUB OCTAVE (one octave down), GUITAR or BASS (the dry signal), OCTAVE (one octave up)
+and SQUARE WAVE. Each note louder than TRIGGER restarts the filter: it moves from START FREQ to
+STOP FREQ, as fast as RATE sets. RESONANCE gives the filter a peak, and ATTACK DELAY fades each
+note in. The blocks play one note at a time, so play single notes and put them early in the
+chain, before drive and modulation. They are mono: a stereo signal into them comes out with
+its left channel on both sides.
+
+DSP Examples 0.2.0 had a stereo copy of the guitar block, "qcdsp Micro Synth". DSP Examples
+0.3.0 does not have it. After you update, a preset that uses it plays the stock Gain block
+(0 dB) in that slot. Put Sweep Synth in the slot, set its controls again and save the preset.
 
 ### Limits
 

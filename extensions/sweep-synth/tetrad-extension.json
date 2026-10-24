@@ -1,0 +1,19 @@
+{
+  "id": "tetrad.sweep-synth",
+  "name": "Sweep Synth",
+  "version": "0.1.0",
+  "description": "An analog-style mono synth, as a guitar block and a bass block: sub octave, dry, octave up and square wave voices go into a resonant filter that sweeps on each note, then an attack delay. It plays one note at a time.",
+  "api": 2,
+  "blocks": [
+    {
+      "id": "sweep-synth",
+      "name": "Sweep Synth",
+      "category": "synth"
+    },
+    {
+      "id": "bass-sweep-synth",
+      "name": "Bass Sweep Synth",
+      "category": "synth"
+    }
+  ]
+}

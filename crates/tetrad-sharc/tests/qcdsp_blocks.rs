@@ -328,8 +328,8 @@ fn raw_callbacks_use_both_io_pointers_and_survive_interrupt_stack_writes() {
         examples::biquad([0.06745527, 0.13491054, 0.06745527, -1.1429805, 0.4128016]).unwrap(),
         examples::tremolo().unwrap(),
         examples::envelope_filter().unwrap(),
-        examples::micro_synth(examples::Voicing::Guitar).unwrap(),
-        examples::micro_synth(examples::Voicing::Bass).unwrap(),
+        examples::sweep_synth(examples::Voicing::Guitar).unwrap(),
+        examples::sweep_synth(examples::Voicing::Bass).unwrap(),
         examples::saturator().unwrap(),
     ];
     for block in blocks {

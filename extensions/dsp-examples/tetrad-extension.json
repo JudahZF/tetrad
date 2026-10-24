@@ -1,8 +1,8 @@
 {
   "id": "tetrad.dsp-examples",
   "name": "DSP Examples",
-  "version": "0.2.0",
-  "description": "Eight small DSP blocks from the qcdsp examples: gain, two drives, tremolo, a slapback delay, a 187 ms echo (its memory comes from the DSP heap), an envelope filter and a monophonic synth. Use them to try DSP blocks on your unit.",
+  "version": "0.3.0",
+  "description": "Seven small DSP blocks from the qcdsp examples: gain, two drives, tremolo, a slapback delay, a 187 ms echo (its memory comes from the DSP heap) and an envelope filter. Use them to try DSP blocks on your unit. The synth is now the Sweep Synth extension.",
   "api": 2,
   "blocks": [
     {
@@ -39,11 +39,6 @@
       "id": "envelope-filter",
       "name": "qcdsp Envelope Filter",
       "category": "filter"
-    },
-    {
-      "id": "micro-synth",
-      "name": "qcdsp Micro Synth",
-      "category": "synth"
     }
   ]
 }
