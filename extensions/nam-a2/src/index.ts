@@ -11,7 +11,7 @@
 
 import type { ExtensionDefinition } from "@tetrad/extensions";
 
-import { namFile, parse, record } from "../../nam/src/nam";
+import { checkRate, namFile, parse, record } from "../../nam/src/nam";
 import { parseWavenet, wavenet } from "../../nam/src/wavenet";
 
 const extension: ExtensionDefinition = {
@@ -24,6 +24,8 @@ const extension: ExtensionDefinition = {
           `${asset.name} is a ${String(architecture)} model, not an A2 model; the Neural Amp Modeler A1 extension plays it`,
         );
       }
+      // The container's rate holds for a size that names none.
+      checkRate(asset.name, file);
       const model = namFile(asset.name, smallest(asset.name, record(file["config"], `${asset.name} config`)));
       if (model.architecture !== "WaveNet") {
         throw new Error(`${asset.name} has a ${String(model.architecture)} size; A2 sizes are WaveNets`);
