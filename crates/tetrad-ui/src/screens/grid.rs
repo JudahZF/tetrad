@@ -518,7 +518,8 @@ pub(super) fn header(ui: &UiState, l: &mut Layout) {
     preset_title(l, s, text_box, TITLE, true);
 
     // Mode label: tap cycles, hold opens Modes Configuration (manual "Modes").
-    let mode = super::mode_label(s);
+    // A Custom mode's own name is up to 16 characters: it fits the mode area.
+    let mode = fit(&super::mode_label(s), MODE, 130.0);
     // Stock `updateMode` (`0x674ed0`): with a Preset MIDI Out message stored
     // (`0x0032da4c`), every mode but Preset shows `icons/mainMenuPopup/midi.png` in place of
     // its own glyph (`sn-0`: a 22 px DIN disc at x 657–678, y 61–81).

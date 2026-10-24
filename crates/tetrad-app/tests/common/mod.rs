@@ -1441,6 +1441,8 @@ pub fn boot_extensions(
     use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
     let log = Rc::new(RefCell::new(Log::default()));
     let mut sim = Sim::new(STOCK, &media, &log);
+    // HTTP downloads write to the same files as the services.
+    sim.services.http.script = ScriptedHttp::sharing(files.clone());
     sim.services.files = files;
     for marker in [CAPTURE_CORRUPTION_CHECKED, CAPTURE_CONVERSION_FINISHED] {
         sim.services.files.put(marker, "");

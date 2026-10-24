@@ -2485,13 +2485,16 @@ impl Extensions {
                         let provides = provider.as_ref().is_some_and(|p| &p.key == key);
                         let detail = match &provider {
                             _ if provides => format!(
-                                "{} pages · the mode button or Down + Tap switches to it",
-                                mode.pages
+                                "{} {} · the mode button or Down + Tap switches to it",
+                                mode.pages,
+                                if mode.pages == 1 { "page" } else { "pages" }
                             ),
                             _ if !record.installed.enabled => {
                                 "Turn the extension on to use it".to_owned()
                             }
-                            Some(other) => format!("Not used: {}'s mode is on", other.extension),
+                            Some(other) => {
+                                format!("Not used: {} adds the Custom mode", other.extension)
+                            }
                             None => String::new(),
                         };
                         tetrad_ui::ExtensionMode {
