@@ -431,6 +431,8 @@ pub struct FiredTrigger {
     pub value: f32,
     /// A continuous source (a CC); otherwise a press (a note, a PC).
     pub continuous: bool,
+    /// A press source: pressed (`true`) or released. Firings without the field are presses.
+    pub pressed: bool,
 }
 
 #[derive(Default)]
@@ -1663,6 +1665,10 @@ fn fired_trigger(
     let value = (params.get("value").and_then(Json::as_f64)).ok_or("value must be a number")?;
     let continuous =
         (params.get("continuous").and_then(Json::as_bool)).ok_or("continuous must be a boolean")?;
+    let pressed = match params.get("pressed") {
+        None | Some(Json::Null) => true,
+        Some(pressed) => pressed.as_bool().ok_or("pressed must be a boolean")?,
+    };
     Ok(FiredTrigger {
         key: key.to_owned(),
         trigger: trigger.to_owned(),
@@ -1670,6 +1676,7 @@ fn fired_trigger(
         label: label.to_owned(),
         value: (value as f32).clamp(0.0, 1.0),
         continuous,
+        pressed,
     })
 }
 

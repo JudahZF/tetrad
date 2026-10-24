@@ -102,6 +102,11 @@ export type TriggerFiring = {
   readonly value: number;
   /** `true` for a continuous source (a CC); `false` for a press (a note, a PC). */
   readonly continuous: boolean;
+  /**
+   * A press source only: `true` (the default) for a press, `false` for its release (a note-off).
+   * Momentary mappings hold their value until the release.
+   */
+  readonly pressed?: boolean;
 };
 
 /** An asset file the user chose for a generated block, as UTF-8 text. */

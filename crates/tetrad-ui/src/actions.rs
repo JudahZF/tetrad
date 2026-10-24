@@ -3,8 +3,8 @@
 use crate::layout::ListId;
 use crate::settings::{DeviceAction, SettingKind, SettingsPage};
 use crate::state::{
-    ChoicePurpose, Confirm, DirectoryNameEdit, InhibitStatus, LooperSwap, MediaPick, MenuKind,
-    Overlay, Shift, SupportView, TextTarget, simplify_text, stomp_name,
+    ChoicePurpose, Confirm, DirectoryNameEdit, InhibitStatus, LooperSwap, MappingsPage, MediaPick,
+    MenuKind, Overlay, Shift, SupportView, TextTarget, simplify_text, stomp_name,
 };
 use crate::*;
 
@@ -1148,7 +1148,10 @@ impl UiState {
             (_, MenuAction::CpuMonitor) => self.show_cpu = !self.show_cpu,
             (_, MenuAction::Looper) => return self.navigate(Screen::Looper),
             (_, MenuAction::Mappings) => {
-                self.mappings.detail = None;
+                self.mappings = MappingsPage {
+                    tab: self.mappings.tab,
+                    ..MappingsPage::default()
+                };
                 self.reset_scroll(ListId::Mappings);
                 return self.navigate(Screen::Mappings);
             }

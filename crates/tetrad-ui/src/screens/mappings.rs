@@ -1,6 +1,7 @@
 //! Owned Mappings page (Tetrad; it replaces stock Preset MIDI Out in the grid ⋮ menu): the
 //! trigger → action rows of the loaded preset (THIS PRESET) and of the device (GLOBAL), the
-//! detail page of one row and its action menu. The host decides storage and validity
+//! detail page of one row, its action menu and the Values page of a mode with more than two
+//! values (a CC response graph and one stepper per value). The host decides storage and validity
 //! (`crate::mappings`): each control sends a [`MappingCommand`] and the page shows the next
 //! snapshot. The page follows [`MappingsView::focus`], as an edit can give a row a new id.
 //! Full-screen chrome as Preset MIDI Out: a muted title, 66 × 44 header icons, the ✓ and
@@ -20,14 +21,18 @@ const ROW: u32 = 64;
 const LIST: Rect = Rect::new(8, 88, 784, 384);
 const TRIGGER_PANEL: Rect = Rect::new(8, 88, 784, 2 * ROW);
 const ACTION_Y: i32 = 256;
-/// Trigger dropdowns: 264 × 40 at the right end of their row.
+/// Dropdowns: 264 × 40 at the right end of their row.
 const FIELD_WIDTH: u32 = 264;
+/// Value steppers: 212 × 44 at the right end of their row.
+const STEPPER_WIDTH: u32 = 212;
+/// The Values page: the response graph at the left, the value rows at the right.
+const GRAPH_PANEL: Rect = Rect::new(8, 72, 376, 392);
+const GRAPH: Rect = Rect::new(40, 112, 320, 288);
+const VALUES_X: i32 = 392;
 /// The action menu: the ⋮ menu's panel, rows and section headers.
 const MENU: Rect = Rect::new(472, 16, 270, 420);
 const MENU_ROW: u32 = 60;
 const MENU_HEADER: u32 = 44;
-/// One step of the value stepper, in percent.
-const VALUE_STEP: i32 = 5;
 /// A new MIDI trigger starts on CC 20, the first CC that the MIDI specification leaves
 /// undefined. The host refuses it when the stock MIDI map uses it.
 const FIRST_FREE_CC: u8 = 20;
@@ -63,6 +68,7 @@ fn learning(view: &MappingsView, scope: MappingScope, id: &MappingId) -> bool {
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     match open_row(ui) {
+        Some(row) if ui.mappings.values => values(ui, l, row),
         Some(row) => detail(ui, l, row),
         None => list(ui, l),
     }
@@ -321,11 +327,15 @@ fn list_row(ui: &UiState, l: &mut Layout, bounds: Rect, index: u16, row: &Mappin
     let mark = Rect::new(bounds.x + 322, bounds.y + 14, 36, 36);
     action_mark(ui, l, row.action.as_ref(), mark);
     let (text, detail, color) = action_text(&p, row);
+    let detail = match row.summary.as_str() {
+        "" => detail.to_owned(),
+        summary => format!("{detail} · {summary}"),
+    };
     lines(
         l,
         bounds,
         (bounds.x + 372, bounds.right() - 48),
-        (text, detail),
+        (text, &detail),
         color,
     );
     chevron(l, bounds);
@@ -348,8 +358,10 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     let second = Rect::new(kind.x, kind.bottom(), kind.width, ROW);
     trigger_row(l, row, second, learning(view, scope, &row.id));
     caption(l, 224, "Action");
+    // The third row: Send MIDI messages, or the mode's values.
     let target = midi_target(&row.trigger).filter(|_| row.action == Some(MappingAction::SendMidi));
-    let rows = if target.is_some() { 3 } else { 2 };
+    let third = target.is_some() || !row.fields.is_empty();
+    let rows = if third { 3 } else { 2 };
     let panel = Rect::new(8, ACTION_Y, 784, rows * ROW);
     l.panel(panel, p.panel, 8.0, None);
     let action = Rect::new(panel.x, panel.y, panel.width, ROW);
@@ -367,38 +379,18 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     );
     chevron(l, action);
     divider(l, action);
-    let value = Rect::new(panel.x, action.bottom(), panel.width, ROW);
-    label(l, value, "Value");
-    let mut right = value.right() - 16;
-    if let Some(percent) = row.value {
-        let stepper = Rect::new(right - 212, value.y + 10, 212, 44);
-        super::stepper(
-            l,
-            stepper,
-            Control::Mapping(MappingControl::Value(-1)),
-            Control::Mapping(MappingControl::Value(1)),
-            format!("{percent} %"),
-            true,
-        );
-        right = stepper.x - 16;
-    }
-    let x = value.x + 120;
-    let width = (right - x).max(0) as u32;
-    let used = fit(&row.value_use, MEDIUM, width as f32);
-    l.text(
-        Rect::new(x, value.y, width, ROW),
-        used,
-        MEDIUM,
-        p.muted,
-        Align::Right,
-    );
+    let mode = Rect::new(panel.x, action.bottom(), panel.width, ROW);
+    mode_row(l, row, mode);
+    let third = Rect::new(panel.x, mode.bottom(), panel.width, ROW);
     if target.is_some() {
-        divider(l, value);
-        let messages = Rect::new(panel.x, value.bottom(), panel.width, ROW);
+        divider(l, mode);
         let edit = Control::Mapping(MappingControl::EditMessages);
-        l.control(messages, edit, true, "EDIT MESSAGES", Look::Area);
-        label(l, messages, "Edit messages");
-        chevron(l, messages);
+        l.control(third, edit, true, "EDIT MESSAGES", Look::Area);
+        label(l, third, "Edit messages");
+        chevron(l, third);
+    } else if !row.fields.is_empty() {
+        divider(l, mode);
+        values_row(l, row, third);
     }
     // A refusal replaces the storage note until the next accepted command.
     let footer = Rect::new(16, panel.bottom() + 6, 768, 24);
@@ -421,7 +413,204 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     }
 }
 
-/// A Trigger dropdown at the right end of `row`.
+/// The Mode row: the mode's detail and its dropdown, or the fixed mode as text.
+fn mode_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
+    let p = l.palette;
+    label(l, bounds, "Mode");
+    let field = Rect::new(
+        bounds.right() - 16 - FIELD_WIDTH as i32,
+        bounds.y,
+        FIELD_WIDTH,
+        ROW,
+    );
+    let Some(mode) = &row.mode else {
+        l.text(field, "Choose an action", MEDIUM, p.muted, Align::Right);
+        return;
+    };
+    if row.modes.is_empty() {
+        let text = fit(&mode.label, MEDIUM, field.width as f32);
+        l.text(field, text, MEDIUM, p.text, Align::Right);
+    } else {
+        dropdown(l, bounds, MappingChoice::Mode, &mode.label);
+    }
+    let x = bounds.x + 120;
+    let width = (field.x - 16 - x).max(0) as u32;
+    l.text(
+        Rect::new(x, bounds.y, width, ROW),
+        fit(&mode.detail, CAPTION, width as f32),
+        CAPTION,
+        p.muted,
+        Align::Right,
+    );
+}
+
+/// The Values row: one or two steppers, or the summary that opens the Values page.
+fn values_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
+    let p = l.palette;
+    match row.fields.as_slice() {
+        [field] => field_row(l, field, bounds),
+        [first, second] => {
+            let (left, right) = bounds.take_left(bounds.width / 2, 0);
+            field_row(l, first, left);
+            field_row(l, second, right);
+        }
+        _ => {
+            let open = Control::Mapping(MappingControl::Values);
+            l.control(bounds, open, true, "VALUES", Look::Area);
+            label(l, bounds, "Values");
+            let x = bounds.x + 120;
+            let width = (bounds.right() - 48 - x).max(0) as u32;
+            l.text(
+                Rect::new(x, bounds.y, width, ROW),
+                fit(&row.summary, MEDIUM, width as f32),
+                MEDIUM,
+                p.muted,
+                Align::Right,
+            );
+            chevron(l, bounds);
+        }
+    }
+}
+
+/// A value's label at the left of `bounds` and its stepper at the right end.
+fn field_row(l: &mut Layout, field: &ValueField, bounds: Rect) {
+    let p = l.palette;
+    let stepper = Rect::new(
+        bounds.right() - 16 - STEPPER_WIDTH as i32,
+        bounds.y + 10,
+        STEPPER_WIDTH,
+        44,
+    );
+    let x = bounds.x + 16;
+    let width = (stepper.x - 8 - x).max(0) as u32;
+    l.text(
+        Rect::new(x, bounds.y, width, bounds.height),
+        fit(&field.label, MEDIUM, width as f32),
+        MEDIUM,
+        p.text,
+        Align::Left,
+    );
+    let step = |ticks| Control::Mapping(MappingControl::Field(field.id, ticks));
+    super::stepper(l, stepper, step(-1), step(1), field.text.clone(), true);
+}
+
+/// The Values page of a mode with more than two values: the CC response graph (when the host
+/// sends one) and one stepper row per value.
+fn values(ui: &UiState, l: &mut Layout, row: &MappingRow) {
+    let p = l.palette;
+    let title = format!("{} values", row.trigger_label);
+    crate::widgets::page_header(l, &title, Control::Back, Icon::Check);
+    let (x, width) = match &row.response {
+        Some(response) => {
+            l.panel(GRAPH_PANEL, p.panel, 8.0, None);
+            graph(l, response);
+            (VALUES_X, 400)
+        }
+        None => (8, 784),
+    };
+    let panel = Rect::new(x, 72, width, row.fields.len() as u32 * ROW);
+    l.panel(panel, p.panel, 8.0, None);
+    for (index, field) in row.fields.iter().enumerate() {
+        let bounds = Rect::new(x, panel.y + (index as u32 * ROW) as i32, width, ROW);
+        if index + 1 < row.fields.len() {
+            divider(l, bounds);
+        }
+        field_row(l, field, bounds);
+    }
+    // A refusal replaces the mode's description until the next accepted command.
+    let footer = Rect::new(x + 8, panel.bottom() + 6, width - 16, 24);
+    let (text, color) = match (&ui.snapshot.mappings.notice, &row.mode) {
+        (Some(notice), _) => (notice.as_str(), p.warning),
+        (None, Some(mode)) => (mode.detail.as_str(), p.faint),
+        (None, None) => return,
+    };
+    let text = fit(text, CAPTION, footer.width as f32);
+    l.text(footer, text, CAPTION, color, Align::Left);
+}
+
+/// A 2 px dashed line along the long side of `strip`: 6 px dashes, 5 px gaps.
+fn dashed(l: &mut Layout, strip: Rect, color: Rgb) {
+    let vertical = strip.height > strip.width;
+    let length = if vertical { strip.height } else { strip.width };
+    for at in (0..length).step_by(11) {
+        let dash = 6.min(length - at);
+        let bounds = match vertical {
+            true => Rect::new(strip.x, strip.y + at as i32, strip.width, dash),
+            false => Rect::new(strip.x + at as i32, strip.y, dash, strip.height),
+        };
+        l.push(bounds, "", Look::Fill(color));
+    }
+}
+
+/// The CC response: CC value 0..=127 across [`GRAPH`], the target 0..=1000 up. The window is a
+/// shaded band, with the Follow map over it or "Press" in it; the last CC value is a dashed
+/// vertical line, the target's value now a dashed amber line.
+fn graph(l: &mut Layout, response: &ResponseView) {
+    let p = l.palette;
+    let x = |cc: u8| GRAPH.x + (i32::from(cc.min(127)) * GRAPH.width as i32) / 127;
+    let y = |value: u16| GRAPH.bottom() - (i32::from(value.min(1000)) * GRAPH.height as i32) / 1000;
+    let (low, high) = (x(response.low), x(response.high));
+    let band = Rect::new(low, GRAPH.y, (high - low).max(2) as u32, GRAPH.height);
+    l.push(band, "", Look::Fill(p.panel.mix(p.accent, 32)));
+    let axis = Rect::new(GRAPH.x, GRAPH.bottom(), GRAPH.width, 1);
+    l.push(axis, "", Look::Fill(p.faint));
+    let axis = Rect::new(GRAPH.x, GRAPH.y, 1, GRAPH.height);
+    l.push(axis, "", Look::Fill(p.faint));
+    match response.line {
+        Some((at_low, at_high)) => {
+            let points = [
+                (x(0), y(at_low)),
+                (low, y(at_low)),
+                (high, y(at_high)),
+                (x(127), y(at_high)),
+            ]
+            .map(|(x, y)| (x as f32, y as f32));
+            for pair in points.windows(2) {
+                l.line(pair[0], pair[1], 3.0, p.accent);
+            }
+        }
+        None => l.text(band, "Press", BODY_BOLD, p.accent, Align::Center),
+    }
+    if let Some(current) = response.current {
+        dashed(
+            l,
+            Rect::new(GRAPH.x, y(current) - 1, GRAPH.width, 2),
+            p.warning,
+        );
+    }
+    if let Some(level) = response.level {
+        let at = x(level);
+        dashed(l, Rect::new(at - 1, GRAPH.y, 2, GRAPH.height), p.muted);
+        let text = format!("CC {level}");
+        let width = CAPTION.width(&text).ceil() as i32;
+        // The label sits right of the line, or left of it near the right end.
+        let left = match at + 6 + width <= GRAPH.right() {
+            true => at + 6,
+            false => at - 6 - width,
+        };
+        let bounds = Rect::new(left, GRAPH.y, width as u32, 20);
+        l.text(bounds, text, CAPTION, p.muted, Align::Left);
+    }
+    // The window's ends under the axis, and what the axis is.
+    for (at, cc) in [(low, response.low), (high, response.high)] {
+        let bounds = Rect::new(at - 20, GRAPH.bottom() + 4, 40, 20);
+        l.text(bounds, cc.to_string(), CAPTION, p.muted, Align::Center);
+    }
+    let caption = Rect::new(GRAPH.x, GRAPH.bottom() + 28, GRAPH.width, 20);
+    l.text(caption, "CC value", CAPTION, p.faint, Align::Center);
+    if response.waiting {
+        let bounds = Rect::new(GRAPH_PANEL.x + 16, GRAPH_PANEL.y + 8, 300, 28);
+        l.text(
+            bounds,
+            "Waiting for pickup",
+            CAPTION,
+            p.warning,
+            Align::Left,
+        );
+    }
+}
+
+/// A dropdown at the right end of `row`.
 fn dropdown(l: &mut Layout, row: Rect, choice: MappingChoice, value: &str) {
     let bounds = Rect::new(
         row.right() - 16 - FIELD_WIDTH as i32,
@@ -628,10 +817,16 @@ fn midi_target(trigger: &Trigger) -> Option<MidiOutTarget> {
     }
 }
 
-/// Options and selection of a Trigger dropdown of the open row.
+/// Options and selection of a dropdown of the open row.
 pub(super) fn choice(ui: &UiState, choice: MappingChoice) -> Option<(Vec<&str>, Option<usize>)> {
     let row = open_row(ui)?;
     Some(match (choice, &row.trigger) {
+        (MappingChoice::Mode, _) if !row.modes.is_empty() => {
+            let kind = row.mode.as_ref().map(|mode| mode.kind);
+            let current = row.modes.iter().position(|mode| Some(mode.kind) == kind);
+            let labels = row.modes.iter().map(|mode| mode.label.as_str());
+            (labels.collect(), current)
+        }
         (MappingChoice::Kind, trigger) => {
             let kinds = kinds(&ui.snapshot.mappings, ui.mappings.tab);
             let current = kinds.iter().position(|kind| kind.matches(trigger));
@@ -896,7 +1091,10 @@ impl UiState {
         let scope = self.mappings.tab;
         match control {
             C::Tab(tab) => {
-                self.mappings = MappingsPage { tab, detail: None };
+                self.mappings = MappingsPage {
+                    tab,
+                    ..MappingsPage::default()
+                };
                 self.reset_scroll(ListId::Mappings);
                 return Vec::new();
             }
@@ -904,7 +1102,11 @@ impl UiState {
             C::Add => return send(MappingCommand::Add(scope)),
             C::Open(index) => {
                 let rows = self.snapshot.mappings.rows(scope);
-                self.mappings.detail = rows.get(usize::from(index)).map(|row| row.id.clone());
+                self.mappings = MappingsPage {
+                    tab: scope,
+                    detail: rows.get(usize::from(index)).map(|row| row.id.clone()),
+                    values: false,
+                };
                 return Vec::new();
             }
             _ => {}
@@ -915,7 +1117,10 @@ impl UiState {
         let id = row.id.clone();
         match control {
             C::Remove => {
-                self.mappings.detail = None;
+                self.mappings = MappingsPage {
+                    tab: scope,
+                    ..MappingsPage::default()
+                };
                 send(MappingCommand::Remove { scope, id })
             }
             C::Choice(dropdown) => {
@@ -969,20 +1174,19 @@ impl UiState {
                 self.overlay = Some(Overlay::MappingActions(next));
                 Vec::new()
             }
-            C::Value(steps) => {
-                let Some(value) = row.value else {
-                    return Vec::new();
-                };
-                let next = (i32::from(value) + i32::from(steps) * VALUE_STEP).clamp(0, 100) as u8;
-                if next == value {
-                    return Vec::new();
-                }
-                send(MappingCommand::SetValue {
+            C::Values => {
+                self.mappings.values = row.fields.len() > 2;
+                Vec::new()
+            }
+            C::Field(field, ticks) => match row.fields.iter().any(|shown| shown.id == field) {
+                true => send(MappingCommand::StepField {
                     scope,
                     id,
-                    value: next,
-                })
-            }
+                    field,
+                    ticks: i32::from(ticks),
+                }),
+                false => Vec::new(),
+            },
             C::EditMessages => match midi_target(&row.trigger) {
                 Some(target) => {
                     self.midi_edit = Some((target, 0));
@@ -994,11 +1198,26 @@ impl UiState {
         }
     }
 
-    /// A pick from a Trigger dropdown of the open row: its full new trigger.
+    /// A pick from a dropdown of the open row: its new mode, or its full new trigger.
     pub(crate) fn choose_mapping(&self, choice: MappingChoice, index: usize) -> Vec<UiCommand> {
         let Some(row) = open_row(self) else {
             return Vec::new();
         };
+        let (scope, id) = (self.mappings.tab, row.id.clone());
+        if choice == MappingChoice::Mode {
+            let current = row.mode.as_ref().map(|mode| mode.kind);
+            return match row.modes.get(index) {
+                Some(mode) if Some(mode.kind) != current => {
+                    let mode = mode.kind;
+                    vec![UiCommand::Mapping(MappingCommand::SetMode {
+                        scope,
+                        id,
+                        mode,
+                    })]
+                }
+                _ => Vec::new(),
+            };
+        }
         let trigger = match (choice, &row.trigger) {
             (MappingChoice::Kind, current) => {
                 match kinds(&self.snapshot.mappings, self.mappings.tab).get(index) {
@@ -1026,28 +1245,31 @@ impl UiState {
             return Vec::new();
         }
         vec![UiCommand::Mapping(MappingCommand::SetTrigger {
-            scope: self.mappings.tab,
-            id: row.id.clone(),
+            scope,
+            id,
             trigger,
         })]
     }
 
     /// A new snapshot: the page follows [`MappingsView::focus`] when it changes, so the detail
-    /// page stays on a row that an edit gave a new id (or opens a row that + added). A detail
-    /// page whose row is gone returns to the list; its dropdown, action menu and keyboard close.
+    /// or Values page stays on a row that an edit gave a new id (or opens a row that + added). A
+    /// detail page whose row is gone returns to the list; its dropdown, action menu and keyboard
+    /// close. A Values page closes when its row no longer has more than two values.
     pub(crate) fn follow_mappings(&mut self, old: &MappingsView) {
         let view = &self.snapshot.mappings;
         if view.focus != old.focus
             && self.stack.contains(&Screen::Mappings)
             && let Some((tab, id)) = &view.focus
         {
-            self.mappings = MappingsPage {
-                tab: *tab,
-                detail: Some(id.clone()),
-            };
+            self.mappings.tab = *tab;
+            self.mappings.detail = Some(id.clone());
         }
-        if open_row(self).is_none() {
+        let fields = open_row(self).map(|row| row.fields.len());
+        if fields.is_none() {
             self.mappings.detail = None;
+        }
+        if fields.is_none_or(|fields| fields <= 2) {
+            self.mappings.values = false;
         }
         let view = &self.snapshot.mappings;
         let page = &self.mappings;
@@ -1060,10 +1282,15 @@ impl UiState {
             // A dropdown whose options no longer fit the open row (its trigger kind changed,
             // or the extension triggers behind the Type list did) would pick the wrong thing.
             Some(Overlay::Choice(ChoicePurpose::Mapping(dropdown))) => {
+                let modes = |view: &MappingsView| {
+                    let id = page.detail.as_ref()?;
+                    Some(view.row(page.tab, id)?.modes.clone())
+                };
                 page.detail.is_none()
                     || choice(self, *dropdown).is_none()
                     || (*dropdown == MappingChoice::Kind
                         && view.extension_triggers != old.extension_triggers)
+                    || (*dropdown == MappingChoice::Mode && modes(view) != modes(old))
             }
             _ => false,
         };
@@ -1099,14 +1326,34 @@ pub(crate) mod tests {
             trigger_detail: "Detail".into(),
             action_label: "Action".into(),
             action_detail: "Detail".into(),
-            value_use: "Toggles on each press".into(),
-            value: None,
+            mode: None,
+            modes: Vec::new(),
+            fields: Vec::new(),
+            summary: String::new(),
+            response: None,
         }
     }
 
-    /// Five preset rows (Send MIDI on load, a stock Stomp bypass, a CC → parameter with a
-    /// value, Send MIDI on Stomp B, an extension trigger), two global rows and two blocks
-    /// whose parameter lists skip catalog indices.
+    fn mode(kind: ModeKind, label: &str) -> ModeView {
+        ModeView {
+            kind,
+            label: label.into(),
+            detail: "Detail".into(),
+        }
+    }
+
+    fn field(id: FieldId, label: &str, text: &str) -> ValueField {
+        ValueField {
+            id,
+            label: label.into(),
+            text: text.into(),
+        }
+    }
+
+    /// Five preset rows (Send MIDI on load, a stock Stomp bypass in Set mode with one value, a
+    /// CC → parameter in Follow mode with five values and a graph, Send MIDI on Stomp B, an
+    /// extension trigger), two global rows and two blocks whose parameter lists skip catalog
+    /// indices.
     pub(crate) fn sample() -> MappingsView {
         let block = |position, name: &str, parameters: &[(u32, &str)]| MappingBlock {
             position,
@@ -1136,16 +1383,43 @@ pub(crate) mod tests {
                     Trigger::PresetLoaded,
                     Some(MappingAction::SendMidi),
                 ),
-                row(
-                    MappingId::Stomp {
-                        stomp: 0,
-                        position: cell(0, 1),
-                    },
-                    Trigger::Stomp(0),
-                    Some(bypass),
-                ),
                 MappingRow {
-                    value: Some(50),
+                    mode: Some(mode(ModeKind::Set, "Set")),
+                    modes: vec![
+                        mode(ModeKind::Set, "Set"),
+                        mode(ModeKind::Toggle, "Toggle"),
+                        mode(ModeKind::Momentary, "Momentary"),
+                    ],
+                    fields: vec![field(FieldId::Value, "Value", "Engaged")],
+                    summary: "Engaged".into(),
+                    ..row(
+                        MappingId::Stomp {
+                            stomp: 0,
+                            position: cell(0, 1),
+                        },
+                        Trigger::Stomp(0),
+                        Some(bypass),
+                    )
+                },
+                MappingRow {
+                    mode: Some(mode(ModeKind::Follow, "Follow")),
+                    modes: vec![mode(ModeKind::Follow, "Follow"), mode(ModeKind::Set, "Set")],
+                    fields: vec![
+                        field(FieldId::Low, "Low", "CC 10"),
+                        field(FieldId::High, "High", "CC 110"),
+                        field(FieldId::Min, "Min", "2.0"),
+                        field(FieldId::Max, "Max", "8.0"),
+                        field(FieldId::Pickup, "Pickup", "Pickup"),
+                    ],
+                    summary: "2.0–8.0 · CC 10–110".into(),
+                    response: Some(ResponseView {
+                        low: 10,
+                        high: 110,
+                        line: Some((200, 800)),
+                        level: Some(30),
+                        current: Some(560),
+                        waiting: true,
+                    }),
                     ..row(
                         MappingId::Tetrad(0),
                         Trigger::Midi(MidiInput::Cc(21)),
@@ -1282,15 +1556,6 @@ pub(crate) mod tests {
         activate(&mut ui, map(MappingControl::Open(2)));
         assert_eq!(ui.mappings.detail, Some(MappingId::Tetrad(0)));
         assert!(shown(&ui, map(MappingControl::Number)));
-        // The value stepper moves in 5 % steps.
-        assert_eq!(
-            activate(&mut ui, map(MappingControl::Value(1))),
-            sent(MappingCommand::SetValue {
-                scope: MappingScope::Preset,
-                id: MappingId::Tetrad(0),
-                value: 55,
-            })
-        );
         assert_eq!(
             activate(&mut ui, map(MappingControl::Remove)),
             sent(MappingCommand::Remove {
@@ -1301,6 +1566,67 @@ pub(crate) mod tests {
         assert_eq!(ui.mappings.detail, None);
         ui.handle_input(InputEvent::Back);
         assert_eq!(ui.screen(), Screen::Grid);
+    }
+
+    /// The Mode dropdown lists the row's modes and sends the picked one; a value stepper sends
+    /// one tick of its field. The host decides what the tick does.
+    #[test]
+    fn mode_dropdown_and_value_steppers_send_their_commands() {
+        let mut ui = page(sample());
+        activate(&mut ui, map(MappingControl::Open(1)));
+        let id = MappingId::Stomp {
+            stomp: 0,
+            position: cell(0, 1),
+        };
+        activate(&mut ui, map(MappingControl::Choice(MappingChoice::Mode)));
+        assert_eq!(
+            activate(&mut ui, Control::Choose(1)),
+            sent(MappingCommand::SetMode {
+                scope: MappingScope::Preset,
+                id: id.clone(),
+                mode: ModeKind::Toggle,
+            })
+        );
+        let step = map(MappingControl::Field(FieldId::Value, -1));
+        assert!(shown(&ui, step));
+        assert_eq!(
+            activate(&mut ui, step),
+            sent(MappingCommand::StepField {
+                scope: MappingScope::Preset,
+                id,
+                field: FieldId::Value,
+                ticks: -1,
+            })
+        );
+    }
+
+    /// More than two values live on the Values page: the Values row opens it, Back returns to
+    /// the detail page, and the page closes when the row comes to have two values or fewer.
+    #[test]
+    fn values_page_opens_from_the_values_row_and_closes_with_its_values() {
+        let mut ui = page(sample());
+        activate(&mut ui, map(MappingControl::Open(2)));
+        assert!(!shown(&ui, map(MappingControl::Field(FieldId::Min, 1))));
+        activate(&mut ui, map(MappingControl::Values));
+        assert!(ui.mappings.values);
+        assert_eq!(
+            activate(&mut ui, map(MappingControl::Field(FieldId::Min, 1))),
+            sent(MappingCommand::StepField {
+                scope: MappingScope::Preset,
+                id: MappingId::Tetrad(0),
+                field: FieldId::Min,
+                ticks: 1,
+            })
+        );
+        ui.handle_input(InputEvent::Back);
+        assert!(!ui.mappings.values);
+        assert_eq!(ui.mappings.detail, Some(MappingId::Tetrad(0)));
+        activate(&mut ui, map(MappingControl::Values));
+        let mut fewer = sample();
+        fewer.preset[2].fields.truncate(2);
+        with_mappings(&mut ui, fewer);
+        assert!(!ui.mappings.values);
+        assert_eq!(ui.mappings.detail, Some(MappingId::Tetrad(0)));
     }
 
     /// BLOCKS › a block › a parameter sets a Block action with the catalog index, not the

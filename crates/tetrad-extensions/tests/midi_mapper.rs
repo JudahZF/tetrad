@@ -157,17 +157,18 @@ fn fires_a_trigger_for_each_cc_note_and_program_change() {
     assert_eq!(
         fired,
         [
-            json!({"trigger": "midi", "source": "note:60", "label": "Note 60", "value": 1, "continuous": false})
+            json!({"trigger": "midi", "source": "note:60", "label": "Note 60", "value": 1, "continuous": false, "pressed": true})
         ]
     );
-    // Velocity 0 and note-off are releases: they fire nothing.
-    assert!(host.event(4, midi(note(0))).is_empty());
+    // Velocity 0 and note-off are releases of the same source.
+    let release = |value| json!({"trigger": "midi", "source": "note:60", "label": "Note 60", "value": value, "continuous": false, "pressed": false});
+    assert_eq!(host.event(4, midi(note(0))), [release(json!(0))]);
     let off = MidiEvent::NoteOff {
         channel: 2,
         key: 60,
-        velocity: 64,
+        velocity: 127,
     };
-    assert!(host.event(5, midi(off)).is_empty());
+    assert_eq!(host.event(5, midi(off)), [release(json!(1))]);
     let pc = MidiEvent::ProgramChange {
         channel: 2,
         program: 4,

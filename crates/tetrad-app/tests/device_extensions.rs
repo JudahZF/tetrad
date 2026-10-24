@@ -517,6 +517,7 @@ fn midi_on_a_reserved_channel_fires_the_declared_trigger() {
             label: "CC 20".into(),
             value: 1.0,
             continuous: true,
+            pressed: true,
         }]
     );
 }

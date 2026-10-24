@@ -63,9 +63,10 @@ pub enum Trigger {
 /// A MIDI-in source on the QC channel. PCs load presets (stock) and cannot be mapped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MidiInput {
-    /// Continuous: CC → parameter is value / 127, CC → on/off is a switch at 64.
+    /// Continuous: the row's mode and CC window ([`FieldId::Low`], [`FieldId::High`]) decide
+    /// what a value does.
     Cc(u8),
-    /// One shot on each note-on with a velocity above 0.
+    /// A press on note-on with a velocity above 0, a release on note-off.
     Note(u8),
 }
 
@@ -146,11 +147,100 @@ pub struct MappingRow {
     pub action_label: String,
     /// "Bypass", "Open and close", "PC 12 · Ch 1"; empty without an action.
     pub action_detail: String,
-    /// How the trigger's value is used: "Switch · 64 or more engages", "Toggles on each press".
-    pub value_use: String,
-    /// The value a one-shot trigger sets a parameter to, in percent. `Some` only where
-    /// [`MappingCommand::SetValue`] applies.
-    pub value: Option<u8>,
+    /// How the trigger's value drives the action; `None` without an action.
+    pub mode: Option<ModeView>,
+    /// The modes [`MappingCommand::SetMode`] accepts, in menu order. Empty: the mode is fixed.
+    pub modes: Vec<ModeView>,
+    /// The CC window of a CC trigger, then the mode's values. One or two show in the detail
+    /// page's Values row; more open the Values page.
+    pub fields: Vec<ValueField>,
+    /// The values on one line, for the Values row and the list: "25 % ↔ 60 % · CC 64–127".
+    /// Empty when there is nothing to show.
+    pub summary: String,
+    /// The Values page graph. CC (and extension CC) triggers only, except Relative.
+    pub response: Option<ResponseView>,
+}
+
+/// How a mapping uses its trigger's value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModeKind {
+    /// Runs once on each press (a CC: when it enters its window).
+    OnPress,
+    /// The value follows the CC (a pedal: the stock expression link). Switches are on while the
+    /// CC is inside its window.
+    Follow,
+    /// A CC from an endless encoder steps the value up or down.
+    Relative,
+    /// Each press sets one value.
+    Set,
+    /// Each press swaps two values (switches: on and off).
+    Toggle,
+    /// Held: one value; released: the value before the press (switches: flipped while held).
+    Momentary,
+    /// Each press moves the value by an amount.
+    Step,
+}
+
+/// A mode as the host names it for this row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModeView {
+    pub kind: ModeKind,
+    /// "Toggle".
+    pub label: String,
+    /// "Each press swaps A and B".
+    pub detail: String,
+}
+
+/// One value of a row's mode or CC window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldId {
+    /// Set and Momentary.
+    Value,
+    /// Toggle.
+    A,
+    B,
+    /// Step: steps per press, signed.
+    Amount,
+    /// Step: stop or wrap at the ends.
+    Wrap,
+    /// Follow: the value at the window's Low and High.
+    Min,
+    Max,
+    /// Follow: Jump or Pickup.
+    Pickup,
+    /// Relative: how the encoder codes its ticks.
+    Encoding,
+    /// The CC window, 0..=127.
+    Low,
+    High,
+}
+
+/// A value as the host formats it ("25 %", "Plate", "Offset 64"). Each stepper tap sends
+/// [`MappingCommand::StepField`]; the host decides the step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueField {
+    pub id: FieldId,
+    /// "A", "Low", "Encoding".
+    pub label: String,
+    pub text: String,
+}
+
+/// What the Values page graph draws: CC value (0..=127) across, the target's range up.
+/// Target values are in thousandths of the range (0..=1000).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResponseView {
+    /// The CC window.
+    pub low: u8,
+    pub high: u8,
+    /// Follow on a parameter: the target at `low` and at `high` (outside the window it stays
+    /// at the nearer end). `None`: the window is where the CC presses or switches on.
+    pub line: Option<(u16, u16)>,
+    /// The CC's last value, when one arrived.
+    pub level: Option<u8>,
+    /// Follow on a parameter: the target's value now.
+    pub current: Option<u16>,
+    /// Pickup waits for the CC to reach `current`.
+    pub waiting: bool,
 }
 
 /// A block of the loaded preset for the action menu's BLOCKS section.
@@ -233,11 +323,19 @@ pub enum MappingCommand {
         id: MappingId,
         action: MappingAction,
     },
-    /// The one-shot value of a parameter action, in percent.
-    SetValue {
+    /// One of [`MappingRow::modes`]. The host fills the mode's values.
+    SetMode {
         scope: MappingScope,
         id: MappingId,
-        value: u8,
+        mode: ModeKind,
+    },
+    /// A stepper tap on a [`ValueField`]: `ticks` steps of the target's own size, or the next
+    /// choice.
+    StepField {
+        scope: MappingScope,
+        id: MappingId,
+        field: FieldId,
+        ticks: i32,
     },
     /// Start (`true`) or cancel LEARN: the next free QC-channel MIDI message, or the next
     /// firing of the row's extension trigger, becomes the row's trigger.

@@ -65,7 +65,8 @@ Tap an installed extension to see its page:
 MIDI Mapper takes one MIDI channel (default channel 2). Messages on that channel go only to
 MIDI Mapper, not to the QC's own MIDI map. It sends each CC, note and program change to
 Mappings as a trigger, for example "MIDI Mapper · Ch 3 / CC 21". Choose what each one does on
-the Mappings page.
+the Mappings page. From version 0.3.0 a note-off releases its note, so a Momentary mapping on a
+note holds its value while the key is down.
 
 Choose a channel that is not the QC's own MIDI channel (Settings → Device → MIDI). If they are
 the same, the extension faults with that reason.
@@ -229,6 +230,10 @@ The full API, with comments, is in `tetrad.d.ts` (`tetrad-ext sdk` writes it):
 | `ctx.lifecycle.onRunning`, `onPresetLoaded` | `scope.ui.setStatus` |
 | `ctx.storage.get`, `ctx.triggers.declare`, `ctx.log/warn/error` | `scope.triggers.fire` |
 | `ctx.usb.onMessage` (its return value is the reply; see [usb.md](usb.md)) | |
+
+A firing with `continuous: false` is a press. To release it, fire the same `source` again with
+`pressed: false` (MIDI Mapper does this on a note-off). A mapping in Momentary mode holds its
+value until the release; if an extension never sends one, the value stays until the next press.
 
 `ctx.controls.list` and `ctx.storage.get` work only during `activate`; handlers use their
 scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail

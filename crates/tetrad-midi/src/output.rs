@@ -15,9 +15,9 @@ pub enum MidiOutput {
     /// A channel voice message on a channel an extension reserved
     /// ([`crate::MidiController::set_reserved_channels`]). Native dispatch never sees it.
     Reserved(crate::MidiMessage),
-    /// Owned: a CC ([`crate::is_stock_controller`] is false) or a note-on on the native channel
-    /// that the stock map gives no job, for the application's mappings. Native dispatch still
-    /// sees it (notes also reach the blocks).
+    /// Owned: a CC ([`crate::is_stock_controller`] is false), a note-on or a note-off on the
+    /// native channel that the stock map gives no job, for the application's mappings. Native
+    /// dispatch still sees it (notes also reach the blocks).
     Unclaimed(crate::MidiMessage),
 }
 

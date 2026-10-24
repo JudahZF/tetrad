@@ -356,7 +356,8 @@ impl MidiController {
                 velocity,
             } => {
                 let on = matches!(message, MidiMessage::NoteOn { .. });
-                if on && velocity.get() > 0 && self.settings.channel.accepts(channel) {
+                // Note-offs too: a mapping releases on them.
+                if self.settings.channel.accepts(channel) {
                     out.push(MidiOutput::Unclaimed(message));
                 }
                 action(
@@ -678,8 +679,8 @@ mod tests {
         );
     }
 
-    /// Owned mappings get the native channel's free CCs and note-ons; the stock map keeps its
-    /// own CCs, and other channels give nothing.
+    /// Owned mappings get the native channel's free CCs, note-ons and note-offs; the stock map
+    /// keeps its own CCs, and other channels give nothing.
     #[test]
     fn free_messages_are_unclaimed() {
         let mut midi = controller();
@@ -696,7 +697,7 @@ mod tests {
         };
         let t = Duration::ZERO;
         let free = midi.receive_din(&[0xb0, 20, 64, 0x90, 60, 100, 0x80, 60, 0], t);
-        assert_eq!(unclaimed(&free).len(), 2, "{free:?}");
+        assert_eq!(unclaimed(&free).len(), 3, "{free:?}");
         let stock = midi.receive_din(&[0xb0, 43, 1], t);
         assert!(unclaimed(&stock).is_empty());
         assert_eq!(actions(&stock), [&MidiAction::SelectScene(1)]);

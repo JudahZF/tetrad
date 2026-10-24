@@ -1,6 +1,6 @@
 //! Screens, interactive controls, input events and application requests.
 
-use crate::{MappingScope, MediaKind};
+use crate::{FieldId, MappingScope, MediaKind};
 
 use std::fmt;
 
@@ -837,13 +837,15 @@ pub enum MappingControl {
     Actions,
     /// Row `n` of the open action menu.
     Pick(u16),
-    /// The value stepper, in 5 % steps.
-    Value(i8),
+    /// A value stepper: −1 or +1 tick of the field.
+    Field(FieldId, i8),
+    /// The Values row of a mode with more than two values: the Values page.
+    Values,
     /// Edit messages of a Send MIDI row: the Preset MIDI Out message editor.
     EditMessages,
 }
 
-/// The dropdowns of the Mappings Trigger panel.
+/// The dropdowns of the Mappings detail page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MappingChoice {
     /// Type: Preset loaded, Footswitch, Expression pedal, MIDI or an extension trigger.
@@ -854,6 +856,8 @@ pub enum MappingChoice {
     Pedal,
     /// CC or Note.
     Midi,
+    /// The Mode dropdown of the Action panel: the row's modes.
+    Mode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
