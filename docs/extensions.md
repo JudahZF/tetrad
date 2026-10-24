@@ -80,6 +80,10 @@ note in. The blocks play one note at a time, so play single notes and put them e
 chain, before drive and modulation. They are mono: a stereo signal into them comes out with
 its left channel on both sides.
 
+DSP Examples 0.2.0 had a stereo copy of the guitar block, "qcdsp Micro Synth". DSP Examples
+0.3.0 does not have it. After you update, a preset that uses it plays the stock Gain block
+(0 dB) in that slot. Put Sweep Synth in the slot, set its controls again and save the preset.
+
 ### Limits
 
 Each extension runs in a separate low-priority process with a 128 MiB address-space limit, a
