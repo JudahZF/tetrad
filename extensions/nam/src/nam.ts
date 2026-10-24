@@ -39,16 +39,21 @@ export function parse(name: string, text: string): { readonly [key: string]: unk
  * Throws with a reason the user can act on.
  */
 export function namFile(name: string, file: { readonly [key: string]: unknown }): NamFile {
-  const rate = file["sample_rate"];
-  if (rate !== undefined && rate !== null && rate !== SAMPLE_RATE) {
-    throw new Error(`${name} is for ${String(rate)} Hz; the QC runs at ${SAMPLE_RATE} Hz`);
-  }
+  checkRate(name, file);
   return {
     name,
     architecture: file["architecture"],
     config: record(file["config"], `${name} config`),
     weights: numbers(file["weights"], `${name} weights`),
   };
+}
+
+/** Throws when `file` names a sample rate other than the QC's (a missing rate is allowed). */
+export function checkRate(name: string, file: { readonly [key: string]: unknown }): void {
+  const rate = file["sample_rate"];
+  if (rate !== undefined && rate !== null && rate !== SAMPLE_RATE) {
+    throw new Error(`${name} is for ${String(rate)} Hz; the QC runs at ${SAMPLE_RATE} Hz`);
+  }
 }
 
 /** Checks an LSTM file. Throws with a reason the user can act on. */

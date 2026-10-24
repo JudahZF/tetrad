@@ -947,5 +947,13 @@ fn builds_a2_lite_from_an_a2_file() {
     assert!(disordered.contains("not in order"), "{disordered}");
     let partial = host.refused(4, "Odd.nam", a2_file(&[(0.5, &lite)]));
     assert!(partial.contains("not in order"), "{partial}");
+    // A 44.1 kHz file whose sizes name no rate of their own.
+    let mut file: Value = serde_json::from_str(&a2_file(&[(0.5, &lite), (1.0, &full)])).unwrap();
+    file["sample_rate"] = json!(44100);
+    for size in file["config"]["submodels"].as_array_mut().unwrap() {
+        size["model"].as_object_mut().unwrap().remove("sample_rate");
+    }
+    let rate = host.refused(5, "Rate.nam", file.to_string());
+    assert!(rate.contains("44100 Hz"), "{rate}");
     host.stop();
 }
