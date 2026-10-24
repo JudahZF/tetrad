@@ -532,6 +532,32 @@ fn footswitch_releases_and_the_stock_momentary_flag() {
     let row = view(&device).row(scope, &stock).cloned().unwrap();
     assert_eq!(row.mode.unwrap().kind, ModeKind::Momentary);
 
+    // A new trigger takes the stock Momentary along: a note holds the bypass while down.
+    let note_trigger = Trigger::Midi(MidiInput::Note(61));
+    let command = MappingCommand::SetTrigger {
+        scope,
+        id: stock.clone(),
+        trigger: note_trigger,
+    };
+    let (_, moved) = send(&mut device, command).unwrap();
+    let row = view(&device).row(scope, &moved).cloned().unwrap();
+    assert_eq!(row.mode.unwrap().kind, ModeKind::Momentary);
+    let engaged = !bypassed(&device);
+    note(&mut device, 61, true);
+    assert_eq!(bypassed(&device), engaged);
+    note(&mut device, 61, false);
+    assert_eq!(bypassed(&device), !engaged);
+    let command = MappingCommand::SetTrigger {
+        scope,
+        id: moved,
+        trigger: Trigger::Stomp(0),
+    };
+    let (_, stock) = send(&mut device, command).unwrap();
+    assert!(
+        matches!(stock, MappingId::Stomp { stomp: 0, .. }),
+        "{stock:?}"
+    );
+
     // Set is not stock data: the row moves to the Tetrad list.
     set_mode(&mut device, &stock, ModeKind::Set);
     let (_, moved) = view(&device).focus.unwrap();

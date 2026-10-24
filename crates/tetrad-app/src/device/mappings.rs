@@ -839,7 +839,7 @@ impl Mappings {
             }
             MappingId::Stomp { stomp, position } => {
                 let model = model_at(state, position)?;
-                let stored = Stored::new(
+                let mut stored = Stored::new(
                     StoredTrigger::Stomp { stomp },
                     Some(StoredAction::Block {
                         row: position.row(),
@@ -848,6 +848,10 @@ impl Mappings {
                         target: StoredTarget::Bypass,
                     }),
                 );
+                // A stock Momentary goes with the row; Toggle is the default and stays unset, so
+                // a CC trigger gets its own default (Follow).
+                let mode = stomp_mode(state, stomp);
+                stored.mode = matches!(mode, Mode::Momentary { .. }).then_some(mode);
                 let effects = vec![Effect::Action(Action::PresetEdit(PresetEdit::Stomp {
                     slot: engine_slot(position)?,
                     assignment: None,
