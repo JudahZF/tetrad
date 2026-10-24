@@ -21,7 +21,7 @@ pub mod views;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tetrad_core::conversion::ParameterType;
 use tetrad_core::performance::StompIndex;
@@ -44,8 +44,9 @@ use super::preset::{self, PresetEdit, UndoPath};
 use super::{Effect, PowerAction, PresetRef, State, Subsystem};
 use project::{LibraryView, Local};
 
-/// Owned: pointer moves present at most every 33 ms (about 30 frames per second).
-const MOVE_FRAME: Duration = Duration::from_millis(33);
+/// Owned: pointer moves present at most every 15 ms. The touch screen reports about every 20 ms
+/// (50 Hz), so every report shows; a slower frame only delays the next one (one frame per pass).
+const MOVE_FRAME: Duration = Duration::from_millis(15);
 /// Owned on-screen TAP: intervals outside 250..=1500 ms (240..=40 BPM) restart the count.
 pub(super) const TAP_INTERVAL_MS: std::ops::RangeInclusive<u128> = 250..=1500;
 /// Owned: a UI, preset, library or settings notice raised within 1 s after a user input
@@ -235,6 +236,8 @@ pub struct DisplayFrame<'a> {
 #[derive(Debug, Default)]
 pub struct Ui {
     view: UiState,
+    /// Time in [`Self::sync`] since the last [`Self::take_sync_times`].
+    sync_times: super::perf::SyncTimes,
     /// The kept frame; each render repaints only the changed items.
     renderer: tetrad_ui::Renderer,
     /// Frame rows the display does not show yet (top first), if any.
@@ -462,6 +465,11 @@ impl Ui {
         self.unshown = Some(0..tetrad_ui::HEIGHT);
     }
 
+    /// A flicked list is coasting: the loop ticks every [`super::ANIMATION_TICK`].
+    pub fn animating(&self) -> bool {
+        self.view.animating()
+    }
+
     /// See [`UiState::shows_dsp_load`].
     pub fn shows_dsp_load(&self) -> bool {
         self.view.shows_dsp_load()
@@ -490,14 +498,23 @@ impl Ui {
         if tick {
             let before = self.key();
             commands = self.tick(now);
+            let coasting = self.view.take_scroll_moved();
             if commands.is_empty()
                 && self.key() == before
                 && self.editor_block() == state.editor_block
             {
+                // A flicked list only moved: show it without a sync of the bridge state.
+                if coasting {
+                    self.last_present = Some(now);
+                    requests.push(Request::Effect(Effect::Present));
+                }
                 return requests;
             }
         }
-        if let Err(error) = self.sync(state) {
+        // A move of a finger that stays down needs no fresh snapshot to be understood: the frame
+        // it asks for syncs before it draws, and a command it makes syncs again below.
+        let moving = matches!(&input, UiInput::Touch(sample) if sample.pressed && self.touch_down);
+        if !moving && let Err(error) = self.sync(state) {
             requests.push(notice(Subsystem::Ui, error.to_string()));
         }
         let before = self.key();
@@ -1721,6 +1738,19 @@ impl Ui {
 
     /// Rebuilds the snapshot and hands it to tetrad-ui when it differs.
     fn sync(&mut self, state: &State) -> Result<(), UiError> {
+        let started = Instant::now();
+        let result = self.sync_inner(state);
+        self.sync_times.calls += 1;
+        self.sync_times.total += started.elapsed();
+        result
+    }
+
+    /// Sync time since the last call ([`super::perf`]).
+    pub fn take_sync_times(&mut self) -> super::perf::SyncTimes {
+        std::mem::take(&mut self.sync_times)
+    }
+
+    fn sync_inner(&mut self, state: &State) -> Result<(), UiError> {
         let identity = state.current.as_ref().map(|current| {
             (
                 current.path.clone(),
@@ -1831,6 +1861,7 @@ impl Ui {
             notice: self.pending_notice.clone(),
             site: self.site,
         };
+        let building = Instant::now();
         let snapshot = project::snapshot(state, &local);
         let mut snapshot = views::apply(&state.views, snapshot);
         snapshot.storage = self.storage();
@@ -1852,8 +1883,14 @@ impl Ui {
         snapshot.licence = self.licence.clone();
         snapshot.add_to_grid = self.add_to_grid.as_ref().map(|mode| mode.cells);
         snapshot.preset_load = self.load;
-        if snapshot != *self.view.snapshot() {
+        let comparing = Instant::now();
+        self.sync_times.snapshot += comparing.saturating_duration_since(building);
+        let differs = snapshot != *self.view.snapshot();
+        let setting = Instant::now();
+        self.sync_times.compare += setting.saturating_duration_since(comparing);
+        if differs {
             self.view.set_snapshot(snapshot)?;
+            self.sync_times.set += setting.elapsed();
         }
         if !self.warmed && state.current.is_some() {
             self.warmed = true;
