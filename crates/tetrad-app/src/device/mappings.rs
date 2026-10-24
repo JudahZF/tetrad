@@ -718,9 +718,21 @@ impl Mappings {
             SystemAction::Looper(button) => {
                 let button = looper_button(button);
                 let press = |pressed| Action::Looper { button, pressed };
+                // Momentary holds the button from the press to the release; presses between
+                // do nothing, as for every Momentary.
                 match (drive.input, drive.mode) {
-                    (Input::Press, Mode::Momentary { .. }) => vec![press(true)],
-                    (Input::Release, Mode::Momentary { .. }) => vec![press(false)],
+                    (Input::Press, Mode::Momentary { .. }) => {
+                        match self.held.insert(drive.key, 1.0) {
+                            Some(_) => Vec::new(),
+                            None => vec![press(true)],
+                        }
+                    }
+                    (Input::Release, Mode::Momentary { .. }) => {
+                        match self.held.remove(&drive.key) {
+                            Some(_) => vec![press(false)],
+                            None => Vec::new(),
+                        }
+                    }
                     (Input::Press, _) => vec![press(true), press(false)],
                     _ => Vec::new(),
                 }
