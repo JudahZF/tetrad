@@ -1,8 +1,9 @@
 {
-  "version": 1,
-  "blob_name": "micro_synth",
-  "name": "Micro Synth",
+  "version": 2,
+  "blob_name": "sweep_synth",
+  "name": "Sweep Synth",
   "category": "pitch",
+  "channels": "mono",
   "parameters": [
     {
       "name": "TRIGGER",
