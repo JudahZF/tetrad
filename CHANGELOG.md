@@ -3,6 +3,24 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Neural Amp Modeler A2 0.1.0: a new extension that plays NAM A2 models from
+  `/media/p4/tetrad/assets/tetrad.nam-a2/` as Guitar Amplifier blocks ("NAM A2 …"). An A2 file
+  holds two sizes; it plays A2-Lite (an estimated 29% of a DSP core, 112 KB of DSP memory).
+  A2-Full needs more DSP memory and CPU than one core has. Its blocks match NeuralAmpModelerCore
+  v0.6.0 within 2e-6 of the peak.
+- qcdsp networks: a leaky ReLU activation (`{ leakyRelu: slope }` in the extension SDK, slope
+  0 to 1).
+
+### Changed
+
+- Neural Amp Modeler is now Neural Amp Modeler A1 (0.4.0), with blocks named "NAM A1 …". It
+  reads per-layer kernel sizes and activations, LeakyReLU and convolutional heads, and points
+  A2 files to Neural Amp Modeler A2.
+
 ## [0.1.0-alpha.5](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.5) (2026-10-23)
 
 ### Added

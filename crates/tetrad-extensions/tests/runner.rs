@@ -579,6 +579,7 @@ fn a_block_provider_builds_the_network_qcdsp_builds() {
               const y = net.buffer(1);
               net.conv(z, y, { weights: [0.75, -1.5] });
               net.add(x, y);
+              net.activation(y, { leakyRelu: 0.2 });
               return b.finish(b.mul(net.output(y), b.constant(0.5)));
             });
         } };"#,
@@ -612,6 +613,12 @@ fn a_block_provider_builds_the_network_qcdsp_builds() {
         let y = net.buffer(1);
         net.conv(z, y, 1, 1, vec![0.75, -1.5], None, false);
         net.add(x, y);
+        net.activation(
+            y,
+            qcdsp::Activation::LeakyRelu {
+                negative_slope: 0.2,
+            },
+        );
         let output = b.network(net.finish(y))?;
         let half = b.constant(0.5)?;
         let out = b.mul(output, half)?;
@@ -647,6 +654,7 @@ fn a_network_refuses_foreign_handles_and_holds_its_operation_limit() {
               refuses("a signal as a buffer", () => net.copy(level, y), "not a buffer");
               other.finish(other.input());
               refuses("a finished builder's network", () => foreign.buffer(1), "finished");
+              refuses("a leaky ReLU slope above 1", () => net.activation(y, { leakyRelu: 2 }), "slope");
               net.copy(net.input(), y);
               for (let i = 1; i < 4096; i++) net.activation(y, "relu");
               return b.finish(net.output(y));

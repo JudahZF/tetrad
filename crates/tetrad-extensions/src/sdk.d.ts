@@ -211,8 +211,11 @@ export interface NetworkBuilder {
    * input[i](t − (kernel − 1 − k) · dilation)`.
    */
   conv(input: NetBuffer, output: NetBuffer, options: ConvOptions): void;
-  /** In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`. */
-  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu"): void;
+  /**
+   * In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`.
+   * `{ leakyRelu: s }` is `max(x, s · x)`, with `s` from 0 to 1.
+   */
+  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu" | { readonly leakyRelu: number }): void;
   /** `output += input` (same channel count). */
   add(input: NetBuffer, output: NetBuffer): void;
   /** `output = input` (same channel count). */
