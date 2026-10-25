@@ -635,6 +635,7 @@ const EV_KEY: u16 = 1;
 const EV_ABS: u16 = 3;
 const SYN_REPORT: u16 = 0;
 const SYN_MT_REPORT: u16 = 2;
+const SYN_DROPPED: u16 = 3;
 const BTN_TOUCH: u16 = 0x14a;
 const ABS_X: u16 = 0x00;
 const ABS_Y: u16 = 0x01;
@@ -656,12 +657,19 @@ struct TouchDecoder {
     y: i32,
     pressure: i32,
     changed: bool,
-    /// Type A multi-touch (no `BTN_TOUCH`, pressure or tracking id, as on the ILI2130): a frame
-    /// ends its contacts with `SYN_MT_REPORT`; a frame with a position is a press, one with none
-    /// is a release. The frame flags are cleared at each `SYN_REPORT`.
+    /// Type A multi-touch (no `BTN_TOUCH` or pressure, as on the ILI2130): a frame ends its
+    /// contacts with `SYN_MT_REPORT`; a frame with a position or tracking id is a press, one
+    /// with none is a release. The frame flags are cleared at each `SYN_REPORT`.
     frame_mt: bool,
-    frame_position: bool,
-    frame_pressure: bool,
+    frame_contact: bool,
+    /// The device sent `BTN_TOUCH` or pressure once, so the type A fallback is off for good.
+    /// Per frame is not enough: the input core drops an unchanged `BTN_TOUCH`, so a hover move
+    /// after a lift would read as a press. A tracking id does not count: type A drivers send no
+    /// id -1, a lifted contact is just not reported.
+    reports_contact: bool,
+    /// After `SYN_DROPPED`, the records up to the next `SYN_REPORT` are a partial frame: its
+    /// explicit events still count, but it gives no type A press or release.
+    dropped: bool,
 }
 
 impl TouchDecoder {
@@ -678,33 +686,37 @@ impl TouchDecoder {
         match (record.event_type, record.code) {
             (EV_ABS, ABS_X | ABS_MT_POSITION_X) => {
                 self.x = value;
-                self.frame_position = true;
+                self.frame_contact = true;
             }
             (EV_ABS, ABS_Y | ABS_MT_POSITION_Y) => {
                 self.y = value;
-                self.frame_position = true;
+                self.frame_contact = true;
             }
             (EV_ABS, ABS_PRESSURE) | (EV_KEY, BTN_TOUCH) => {
                 self.pressure = value;
-                self.frame_pressure = true;
+                self.reports_contact = true;
             }
             (EV_ABS, ABS_MT_TRACKING_ID) => {
                 self.pressure = i32::from(value >= 0);
-                self.frame_pressure = true;
+                self.frame_contact |= value >= 0;
             }
             (EV_SYN, SYN_MT_REPORT) => {
                 self.frame_mt = true;
                 return None;
             }
+            (EV_SYN, SYN_DROPPED) => {
+                self.dropped = true;
+                return None;
+            }
             (EV_SYN, SYN_REPORT) => {
-                if self.frame_mt && !self.frame_pressure {
-                    let pressure = i32::from(self.frame_position);
+                let dropped = std::mem::take(&mut self.dropped);
+                if self.frame_mt && !self.reports_contact && !dropped {
+                    let pressure = i32::from(self.frame_contact);
                     self.changed |= pressure != self.pressure;
                     self.pressure = pressure;
                 }
                 self.frame_mt = false;
-                self.frame_position = false;
-                self.frame_pressure = false;
+                self.frame_contact = false;
                 return std::mem::take(&mut self.changed).then(|| self.sample());
             }
             _ => return None,
@@ -1680,8 +1692,8 @@ mod tests {
         assert_eq!(Calibration::parse("1 0 0"), None, "too short");
     }
 
-    /// The ILI2130 of the unit in this report sends only `ABS_MT_POSITION_X/Y`, `SYN_MT_REPORT`
-    /// and `SYN_REPORT`: a position is a press, an empty frame is the release.
+    /// The ILI2130 (ili213x driver) sends only `ABS_MT_POSITION_X/Y`, `SYN_MT_REPORT` and
+    /// `SYN_REPORT`: a position is a press, an empty frame is the release.
     #[test]
     fn type_a_multitouch_without_pressure_presses_and_releases() {
         let mut touch = TouchDecoder::new(Calibration::default());
@@ -1697,9 +1709,46 @@ mod tests {
         assert_eq!((down.x, down.y, down.pressed), (100, 80, true));
         let moved = frame(&mut touch, Some((690, 400))).unwrap();
         assert_eq!((moved.x, moved.pressed), (110, true));
+        // An evdev overflow mid-drag: the partial frame after `SYN_DROPPED` is no release.
+        touch.push(&record(EV_SYN, SYN_DROPPED, 0));
+        assert_eq!(frame(&mut touch, None), None, "partial frame");
         let up = frame(&mut touch, None).unwrap();
         assert!(!up.pressed);
         assert_eq!(frame(&mut touch, None), None, "no repeated release");
+    }
+
+    /// A type A screen with `BTN_TOUCH` and hover: the input core drops the second
+    /// `BTN_TOUCH 0`, so a hover move carries only a position and must stay released.
+    #[test]
+    fn type_a_multitouch_with_btn_touch_ignores_hover_moves() {
+        let mut touch = TouchDecoder::new(Calibration::default());
+        let frame = |touch: &mut TouchDecoder, btn_touch: Option<i32>, x: i32| {
+            if let Some(value) = btn_touch {
+                touch.push(&record(EV_KEY, BTN_TOUCH, value));
+            }
+            touch.push(&record(EV_ABS, ABS_MT_POSITION_X, x));
+            touch.push(&record(EV_ABS, ABS_MT_POSITION_Y, 400));
+            touch.push(&record(EV_SYN, SYN_MT_REPORT, 0));
+            touch.push(&record(EV_SYN, SYN_REPORT, 0))
+        };
+        assert!(frame(&mut touch, Some(1), 700).unwrap().pressed);
+        // An evdev overflow before the lift: the partial frame's `BTN_TOUCH 0` still releases.
+        touch.push(&record(EV_SYN, SYN_DROPPED, 0));
+        assert!(!frame(&mut touch, Some(0), 700).unwrap().pressed);
+        assert!(!frame(&mut touch, None, 690).unwrap().pressed, "hover move");
+    }
+
+    /// Type A with tracking ids sends no id -1: the release is a frame without the contact.
+    #[test]
+    fn type_a_multitouch_with_tracking_id_releases() {
+        let mut touch = TouchDecoder::new(Calibration::default());
+        touch.push(&record(EV_ABS, ABS_MT_TRACKING_ID, 3));
+        touch.push(&record(EV_ABS, ABS_MT_POSITION_X, 700));
+        touch.push(&record(EV_ABS, ABS_MT_POSITION_Y, 400));
+        touch.push(&record(EV_SYN, SYN_MT_REPORT, 0));
+        assert!(touch.push(&record(EV_SYN, SYN_REPORT, 0)).unwrap().pressed);
+        touch.push(&record(EV_SYN, SYN_MT_REPORT, 0));
+        assert!(!touch.push(&record(EV_SYN, SYN_REPORT, 0)).unwrap().pressed);
     }
 
     /// Stock `0x0088f974`: events come on a second, attached connection (the supplicant sends
