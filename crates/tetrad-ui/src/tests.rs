@@ -2699,11 +2699,17 @@ fn extensions_row_lists_extension_blocks_of_every_category() {
     assert!(shows(&ui, Control::Picker(PickerControl::Model(800))));
     assert!(shows(&ui, Control::Picker(PickerControl::Model(801))));
     assert!(!shows(&ui, Control::Picker(PickerControl::Model(1001))));
+    // Scroll the rail back to Amp: the amp block is there too, the synth is not.
+    for _ in 0..5 {
+        drag(&mut ui, (50, 60), (50, 400));
+    }
     activate(
         &mut ui,
         Control::Picker(PickerControl::Group(DeviceGroup::Amp)),
     );
+    assert_eq!(ui.picker.group, Some(DeviceGroup::Amp));
     assert!(shows(&ui, Control::Picker(PickerControl::Model(800))));
+    assert!(!shows(&ui, Control::Picker(PickerControl::Model(801))));
 }
 
 /// Virtual Device Presets (shots 093/040): a row tap auditions, Back reverts
