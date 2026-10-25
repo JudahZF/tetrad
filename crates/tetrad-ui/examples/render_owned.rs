@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -136,6 +136,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
                 id: u32::from(category as u8) * 1000 + n,
                 name: format!("{} Model {}", category.label(), n + 1),
                 category,
+                extension: false,
             })
         })
         .collect::<Vec<_>>()
@@ -654,6 +655,27 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                     }));
             }
             snapshot.parameters.truncate(23);
+        }
+        "picker-ext" => {
+            let blocks = [
+                ("NAM A2 Plexi", ModelCategory::GuitarAmp),
+                ("NAM A1 Rectifier", ModelCategory::GuitarAmp),
+                ("Sweep Synth", ModelCategory::Synth),
+                ("Bass Sweep Synth", ModelCategory::Synth),
+            ];
+            let mut models = snapshot.models.to_vec();
+            models.extend(
+                blocks
+                    .into_iter()
+                    .zip(800..)
+                    .map(|((name, category), id)| ModelEntry {
+                        id,
+                        name: name.into(),
+                        category,
+                        extension: true,
+                    }),
+            );
+            snapshot.models = models.into();
         }
         "picker-pin" => {
             snapshot.pinned_models = snapshot
@@ -1614,6 +1636,19 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             activate(
                 &mut ui,
                 Control::Picker(PickerControl::Category(ModelCategory::GuitarAmp)),
+            );
+        }
+        "picker-ext" => {
+            activate(&mut ui, Control::SelectCell(GridPosition::new(1, 3)?));
+            // The Extensions row is after the stock categories: scroll to it.
+            for _ in 0..5 {
+                ui.handle_input(InputEvent::PointerDown { x: 600, y: 400 });
+                ui.handle_input(InputEvent::PointerMove { x: 600, y: 60 });
+                ui.handle_input(InputEvent::PointerUp { x: 600, y: 60 });
+            }
+            activate(
+                &mut ui,
+                Control::Picker(PickerControl::Group(DeviceGroup::Extensions)),
             );
         }
         "picker-amp" => {
