@@ -5,7 +5,8 @@
 //! host trusts nothing in it until [`Manifest::validate`] passes. API 2 adds `blocks`; an API 1
 //! manifest cannot use them. API 3 adds `pressed` on trigger firings (a release of a press); a
 //! host before API 3 would take a release for a press, so it skips API 3 packages. API 4 adds
-//! `footswitchMode`; a manifest of an older API cannot use it.
+//! `footswitchMode`; a manifest of an older API cannot use it. API 5 adds the leaky ReLU network
+//! activation; a host before API 5 refuses it, so it skips API 5 packages.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use serde_json::{Map, Value};
 use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
-pub const API_VERSION: u32 = 4;
+pub const API_VERSION: u32 = 5;
 /// The oldest extension API level this host still runs.
 pub const MIN_API_VERSION: u32 = 1;
 

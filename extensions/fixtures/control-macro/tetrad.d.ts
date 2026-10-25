@@ -1,6 +1,6 @@
-// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 4.
+// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 5.
 // API 3 adds `pressed` on trigger firings. API 4 adds `footswitchMode` to the manifest; it has
-// no TypeScript API.
+// no TypeScript API. API 5 adds `{ leakyRelu: slope }` to network activations.
 //
 // Types only. The runner provides every value at run time and has no module loader, so
 // import with `import type { ... } from "@tetrad/extensions"` and bundle to one ES module
@@ -218,8 +218,11 @@ export interface NetworkBuilder {
    * input[i](t − (kernel − 1 − k) · dilation)`.
    */
   conv(input: NetBuffer, output: NetBuffer, options: ConvOptions): void;
-  /** In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`. */
-  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu"): void;
+  /**
+   * In place; `tanh` is the same clamped Padé approximation as `BlockBuilder.tanh`.
+   * `{ leakyRelu: s }` is `max(x, s · x)`, with `s` from 0 to 1.
+   */
+  activation(buffer: NetBuffer, fn: "tanh" | "hardtanh" | "relu" | { readonly leakyRelu: number }): void;
   /** `output += input` (same channel count). */
   add(input: NetBuffer, output: NetBuffer): void;
   /** `output = input` (same channel count). */
