@@ -199,9 +199,11 @@ Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storag
 `triggers`, `usb` and `blocks`. The host refuses every call that needs a capability the manifest
 does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); API 3 adds
 `pressed` on trigger firings (see below); API 4 adds `footswitchMode`
-([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)). An API 1, 2
-or 3 manifest still works. Use API 3 only to send releases: Tetrad before API 3 does not install
-API 3 packages, because it would take a release for a press.
+([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)); API 5 adds
+the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)). A manifest of an
+older API still works. Use API 3 only to send releases: Tetrad before API 3 does not install
+API 3 packages, because it would take a release for a press. Use API 5 for a block that uses
+`leakyRelu`: Tetrad before API 5 refuses it.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`).
 

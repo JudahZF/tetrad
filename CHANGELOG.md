@@ -14,6 +14,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
   v0.6.0 within 2e-6 of the peak.
 - qcdsp networks: a leaky ReLU activation (`{ leakyRelu: slope }` in the extension SDK, slope
   0 to 1).
+- Extension API 5: the leaky ReLU activation. Hosts before API 5 do not offer API 5 packages, so
+  they keep Neural Amp Modeler 0.3.1 and do not see Neural Amp Modeler A2.
 
 ### Changed
 

@@ -3,7 +3,7 @@
   "name": "Neural Amp Modeler A1",
   "version": "0.4.0",
   "description": "Plays Neural Amp Modeler A1 models (.nam files) as DSP blocks: LSTM and WaveNet models, including the trainer's nano, feather and lite sizes. Copy .nam files to the extension's asset folder; each becomes a Guitar Amplifier block. Neural Amp Modeler A2 plays A2 models.",
-  "api": 2,
+  "api": 5,
   "capabilities": [
     "blocks"
   ],

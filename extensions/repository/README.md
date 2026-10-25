@@ -80,8 +80,8 @@ Check a package at any time with `$T check FILE.tetradext`.
 | `tetrad.midi-mapper-0.3.0.tetradext` (note-offs release their note, API 3) | `extensions-2026-10-24.2` |
 | `tetrad.custom-footswitch-0.1.0.tetradext` (a 4-page Custom footswitch mode, data only, API 4) | `extensions-2026-10-24.3` |
 
-Devices before API 2 skip the API 2 packages, devices before API 3 the API 3 packages, and
-devices before API 4 the API 4 packages:
+Devices before API 2 skip the API 2 packages, and so on for each API level (API 5 is the
+leaky ReLU activation of Neural Amp Modeler A1 0.4.0 and A2 0.1.0):
 `latest()` filters on the API version. The
 example graphs come from `cargo qcdsp export --example <name> --output <file>` (the slapback is
 `--example delay --delay-samples 3600`). Sweep Synth's graphs are `--example sweep-synth` and

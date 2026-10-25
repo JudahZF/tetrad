@@ -1,6 +1,6 @@
-// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 4.
+// @tetrad/extensions: TypeScript declarations for the Tetrad extension SDK, API 5.
 // API 3 adds `pressed` on trigger firings. API 4 adds `footswitchMode` to the manifest; it has
-// no TypeScript API.
+// no TypeScript API. API 5 adds `{ leakyRelu: slope }` to network activations.
 //
 // Types only. The runner provides every value at run time and has no module loader, so
 // import with `import type { ... } from "@tetrad/extensions"` and bundle to one ES module
