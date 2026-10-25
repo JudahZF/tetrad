@@ -3,6 +3,15 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.0-alpha.8](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.8) (2026-10-25)
+
+### Fixed
+
+- The touch screen did nothing on units with the ILI2130 touch controller, while the
+  footswitches and knobs worked. This controller sends only positions, with no touch, pressure
+  or tracking id events, so every touch read as a lift. Tetrad now reads such a frame with a
+  position as a press and an empty frame as the release (#16, thanks Rick Peters).
+
 ## [0.1.0-alpha.7](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.7) (2026-10-24)
 
 ### Added
