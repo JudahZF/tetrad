@@ -256,7 +256,7 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
     let scene = s.selected_scene.letter();
     let idle = !s.bank_preview_active;
     let item = |action, label: String, icon, enabled| MenuRow::Item(action, label, icon, enabled);
-    let rows = [
+    let mut rows = vec![
         MenuRow::Header("FILE"),
         item(
             MenuAction::CreateNew,
@@ -331,6 +331,19 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
         // tap on its block.
         item(MenuAction::Settings, "Settings".into(), Icon::Gear, true),
     ];
+    // Owned (Tetrad): while Remote runs, its PIN is the first row of the menu, so that it shows
+    // as soon as the menu opens. A tap opens Settings → System → Remote.
+    if let Some(pin) = &s.remote.pin {
+        rows.insert(
+            0,
+            item(
+                MenuAction::Remote,
+                format!("Remote #{pin}"),
+                Icon::Wifi,
+                true,
+            ),
+        );
+    }
     // Stock 4.1.0 ⋮ menu (seen on the QC, 2026-10-15): the grid dims, a 270 px #101010 list on
     // the right from y 16 to 436 with 60 px rows, FILE / QUAD CORTEX section headers and a 2 px
     // scroll thumb (seven rows show). An available update puts a 16 px green dot on Settings.

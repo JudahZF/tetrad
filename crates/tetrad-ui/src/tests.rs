@@ -2409,6 +2409,40 @@ fn main_menu_is_a_scrolling_list_with_sections() {
     assert!(shown(&ui, MenuAction::Settings));
 }
 
+/// While Remote runs, the first row of the ⋮ menu is "Remote #<PIN>" and a tap opens Remote's
+/// Settings page; without Remote the menu is the stock one.
+#[test]
+fn the_menu_shows_the_remote_pin_while_remote_runs() {
+    let first_row = |ui: &UiState| {
+        ui.layout()
+            .items
+            .iter()
+            .find(|item| item.label.starts_with("Remote #") || item.label == "FILE")
+            .map(|item| item.label.clone())
+    };
+    let mut ui = ui_with(rich());
+    ui.apply(Control::OpenMainMenu);
+    assert_eq!(first_row(&ui).as_deref(), Some("FILE"));
+
+    let mut snapshot = rich();
+    snapshot.remote.enabled = true;
+    snapshot.remote.pin = Some("4821".into());
+    let mut ui = ui_with(snapshot);
+    ui.apply(Control::OpenMainMenu);
+    assert_eq!(first_row(&ui).as_deref(), Some("Remote #4821"));
+    assert!(
+        ui.hit_regions()
+            .iter()
+            .any(|region| region.enabled && region.control == Control::Menu(MenuAction::Remote))
+    );
+    activate(&mut ui, Control::Menu(MenuAction::Remote));
+    assert_eq!(
+        ui.screen(),
+        Screen::Settings(SettingsPage::Remote),
+        "a tap opens the Remote page"
+    );
+}
+
 /// An available update: stock puts a green dot on ⋮ and on the menu's Settings row, on the
 /// Settings group button outside System and on System's Updates row (seen on the QC,
 /// 2026-10-15/16); no update, no dots.

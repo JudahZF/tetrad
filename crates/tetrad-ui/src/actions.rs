@@ -1156,6 +1156,9 @@ impl UiState {
                 self.reset_scroll(ListId::Mappings);
                 return self.navigate(Screen::Mappings);
             }
+            (_, MenuAction::Remote) => {
+                return self.navigate(Screen::Settings(SettingsPage::Remote));
+            }
             (_, MenuAction::Settings) => {
                 return self.navigate(Screen::Settings(SettingsPage::MyAccount));
             }

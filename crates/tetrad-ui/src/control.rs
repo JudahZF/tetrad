@@ -70,6 +70,9 @@ pub enum MenuAction {
     ModesConfiguration,
     CpuMonitor,
     Looper,
+    /// Owned (Tetrad): the Remote PIN ("Remote #1234"), the first row of the ⋮ menu while Remote
+    /// runs; opens Settings → System → Remote.
+    Remote,
     Settings,
     ChangeDevice,
     AddDevice,
