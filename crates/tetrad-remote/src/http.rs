@@ -92,10 +92,47 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
                 wav: body,
             }))
         }
-        (_, "/api/status" | "/api/irs") => Err(Fail::Status(405, "method not allowed")),
+        ("GET", "/api/files") => Ok(Route::Device(Request::Files {
+            pin: device(head.pin)?,
+        })),
+        ("POST", "/api/files/chunk") => {
+            let pin = device(head.pin)?;
+            let offset = query_value(&head.query, "offset")?
+                .and_then(|value| value.parse().ok())
+                .ok_or(Fail::Status(400, "offset required"))?;
+            Ok(Route::Device(Request::FileChunk {
+                pin,
+                id: file_id(&head.query)?,
+                name: file_name(&head.query)?,
+                offset,
+                last: query_value(&head.query, "last")?.as_deref() == Some("1"),
+                bytes: body,
+            }))
+        }
+        ("POST", "/api/files/delete") => Ok(Route::Device(Request::FileDelete {
+            pin: device(head.pin)?,
+            id: file_id(&head.query)?,
+            name: file_name(&head.query)?,
+        })),
+        (
+            _,
+            "/api/status" | "/api/irs" | "/api/files" | "/api/files/chunk" | "/api/files/delete",
+        ) => Err(Fail::Status(405, "method not allowed")),
         (_, path) if PAGE_PATHS.contains(&path) => Err(Fail::Status(405, "method not allowed")),
         _ => Err(Fail::Status(404, "not found")),
     }
+}
+
+fn file_id(query: &str) -> Result<String, Fail> {
+    query_value(query, "id")?
+        .filter(|id| !id.is_empty())
+        .ok_or(Fail::Status(400, "id required"))
+}
+
+fn file_name(query: &str) -> Result<String, Fail> {
+    query_value(query, "name")?
+        .filter(|name| !name.is_empty())
+        .ok_or(Fail::Status(400, "name required"))
 }
 
 fn read_request(stream: &mut impl Read) -> Result<(Head, Vec<u8>), Fail> {

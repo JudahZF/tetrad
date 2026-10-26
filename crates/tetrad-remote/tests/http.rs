@@ -2,7 +2,7 @@ use std::io::{self, Cursor, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use tetrad_remote::{Call, MAX_BODY, Reply, Request, Server, serve_one};
+use tetrad_remote::{Call, ExtensionFiles, FileEntry, MAX_BODY, Reply, Request, Server, serve_one};
 
 /// A connection: the request bytes in, the response bytes out.
 struct Pipe {
@@ -99,6 +99,137 @@ fn routes_reach_the_device_with_pin_name_and_body() {
 }
 
 /// Requests the server refuses itself never reach the device.
+/// The file manager: list, a piece of a file and a removal reach the device with the PIN, the
+/// decoded names and the body; the list becomes JSON for the page.
+#[test]
+fn the_file_routes_reach_the_device() {
+    let list = Reply::Files {
+        extensions: vec![ExtensionFiles {
+            id: "tetrad.nam".into(),
+            name: "Neural Amp Modeler A1".into(),
+            label: "NAM model".into(),
+            extensions: vec![".nam".into()],
+            max_bytes: 3 << 20,
+            files: vec![FileEntry {
+                name: "Twin Custom2.nam".into(),
+                size: 27324,
+                state: "ready".into(),
+                detail: String::new(),
+            }],
+        }],
+    };
+    let (status, response, seen) = exchange(
+        b"GET /api/files HTTP/1.1\r\nHost: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n\r\n",
+        list,
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(seen, Some(Request::Files { pin: "4821".into() }));
+    let json: serde_json::Value =
+        serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let extension = &json["extensions"][0];
+    assert_eq!(extension["id"], "tetrad.nam");
+    assert_eq!(extension["extensions"][0], ".nam");
+    assert_eq!(extension["maxBytes"], 3 << 20);
+    assert_eq!(extension["files"][0]["size"], 27324);
+    assert_eq!(extension["files"][0]["state"], "ready");
+
+    let head = "POST /api/files/chunk?id=tetrad.nam&name=Twin%20Custom2.nam&offset=49152&last=1 \
+                HTTP/1.1\r\nHost: 10.0.0.41\r\nx-tetrad-pin: 4821\r\nContent-Length: 3\r\n\r\n";
+    let stored = Reply::FileStored {
+        name: "Twin Custom2.nam".into(),
+        size: 49155,
+    };
+    let (status, response, seen) = exchange(&upload(head, b"abc"), stored);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"name":"Twin Custom2.nam","size":49155}"#));
+    assert_eq!(
+        seen,
+        Some(Request::FileChunk {
+            pin: "4821".into(),
+            id: "tetrad.nam".into(),
+            name: "Twin Custom2.nam".into(),
+            offset: 49152,
+            last: true,
+            bytes: b"abc".to_vec(),
+        })
+    );
+    // Without `last=1` the piece is not the end.
+    let head = head.replace("&last=1", "");
+    let (_, _, seen) = exchange(&upload(&head, b"abc"), Reply::FileReceived { received: 3 });
+    assert!(matches!(seen, Some(Request::FileChunk { last: false, .. })));
+
+    let delete = b"POST /api/files/delete?id=tetrad.nam&name=A.nam HTTP/1.1\r\nHost: 10.0.0.41\r\n\
+                   X-Tetrad-Pin: 4821\r\nContent-Length: 0\r\n\r\n";
+    let (status, _, seen) = exchange(
+        delete,
+        Reply::FileDeleted {
+            name: "A.nam".into(),
+        },
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(
+        seen,
+        Some(Request::FileDelete {
+            pin: "4821".into(),
+            id: "tetrad.nam".into(),
+            name: "A.nam".into(),
+        })
+    );
+}
+
+/// What the file routes refuse before the device is asked.
+#[test]
+fn bad_file_requests_are_refused_without_a_device_call() {
+    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    for (request, expected) in [
+        // Offset, id and name are required; the offset is a number.
+        (
+            format!(
+                "POST /api/files/chunk?id=a.b&name=A.nam HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"
+            ),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!(
+                "POST /api/files/chunk?id=a.b&name=A.nam&offset=x HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"
+            ),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!(
+                "POST /api/files/chunk?name=A.nam&offset=0 HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"
+            ),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!("POST /api/files/delete?id=a.b HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        // The PIN comes first, and the method has to fit.
+        (
+            "GET /api/files HTTP/1.1\r\nHost: 10.0.0.41\r\n\r\n".to_owned(),
+            "HTTP/1.1 401 Unauthorized",
+        ),
+        (
+            format!("POST /api/files HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        (
+            format!("GET /api/files/chunk HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        // A piece is a request body: it needs Content-Length.
+        (
+            format!("POST /api/files/chunk?id=a.b&name=A.nam&offset=0 HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 411 Length Required",
+        ),
+    ] {
+        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
+        assert_eq!(status, expected, "{request}");
+        assert_eq!(seen, None, "{request}");
+    }
+}
+
 #[test]
 fn bad_requests_are_refused_without_a_device_call() {
     let big = "a".repeat(8 * 1024);

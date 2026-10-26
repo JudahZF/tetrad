@@ -37,6 +37,7 @@ mod power;
 pub mod preset;
 mod probe;
 pub mod remote;
+pub mod remote_files;
 pub mod services;
 pub mod ui;
 mod upload;

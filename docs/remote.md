@@ -20,6 +20,36 @@ Each IR goes into the IR saving destination: the folder you chose with **SET AS 
 DESTINATION** in the IR browser, or the IR root folder. The unit shows a short message for each
 IR it adds. Its name is the file name without the extension, at most 60 characters.
 
+## Extension files
+
+Some extensions build their DSP blocks from files that you copy to the unit, such as the models
+of Neural Amp Modeler A1 and A2 ([extensions.md](extensions.md#neural-amp-modeler)). When one of these
+extensions is installed, the Remote page shows a part for it, below the IR box:
+
+- **Drop files** on the box, or tap it to choose them. The page sends each file in pieces of 48 KB
+  and shows the progress. A file goes to the folder that the extension reads
+  (`/media/p4/tetrad/assets/<extension id>/`). The unit keeps the old file with the same name
+  until the new one is complete.
+- The page changes a file name to what the extension reads: letters, digits, spaces, `.`, `_`
+  and `-` (48 characters at most, without the extension). A `+` or `(` goes away, and the line
+  of the upload says **Stored as** with the new name. A file must end in one of the extensions
+  that the extension lists (`.nam` for NAM), and it is at most 3 MiB. An extension reads 64
+  files at most.
+- **The list** shows each file with its size and what the extension made of it: **Ready** (its
+  block exists), **Reading…** (the extension has not built it yet; the page asks again every 2
+  seconds) or **Failed**, with the reason (for example that it is an A2 model and the A1
+  extension does not play it).
+- **Delete** removes a file from the unit, after a confirmation. Its block goes from the lists.
+
+The extension reads its folder again after each upload or deletion, so a new block shows up
+without turning the extension off and on. An extension that is switched off reads the folder when
+it starts. A piece that did not finish stays as `<name>.part` in the folder; the extension does
+not read it, and the next upload of that file starts it again.
+
+The same PIN protects these calls, and Remote has to be on, as for IRs. The calls are
+`GET /api/files`, `POST /api/files/chunk?id=<extension id>&name=<file>&offset=<bytes>[&last=1]`
+(the piece is the body) and `POST /api/files/delete?id=<extension id>&name=<file>`.
+
 Remote stays on after a restart if you leave it on. It gets a new PIN at each start. If the
 port does not open, the switch stays on and the page shows why; turn it off and on to try
 again.

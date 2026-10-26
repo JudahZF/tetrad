@@ -138,7 +138,8 @@ does not load, and the extension's page says which extension plays it.
 
 1. Install the extension from the default repository: on a Tetrad build with DSP blocks, open
    Settings → System → Extensions, push **REFRESH** and install it.
-2. Copy your `.nam` files to the extension's asset folder on the unit, for example with
+2. Copy your `.nam` files to the extension's asset folder on the unit. The easy way is the
+   [Remote page](remote.md#extension-files): drop the files on it. Or copy them yourself, for example with
    `scp "Plexi.nam" qc:/media/p4/tetrad/assets/tetrad.nam-a2/`. Tetrad makes the folder at
    the first start. A file name can have letters, digits, spaces, `.`, `_` and `-`.
 3. Turn the extension off and on (or restart Tetrad). Each file becomes a block, such as
