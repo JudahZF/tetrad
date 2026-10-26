@@ -22,14 +22,15 @@ IR it adds. Its name is the file name without the extension, at most 60 characte
 
 ## Extension tabs
 
-An extension can add its own tab to the page (for example a list of its models with information
-that Tetrad does not know). Tabs show in a bar above the page: **IRs**, **Files** when an
-extension takes files, and one tab for each extension that has a page. The bar shows when there
-are two tabs or more. The page of an extension tab loads when you open the tab, in a frame that
-cannot reach the PIN, the other parts of the page or the network; its only way to the unit is
-through the extension that supplied it. Authors: [extensions.md](extensions.md#add-a-tab-to-the-remote-page).
+An extension can add its own page to Remote (for example a list of its models with information
+that Tetrad does not know). The pages are in a sidebar: **IRs** and **Files** (when an extension
+takes files) under **Library**, one page for each extension that has a tab under **Extensions**,
+and **Update** under **Developer** in a dev build. On a phone the sidebar becomes a row of
+buttons above the page. The page of an extension loads when you open it, in a frame that cannot
+reach the PIN, the other pages or the network; its only way to the unit is through the extension
+that supplied it. Authors: [extensions.md](extensions.md#add-a-tab-to-the-remote-page).
 
-The calls are `GET /api/tabs` (the tabs), `GET /api/tabs/page?id=<extension id>` (the page, as
+The calls are `GET /api/tabs` (the extension tabs), `GET /api/tabs/page?id=<extension id>` (the page, as
 JSON with `html`) and `POST /api/tabs/call?id=<extension id>` (a JSON message in the body; the
 answer is `{"result": ...}` or `{"error": ...}`), all with the PIN. An extension that is off, or
 that has no handler, answers with an error.

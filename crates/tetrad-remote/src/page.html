@@ -19,6 +19,7 @@
 html { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--font); }
 body { margin: 0; }
 main { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+main.wide { max-width: 980px; }
 h1 { margin: 0; font-size: 34px; line-height: 1.1; text-transform: uppercase; letter-spacing: .01em; }
 h1 span { color: var(--accent); }
 .sub { color: var(--muted); margin: 6px 0 28px; }
@@ -49,11 +50,22 @@ li .name { overflow-wrap: anywhere; }
 li small { display: block; color: var(--muted); font-size: 13px; }
 li .state { font-weight: 600; white-space: nowrap; }
 .added { color: var(--good); } .working { color: var(--busy); } .failed { color: var(--bad); }
-.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 24px; }
-.tabs button { min-height: 40px; padding: 0 16px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); }
-.tabs button[aria-selected=true] { background: var(--accent); color: #fff; border-color: transparent; }
+.shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 32px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 16px; }
+.side .group { margin: 18px 0 4px; padding: 0 14px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.side .group:first-child { margin-top: 0; }
+.side button { min-height: 42px; padding: 0 14px; text-align: left; background: none; color: var(--fg); border-radius: 10px; overflow-wrap: anywhere; }
+.side button:hover { background: var(--panel); }
+.side button[aria-selected=true] { background: var(--accent); color: #fff; }
+.panes { min-width: 0; }
 .tab-off { display: none !important; }
 iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+@media (max-width: 720px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .side { flex-direction: row; flex-wrap: wrap; position: static; }
+  .side .group { display: none; }
+  .side button { min-height: 40px; background: var(--panel); border: 1px solid var(--line); }
+}
 .ext { margin-top: 40px; }
 .ext h2 { margin: 0 0 12px; font-size: 22px; text-transform: uppercase; }
 .small { min-height: 0; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border: 1px solid var(--line); }
@@ -75,9 +87,10 @@ iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); bo
     <p class="message" id="login-message" role="status"></p>
   </section>
 
-  <nav class="tabs" id="tabs" role="tablist" hidden></nav>
-
-  <section id="upload" data-tab="IRs" hidden>
+  <div class="shell" id="shell" hidden>
+  <nav class="side" id="tabs" aria-label="Pages"></nav>
+  <div class="panes" id="panes">
+  <section id="upload" data-tab="IRs" data-group="Library" hidden>
     <label class="drop" id="drop">
       <strong>Drop IR files here</strong>
       or tap to choose. WAV or AIFF, any sample rate, mono or stereo.
@@ -90,9 +103,11 @@ iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); bo
     </div>
   </section>
 
-  <section id="extfiles" data-tab="Files" hidden>
+  <section id="extfiles" data-tab="Files" data-group="Library" hidden>
     <div id="extlist"></div>
   </section>
+  </div>
+  </div>
 </main>
 <script>
 "use strict";
@@ -108,6 +123,8 @@ let queue = Promise.resolve();
 function show(loggedIn, message) {
   $("login").hidden = loggedIn;
   $("upload").hidden = !loggedIn;
+  $("shell").hidden = !loggedIn;
+  document.querySelector("main").classList.toggle("wide", loggedIn);
   if (!loggedIn) $("extfiles").hidden = true;
   if (!loggedIn) for (const tab of extensionTabs.values()) tab.section.remove();
   if (!loggedIn) extensionTabs.clear();
@@ -390,26 +407,36 @@ async function sendFile(info, file, line) {
   line.set("Added", "added", renamed || bytes(file.size));
 }
 
-/* Tabs: every section with a data-tab that is not hidden is a tab. With one, no bar shows. */
+/* Pages: every section of #panes with a data-tab that is not hidden is a page in the sidebar,
+   under its data-group. The sidebar shows whenever the PIN is accepted. */
+const GROUPS = ["Library", "Extensions", "Developer"];
 let currentTab = "";
 function syncTabs() {
-  const sections = [...document.querySelectorAll("main > section[data-tab]")].filter((section) => !section.hidden);
+  const all = [...document.querySelectorAll("#panes > section[data-tab]")];
+  const sections = all.filter((section) => !section.hidden);
   const names = sections.map((section) => section.dataset.tab);
   if (!names.includes(currentTab)) currentTab = names[0] || "";
   const bar = $("tabs");
-  bar.hidden = names.length < 2;
-  bar.replaceChildren(...names.map((name) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-selected", String(name === currentTab));
-    button.textContent = name;
-    button.addEventListener("click", () => { currentTab = name; syncTabs(); showTab(name); });
-    return button;
-  }));
-  for (const section of document.querySelectorAll("main > section[data-tab]")) {
-    section.classList.toggle("tab-off", names.length > 1 && section.dataset.tab !== currentTab);
+  const items = [];
+  for (const group of GROUPS) {
+    const inGroup = sections.filter((section) => (section.dataset.group || "Extensions") === group);
+    if (!inGroup.length) continue;
+    const label = document.createElement("div");
+    label.className = "group";
+    label.textContent = group;
+    items.push(label);
+    for (const section of inGroup) {
+      const name = section.dataset.tab;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("aria-selected", String(name === currentTab));
+      button.textContent = name;
+      button.addEventListener("click", () => { currentTab = name; syncTabs(); });
+      items.push(button);
+    }
   }
+  bar.replaceChildren(...items);
+  for (const section of all) section.classList.toggle("tab-off", section.dataset.tab !== currentTab);
   if (currentTab) showTab(currentTab);
 }
 
@@ -448,12 +475,13 @@ async function loadTabs() {
     if (extensionTabs.has(info.id)) continue;
     const section = document.createElement("section");
     section.dataset.tab = info.title;
+    section.dataset.group = "Extensions";
     const frame = document.createElement("iframe");
     frame.className = "exttab";
     frame.setAttribute("sandbox", "allow-scripts");
     frame.title = info.title;
     section.append(frame);
-    document.querySelector("main").append(section);
+    $("panes").append(section);
     extensionTabs.set(info.id, { section, frame, loaded: false, info });
   }
   syncTabs();
