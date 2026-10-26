@@ -114,9 +114,22 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
             id: file_id(&head.query)?,
             name: file_name(&head.query)?,
         })),
+        ("GET", "/api/tabs") => Ok(Route::Device(Request::Tabs {
+            pin: device(head.pin)?,
+        })),
+        ("GET", "/api/tabs/page") => Ok(Route::Device(Request::TabPage {
+            pin: device(head.pin)?,
+            id: file_id(&head.query)?,
+        })),
+        ("POST", "/api/tabs/call") => Ok(Route::Device(Request::TabCall {
+            pin: device(head.pin)?,
+            id: file_id(&head.query)?,
+            message: body,
+        })),
         (
             _,
-            "/api/status" | "/api/irs" | "/api/files" | "/api/files/chunk" | "/api/files/delete",
+            "/api/status" | "/api/irs" | "/api/files" | "/api/files/chunk" | "/api/files/delete"
+            | "/api/tabs" | "/api/tabs/page" | "/api/tabs/call",
         ) => Err(Fail::Status(405, "method not allowed")),
         (_, path) if PAGE_PATHS.contains(&path) => Err(Fail::Status(405, "method not allowed")),
         _ => Err(Fail::Status(404, "not found")),

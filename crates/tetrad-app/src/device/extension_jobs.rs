@@ -107,6 +107,8 @@ pub struct Loaded {
     pub blocks: BTreeMap<String, qcdsp::Block>,
     /// The cached IR the extension built from assets.
     pub generated: Vec<GeneratedIr>,
+    /// The HTML of the extension's Remote tab, when it has one.
+    pub remote_page: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,7 +140,12 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
             let installed = (state.installed.iter())
                 .map(|installed| {
                     let (blocks, generated) = block_irs(store, installed, &mut problems);
+                    let remote_page = store.remote_page(installed).unwrap_or_else(|error| {
+                        problems.push(format!("{}: remote page: {error}", installed.key));
+                        None
+                    });
                     Loaded {
+                        remote_page,
                         module: store.module_path(installed),
                         config: (state.configs.remove(&installed.key))
                             .unwrap_or_else(|| installed.current.manifest.default_config()),
@@ -371,10 +378,12 @@ fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
     if let Some(problem) = problems.into_iter().next() {
         return Err(problem);
     }
+    let remote_page = store.remote_page(&installed).map_err(|e| e.to_string())?;
     Ok(Loaded {
         module: store.module_path(&installed),
         blocks,
         generated,
+        remote_page,
         // An update can make the saved settings invalid; the package is installed already, so
         // the defaults take over, as when the store loads.
         config: store

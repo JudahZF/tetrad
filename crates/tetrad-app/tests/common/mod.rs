@@ -1452,6 +1452,28 @@ pub fn boot_extensions(
     (device, log, media)
 }
 
+/// [`boot_extensions`] with a Remote server (the fake), for a tab of an extension.
+#[allow(dead_code)]
+pub fn boot_extensions_remote(
+    media: Media,
+    backend: tetrad_app::device::extensions::LocalBackend,
+    files: MemFiles,
+    remote: FakeRemote,
+) -> (Device<Sim>, Rc<RefCell<Log>>, Media) {
+    use tetrad_app::device::media::{CAPTURE_CONVERSION_FINISHED, CAPTURE_CORRUPTION_CHECKED};
+    let log = Rc::new(RefCell::new(Log::default()));
+    let mut sim = Sim::new(STOCK, &media, &log);
+    sim.services.http.script = ScriptedHttp::sharing(files.clone());
+    sim.services.files = files;
+    for marker in [CAPTURE_CORRUPTION_CHECKED, CAPTURE_CONVERSION_FINISHED] {
+        sim.services.files.put(marker, "");
+    }
+    sim.extensions = Some(backend);
+    sim.remote = Some(remote);
+    let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
+    (device, log, media)
+}
+
 /// [`boot`] with the [`Cloud`] online and the account signed in ([`Sim::sign_in`]), then the
 /// Wi-Fi association: after DHCP, the internet probe and NTP the device is online. The
 /// cloud routes are empty; tests add them through `device.platform().cloud`.

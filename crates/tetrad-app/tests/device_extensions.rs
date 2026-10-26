@@ -100,11 +100,21 @@ fn repository_with(module: &str, capabilities: &[&str]) -> Web {
 /// A signed repository at `SOURCE` with one release of `test.mapper` 1.0.0: `manifest` (its
 /// ID, name, version and description as above) and `module`.
 fn repository_of(manifest: serde_json::Value, module: Option<&str>) -> Web {
+    repository_of_page(manifest, module, None)
+}
+
+/// [`repository_of`] with the HTML of a Remote tab in the package.
+fn repository_of_page(
+    manifest: serde_json::Value,
+    module: Option<&str>,
+    page: Option<&str>,
+) -> Web {
     let api = manifest["api"].clone();
     let package = Package {
         manifest: serde_json::from_value(manifest).unwrap(),
         module: module.map(Into::into),
         blocks: Default::default(),
+        remote_page: page.map(Into::into),
     }
     .encode()
     .unwrap();
@@ -441,6 +451,7 @@ impl Bridge {
             config: json!({}),
             storage: Default::default(),
             enabled: true,
+            remote: None,
         };
         let key = installation.key.clone();
         let mut installations: Vec<Installation> = (self.extensions.keys())
@@ -678,6 +689,7 @@ fn installations_offer_static_blocks_and_one_block_per_asset() {
         config: json!({}),
         storage: Default::default(),
         enabled: true,
+        remote: None,
     };
     let outcome = extensions.set_installations(vec![installation], &mut backend);
     assert!(outcome.community_changed);
@@ -843,6 +855,133 @@ fn a_usb_message_is_answered_by_the_extension() {
             value: json!({ "pong": 8 })
         }
     );
+}
+
+/// A tab of an extension on the Remote page: it is listed, its page is served, and the messages
+/// of the page reach `ctx.remote.onMessage`; the handler's return value (or its error) is the
+/// reply, which arrives later than the request. A wrong PIN or an unknown extension gets none.
+#[test]
+fn a_remote_tab_is_listed_served_and_answered_by_the_extension() {
+    use common::FakeRemote;
+    use tetrad_app::device::platform::TouchSample;
+    use tetrad_remote::{Call, Reply as RemoteReply, Request as RemoteRequest, TabInfo};
+    use tetrad_ui::{Screen, SettingsPage};
+
+    const TAB: &str = r#"export default { activate(ctx) {
+        ctx.remote.onMessage((message) => {
+            if (message.op === "boom") throw new Error("it broke");
+            return { echo: message };
+        });
+    } };"#;
+    let web = repository_of_page(
+        json!({
+            "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0",
+            "description": "Maps CC to gain.", "api": 6,
+            "capabilities": ["remote"], "remote": { "title": "Models" }
+        }),
+        Some(TAB),
+        Some("<p>models</p>"),
+    );
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let root = media.0.join("tetrad/extensions");
+    let backend = LocalBackend::threads().with_worker(root, web);
+    let (mut device, _log, _media) =
+        common::boot_extensions_remote(media, backend, MemFiles::default(), FakeRemote::default());
+    while !device.state().splash_dismissed {
+        assert!(device.step().is_none());
+    }
+    install(&mut device);
+
+    // Remote on: a PIN.
+    let page = Screen::Settings(SettingsPage::Remote);
+    device.push(Event::UiInput(UiInput::Show(page)));
+    device.step();
+    let tap = common::target(&device.bridges().ui, Control::RemoteToggle);
+    for pressed in [true, false] {
+        device.push(Event::UiInput(UiInput::Touch(TouchSample {
+            pressed,
+            ..tap
+        })));
+        device.step();
+    }
+
+    let replies = |device: &Device<Sim>| device.platform().remote.as_ref().unwrap().replies.clone();
+    let send = |device: &mut Device<Sim>, id: u64, request| {
+        device.push(Event::Remote(Call { id, request }));
+        device.step();
+    };
+    let reply_to = |device: &mut Device<Sim>, id: u64| -> RemoteReply {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            if let Some((_, reply)) = replies(device).into_iter().find(|(at, _)| *at == id) {
+                return reply;
+            }
+            assert!(Instant::now() < deadline, "no reply to call {id}");
+            assert!(device.step().is_none());
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let pin = "0001";
+
+    send(&mut device, 1, RemoteRequest::Tabs { pin: pin.into() });
+    assert_eq!(
+        reply_to(&mut device, 1),
+        RemoteReply::Tabs {
+            tabs: vec![TabInfo {
+                id: "test.mapper".into(),
+                title: "Models".into()
+            }]
+        }
+    );
+    let page = |id: &str| RemoteRequest::TabPage {
+        pin: pin.into(),
+        id: id.into(),
+    };
+    send(&mut device, 2, page("test.mapper"));
+    assert_eq!(
+        reply_to(&mut device, 2),
+        RemoteReply::TabPage {
+            html: "<p>models</p>".into()
+        }
+    );
+    send(&mut device, 3, page("test.missing"));
+    assert!(matches!(reply_to(&mut device, 3), RemoteReply::Refused(_)));
+
+    let call = |pin: &str, id: &str, message: &str| RemoteRequest::TabCall {
+        pin: pin.into(),
+        id: id.into(),
+        message: message.as_bytes().to_vec(),
+    };
+    send(
+        &mut device,
+        4,
+        call(pin, "test.mapper", r#"{"op":"list","n":[1,2]}"#),
+    );
+    let RemoteReply::TabReply { json: answer } = reply_to(&mut device, 4) else {
+        panic!("the extension's answer");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&answer).unwrap(),
+        json!({ "echo": { "op": "list", "n": [1, 2] } })
+    );
+    send(&mut device, 5, call(pin, "test.mapper", r#"{"op":"boom"}"#));
+    let RemoteReply::Refused(reason) = reply_to(&mut device, 5) else {
+        panic!("the error of the handler");
+    };
+    assert!(reason.contains("it broke"), "{reason}");
+    // The extension still answers after an error.
+    send(&mut device, 6, call(pin, "test.mapper", "7"));
+    assert!(matches!(
+        reply_to(&mut device, 6),
+        RemoteReply::TabReply { .. }
+    ));
+    // Refused at once: a wrong PIN, text that is not JSON, an extension without a tab.
+    send(&mut device, 7, call("9999", "test.mapper", "1"));
+    assert_eq!(reply_to(&mut device, 7), RemoteReply::WrongPin);
+    send(&mut device, 8, call(pin, "test.mapper", "{not json"));
+    assert!(matches!(reply_to(&mut device, 8), RemoteReply::Refused(_)));
+    send(&mut device, 9, call(pin, "test.missing", "1"));
+    assert!(matches!(reply_to(&mut device, 9), RemoteReply::Refused(_)));
 }
 
 /// The Custom footswitch mode of a data-only package, end to end: the mode follows the stock
