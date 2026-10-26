@@ -23,8 +23,8 @@ IR it adds. Its name is the file name without the extension, at most 60 characte
 ## Extension tabs
 
 An extension can add its own page to Remote (for example a list of its models with information
-that Tetrad does not know). The pages are in a sidebar: **IRs** and **Files** (when an extension
-takes files) under **Library**, one page for each extension that has a tab under **Extensions**,
+that Tetrad does not know). The pages are in a sidebar: **IRs** under **Library**, one page for each extension that takes
+files and one for each extension that has a tab under **Extensions**,
 and **Update** under **Developer** in a dev build. On a phone the sidebar becomes a row of
 buttons above the page. The page of an extension loads when you open it, in a frame that cannot
 reach the PIN, the other pages or the network; its only way to the unit is through the extension
@@ -39,7 +39,7 @@ that has no handler, answers with an error.
 
 Some extensions build their DSP blocks from files that you copy to the unit, such as the models
 of Neural Amp Modeler A1 and A2 ([extensions.md](extensions.md#neural-amp-modeler)). When one of these
-extensions is installed, the Remote page shows a part for it, below the IR box:
+extensions is installed, the Remote page has a page for it in the sidebar, under **Extensions**, named like the extension (for example **Neural Amp Modeler A1**):
 
 - **Drop files** on the box, or tap it to choose them. The page sends each file in pieces of 48 KB
   and shows the progress. A file goes to the folder that the extension reads

@@ -66,7 +66,7 @@ iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); bo
   .side .group { display: none; }
   .side button { min-height: 40px; background: var(--panel); border: 1px solid var(--line); }
 }
-.ext { margin-top: 40px; }
+.ext { margin: 0; }
 .ext h2 { margin: 0 0 12px; font-size: 22px; text-transform: uppercase; }
 .small { min-height: 0; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border: 1px solid var(--line); }
 .ready { color: var(--good); }
@@ -103,9 +103,6 @@ iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); bo
     </div>
   </section>
 
-  <section id="extfiles" data-tab="Files" data-group="Library" hidden>
-    <div id="extlist"></div>
-  </section>
   </div>
   </div>
 </main>
@@ -125,7 +122,8 @@ function show(loggedIn, message) {
   $("upload").hidden = !loggedIn;
   $("shell").hidden = !loggedIn;
   document.querySelector("main").classList.toggle("wide", loggedIn);
-  if (!loggedIn) $("extfiles").hidden = true;
+  if (!loggedIn) for (const entry of extensionFiles.values()) entry.box.remove();
+  if (!loggedIn) extensionFiles.clear();
   if (!loggedIn) for (const tab of extensionTabs.values()) tab.section.remove();
   if (!loggedIn) extensionTabs.clear();
   syncTabs();
@@ -291,17 +289,15 @@ async function loadFiles() {
   const { status, body } = await call("/api/files");
   if (status === 401) return forget("Enter the PIN shown on the unit");
   if (status !== 200) return [];
-  const root = $("extlist");
   const seen = new Set();
   for (const info of body.extensions) {
     seen.add(info.id);
-    if (!extensionFiles.has(info.id)) extensionFiles.set(info.id, buildExtension(info, root));
+    if (!extensionFiles.has(info.id)) extensionFiles.set(info.id, buildExtension(info));
     extensionFiles.get(info.id).update(info);
   }
   for (const [id, entry] of extensionFiles) {
     if (!seen.has(id)) { entry.box.remove(); extensionFiles.delete(id); }
   }
-  $("extfiles").hidden = extensionFiles.size === 0;
   syncTabs();
   return body.extensions;
 }
@@ -314,9 +310,12 @@ async function pollFiles(again) {
   if (waiting && polls < 15) setTimeout(() => pollFiles(true), 2000);
 }
 
-function buildExtension(info, root) {
-  const box = document.createElement("div");
+/** The page of an extension that takes files: a page of the sidebar with its name. */
+function buildExtension(info) {
+  const box = document.createElement("section");
   box.className = "ext";
+  box.dataset.tab = info.name;
+  box.dataset.group = "Extensions";
   const title = document.createElement("h2");
   const drop = document.createElement("label");
   drop.className = "drop";
@@ -329,7 +328,7 @@ function buildExtension(info, root) {
   const results = document.createElement("ul");
   const list = document.createElement("ul");
   box.append(title, drop, results, list);
-  root.append(box);
+  $("panes").append(box);
   let current = info;
   const add = (files) => {
     for (const file of files) {
