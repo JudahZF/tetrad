@@ -3,8 +3,9 @@
 // An A2 file is a `SlimmableContainer`: the same amp trained at several sizes, each a WaveNet
 // submodel with the largest share of a host's CPU it is for (`max_value`, ascending; the last
 // is 1). NeuralAmpModelerCore (MIT, © Steven Atkinson) defines it in `NAM/container.cpp`. A
-// host picks one size. The QC plays the smallest, A2-Lite (3 channels, about a quarter of one
-// DSP core): A2-Full (8 channels) needs more DSP memory and CPU than one core has.
+// host picks one size. The Model size setting picks the smallest, A2-Lite (3 channels, about a
+// quarter of one DSP core), or the largest, A2-Full (8 channels), which needs more DSP memory and
+// CPU than one core has: Tetrad then refuses the block and says why.
 //
 // The WaveNet code is the Neural Amp Modeler A1 extension's (`extensions/nam`), which reads
 // A2's per-layer kernel sizes, LeakyReLU and convolutional head.
@@ -26,17 +27,24 @@ const extension: ExtensionDefinition = {
       }
       // The container's rate holds for a size that names none.
       checkRate(asset.name, file);
-      const model = namFile(asset.name, smallest(asset.name, record(file["config"], `${asset.name} config`)));
+      const model = namFile(asset.name, pick(asset.name, record(file["config"], `${asset.name} config`), ctx.config["size"] === 1));
       if (model.architecture !== "WaveNet") {
         throw new Error(`${asset.name} has a ${String(model.architecture)} size; A2 sizes are WaveNets`);
       }
-      return wavenet(ctx.blocks.builder(), parseWavenet(model));
+      return wavenet(ctx.blocks.builder(), parseWavenet(model), true);
     });
   },
 };
 
-/** The smallest submodel of a container config. Throws with a reason the user can act on. */
-function smallest(name: string, config: { readonly [key: string]: unknown }): { readonly [key: string]: unknown } {
+/**
+ * The smallest submodel of a container config, or the largest with `full`. Throws with a reason
+ * the user can act on. A file with one size gives that size for both.
+ */
+function pick(
+  name: string,
+  config: { readonly [key: string]: unknown },
+  full: boolean,
+): { readonly [key: string]: unknown } {
   const submodels = config["submodels"];
   if (!Array.isArray(submodels) || submodels.length === 0) throw new Error(`${name} has no sizes`);
   const sizes = submodels.map((value: unknown, i) => record(value, `${name} size ${i + 1}`));
@@ -48,8 +56,8 @@ function smallest(name: string, config: { readonly [key: string]: unknown }): { 
     previous = share;
   }
   if (previous < 1) throw disordered;
-  const [first] = sizes;
-  return record(first?.["model"], `${name} size 1 model`);
+  const index = full ? sizes.length - 1 : 0;
+  return record(sizes[index]?.["model"], `${name} size ${index + 1} model`);
 }
 
 export default extension;

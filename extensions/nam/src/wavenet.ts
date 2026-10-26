@@ -27,6 +27,7 @@
 import type { BlockBuilder, BlockIr, Delay, NetBuffer, NetworkBuilder, Signal, State } from "@tetrad/extensions";
 
 import { at0, count, type NamFile, record } from "./nam";
+import { controls } from "./tone";
 
 /** What Tetrad compiles at most, after macro expansion (`MAX_COMPILED_NODES` in tetrad-app). */
 const MAX_COMPILED_NODES = 24_576;
@@ -329,7 +330,7 @@ export function weightCount(arrays: readonly LayerArray[]): number {
  * a model whose CPU or memory does not fit one DSP core. Other models use the scalar graph and
  * throw, naming the model's size, when they need more nodes or state than a scalar block holds.
  */
-export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
+export function wavenet(dsp: BlockBuilder, model: WavenetModel, tone = false): BlockIr {
   const fits = (array: LayerArray) =>
     array.layers.every((layer) => !layer.gated && layer.kernelSize <= NETWORK_MAX_KERNEL) &&
     array.headKernelSize <= NETWORK_MAX_KERNEL &&
@@ -341,10 +342,10 @@ export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   const buffers = 2 + 2 * arrays + 2 * layers;
   const ops = 1 + 2 * arrays + 6 * layers;
   if (model.arrays.every(fits) && buffers <= NETWORK_MAX_BUFFERS && ops <= NETWORK_MAX_OPS) {
-    return network(dsp, model);
+    return network(dsp, model, tone);
   }
   const size = new Size();
-  graph(size, model);
+  graph(size, model, tone);
   if (size.nodes > MAX_COMPILED_NODES || size.stateBytes > MAX_STATE_BYTES) {
     const channels = model.arrays.map((array) => array.channels).join("/");
     const kind = SIZES[channels] ?? `with ${channels} channels`;
@@ -354,19 +355,18 @@ export function wavenet(dsp: BlockBuilder, model: WavenetModel): BlockIr {
         `Use an LSTM model or a WaveNet with fewer channels or shorter dilations.`,
     );
   }
-  return graph(dsp, model);
+  return graph(dsp, model, tone);
 }
 
 /** The model as network operations, in the order of the formula at the top of this file. */
-function network(dsp: BlockBuilder, model: WavenetModel): BlockIr {
+function network(dsp: BlockBuilder, model: WavenetModel, tone: boolean): BlockIr {
   let at = 0;
   const take = (n: number) => {
     const values = model.weights.slice(at, at + n);
     at += n;
     return values;
   };
-  const inputGain = dsp.parameter("Input", 0, 4, 1);
-  const outputGain = dsp.parameter("Output", 0, 4, 1);
+  const { input: inputGain, output } = controls(dsp, tone);
   const net = dsp.network();
   const x = net.input();
   net.gain(x, inputGain);
@@ -403,7 +403,7 @@ function network(dsp: BlockBuilder, model: WavenetModel): BlockIr {
   }
   if (head === undefined) throw new Error("the model has no layer arrays");
   const [scale = 0] = take(1);
-  return dsp.finish(dsp.mul(dsp.mul(net.output(head), dsp.constant(scale)), outputGain));
+  return dsp.finish(output(dsp.mul(net.output(head), dsp.constant(scale))));
 }
 
 const ACTIVATIONS = { Tanh: "tanh", Hardtanh: "hardtanh", ReLU: "relu" } as const;
@@ -422,7 +422,7 @@ function activate(net: NetworkBuilder, buffer: NetBuffer, activation: Activation
   }
 }
 
-function graph(dsp: BlockBuilder, model: WavenetModel): BlockIr {
+function graph(dsp: BlockBuilder, model: WavenetModel, tone: boolean): BlockIr {
   let at = 0;
   const take = (n: number) => {
     const values = model.weights.slice(at, at + n);
@@ -430,8 +430,7 @@ function graph(dsp: BlockBuilder, model: WavenetModel): BlockIr {
     return values;
   };
   dsp.mono();
-  const inputGain = dsp.parameter("Input", 0, 4, 1);
-  const outputGain = dsp.parameter("Output", 0, 4, 1);
+  const { input: inputGain, output } = controls(dsp, tone);
   const x = dsp.mul(dsp.input(), inputGain);
   let input: readonly Signal[] = [x];
   let head: readonly Signal[] | undefined;
@@ -468,7 +467,7 @@ function graph(dsp: BlockBuilder, model: WavenetModel): BlockIr {
     input = v;
   }
   const [scale = 0] = take(1);
-  const out = dsp.mul(dsp.mul(at0(head ?? [], 0), dsp.constant(scale)), outputGain);
+  const out = output(dsp.mul(at0(head ?? [], 0), dsp.constant(scale)));
   return dsp.finish(out);
 }
 
