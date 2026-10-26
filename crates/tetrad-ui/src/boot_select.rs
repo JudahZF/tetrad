@@ -16,26 +16,41 @@ pub enum BootChoice {
     Stock,
     /// Tetrad (`tetrad run`).
     Tetrad,
+    /// Tetrad with diagnostics (`tetrad run --dev`). Only a dev build offers it.
+    #[cfg(feature = "dev")]
+    TetradDev,
 }
 
 impl BootChoice {
     /// Left to right on the screen.
+    #[cfg(not(feature = "dev"))]
     pub const ALL: [Self; 2] = [Self::Stock, Self::Tetrad];
+    #[cfg(feature = "dev")]
+    pub const ALL: [Self; 3] = [Self::Stock, Self::Tetrad, Self::TetradDev];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Stock => "CorOS",
             Self::Tetrad => "Tetrad",
+            #[cfg(feature = "dev")]
+            Self::TetradDev => "Tetrad dev",
         }
     }
 
     /// The button, which is also its touch area.
     pub fn button(self) -> Rect {
-        let x = match self {
-            Self::Stock => 70,
-            Self::Tetrad => 430,
+        #[cfg(not(feature = "dev"))]
+        let (x, width) = match self {
+            Self::Stock => (70, 300),
+            Self::Tetrad => (430, 300),
         };
-        Rect::new(x, 104, 300, 200)
+        #[cfg(feature = "dev")]
+        let (x, width) = match self {
+            Self::Stock => (40, 220),
+            Self::Tetrad => (290, 220),
+            Self::TetradDev => (540, 220),
+        };
+        Rect::new(x, 104, width, 200)
     }
 
     /// The choice whose button holds the point.
@@ -167,7 +182,9 @@ mod tests {
             let (x, y) = choice.button().center();
             assert_eq!(BootChoice::at(x, y), Some(choice));
         }
-        assert_eq!(BootChoice::at(400, 200), None);
+        // The middle of the gap between the first two buttons.
+        let gap = BootChoice::ALL[0].button().right() + 15;
+        assert_eq!(BootChoice::at(gap, 200), None);
         assert_eq!(BootChoice::at(200, 400), None);
     }
 }

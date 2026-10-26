@@ -35,6 +35,10 @@ TD_WRONG_FIRMWARE=4
 # compares them). Every other status is a selector failure.
 TD_SELECT_STOCK=10
 TD_SELECT_TETRAD=11
+# Tetrad dev (`tetrad run --dev`): only a dev build of the selector gives it.
+TD_SELECT_DEV=12
+# Arguments for `tetrad run` that the selector chose: empty, or --dev.
+TD_RUN_ARGS=
 # The saved choice, `coros` or `tetrad`; Tetrad when missing. The selector writes it.
 TD_CHOICE=$TD_HOME/boot-choice
 # Seconds after which the launcher kills the selector: its 5 s countdown, start and margin.
@@ -97,6 +101,10 @@ td_choose() {
     kill "$watcher_pid" 2>/dev/null
     case $select_code in
         "$TD_SELECT_TETRAD") td_log "boot selector: Tetrad" ;;
+        "$TD_SELECT_DEV")
+            td_log "boot selector: Tetrad dev"
+            TD_RUN_ARGS=--dev
+            ;;
         "$TD_SELECT_STOCK") td_stock "chosen at boot" ;;
         *)
             [ "$(cat "$TD_CHOICE" 2>/dev/null)" = coros ] &&
@@ -204,7 +212,7 @@ td_launch() {
         sync; } || td_stock "cannot write $TD_HOME/pending"
     td_log "tetrad run, unconfirmed start $starts of $TD_MAX_STARTS"
     td_comm tetrad-launch
-    "$TD_BIN" run --started "$TD_HOME/pending"
+    "$TD_BIN" run --started "$TD_HOME/pending" $TD_RUN_ARGS
     code=$?
     case $code in
         "$TD_WRONG_FIRMWARE")

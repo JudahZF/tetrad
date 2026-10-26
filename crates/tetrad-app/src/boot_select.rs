@@ -19,18 +19,26 @@ use crate::device::platform::TouchSample;
 /// reads every other status as a failure and starts the saved choice.
 pub const STOCK_EXIT: u8 = 10;
 pub const TETRAD_EXIT: u8 = 11;
+/// `TD_SELECT_DEV` in tetrad-launch.sh: Tetrad dev, `tetrad run --dev`. Only a dev build gives it.
+#[cfg(feature = "dev")]
+pub const DEV_EXIT: u8 = 12;
 /// From the first frame to the start of the default. The launcher kills the selector after
 /// `TD_SELECT_LIMIT` seconds (a host test keeps a margin).
 pub const COUNTDOWN: Duration = Duration::from_secs(5);
 /// The saved choice (Tetrad-owned, p4). One line: `tetrad` or `coros`. The launcher reads the
 /// same words when the selector fails.
 pub const CHOICE_FILE: &str = "/media/p4/tetrad/launcher/boot-choice";
+#[cfg(not(feature = "dev"))]
 const VERSION: &str = concat!("Tetrad ", env!("CARGO_PKG_VERSION"));
+#[cfg(feature = "dev")]
+const VERSION: &str = concat!("Tetrad ", env!("CARGO_PKG_VERSION"), " (dev build)");
 
 pub fn exit_code(choice: BootChoice) -> u8 {
     match choice {
         BootChoice::Stock => STOCK_EXIT,
         BootChoice::Tetrad => TETRAD_EXIT,
+        #[cfg(feature = "dev")]
+        BootChoice::TetradDev => DEV_EXIT,
     }
 }
 
@@ -38,13 +46,18 @@ fn word(choice: BootChoice) -> &'static str {
     match choice {
         BootChoice::Stock => "coros",
         BootChoice::Tetrad => "tetrad",
+        #[cfg(feature = "dev")]
+        BootChoice::TetradDev => "tetrad-dev",
     }
 }
 
 /// The saved choice. No file (the first boot), an unreadable file or an unknown word: Tetrad.
+/// A release build reads `tetrad-dev` as an unknown word.
 pub fn read_choice(path: &Path) -> BootChoice {
     match fs::read_to_string(path).as_deref().map(str::trim) {
         Ok("coros") => BootChoice::Stock,
+        #[cfg(feature = "dev")]
+        Ok("tetrad-dev") => BootChoice::TetradDev,
         _ => BootChoice::Tetrad,
     }
 }

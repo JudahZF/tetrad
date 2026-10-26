@@ -22,6 +22,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(feature = "dev")]
+use std::time::Instant;
 
 use tetrad_core::conversion::ParameterType;
 use tetrad_core::performance::StompIndex;
@@ -236,6 +238,9 @@ pub struct DisplayFrame<'a> {
 #[derive(Debug, Default)]
 pub struct Ui {
     view: UiState,
+    /// Time in [`Self::sync`] since the last [`Self::take_sync_times`].
+    #[cfg(feature = "dev")]
+    sync_times: super::perf::SyncTimes,
     /// The kept frame; each render repaints only the changed items.
     renderer: tetrad_ui::Renderer,
     /// Frame rows the display does not show yet (top first), if any.
@@ -1736,6 +1741,24 @@ impl Ui {
 
     /// Rebuilds the snapshot and hands it to tetrad-ui when it differs.
     fn sync(&mut self, state: &State) -> Result<(), UiError> {
+        #[cfg(feature = "dev")]
+        let started = Instant::now();
+        let result = self.sync_inner(state);
+        #[cfg(feature = "dev")]
+        {
+            self.sync_times.calls += 1;
+            self.sync_times.total += started.elapsed();
+        }
+        result
+    }
+
+    /// Sync time since the last call ([`super::perf`]).
+    #[cfg(feature = "dev")]
+    pub fn take_sync_times(&mut self) -> super::perf::SyncTimes {
+        std::mem::take(&mut self.sync_times)
+    }
+
+    fn sync_inner(&mut self, state: &State) -> Result<(), UiError> {
         let identity = state.current.as_ref().map(|current| {
             (
                 current.path.clone(),
@@ -1846,6 +1869,8 @@ impl Ui {
             notice: self.pending_notice.clone(),
             site: self.site,
         };
+        #[cfg(feature = "dev")]
+        let building = Instant::now();
         let snapshot = project::snapshot(state, &local);
         let mut snapshot = views::apply(&state.views, snapshot);
         snapshot.storage = self.storage();
@@ -1867,8 +1892,25 @@ impl Ui {
         snapshot.licence = self.licence.clone();
         snapshot.add_to_grid = self.add_to_grid.as_ref().map(|mode| mode.cells);
         snapshot.preset_load = self.load;
-        if snapshot != *self.view.snapshot() {
+        #[cfg(feature = "dev")]
+        let comparing = Instant::now();
+        #[cfg(feature = "dev")]
+        {
+            self.sync_times.snapshot += comparing.saturating_duration_since(building);
+        }
+        let differs = snapshot != *self.view.snapshot();
+        #[cfg(feature = "dev")]
+        let setting = Instant::now();
+        #[cfg(feature = "dev")]
+        {
+            self.sync_times.compare += setting.saturating_duration_since(comparing);
+        }
+        if differs {
             self.view.set_snapshot(snapshot)?;
+            #[cfg(feature = "dev")]
+            {
+                self.sync_times.set += setting.elapsed();
+            }
         }
         if !self.warmed && state.current.is_some() {
             self.warmed = true;

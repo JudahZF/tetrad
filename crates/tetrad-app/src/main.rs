@@ -182,6 +182,10 @@ struct RunArgs {
     /// not pinned) without opening the platform.
     #[arg(long)]
     check: bool,
+    /// Dev build only: write the `perf` statistics to the log (the "Tetrad dev" boot entry).
+    #[cfg(feature = "dev")]
+    #[arg(long)]
+    dev: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -692,6 +696,10 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
     use tetrad_app::device::bringup::RunOptions;
     use tetrad_app::device::linux::{LinuxError, LinuxPlatform, LinuxRoot, WRONG_FIRMWARE_EXIT};
 
+    #[cfg(feature = "dev")]
+    if args.dev {
+        tetrad_app::device::enable_perf_log();
+    }
     let umask = stock_umask();
     let root = LinuxRoot::new("/");
     // `--check` runs while stock ZenUI still runs: it keeps its own name.

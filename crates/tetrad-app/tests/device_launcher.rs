@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "dev")]
+use tetrad_app::boot_select::DEV_EXIT;
 use tetrad_app::boot_select::{BootChoice, COUNTDOWN, STOCK_EXIT, TETRAD_EXIT, write_choice};
 use tetrad_app::device::linux::WRONG_FIRMWARE_EXIT;
 
@@ -322,6 +324,8 @@ fn the_boot_selector_picks_the_ui() {
     let script = fs::read_to_string(Path::new(SCRIPTS).join("tetrad-launch.sh")).unwrap();
     assert!(script.contains(&format!("\nTD_SELECT_STOCK={STOCK_EXIT}\n")));
     assert!(script.contains(&format!("\nTD_SELECT_TETRAD={TETRAD_EXIT}\n")));
+    #[cfg(feature = "dev")]
+    assert!(script.contains(&format!("\nTD_SELECT_DEV={DEV_EXIT}\n")));
     let limit: u64 = script
         .split_once("\nTD_SELECT_LIMIT=${TD_SELECT_LIMIT:-")
         .and_then(|(_, rest)| rest.split_once('}'))
@@ -505,4 +509,23 @@ fn the_hook_round_trips_the_coros_4_1_0_init_script() {
     assert!(fake.ctl("install-hook").contains("already installed"));
     fake.ctl("remove-hook");
     assert_eq!(fs::read(&init).unwrap(), bytes);
+}
+
+/// The Tetrad dev entry of a dev build's selector starts `tetrad run --dev` and counts a start;
+/// the next boot with the plain Tetrad entry runs without `--dev`.
+#[cfg(feature = "dev")]
+#[test]
+fn the_dev_boot_entry_starts_tetrad_with_dev() {
+    let fake = Fake::new("dev-entry");
+    fake.ctl("arm");
+    fake.ctl("chooser on");
+    fake.tetrad(101, false);
+    fake.select(DEV_EXIT);
+    assert_eq!(
+        fake.boot(),
+        [fake.select_call(), format!("{} --dev", fake.tetrad_call())]
+    );
+    assert_eq!(fake.read("pending").as_deref(), Some("1\n"));
+    fake.select(TETRAD_EXIT);
+    assert_eq!(fake.boot(), [fake.select_call(), fake.tetrad_call()]);
 }
