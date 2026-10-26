@@ -153,12 +153,11 @@ Each block has the controls of the [Neural Amp Modeler plugin](https://github.co
 | **Bass**, **Mid**, **Treble** | The plugin's tone stack, 0 to 10 with 5 flat: a low shelf at 150 Hz (4 dB per step), a peak at 425 Hz (3 dB per step; a cut is wider) and a high shelf at 1800 Hz (2 dB per step). |
 | **Output** | -40 to +40 dB. |
 
-The extension's **Model size** setting picks the smallest size (A2-Lite) or the largest (A2-Full).
-Full needs more DSP memory and CPU than one core has, so Tetrad refuses a Full block that does not
-fit, and the extension's page says why. The plugin's noise gate, loudness normalisation, calibration modes and EQ switch, and its cab IR, are
-not in the block. The A1 extension has the same knobs, without the size setting.
+The block plays the smallest size of an A2 file, A2-Lite: A2-Full needs more DSP memory and CPU
+than one core has. The plugin's noise gate, loudness normalisation, calibration modes and EQ
+switch, and its cab IR, are not in the block. The A1 extension has the same knobs.
 
-mono: both channels get its output. The page of the extension says why a file did not load.
+The model runs in mono: both channels get its output. The page of the extension says why a file did not load.
 Models must be for 48 kHz. Each block runs on one DSP core, so a model must fit in one core's
 CPU and memory. On the test unit:
 
