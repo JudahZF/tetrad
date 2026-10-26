@@ -771,6 +771,85 @@ fn installations_offer_static_blocks_and_one_block_per_asset() {
     assert!(keys(&extensions).iter().all(|key| !key.contains("#hard")));
 }
 
+/// Remote offers the file page and the tab of an enabled extension only: turning an extension
+/// off takes both away, and turning it on brings them back.
+#[test]
+fn remote_shows_only_enabled_extensions() {
+    use tetrad_app::device::extensions::RemoteTab;
+    use tetrad_extensions::manifest::{AssetSpec, BlockSpec};
+    let mut backend = LocalBackend::threads();
+    let mut extensions = Extensions::new();
+    let installation = |id: &str, enabled: bool| Installation {
+        key: format!("{SOURCE}:{id}"),
+        id: id.into(),
+        name: id.into(),
+        version: "1.0.0".into(),
+        description: String::new(),
+        source: SOURCE.into(),
+        module: None,
+        blocks: vec![BlockSpec {
+            id: "amp".into(),
+            name: "Amp".into(),
+            category: qcdsp::Category::GuitarAmplifier,
+            generated: true,
+            asset: Some(AssetSpec {
+                label: "model".into(),
+                extensions: vec![".nam".into()],
+            }),
+            placeholder: None,
+        }],
+        block_irs: Default::default(),
+        generated: Default::default(),
+        capabilities: Capabilities::default(),
+        config: json!({}),
+        storage: Default::default(),
+        enabled,
+        remote: Some(RemoteTab {
+            title: id.into(),
+            page: "<p>x</p>".into(),
+        }),
+    };
+    let ids = |extensions: &Extensions| -> (Vec<String>, Vec<String>) {
+        (
+            extensions.asset_kinds().into_iter().map(|k| k.id).collect(),
+            (extensions.remote_tabs().into_iter())
+                .map(|(_, installation)| installation.id.clone())
+                .collect(),
+        )
+    };
+    extensions.set_installations(
+        vec![
+            installation("test.on", true),
+            installation("test.off", false),
+        ],
+        &mut backend,
+    );
+    assert_eq!(
+        ids(&extensions),
+        (vec!["test.on".into()], vec!["test.on".into()])
+    );
+    // Both on, then the first off.
+    extensions.set_installations(
+        vec![
+            installation("test.on", true),
+            installation("test.off", true),
+        ],
+        &mut backend,
+    );
+    assert_eq!(ids(&extensions).0, ["test.off", "test.on"]);
+    extensions.set_installations(
+        vec![
+            installation("test.on", false),
+            installation("test.off", true),
+        ],
+        &mut backend,
+    );
+    assert_eq!(
+        ids(&extensions),
+        (vec!["test.off".into()], vec!["test.off".into()])
+    );
+}
+
 /// A computer's message over USB (`tetrad-usb ext`) reaches the extension's
 /// `ctx.usb.onMessage`; the handler's return value is the reply. An extension that is not
 /// installed gets an error reply. A message near the USB request limit (72 KiB) fits in one

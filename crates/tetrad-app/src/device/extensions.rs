@@ -596,11 +596,12 @@ impl Extensions {
         outcome
     }
 
-    /// The installations that build DSP blocks from asset files (NAM models, for example), in key
-    /// order: where Remote shows and takes their files.
+    /// The enabled installations that build DSP blocks from asset files (NAM models, for example),
+    /// in key order: where Remote shows and takes their files. A disabled extension is not shown.
     pub fn asset_kinds(&self) -> Vec<AssetKind> {
         self.slots
             .values()
+            .filter(|slot| slot.installation.enabled)
             .filter_map(|slot| {
                 let installation = &slot.installation;
                 let specs: Vec<_> = (installation.blocks.iter())
@@ -905,10 +906,10 @@ impl Extensions {
         Ok(outcome)
     }
 
-    /// The extensions that have a tab on the Remote page, in key order.
+    /// The enabled extensions that have a tab on the Remote page, in key order.
     pub fn remote_tabs(&self) -> Vec<(&str, &Installation)> {
         (self.slots.iter())
-            .filter(|(_, slot)| slot.installation.remote.is_some())
+            .filter(|(_, slot)| slot.installation.enabled && slot.installation.remote.is_some())
             .map(|(key, slot)| (key.as_str(), &slot.installation))
             .collect()
     }
