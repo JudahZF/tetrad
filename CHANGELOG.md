@@ -16,12 +16,20 @@ All notable changes to Tetrad are in this file. The version numbers follow
   0 to 1).
 - Extension API 5: the leaky ReLU activation. Hosts before API 5 do not offer API 5 packages, so
   they keep Neural Amp Modeler 0.3.1 and do not see Neural Amp Modeler A2.
+- Block list: an Extensions row after the stock categories lists every block from an
+  extension, with its category. The row shows when an extension block is installed. The blocks
+  also stay in the list of their own category.
 
 ### Changed
 
 - Neural Amp Modeler is now Neural Amp Modeler A1 (0.4.0), with blocks named "NAM A1 …". It
   reads per-layer kernel sizes and activations, LeakyReLU and convolutional heads, and points
   A2 files to Neural Amp Modeler A2.
+- Neural Amp Modeler A1 0.5.0 and Neural Amp Modeler A2 0.2.0: each block has the controls of
+  the NAM plugin: Input (0 to 10), Bass, Mid and Treble (the plugin's tone stack, 5 is flat)
+  and Output (-40 to +40 dB). Before, a block had only Input and Output (0 to 4). A preset
+  saved with an older version loads wrong values for these knobs: set the knobs of its NAM
+  blocks again (#21, thanks Rick Peters).
 
 ## [0.1.0-alpha.8](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.8) (2026-10-25)
 
