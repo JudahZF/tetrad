@@ -1627,6 +1627,11 @@ impl UiState {
         fling.at = self.now;
         let elapsed = elapsed as f32;
         let before = self.offset(fling.list);
+        // Something else moved the list (a knob turn): it stops where that put it.
+        if before != fling.pos.round() as i32 {
+            self.fling = None;
+            return Vec::new();
+        }
         fling.pos = (fling.pos + fling.velocity * elapsed).clamp(0.0, fling.max as f32);
         fling.velocity *= (-elapsed / FLING_FRICTION_MS).exp();
         let offset = fling.pos.round() as i32;
