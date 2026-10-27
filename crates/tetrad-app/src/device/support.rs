@@ -153,11 +153,11 @@ pub fn collect(state: &State, context: &Context<'_>, files: &mut impl Files) -> 
     entries
 }
 
-/// `data` with every copy of `secret` replaced by `mark`. Values shorter than 4 bytes are
-/// left alone: they would match too much and identify nothing.
+/// `data` with every copy of `secret` replaced by `mark`. An empty value (signed out, no
+/// serial) matches nothing.
 fn redact(data: Vec<u8>, secret: &str, mark: &str) -> Vec<u8> {
     let secret = secret.as_bytes();
-    if secret.len() < 4 {
+    if secret.is_empty() {
         return data;
     }
     let mut out = Vec::with_capacity(data.len());
