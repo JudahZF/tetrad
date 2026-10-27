@@ -7,7 +7,7 @@
 //! tetrad-ui a new snapshot only when it differs (`set_snapshot` cancels the pointer gesture).
 //! The bank preview is the footswitch bank overlay in `State`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use std::sync::Arc;
 use tetrad_catalog::{ModelSpec, Specs};
@@ -210,6 +210,7 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
         gate_meters: meters::gate_meters(state),
         mini: state.platform.is_atma(),
         locked_models: locked_models(state),
+        unlicensed_plugins: unlicensed_plugins(state),
         // The Grid CPU Monitor (M694-697): the DSP Diagnostics mean of the four cores.
         cpu_percent: state.cpu.percent(),
         scene_copy: state.perform.scene_clipboard.is_some(),
@@ -322,19 +323,25 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
 
 /// Plugin models that deploy bypassed because their licence is not active (the same gate as
 /// the DSP push, `0x00521c84`): the UI draws a lock on them.
-fn locked_models(state: &State) -> std::collections::BTreeSet<u32> {
-    let Some(specs) = &state.specs else {
-        return Default::default();
-    };
-    specs
-        .models
-        .values()
+fn locked_models(state: &State) -> BTreeSet<u32> {
+    let models = state.specs.iter().flat_map(|specs| specs.models.values());
+    models
         .filter(|model| {
             model.plugin_id.is_some_and(|plugin| {
                 state.licences.status(plugin) != super::super::services::PluginStatus::Active
             })
         })
         .map(|model| model.id)
+        .collect()
+}
+
+/// The plugin ids of the catalog with no licence at all: the UI hides their models and folders.
+fn unlicensed_plugins(state: &State) -> BTreeSet<u32> {
+    let models = state.specs.iter().flat_map(|specs| specs.models.values());
+    (models.filter_map(|model| model.plugin_id))
+        .filter(|&plugin| {
+            state.licences.status(plugin) == super::super::services::PluginStatus::Unlicensed
+        })
         .collect()
 }
 
@@ -906,6 +913,7 @@ pub(super) fn models(specs: &Specs) -> Vec<ModelEntry> {
                     name: model.name.clone(),
                     category,
                     extension: model.community.is_some(),
+                    plugin: model.plugin_id,
                 })
         })
         .take(MAX_LIST_ITEMS)

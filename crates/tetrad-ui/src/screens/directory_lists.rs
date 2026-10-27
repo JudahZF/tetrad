@@ -929,21 +929,30 @@ pub(super) fn plugins(ui: &UiState, l: &mut Layout) {
         directory_strip(l, CONTENT);
         return;
     }
-    if ui.snapshot.directory.plugins.is_empty() {
+    // Unlicensed plugins are left out; a row keeps its folder's index in `plugins`.
+    let unlicensed = &ui.snapshot.unlicensed_plugins;
+    let folders: Vec<_> = (ui.snapshot.directory.plugins.iter().enumerate())
+        .filter(|(_, folder)| {
+            !folder
+                .plugin
+                .is_some_and(|plugin| unlicensed.contains(&plugin))
+        })
+        .collect();
+    if folders.is_empty() {
         empty(l, SIDEBAR, "No plugins installed");
     } else {
         l.scroll(
             ListId::Setlists,
             SIDEBAR,
-            ui.snapshot.directory.plugins.len() as u32 * SIDE_ROW,
+            folders.len() as u32 * SIDE_ROW,
             ui.offset(ListId::Setlists),
             |l, top| {
-                for (index, folder) in ui.snapshot.directory.plugins.iter().enumerate() {
+                for (row, &(index, folder)) in folders.iter().enumerate() {
                     sidebar_row(
                         l,
                         Rect::new(
                             SIDEBAR.x,
-                            top + (index as u32 * SIDE_ROW) as i32,
+                            top + (row as u32 * SIDE_ROW) as i32,
                             SIDEBAR.width,
                             SIDE_ROW,
                         ),
