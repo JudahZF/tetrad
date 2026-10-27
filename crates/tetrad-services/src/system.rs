@@ -221,6 +221,18 @@ impl Files for SystemFiles {
         missing_is_none(read).map_err(file_error("read", path))
     }
 
+    fn read_tail(&mut self, path: &Path, max: u64) -> Result<Option<Vec<u8>>, FileError> {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        let read = std::fs::File::open(path).and_then(|mut file| {
+            let length = file.metadata()?.len();
+            file.seek(SeekFrom::Start(length.saturating_sub(max)))?;
+            let mut data = Vec::new();
+            file.take(max).read_to_end(&mut data)?;
+            Ok(data)
+        });
+        missing_is_none(read).map_err(file_error("read", path))
+    }
+
     fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
         std::fs::write(path, data).map_err(file_error("write", path))
     }
@@ -365,6 +377,21 @@ mod tests {
             read_capped(Some(&b"abc"[..]), 3).unwrap(),
             Some(b"abc".to_vec())
         );
+    }
+
+    /// The seek keeps the end of a long log, a short file whole, and a missing file is `None`.
+    #[test]
+    fn read_tail_keeps_the_end() {
+        let path = std::env::temp_dir().join(format!("tetrad-tail-{}", std::process::id()));
+        std::fs::write(&path, b"0123456789").unwrap();
+        let mut files = SystemFiles;
+        assert_eq!(files.read_tail(&path, 4).unwrap(), Some(b"6789".to_vec()));
+        assert_eq!(
+            files.read_tail(&path, 64).unwrap(),
+            Some(b"0123456789".to_vec())
+        );
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(files.read_tail(&path, 4).unwrap(), None);
     }
 
     #[test]

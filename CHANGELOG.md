@@ -19,9 +19,16 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Block list: an Extensions row after the stock categories lists every block from an
   extension, with its category. The row shows when an extension block is installed. The blocks
   also stay in the list of their own category.
+- Support file: the Remote page has a Download button for a `.zip` with versions, licence
+  states, the loaded preset's blocks, extensions, recent notices and the last 5 boot logs, for
+  bug reports. It holds no passwords, tokens or presets. Settings → Support → Send Report shows
+  how to get it ([docs/support.md](docs/support.md)).
+- Notices in the boot log start with the time of day (UTC) once the clock is set.
 
 ### Changed
 
+- Settings → Support → Send Report shows the Remote switch, address and PIN to get the support
+  file. Before, SEND REPORT showed "Sending report..." and then was refused.
 - Neural Amp Modeler is now Neural Amp Modeler A1 (0.4.0), with blocks named "NAM A1 …". It
   reads per-layer kernel sizes and activations, LeakyReLU and convolutional heads, and points
   A2 files to Neural Amp Modeler A2.

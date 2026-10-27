@@ -110,7 +110,7 @@ pub use self::backups::{
     ControlBackupDone, Stage, convert_backup_gains, keep_device_values_after_restore,
 };
 pub use self::cloud_job::{CloudJob, CloudReply, CloudRequest, Nc2Download};
-pub use self::licences::{Licences, PluginStatus};
+pub use self::licences::{LICENSABLE_PLUGINS, Licences, PluginStatus};
 pub use self::products::{
     CLOUD_FOLDER_ROWS, CLOUD_PAGE_ROWS, CaptureDownloadEnd, CloudDownload, CloudFolder,
     DOWNLOAD_QUEUE_BYTES, DOWNLOAD_QUEUE_PAGES, DownloadOrigin, DownloadOutcome, DownloadsRow,
@@ -705,6 +705,20 @@ impl Services {
 
     pub fn cloud(&self) -> Option<&CloudApi> {
         self.cloud.as_ref()
+    }
+
+    /// The last internet probe; `None` before the first one.
+    pub fn online(&self) -> Option<bool> {
+        self.online
+    }
+
+    /// The cloud session's sign-in state, also while a job holds it; `None` before the session
+    /// is loaded.
+    pub fn signed_in_now(&self) -> Option<bool> {
+        match self.cloud_out {
+            true => Some(self.cloud_signed_in),
+            false => self.cloud.as_ref().map(CloudApi::is_signed_in),
+        }
     }
 
     /// Wi-Fi bring-up (driver, interface, config, supplicant), the first supplicant requests,
