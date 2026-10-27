@@ -8,7 +8,9 @@ mod api;
 mod http;
 mod server;
 
-pub use api::{Call, PIN_HEADER, Reply, Request};
+#[cfg(feature = "dev")]
+pub use api::AUTH_DOMAIN;
+pub use api::{Call, ExtensionFiles, FileEntry, PIN_HEADER, Reply, Request, TabInfo};
 pub use http::{MAX_BODY, serve_one};
 pub use server::Server;
 

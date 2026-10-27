@@ -14,6 +14,7 @@
     presetLoaded: [],
     blocks: new Map(),
     usb: undefined,
+    remote: undefined,
   };
   const registrations = {
     midiChannels: [],
@@ -22,6 +23,7 @@
     triggers: [],
     blocks: [],
     usb: false,
+    remote: false,
   };
   let activating = true;
   let disposer;
@@ -397,6 +399,14 @@
           registrations.usb = true;
         },
       }),
+      remote: Object.freeze({
+        onMessage(handler) {
+          duringActivation("remote.onMessage");
+          if (handlers.remote) throw new Error("remote.onMessage is already registered");
+          handlers.remote = fn("handler", handler);
+          registrations.remote = true;
+        },
+      }),
       // The host checks the same rules again (`TriggerSpec::is_valid`).
       triggers: Object.freeze({
         declare(trigger) {
@@ -447,7 +457,7 @@
   globalThis.__tetrad_dispatch = (scopeId, eventJson) => {
     const event = JSON.parse(eventJson);
     const scope = makeScope(scopeId);
-    // The JSON text of a USB handler's return value: the reply to the computer.
+    // The JSON text of a USB or Remote handler's return value: the reply to the computer.
     let result = null;
     let run;
     switch (event.kind) {
@@ -473,6 +483,18 @@
         break;
       case "usb": {
         const h = handlers.usb;
+        run = h
+          ? [
+              async () => {
+                const reply = await h(Object.freeze(event.message), scope);
+                result = JSON.stringify(reply === undefined ? null : reply);
+              },
+            ]
+          : [];
+        break;
+      }
+      case "remote": {
+        const h = handlers.remote;
         run = h
           ? [
               async () => {

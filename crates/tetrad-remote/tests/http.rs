@@ -2,7 +2,9 @@ use std::io::{self, Cursor, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use tetrad_remote::{Call, MAX_BODY, Reply, Request, Server, serve_one};
+use tetrad_remote::{
+    Call, ExtensionFiles, FileEntry, MAX_BODY, Reply, Request, Server, TabInfo, serve_one,
+};
 
 /// A connection: the request bytes in, the response bytes out.
 struct Pipe {
@@ -99,6 +101,235 @@ fn routes_reach_the_device_with_pin_name_and_body() {
 }
 
 /// Requests the server refuses itself never reach the device.
+/// The file manager: list, a piece of a file and a removal reach the device with the PIN, the
+/// decoded names and the body; the list becomes JSON for the page.
+#[test]
+fn the_file_routes_reach_the_device() {
+    let list = Reply::Files {
+        extensions: vec![ExtensionFiles {
+            id: "tetrad.nam".into(),
+            name: "Neural Amp Modeler A1".into(),
+            label: "NAM model".into(),
+            extensions: vec![".nam".into()],
+            max_bytes: 3 << 20,
+            files: vec![FileEntry {
+                name: "Twin Custom2.nam".into(),
+                size: 27324,
+                state: "ready".into(),
+                detail: String::new(),
+            }],
+        }],
+    };
+    let (status, response, seen) = exchange(
+        b"GET /api/files HTTP/1.1\r\nHost: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n\r\n",
+        list,
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(seen, Some(Request::Files { pin: "4821".into() }));
+    let json: serde_json::Value =
+        serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let extension = &json["extensions"][0];
+    assert_eq!(extension["id"], "tetrad.nam");
+    assert_eq!(extension["extensions"][0], ".nam");
+    assert_eq!(extension["maxBytes"], 3 << 20);
+    assert_eq!(extension["files"][0]["size"], 27324);
+    assert_eq!(extension["files"][0]["state"], "ready");
+
+    let head = "POST /api/files/chunk?id=tetrad.nam&name=Twin%20Custom2.nam&offset=49152&last=1 \
+                HTTP/1.1\r\nHost: 10.0.0.41\r\nx-tetrad-pin: 4821\r\nContent-Length: 3\r\n\r\n";
+    let stored = Reply::FileStored {
+        name: "Twin Custom2.nam".into(),
+        size: 49155,
+    };
+    let (status, response, seen) = exchange(&upload(head, b"abc"), stored);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"name":"Twin Custom2.nam","size":49155}"#));
+    assert_eq!(
+        seen,
+        Some(Request::FileChunk {
+            pin: "4821".into(),
+            id: "tetrad.nam".into(),
+            name: "Twin Custom2.nam".into(),
+            offset: 49152,
+            last: true,
+            bytes: b"abc".to_vec(),
+        })
+    );
+    // Without `last=1` the piece is not the end.
+    let head = head.replace("&last=1", "");
+    let (_, _, seen) = exchange(&upload(&head, b"abc"), Reply::FileReceived { received: 3 });
+    assert!(matches!(seen, Some(Request::FileChunk { last: false, .. })));
+
+    let delete = b"POST /api/files/delete?id=tetrad.nam&name=A.nam HTTP/1.1\r\nHost: 10.0.0.41\r\n\
+                   X-Tetrad-Pin: 4821\r\nContent-Length: 0\r\n\r\n";
+    let (status, _, seen) = exchange(
+        delete,
+        Reply::FileDeleted {
+            name: "A.nam".into(),
+        },
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(
+        seen,
+        Some(Request::FileDelete {
+            pin: "4821".into(),
+            id: "tetrad.nam".into(),
+            name: "A.nam".into(),
+        })
+    );
+}
+
+/// What the file routes refuse before the device is asked.
+#[test]
+fn bad_file_requests_are_refused_without_a_device_call() {
+    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    for (request, expected) in [
+        // Offset, id and name are required; the offset is a number.
+        (
+            format!(
+                "POST /api/files/chunk?id=a.b&name=A.nam HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"
+            ),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!(
+                "POST /api/files/chunk?id=a.b&name=A.nam&offset=x HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"
+            ),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!(
+                "POST /api/files/chunk?name=A.nam&offset=0 HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"
+            ),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!("POST /api/files/delete?id=a.b HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        // The PIN comes first, and the method has to fit.
+        (
+            "GET /api/files HTTP/1.1\r\nHost: 10.0.0.41\r\n\r\n".to_owned(),
+            "HTTP/1.1 401 Unauthorized",
+        ),
+        (
+            format!("POST /api/files HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        (
+            format!("GET /api/files/chunk HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        // A piece is a request body: it needs Content-Length.
+        (
+            format!("POST /api/files/chunk?id=a.b&name=A.nam&offset=0 HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 411 Length Required",
+        ),
+    ] {
+        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
+        assert_eq!(status, expected, "{request}");
+        assert_eq!(seen, None, "{request}");
+    }
+}
+
+/// The tab routes: the list, the page and a message reach the device with the PIN and the decoded
+/// id; the answers become JSON, and the extension's own JSON text becomes `result`.
+#[test]
+fn the_tab_routes_reach_the_device() {
+    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    let tabs = Reply::Tabs {
+        tabs: vec![TabInfo {
+            id: "tetrad.nam".into(),
+            title: "Models".into(),
+        }],
+    };
+    let (status, response, seen) = exchange(
+        format!("GET /api/tabs HTTP/1.1\r\n{host}\r\n").as_bytes(),
+        tabs,
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"tabs":[{"id":"tetrad.nam","title":"Models"}]}"#));
+    assert_eq!(seen, Some(Request::Tabs { pin: "4821".into() }));
+
+    let page = Reply::TabPage {
+        html: "<p>hi</p>".into(),
+    };
+    let (_, response, seen) = exchange(
+        format!("GET /api/tabs/page?id=tetrad.nam HTTP/1.1\r\n{host}\r\n").as_bytes(),
+        page,
+    );
+    assert!(response.ends_with(r#"{"html":"<p>hi</p>"}"#));
+    assert_eq!(
+        seen,
+        Some(Request::TabPage {
+            pin: "4821".into(),
+            id: "tetrad.nam".into()
+        })
+    );
+
+    let head =
+        format!("POST /api/tabs/call?id=tetrad.nam HTTP/1.1\r\n{host}Content-Length: 11\r\n\r\n");
+    let reply = Reply::TabReply {
+        json: r#"{"models":["Twin"]}"#.into(),
+    };
+    let (status, response, seen) = exchange(&upload(&head, br#"{"op":"ls"}"#), reply);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(
+        response.ends_with(r#"{"result":{"models":["Twin"]}}"#),
+        "{response}"
+    );
+    assert_eq!(
+        seen,
+        Some(Request::TabCall {
+            pin: "4821".into(),
+            id: "tetrad.nam".into(),
+            message: br#"{"op":"ls"}"#.to_vec(),
+        })
+    );
+    // An extension that answers with text that is not JSON does not break the page.
+    let bad = Reply::TabReply {
+        json: "{oops".into(),
+    };
+    let (_, response, _) = exchange(&upload(&head, br#"{"op":"ls"}"#), bad);
+    assert!(response.contains(r#""error""#), "{response}");
+}
+
+/// What the tab routes refuse before the device is asked.
+#[test]
+fn bad_tab_requests_are_refused_without_a_device_call() {
+    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    for (request, expected) in [
+        (
+            format!("GET /api/tabs/page HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!("POST /api/tabs/call HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!("POST /api/tabs/call?id=a.b HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 411 Length Required",
+        ),
+        (
+            "GET /api/tabs HTTP/1.1\r\nHost: 10.0.0.41\r\n\r\n".to_owned(),
+            "HTTP/1.1 401 Unauthorized",
+        ),
+        (
+            format!("POST /api/tabs HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        (
+            format!("GET /api/tabs/call?id=a.b HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+    ] {
+        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
+        assert_eq!(status, expected, "{request}");
+        assert_eq!(seen, None, "{request}");
+    }
+}
+
 #[test]
 fn bad_requests_are_refused_without_a_device_call() {
     let big = "a".repeat(8 * 1024);
@@ -207,4 +438,229 @@ fn stop_frees_the_port_while_a_client_waits() {
         .set_read_timeout(Some(Duration::from_secs(1)))
         .unwrap();
     assert_eq!(client.read(&mut [0; 16]).unwrap(), 0);
+}
+
+/// A dev build takes an update in three steps; each reaches the device with the PIN, and the
+/// reply of the device becomes the answer. Without the `dev` feature none of them exists.
+#[cfg(feature = "dev")]
+#[test]
+fn the_update_routes_reach_the_device() {
+    let head = |method: &str, path: &str, body: &str| {
+        format!(
+            "{method} {path} HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 4821\r\n\
+             Content-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    };
+    let pin = || "4821".to_owned();
+
+    let reply = Reply::UpdateStatus {
+        version: "0.1.0".into(),
+        select: Some("5ef24effb50eb865412cc5115497a1c0".into()),
+    };
+    let (status, response, seen) = exchange(head("GET", "/api/update", "").as_bytes(), reply);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(
+        response.ends_with(r#"{"select":"5ef24effb50eb865412cc5115497a1c0","version":"0.1.0"}"#)
+    );
+    assert_eq!(seen, Some(Request::UpdateStatus { pin: pin() }));
+
+    let body = r#"{"files":{"bin/tetrad":7,"launcher/tetrad-update.sh":12}}"#;
+    let begun = Reply::UpdateBegun {
+        version: "1.0.0+http".into(),
+        files: vec![("bin/tetrad".into(), 7)],
+    };
+    let (status, response, seen) =
+        exchange(head("POST", "/api/update/begin", body).as_bytes(), begun);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(
+        response.ends_with(r#"{"files":[{"path":"bin/tetrad","size":7}],"version":"1.0.0+http"}"#)
+    );
+    assert_eq!(
+        seen,
+        Some(Request::UpdateBegin {
+            pin: pin(),
+            files: vec![
+                ("bin/tetrad".into(), 7),
+                ("launcher/tetrad-update.sh".into(), 12)
+            ],
+        })
+    );
+
+    let path = "/api/update/chunk?path=launcher%2Ftetrad-update.sh&offset=4096";
+    let received = Reply::UpdateReceived {
+        path: "launcher/tetrad-update.sh".into(),
+        received: 4100,
+    };
+    let (status, _, seen) = exchange(head("POST", path, "data").as_bytes(), received);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(
+        seen,
+        Some(Request::UpdateChunk {
+            pin: pin(),
+            path: "launcher/tetrad-update.sh".into(),
+            offset: 4096,
+            bytes: b"data".to_vec(),
+        })
+    );
+
+    let staged = Reply::UpdateStaged {
+        version: "1.0.0".into(),
+    };
+    let (status, _, seen) = exchange(head("POST", "/api/update/ready", "").as_bytes(), staged);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(seen, Some(Request::UpdateReady { pin: pin() }));
+
+    let (status, response, seen) = exchange(
+        head("POST", "/api/update/install", "").as_bytes(),
+        Reply::UpdateInstalling,
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"installing":true}"#));
+    assert_eq!(seen, Some(Request::UpdateInstall { pin: pin() }));
+
+    // A refusal of the device is a 422 with its reason.
+    let refused = Reply::Refused("no install-begin".into());
+    let (status, response, _) = exchange(head("POST", "/api/update/ready", "").as_bytes(), refused);
+    assert_eq!(status, "HTTP/1.1 422 Unprocessable Content");
+    assert!(response.ends_with(r#"{"error":"no install-begin"}"#));
+}
+
+/// The update routes need the PIN, a file list as JSON and a numeric offset, and take no other method.
+#[cfg(feature = "dev")]
+#[test]
+fn the_update_routes_check_their_input() {
+    let case = |request: &str| exchange(request.as_bytes(), Reply::Off);
+    let host = "Host: 192.168.1.20\r\n";
+    let (status, _, seen) = case(&format!("GET /api/update HTTP/1.1\r\n{host}\r\n"));
+    assert_eq!(status, "HTTP/1.1 401 Unauthorized");
+    assert_eq!(seen, None);
+    let post = |path: &str, body: &str| {
+        format!(
+            "POST {path} HTTP/1.1\r\n{host}X-Tetrad-Pin: 1\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    };
+    for (path, body) in [
+        ("/api/update/begin", "not json"),
+        ("/api/update/begin", r#"{"manifest":"{}"}"#),
+        ("/api/update/begin", r#"{"files":{"bin/tetrad":"big"}}"#),
+        ("/api/update/begin", r#"{"files":["bin/tetrad"]}"#),
+        ("/api/update/chunk?path=bin%2Ftetrad&offset=x", ""),
+        ("/api/update/chunk?offset=0", ""),
+    ] {
+        let (status, _, seen) = case(&post(path, body));
+        assert_eq!(status, "HTTP/1.1 400 Bad Request", "{path} {body}");
+        assert_eq!(seen, None);
+    }
+    let (status, _, _) = case(&format!(
+        "GET /api/update/ready HTTP/1.1\r\n{host}X-Tetrad-Pin: 1\r\n\r\n"
+    ));
+    assert_eq!(status, "HTTP/1.1 405 Method Not Allowed");
+}
+
+/// The page of a dev build has the update part; a release build has neither it nor the routes.
+#[test]
+fn only_a_dev_page_offers_the_update() {
+    let (_, page, _) = exchange(b"GET / HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n", Reply::Off);
+    assert_eq!(page.contains("Update Tetrad"), cfg!(feature = "dev"));
+    assert!(!page.contains("<!--update-->"));
+    if !cfg!(feature = "dev") {
+        let request = b"GET /api/update HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 1\r\n\r\n";
+        let (status, _, seen) = exchange(request, Reply::Off);
+        assert_eq!(status, "HTTP/1.1 404 Not Found");
+        assert_eq!(seen, None);
+    }
+}
+
+/// The log of the unit is plain text, one notice per line, behind the PIN (a dev build).
+#[cfg(feature = "dev")]
+#[test]
+fn the_log_is_plain_text_behind_the_pin() {
+    let request = b"GET /api/log HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 4821\r\n\r\n";
+    let text = "    12.500 Remote: update of bin/tetrad\n    13.000 Usb: hello\n";
+    let reply = Reply::Log { text: text.into() };
+    let (status, response, seen) = exchange(request, reply);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.contains("Content-Type: text/plain; charset=utf-8"));
+    assert!(response.ends_with(text));
+    assert_eq!(seen, Some(Request::Log { pin: "4821".into() }));
+
+    let (status, _, seen) = exchange(
+        b"GET /api/log HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n",
+        Reply::Off,
+    );
+    assert_eq!(status, "HTTP/1.1 401 Unauthorized");
+    assert_eq!(seen, None);
+}
+
+/// A key gets the PIN without one: the challenge and the signed answer need no PIN header, and
+/// adding a key needs it.
+#[cfg(feature = "dev")]
+#[test]
+fn the_key_routes_need_no_pin_except_to_add_a_key() {
+    let host = "Host: 192.168.1.20\r\n";
+    let (status, response, seen) = exchange(
+        format!("GET /api/auth/nonce HTTP/1.1\r\n{host}\r\n").as_bytes(),
+        Reply::AuthNonce {
+            nonce: "ab12".into(),
+        },
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"nonce":"ab12"}"#));
+    assert_eq!(seen, Some(Request::AuthNonce));
+
+    let body = r#"{"key":"S0VZ","nonce":"ab12","signature":"U0lH"}"#;
+    let request = format!(
+        "POST /api/auth/pin HTTP/1.1\r\n{host}Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let (status, response, seen) =
+        exchange(request.as_bytes(), Reply::AuthPin { pin: "4821".into() });
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"pin":"4821"}"#));
+    assert_eq!(
+        seen,
+        Some(Request::AuthPin {
+            key: "S0VZ".into(),
+            nonce: "ab12".into(),
+            signature: "U0lH".into(),
+        })
+    );
+
+    let body = r#"{"key":"S0VZ"}"#;
+    let add = |pin: &str| {
+        format!(
+            "POST /api/keys HTTP/1.1\r\n{host}{pin}Content-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    };
+    let (status, _, seen) = exchange(add("").as_bytes(), Reply::Off);
+    assert_eq!(status, "HTTP/1.1 401 Unauthorized");
+    assert_eq!(seen, None);
+    let (status, _, seen) = exchange(
+        add("X-Tetrad-Pin: 4821\r\n").as_bytes(),
+        Reply::KeyAdded { keys: 2 },
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert_eq!(
+        seen,
+        Some(Request::AddKey {
+            pin: "4821".into(),
+            key: "S0VZ".into()
+        })
+    );
+    // A request that is not JSON, or lacks a field, never reaches the device.
+    for (path, body) in [
+        ("/api/auth/pin", "no"),
+        ("/api/auth/pin", r#"{"key":"x","nonce":"y"}"#),
+    ] {
+        let request = format!(
+            "POST {path} HTTP/1.1\r\n{host}Content-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
+        assert_eq!(status, "HTTP/1.1 400 Bad Request", "{body}");
+        assert_eq!(seen, None);
+    }
 }

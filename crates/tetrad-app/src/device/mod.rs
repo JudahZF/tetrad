@@ -45,6 +45,7 @@ mod power;
 pub mod preset;
 mod probe;
 pub mod remote;
+pub mod remote_files;
 pub mod services;
 pub mod ui;
 mod upload;
@@ -3061,6 +3062,9 @@ impl<P: Platform> Device<P> {
         self.bridges.mappings.view_stale = true;
         for reply in outcome.usb_replies {
             self.usb.answer_extension(reply);
+        }
+        for reply in outcome.remote_replies {
+            self.answer_tab(reply);
         }
         let mut effects = outcome.effects;
         for fired in &outcome.triggers {

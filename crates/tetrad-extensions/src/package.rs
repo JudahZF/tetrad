@@ -4,6 +4,9 @@
 //! - Format 2: `{format: 2, manifest, module?, blocks?}`. `blocks` maps each static block ID
 //!   of the manifest to its qcdsp IR.
 //!
+//! - Format 3: `{format: 3, manifest, module?, blocks?, remotePage}`. `remotePage` is the HTML of
+//!   the extension's Remote tab ([`MAX_PAGE`] bytes at most); the manifest's `remote` needs it.
+//!
 //! A data-only package ([`Manifest::data_only`]: themes or static blocks, no code) has no
 //! module. Every IR is checked with qcdsp when a package is decoded or encoded.
 
@@ -15,6 +18,10 @@ use crate::manifest::{Manifest, ManifestError};
 
 /// The format [`Package::encode`] writes for a package with blocks.
 pub const PACKAGE_FORMAT: u32 = 2;
+/// The format of a package with a Remote page.
+pub const PACKAGE_FORMAT_PAGE: u32 = 3;
+/// Largest Remote page in bytes.
+pub const MAX_PAGE: usize = 256 * 1024;
 /// The format of a package without blocks, which every host reads.
 pub const PACKAGE_FORMAT_NO_BLOCKS: u32 = 1;
 /// Largest package in bytes. The IR of a large block can take most of it.
@@ -29,10 +36,12 @@ pub struct Package {
     pub module: Option<String>,
     /// The validated IR of every static block, by block ID.
     pub blocks: BTreeMap<String, qcdsp::Block>,
+    /// The HTML of the Remote tab (`remote.html`); `Some` exactly when the manifest has `remote`.
+    pub remote_page: Option<String>,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Envelope {
     format: u32,
     manifest: Manifest,
@@ -41,9 +50,12 @@ struct Envelope {
     /// Decoded one block at a time, so an error names its block.
     #[serde(default)]
     blocks: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    remote_page: Option<String>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EnvelopeRef<'a> {
     format: u32,
     manifest: &'a Manifest,
@@ -51,6 +63,8 @@ struct EnvelopeRef<'a> {
     module: Option<&'a str>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     blocks: &'a BTreeMap<String, qcdsp::Block>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_page: Option<&'a str>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,6 +86,12 @@ pub enum PackageError {
     BlocksNeedFormat2,
     #[error("block {0:?}: {1}")]
     Block(String, String),
+    #[error("a remote page needs a package of format {PACKAGE_FORMAT_PAGE}")]
+    PageNeedsFormat3,
+    #[error("the manifest has a remote tab but the package has no page, or the reverse")]
+    PageMismatch,
+    #[error("the remote page is over the {MAX_PAGE} byte limit")]
+    PageTooLarge,
 }
 
 impl Package {
@@ -84,8 +104,11 @@ impl Package {
             PACKAGE_FORMAT_NO_BLOCKS if !envelope.blocks.is_empty() => {
                 return Err(PackageError::BlocksNeedFormat2);
             }
-            PACKAGE_FORMAT_NO_BLOCKS | PACKAGE_FORMAT => {}
+            PACKAGE_FORMAT_NO_BLOCKS | PACKAGE_FORMAT | PACKAGE_FORMAT_PAGE => {}
             other => return Err(PackageError::Format(other)),
+        }
+        if envelope.format != PACKAGE_FORMAT_PAGE && envelope.remote_page.is_some() {
+            return Err(PackageError::PageNeedsFormat3);
         }
         let blocks = envelope
             .blocks
@@ -100,6 +123,7 @@ impl Package {
             manifest: envelope.manifest,
             module: envelope.module.filter(|m| !m.trim().is_empty()),
             blocks,
+            remote_page: envelope.remote_page,
         };
         package.validate()?;
         Ok(package)
@@ -107,7 +131,9 @@ impl Package {
 
     pub fn encode(&self) -> Result<Vec<u8>, PackageError> {
         self.validate()?;
-        let format = if self.blocks.is_empty() {
+        let format = if self.remote_page.is_some() {
+            PACKAGE_FORMAT_PAGE
+        } else if self.blocks.is_empty() {
             PACKAGE_FORMAT_NO_BLOCKS
         } else {
             PACKAGE_FORMAT
@@ -117,6 +143,7 @@ impl Package {
             manifest: &self.manifest,
             module: self.module.as_deref(),
             blocks: &self.blocks,
+            remote_page: self.remote_page.as_deref(),
         })?;
         if bytes.len() > MAX_PACKAGE {
             return Err(PackageError::TooLarge(bytes.len()));
@@ -140,6 +167,14 @@ impl Package {
             Some(_) => {}
             None if manifest.data_only() => {}
             None => return Err(PackageError::EmptyModule),
+        }
+        match (&manifest.remote, &self.remote_page) {
+            (Some(_), Some(page)) if page.len() > MAX_PAGE => {
+                return Err(PackageError::PageTooLarge);
+            }
+            (Some(_), Some(page)) if !page.trim().is_empty() => {}
+            (None, None) => {}
+            _ => return Err(PackageError::PageMismatch),
         }
         let fail = |id: &str, reason: &str| Err(PackageError::Block(id.into(), reason.into()));
         for spec in &manifest.blocks {
@@ -177,6 +212,7 @@ mod tests {
             .unwrap(),
             module: Some("export default { activate() {} };".into()),
             blocks: BTreeMap::new(),
+            remote_page: None,
         }
     }
 
@@ -190,6 +226,7 @@ mod tests {
             .unwrap(),
             module: None,
             blocks: BTreeMap::from([("gain".into(), qcdsp::examples::gain().unwrap())]),
+            remote_page: None,
         }
     }
 
@@ -219,8 +256,8 @@ mod tests {
             Err(PackageError::TooLarge(_))
         ));
         let mut v = envelope(&p);
-        v["format"] = json!(3);
-        assert!(matches!(decode(&v), Err(PackageError::Format(3))));
+        v["format"] = json!(4);
+        assert!(matches!(decode(&v), Err(PackageError::Format(4))));
         let empty = Package {
             module: Some(" \n".into()),
             ..p.clone()
@@ -314,6 +351,7 @@ mod tests {
             manifest,
             module: None,
             blocks: BTreeMap::new(),
+            remote_page: None,
         };
         assert_eq!(Package::decode(&pack.encode().unwrap()).unwrap(), pack);
     }
@@ -356,6 +394,69 @@ mod tests {
         assert!(matches!(
             decode(with(json!({ "themes": [dusk, dusk] }))),
             Err(PackageError::Manifest(ManifestError::Duplicate(_)))
+        ));
+    }
+
+    /// A manifest with a Remote tab: both the capability and the title, API 6, and the page in
+    /// a format 3 package.
+    fn tab_manifest() -> Manifest {
+        serde_json::from_value(json!({
+            "id": "tetrad.tabbed", "name": "Tabbed", "version": "1.0.0", "api": 6,
+            "capabilities": ["remote"], "remote": {"title": "Models"}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_remote_page_makes_a_format_3_package_and_round_trips() {
+        let pack = Package {
+            manifest: tab_manifest(),
+            module: Some("export default { activate() {} };".into()),
+            blocks: BTreeMap::new(),
+            remote_page: Some("<p>hi</p>".into()),
+        };
+        let bytes = pack.encode().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap()["format"],
+            3
+        );
+        assert_eq!(Package::decode(&bytes).unwrap(), pack);
+        // A package without a page stays format 1 for hosts that know nothing of pages.
+        assert_eq!(envelope(&package())["format"], 1);
+    }
+
+    #[test]
+    fn a_remote_tab_and_its_page_go_together() {
+        let module = Some("export default { activate() {} };".to_string());
+        let mut pack = Package {
+            manifest: tab_manifest(),
+            module,
+            blocks: BTreeMap::new(),
+            remote_page: None,
+        };
+        assert!(matches!(pack.encode(), Err(PackageError::PageMismatch)));
+        pack.remote_page = Some("   ".into());
+        assert!(matches!(pack.encode(), Err(PackageError::PageMismatch)));
+        pack.remote_page = Some("x".repeat(MAX_PAGE + 1));
+        assert!(matches!(pack.encode(), Err(PackageError::PageTooLarge)));
+        // A page without the tab in the manifest.
+        let mut plain = package();
+        plain.remote_page = Some("<p>hi</p>".into());
+        assert!(matches!(plain.encode(), Err(PackageError::PageMismatch)));
+        // A page in an older format is refused when decoded.
+        let mut value = envelope(&Package {
+            remote_page: Some("<p>hi</p>".into()),
+            ..Package {
+                manifest: tab_manifest(),
+                module: Some("export default { activate() {} };".into()),
+                blocks: BTreeMap::new(),
+                remote_page: Some("<p>hi</p>".into()),
+            }
+        });
+        value["format"] = json!(2);
+        assert!(matches!(
+            Package::decode(&serde_json::to_vec(&value).unwrap()),
+            Err(PackageError::PageNeedsFormat3)
         ));
     }
 }

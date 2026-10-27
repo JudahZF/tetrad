@@ -1902,4 +1902,14 @@ impl crate::device::remote::RemoteBackend for LinuxRemote {
             .map_err(|error| format!("no random PIN: {error}"))?;
         Ok(format!("{:04}", u32::from_le_bytes(bytes) % 10_000))
     }
+
+    #[cfg(feature = "dev")]
+    fn nonce(&mut self) -> Result<String, String> {
+        use std::io::Read;
+        let mut bytes = [0; 16];
+        File::open("/dev/urandom")
+            .and_then(|mut random| random.read_exact(&mut bytes))
+            .map_err(|error| format!("no random challenge: {error}"))?;
+        Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
 }

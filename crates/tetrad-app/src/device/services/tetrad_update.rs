@@ -80,13 +80,23 @@ impl Services {
     /// The release that `tetrad-usb install` pushed is on p4 as `.part` files: UPDATE TETRAD
     /// installs it.
     pub fn offer_usb_update(&mut self, manifest: Manifest) -> Result<Vec<Effect>, ServiceError> {
+        self.offer_staged_update(manifest, "USB")
+    }
+
+    /// Files that came over `via` ("USB", or "Remote" in a dev build) are on p4 as `.part`
+    /// files: UPDATE TETRAD installs them.
+    pub fn offer_staged_update(
+        &mut self,
+        manifest: Manifest,
+        via: &str,
+    ) -> Result<Vec<Effect>, ServiceError> {
         self.usb_staging_allowed()?;
         let offer = Offer {
             source: Source::Usb,
             manifest,
         };
         let text = format!(
-            "Tetrad {} from USB: Settings > System > Tetrad Updates > UPDATE TETRAD",
+            "Tetrad {} from {via}: Settings > System > Tetrad Updates > UPDATE TETRAD",
             offer.version()
         );
         self.tetrad = TetradUpdate::Available(offer);

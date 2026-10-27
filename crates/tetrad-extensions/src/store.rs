@@ -385,6 +385,13 @@ impl Store {
             .blocks)
     }
 
+    /// The HTML of the Remote tab of the current version, if it has one.
+    pub fn remote_page(&self, installed: &Installed) -> Result<Option<String>> {
+        Ok(self
+            .read_package(&installed.key, &installed.current)?
+            .remote_page)
+    }
+
     /// Reads a release's package and checks it against the recorded SHA-256.
     fn read_package(&self, key: &InstallKey, release: &Release) -> Result<Package> {
         let path = self.package_path(key, &release.version);
@@ -911,6 +918,7 @@ mod tests {
                 "export default {{ activate() {{}} }}; // {version}"
             )),
             blocks: BTreeMap::new(),
+            remote_page: None,
         })
     }
 
@@ -1064,6 +1072,7 @@ mod tests {
             .unwrap(),
             module: None,
             blocks: BTreeMap::from([("gain".into(), qcdsp::examples::gain().unwrap())]),
+            remote_page: None,
         });
         let installed = store.install(&source(), &key(), &entry, &bytes).unwrap();
         assert_eq!(store.module_path(&installed), None, "nothing to run");

@@ -1,0 +1,9 @@
+{
+  "id": "tetrad.remote-tab",
+  "name": "Remote Tab",
+  "version": "0.1.0",
+  "description": "Example of a tab on the Remote page: a note that the unit keeps. The page is remote.html; the handler is in src/index.ts.",
+  "api": 6,
+  "capabilities": ["remote", "storage"],
+  "remote": { "title": "Notes" }
+}

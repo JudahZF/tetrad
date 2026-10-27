@@ -6,7 +6,8 @@
 //! manifest cannot use them. API 3 adds `pressed` on trigger firings (a release of a press); a
 //! host before API 3 would take a release for a press, so it skips API 3 packages. API 4 adds
 //! `footswitchMode`; a manifest of an older API cannot use it. API 5 adds the leaky ReLU network
-//! activation; a host before API 5 refuses it, so it skips API 5 packages.
+//! activation; a host before API 5 refuses it, so it skips API 5 packages. API 6 adds the `remote`
+//! capability: a tab on the Remote page.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use serde_json::{Map, Value};
 use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
-pub const API_VERSION: u32 = 5;
+pub const API_VERSION: u32 = 6;
 /// The oldest extension API level this host still runs.
 pub const MIN_API_VERSION: u32 = 1;
 
@@ -37,6 +38,8 @@ pub const MAX_LABEL: usize = 32;
 pub const MAX_MODE_NAME: usize = 16;
 /// Most pages of a footswitch mode.
 pub const MAX_MODE_PAGES: u8 = 4;
+/// Longest title of a Remote tab.
+pub const MAX_TAB_TITLE: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,6 +70,18 @@ pub struct Manifest {
     /// its name and page count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footswitch_mode: Option<FootswitchModeSpec>,
+    /// A tab on the Remote page (API 6). Needs the `remote` capability, and the package holds
+    /// the page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteSpec>,
+}
+
+/// The tab of an extension on the Remote page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoteSpec {
+    /// 1..=[`MAX_TAB_TITLE`] characters: the name on the tab.
+    pub title: String,
 }
 
 /// A footswitch mode next to Preset, Scene and Stomp: `pages` pages of ten switches (A–D,
@@ -94,6 +109,9 @@ pub enum Capability {
     Blocks,
     /// Answer messages from a computer over the USB cable (`tetrad-usb ext`, docs/usb.md).
     Usb,
+    /// A tab on the Remote page (API 6): a page that the package holds, and a handler for its
+    /// messages (docs/remote.md, "Extension tabs").
+    Remote,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -211,6 +229,10 @@ pub enum ManifestError {
         "footswitch mode: the name must be 1..={MAX_MODE_NAME} characters and pages 1..={MAX_MODE_PAGES}"
     )]
     FootswitchMode,
+    #[error(
+        "remote: a tab needs both the remote capability and a title of 1..={MAX_TAB_TITLE} characters"
+    )]
+    Remote,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -243,6 +265,14 @@ impl Manifest {
             && (!label_ok(&mode.name, MAX_MODE_NAME) || !(1..=MAX_MODE_PAGES).contains(&mode.pages))
         {
             return Err(ManifestError::FootswitchMode);
+        }
+        if self.api < 6 && (self.remote.is_some() || self.has(Capability::Remote)) {
+            return Err(ManifestError::NeedsApi(6, "remote"));
+        }
+        match &self.remote {
+            Some(tab) if self.has(Capability::Remote) && label_ok(&tab.title, MAX_TAB_TITLE) => {}
+            None if !self.has(Capability::Remote) => {}
+            _ => return Err(ManifestError::Remote),
         }
         for (i, capability) in self.capabilities.iter().enumerate() {
             if self.capabilities[..i].contains(capability) {
@@ -658,5 +688,47 @@ mod tests {
                 "{extra}"
             );
         }
+    }
+
+    #[test]
+    fn a_remote_tab_needs_the_capability_the_title_and_api_6() {
+        let base = |extra: serde_json::Value| -> Result<(), ManifestError> {
+            let mut value = serde_json::json!({
+                "id": "tetrad.tabbed", "name": "Tabbed", "version": "1.0.0", "api": 6,
+            });
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value::<Manifest>(value)
+                .unwrap()
+                .validate()
+        };
+        let tab = serde_json::json!({"capabilities": ["remote"], "remote": {"title": "Models"}});
+        assert_eq!(base(tab), Ok(()));
+        // One without the other, or a title that is empty or too long.
+        assert_eq!(
+            base(serde_json::json!({"capabilities": ["remote"]})),
+            Err(ManifestError::Remote)
+        );
+        assert_eq!(
+            base(serde_json::json!({"remote": {"title": "Models"}})),
+            Err(ManifestError::Remote)
+        );
+        for title in ["", "A title of more than twenty characters"] {
+            let tab = serde_json::json!({"capabilities": ["remote"], "remote": {"title": title}});
+            assert_eq!(base(tab), Err(ManifestError::Remote), "{title:?}");
+        }
+        // API 5 hosts know nothing of tabs, so an API 5 manifest cannot have one.
+        let mut old = serde_json::json!({
+            "id": "tetrad.tabbed", "name": "Tabbed", "version": "1.0.0", "api": 5,
+            "capabilities": ["remote"], "remote": {"title": "Models"}
+        });
+        assert_eq!(
+            serde_json::from_value::<Manifest>(old.take())
+                .unwrap()
+                .validate(),
+            Err(ManifestError::NeedsApi(6, "remote"))
+        );
     }
 }

@@ -5,10 +5,12 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+#[cfg(feature = "dev")]
+use sha2::Digest;
 use tetrad_dsp_host::transport::ControlPacket;
 use tetrad_dsp_protocol::hid::HidReportFrame;
 use tetrad_services::exec::Files;
-use tetrad_services::updater::tetrad::{self, Manifest, RELEASE_KEY};
+use tetrad_services::updater::tetrad::{self, Manifest, TRUSTED_KEY};
 use tetrad_ui::{Screen, SettingsPage};
 use tetrad_usb::{
     Answer, FileSize, MAX_CHUNK_BYTES, Op, PROTOCOL, Reassembler, Reply, Report, Request,
@@ -66,6 +68,10 @@ impl UsbLink {
 struct Staging {
     manifest: Manifest,
     received: BTreeMap<String, u64>,
+    /// The files came from the Remote page of a dev build and nobody signed them: their hashes
+    /// are made at `ready`, and the user's touch on the unit is the approval.
+    #[cfg(feature = "dev")]
+    unsigned: bool,
 }
 
 impl<P: Platform> Device<P> {
@@ -166,94 +172,15 @@ impl<P: Platform> Device<P> {
                 manifest,
                 signature,
             } => {
-                // As every update install in bring-up (`RunOptions::refusal`), but `.part` files
-                // only, so `--persist` allows it.
-                if self.options.is_bringup() && !self.options.persist {
-                    return Err("USB staging writes p4: bring-up needs --persist".into());
-                }
-                (self.bridges.services.usb_staging_allowed()).map_err(|e| e.to_string())?;
-                self.bridges.services.withdraw_usb_offer();
-                let manifest =
-                    Manifest::verify(manifest.as_bytes(), signature.as_bytes(), RELEASE_KEY, None)
-                        .map_err(|e| e.to_string())?;
-                let files = self.platform.services().files();
-                for path in manifest.files.keys() {
-                    let part = tetrad::part(path);
-                    if let Some(dir) = part.parent() {
-                        files.create_dirs(dir).map_err(|e| e.to_string())?;
-                    }
-                    files.remove(&part).map_err(|e| e.to_string())?;
-                }
-                let answer = Answer::InstallBegin {
-                    version: manifest.version.to_string(),
-                    files: (manifest.files.iter())
-                        .map(|(path, entry)| FileSize {
-                            path: path.clone(),
-                            size: entry.size,
-                        })
-                        .collect(),
-                };
-                let received = manifest
-                    .files
-                    .keys()
-                    .map(|path| (path.clone(), 0))
-                    .collect();
-                self.usb.staging = Some(Staging { manifest, received });
-                (answer, Vec::new())
+                let (version, files) = self.stage_begin(&manifest, &signature)?;
+                (Answer::InstallBegin { version, files }, Vec::new())
             }
             Op::InstallChunk { path, offset } => {
-                // An install that started since install-begin owns the `.part` files.
-                if let Err(error) = self.bridges.services.usb_staging_allowed() {
-                    self.usb.staging = None;
-                    return Err(error.to_string());
-                }
-                let staging = self.usb.staging.as_mut().ok_or("no install-begin")?;
-                let size = (staging.manifest.files.get(&path))
-                    .ok_or_else(|| format!("{path} is not in the manifest"))?
-                    .size;
-                let received = staging.received.entry(path.clone()).or_default();
-                if offset != *received {
-                    return Err(format!(
-                        "{path}: offset {offset}, but {received} bytes are here"
-                    ));
-                }
-                let end = offset + body.len() as u64;
-                if body.len() > MAX_CHUNK_BYTES || end > size {
-                    return Err(format!(
-                        "{path}: a chunk to {end} does not fit {size} bytes"
-                    ));
-                }
-                (self
-                    .platform
-                    .services()
-                    .files()
-                    .append(&tetrad::part(&path), body))
-                .map_err(|e| e.to_string())?;
-                *received = end;
-                (
-                    Answer::InstallChunk {
-                        path,
-                        received: end,
-                    },
-                    Vec::new(),
-                )
+                let received = self.stage_chunk(&path, offset, body)?;
+                (Answer::InstallChunk { path, received }, Vec::new())
             }
             Op::InstallReady => {
-                let staging = self.usb.staging.take().ok_or("no install-begin")?;
-                let files = self.platform.services().files();
-                for (path, entry) in &staging.manifest.files {
-                    let have = files.size(&tetrad::part(path)).map_err(|e| e.to_string())?;
-                    if have != Some(entry.size) {
-                        return Err(format!("{path}: {have:?} of {} bytes", entry.size));
-                    }
-                }
-                let version = staging.manifest.version.to_string();
-                let mut effects = (self.bridges.services.offer_usb_update(staging.manifest))
-                    .map_err(|e| e.to_string())?;
-                // The user starts the install on the unit: show them where.
-                let page = Screen::Settings(SettingsPage::TetradUpdates);
-                effects.push(Effect::UiInput(UiInput::Show(page)));
-                self.apply(Ok::<_, DeviceError>(effects));
+                let version = self.stage_ready()?;
                 (Answer::InstallReady { version }, Vec::new())
             }
         }))
@@ -282,4 +209,214 @@ impl<P: Platform> Device<P> {
             self.usb.outgoing.pop_front();
         }
     }
+}
+
+/// The staging of a Tetrad install, for every way it can arrive: the USB link, and the Remote
+/// page of a dev build. The files go to the `.part` files of the Tetrad updater, and the install
+/// is offered on the Tetrad Updates page, where the user starts it on the unit.
+impl<P: Platform> Device<P> {
+    /// Checks the signature of `manifest` against the key of this build and starts a staging.
+    /// Returns the version and the size of each file to send.
+    pub(super) fn stage_begin(
+        &mut self,
+        manifest: &str,
+        signature: &str,
+    ) -> Result<(String, Vec<FileSize>), String> {
+        // As every update install in bring-up (`RunOptions::refusal`), but `.part` files
+        // only, so `--persist` allows it.
+        if self.options.is_bringup() && !self.options.persist {
+            return Err("staging writes p4: bring-up needs --persist".into());
+        }
+        (self.bridges.services.usb_staging_allowed()).map_err(|e| e.to_string())?;
+        self.bridges.services.withdraw_usb_offer();
+        let manifest =
+            Manifest::verify(manifest.as_bytes(), signature.as_bytes(), TRUSTED_KEY, None)
+                .map_err(|e| e.to_string())?;
+        let files = self.platform.services().files();
+        for path in manifest.files.keys() {
+            let part = tetrad::part(path);
+            if let Some(dir) = part.parent() {
+                files.create_dirs(dir).map_err(|e| e.to_string())?;
+            }
+            files.remove(&part).map_err(|e| e.to_string())?;
+        }
+        let sizes = (manifest.files.iter())
+            .map(|(path, entry)| FileSize {
+                path: path.clone(),
+                size: entry.size,
+            })
+            .collect();
+        let version = manifest.version.to_string();
+        let received = manifest
+            .files
+            .keys()
+            .map(|path| (path.clone(), 0))
+            .collect();
+        self.usb.staging = Some(Staging {
+            manifest,
+            received,
+            #[cfg(feature = "dev")]
+            unsigned: false,
+        });
+        Ok((version, sizes))
+    }
+
+    /// A dev build: starts a staging of some of the update files with no signature (the Remote
+    /// page, docs/remote.md). `sizes` has the path and the size of each file; only the update
+    /// files are taken, each within its limit. Returns the version offered and the sizes.
+    #[cfg(feature = "dev")]
+    pub(super) fn stage_files_begin(
+        &mut self,
+        sizes: &[(String, u64)],
+    ) -> Result<(String, Vec<FileSize>), String> {
+        if self.options.is_bringup() && !self.options.persist {
+            return Err("staging writes p4: bring-up needs --persist".into());
+        }
+        (self.bridges.services.usb_staging_allowed()).map_err(|e| e.to_string())?;
+        let mut entries = BTreeMap::new();
+        for (path, size) in sizes {
+            let max =
+                tetrad::max_bytes(path).ok_or_else(|| format!("{path} is not an update file"))?;
+            if !(1..=max).contains(size) {
+                return Err(format!("{path}: size {size} is not 1..={max}"));
+            }
+            let entry = tetrad::FileEntry {
+                size: *size,
+                sha256: String::new(),
+            };
+            if entries.insert(path.clone(), entry).is_some() {
+                return Err(format!("{path} twice"));
+            }
+        }
+        if entries.is_empty() {
+            return Err("no files".into());
+        }
+        self.bridges.services.withdraw_usb_offer();
+        let files = self.platform.services().files();
+        for path in entries.keys() {
+            let part = tetrad::part(path);
+            if let Some(dir) = part.parent() {
+                files.create_dirs(dir).map_err(|e| e.to_string())?;
+            }
+            files.remove(&part).map_err(|e| e.to_string())?;
+        }
+        let running = env!("CARGO_PKG_VERSION")
+            .parse()
+            .map_err(|_| "the version of this build is not semver")?;
+        let manifest = tetrad::staged_manifest(&running, entries);
+        let version = manifest.version.to_string();
+        let sizes = (manifest.files.iter())
+            .map(|(path, entry)| FileSize {
+                path: path.clone(),
+                size: entry.size,
+            })
+            .collect();
+        let received = manifest
+            .files
+            .keys()
+            .map(|path| (path.clone(), 0))
+            .collect();
+        self.usb.staging = Some(Staging {
+            manifest,
+            received,
+            unsigned: true,
+        });
+        Ok((version, sizes))
+    }
+
+    /// Appends `body` to file `path` at `offset`, which must be the bytes already here. Returns
+    /// the bytes of the file now.
+    pub(super) fn stage_chunk(
+        &mut self,
+        path: &str,
+        offset: u64,
+        body: &[u8],
+    ) -> Result<u64, String> {
+        // An install that started since stage_begin owns the `.part` files.
+        if let Err(error) = self.bridges.services.usb_staging_allowed() {
+            self.usb.staging = None;
+            return Err(error.to_string());
+        }
+        let staging = self.usb.staging.as_mut().ok_or("no install-begin")?;
+        let size = (staging.manifest.files.get(path))
+            .ok_or_else(|| format!("{path} is not in the manifest"))?
+            .size;
+        let received = staging.received.entry(path.to_owned()).or_default();
+        if offset != *received {
+            return Err(format!(
+                "{path}: offset {offset}, but {received} bytes are here"
+            ));
+        }
+        let end = offset + body.len() as u64;
+        if body.len() > MAX_CHUNK_BYTES || end > size {
+            return Err(format!(
+                "{path}: a chunk to {end} does not fit {size} bytes"
+            ));
+        }
+        (self
+            .platform
+            .services()
+            .files()
+            .append(&tetrad::part(path), body))
+        .map_err(|e| e.to_string())?;
+        *received = end;
+        Ok(end)
+    }
+
+    /// Checks that every file is complete and offers the install on the Tetrad Updates page.
+    /// Returns the version.
+    pub(super) fn stage_ready(&mut self) -> Result<String, String> {
+        #[cfg_attr(not(feature = "dev"), expect(unused_mut))]
+        let mut staging = self.usb.staging.take().ok_or("no install-begin")?;
+        let files = self.platform.services().files();
+        for (path, entry) in &staging.manifest.files {
+            let have = files.size(&tetrad::part(path)).map_err(|e| e.to_string())?;
+            if have != Some(entry.size) {
+                return Err(format!("{path}: {have:?} of {} bytes", entry.size));
+            }
+        }
+        #[cfg(feature = "dev")]
+        if staging.unsigned {
+            // Nothing signed these files, so the unit makes the hashes that the install checks,
+            // and a program that is not a 32-bit ARM executable never reaches the install.
+            for (path, entry) in &mut staging.manifest.files {
+                let max = tetrad::max_bytes(path).unwrap_or(0);
+                let part = tetrad::part(path);
+                let bytes = (files.read_bounded(&part, max))
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| format!("{path}: gone"))?;
+                if path == "bin/tetrad" && !is_arm_elf(&bytes) {
+                    let _ = files.remove(&part);
+                    return Err("bin/tetrad is not a 32-bit ARM executable".into());
+                }
+                entry.sha256 = (sha2::Sha256::digest(&bytes).iter())
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+            }
+        }
+        let version = staging.manifest.version.to_string();
+        #[cfg(feature = "dev")]
+        let via = if staging.unsigned { "Remote" } else { "USB" };
+        #[cfg(not(feature = "dev"))]
+        let via = "USB";
+        let mut effects = (self
+            .bridges
+            .services
+            .offer_staged_update(staging.manifest, via))
+        .map_err(|e| e.to_string())?;
+        // The user starts the install on the unit: show them where.
+        let page = Screen::Settings(SettingsPage::TetradUpdates);
+        effects.push(Effect::UiInput(UiInput::Show(page)));
+        self.apply(Ok::<_, DeviceError>(effects));
+        Ok(version)
+    }
+}
+
+/// An ELF file of the Quad Cortex's CPU: 32-bit, little-endian, machine ARM (40).
+#[cfg(feature = "dev")]
+fn is_arm_elf(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x7fELF")
+        && bytes.get(4) == Some(&1)
+        && bytes.get(5) == Some(&1)
+        && bytes.get(18..20) == Some(&[40, 0])
 }
