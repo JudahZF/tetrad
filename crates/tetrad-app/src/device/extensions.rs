@@ -556,11 +556,12 @@ impl Extensions {
         outcome
     }
 
-    /// The installations that build DSP blocks from asset files (NAM models, for example), in key
-    /// order: where Remote shows and takes their files.
+    /// The enabled installations that build DSP blocks from asset files (NAM models, for example),
+    /// in key order: where Remote shows and takes their files. A disabled extension is not shown.
     pub fn asset_kinds(&self) -> Vec<AssetKind> {
         self.slots
             .values()
+            .filter(|slot| slot.installation.enabled)
             .filter_map(|slot| {
                 let installation = &slot.installation;
                 let specs: Vec<_> = (installation.blocks.iter())

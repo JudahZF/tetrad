@@ -242,6 +242,7 @@ function add(files) {
 const FILE_CHUNK = 48 * 1024;
 const MAX_FILE_NAME = 48;
 const extensionFiles = new Map();
+let uploading = 0;
 let polls = 0;
 
 function bytes(size) {
@@ -306,7 +307,9 @@ function buildExtension(info, root) {
     for (const file of files) {
       const line = row(file, results);
       line.set("Waiting", "working");
-      queue = queue.then(() => sendFile(current, file, line)).then(() => pollFiles());
+      queue = queue
+        .then(() => { uploading++; return sendFile(current, file, line).finally(() => { uploading--; }); })
+        .then(() => pollFiles());
     }
   };
   input.addEventListener("change", (event) => { add(event.target.files); event.target.value = ""; });
@@ -377,6 +380,12 @@ async function sendFile(info, file, line) {
   }
   line.set("Added", "added", renamed || bytes(file.size));
 }
+
+/* The unit can change while this page is open (an extension turned off or on): look again every
+   few seconds, but not during an upload and not while the page is hidden. */
+setInterval(() => {
+  if (pin && !document.hidden && !uploading && !$("upload").hidden) loadFiles();
+}, 8000);
 
 $("pin-form").addEventListener("submit", (event) => {
   event.preventDefault();
