@@ -526,6 +526,32 @@ pub(crate) struct MediaPick {
     pub folder: Option<MediaFolder>,
 }
 
+/// A list that keeps scrolling after a flick, slowing down until it stops or reaches an end.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Fling {
+    list: ListId,
+    /// The offset in pixels, kept fractional between ticks.
+    pos: f32,
+    /// Pixels per ms, positive scrolls down the list.
+    velocity: f32,
+    /// The largest offset of the list when the flick started.
+    max: i32,
+    /// The time of the last step.
+    at: u64,
+}
+
+/// A release faster than this (pixels per ms) within [`FLING_FRESH_MS`] of the last move starts a
+/// [`Fling`]; the speed is capped at [`FLING_MAX`].
+const FLING_MIN: f32 = 0.2;
+const FLING_MAX: f32 = 4.0;
+const FLING_FRESH_MS: u64 = 80;
+/// The speed falls by 1/e every this many ms.
+const FLING_FRICTION_MS: f32 = 325.0;
+/// A fling below this speed (pixels per ms) stops.
+const FLING_STOP: f32 = 0.03;
+/// A step covers at most this much time, so a slow frame does not jump the list.
+const FLING_STEP_MAX_MS: u64 = 100;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) enum Gesture {
     #[default]
@@ -536,9 +562,13 @@ pub(crate) enum Gesture {
         at: u64,
         long_fired: bool,
     },
+    /// A list follows the finger. `velocity` (pixels per ms, positive scrolls down the list) is
+    /// smoothed over the moves; `at` is the time of the last move that counted.
     Scroll {
         list: ListId,
         last_y: i32,
+        velocity: f32,
+        at: u64,
     },
     DragBlock {
         from: GridPosition,
@@ -637,6 +667,10 @@ pub struct UiState {
     pub(crate) pointer: (i32, i32),
     pub(crate) page: usize,
     pub(crate) scroll: BTreeMap<ListId, i32>,
+    /// The list that coasts after a flick, if any ([`Self::animating`]).
+    fling: Option<Fling>,
+    /// A fling step moved a list since the last [`Self::take_scroll_moved`].
+    scroll_moved: bool,
     pub(crate) picker: Picker,
     pub(crate) media: Option<MediaPick>,
     pub(crate) library_query: String,
@@ -744,6 +778,8 @@ impl Default for UiState {
             pointer: (0, 0),
             page: 0,
             scroll: BTreeMap::new(),
+            fling: None,
+            scroll_moved: false,
             picker: Picker::default(),
             media: None,
             library_query: String::new(),
@@ -1430,13 +1466,19 @@ impl UiState {
         }
         match input {
             InputEvent::PointerDown { x, y } => {
+                // A touch on a coasting list catches it: it stops, and nothing under the
+                // finger is pressed. The finger can drag the list again. A touch elsewhere
+                // stops it too, and presses as usual.
+                let caught = self.fling.take().is_some_and(|fling| {
+                    (self.layout().scroller_at(x, y)).is_some_and(|s| s.id == fling.list)
+                });
                 // Qt closes a popup on a press outside it (stock ⋮ menu: ~50 ms after the
                 // press, QC 2026-10-17); the release then does nothing.
                 if self.dismiss_at(x, y) {
                     self.cancel_pointer();
                     return self.activate(Control::Back);
                 }
-                let control = self.hit_test(x, y);
+                let control = if caught { None } else { self.hit_test(x, y) };
                 self.pointer = (x, y);
                 self.pressed = control;
                 self.gesture = Gesture::Press {
@@ -1469,7 +1511,11 @@ impl UiState {
                     draft.entries[usize::from(draft.selected.0)].raw_color = raw_color;
                 }
             }
-            InputEvent::Tick { now_ms } => return self.tick(now_ms),
+            InputEvent::Tick { now_ms } => {
+                let mut commands = self.tick(now_ms);
+                commands.extend(self.step_fling());
+                return commands;
+            }
             InputEvent::Knob { knob, delta } => {
                 // Encoders A–H, BANK DOWN, TEMPO (see `widgets::parameter_panel`).
                 const ROWS: [usize; 10] = [0, 1, 2, 3, 5, 6, 7, 8, 4, 9];
@@ -1531,6 +1577,76 @@ impl UiState {
 
     pub(crate) fn reset_scroll(&mut self, list: ListId) {
         self.scroll.remove(&list);
+        if self.fling.is_some_and(|fling| fling.list == list) {
+            self.fling = None;
+        }
+    }
+
+    /// A flicked list is still coasting: the host should tick often (about every 20 ms) and show
+    /// a frame whenever [`Self::take_scroll_moved`] says that the list moved.
+    pub fn animating(&self) -> bool {
+        self.fling.is_some()
+    }
+
+    /// Whether a coasting list moved since the last call.
+    pub fn take_scroll_moved(&mut self) -> bool {
+        std::mem::take(&mut self.scroll_moved)
+    }
+
+    /// A release after a quick drag keeps the list going at the speed of the finger, if the
+    /// finger was still moving when it lifted.
+    fn start_fling(&mut self, list: ListId, velocity: f32, last_move: u64) {
+        if self.now.saturating_sub(last_move) > FLING_FRESH_MS || velocity.abs() < FLING_MIN {
+            return;
+        }
+        let max = (self.layout().scrollers.iter())
+            .find(|scroller| scroller.id == list)
+            .map_or(0, |scroller| scroller.max_offset());
+        if max <= 0 {
+            return;
+        }
+        self.fling = Some(Fling {
+            list,
+            pos: self.offset(list) as f32,
+            velocity: velocity.clamp(-FLING_MAX, FLING_MAX),
+            max,
+            at: self.now,
+        });
+    }
+
+    /// One step of a coasting list: it moves by the time since the last step, so the speed does
+    /// not depend on the frame rate, then slows down. It stops at an end, or when slow.
+    fn step_fling(&mut self) -> Vec<UiCommand> {
+        let Some(mut fling) = self.fling else {
+            return Vec::new();
+        };
+        let elapsed = self.now.saturating_sub(fling.at).min(FLING_STEP_MAX_MS);
+        if elapsed == 0 {
+            return Vec::new();
+        }
+        fling.at = self.now;
+        let elapsed = elapsed as f32;
+        let before = self.offset(fling.list);
+        // Something else moved the list (a knob turn): it stops where that put it.
+        if before != fling.pos.round() as i32 {
+            self.fling = None;
+            return Vec::new();
+        }
+        fling.pos = (fling.pos + fling.velocity * elapsed).clamp(0.0, fling.max as f32);
+        fling.velocity *= (-elapsed / FLING_FRICTION_MS).exp();
+        let offset = fling.pos.round() as i32;
+        let done = fling.velocity.abs() < FLING_STOP
+            || (offset == 0 && fling.velocity < 0.0)
+            || (offset == fling.max && fling.velocity > 0.0);
+        if offset != before {
+            self.scroll.insert(fling.list, offset);
+            self.scroll_moved = true;
+        }
+        self.fling = (!done).then_some(fling);
+        if offset == fling.max && before < fling.max {
+            return self.scrolled_to_end(fling.list);
+        }
+        Vec::new()
     }
 
     /// The parameter panel is open when the application reports a selection.
@@ -1567,7 +1683,10 @@ impl UiState {
         match self.gesture {
             Gesture::Idle => {}
             Gesture::Press {
-                control, origin, ..
+                control,
+                origin,
+                at: pressed_at,
+                ..
             } => {
                 let (dx, dy) = (x - origin.0, y - origin.1);
                 if dy != 0 && self.start_knob_drag(control, origin.1) {
@@ -1646,12 +1765,19 @@ impl UiState {
                     self.gesture = Gesture::Scroll {
                         list: scroller.id,
                         last_y: origin.1,
+                        velocity: 0.0,
+                        at: pressed_at,
                     };
                     return self.pointer_move(x, y);
                 }
                 self.pressed = control.filter(|c| self.hit_test(x, y) == Some(*c));
             }
-            Gesture::Scroll { list, last_y } => {
+            Gesture::Scroll {
+                list,
+                last_y,
+                velocity,
+                at,
+            } => {
                 let max = self
                     .layout()
                     .scrollers
@@ -1661,7 +1787,21 @@ impl UiState {
                 let before = self.offset(list);
                 let offset = (before - (y - last_y)).clamp(0, max);
                 self.scroll.insert(list, offset);
-                self.gesture = Gesture::Scroll { list, last_y: y };
+                let elapsed = self.now.saturating_sub(at);
+                let (velocity, at) = match elapsed {
+                    0 => (velocity, at),
+                    1..=FLING_FRESH_MS => {
+                        let sample = (last_y - y) as f32 / elapsed as f32;
+                        (0.6 * sample + 0.4 * velocity, self.now)
+                    }
+                    _ => ((last_y - y) as f32 / elapsed as f32, self.now),
+                };
+                self.gesture = Gesture::Scroll {
+                    list,
+                    last_y: y,
+                    velocity,
+                    at,
+                };
                 if offset == max && before < max {
                     return self.scrolled_to_end(list);
                 }
@@ -1759,6 +1899,12 @@ impl UiState {
                 self.navigate(Screen::Io(IoTab::default()))
             }
             Gesture::Swipe { origin_y } if origin_y - y >= SWIPE_PX => self.navigate(Screen::Gig),
+            Gesture::Scroll {
+                list, velocity, at, ..
+            } => {
+                self.start_fling(list, velocity, at);
+                Vec::new()
+            }
             Gesture::DragMode { from } => self.drop_mode(from, x, y),
             Gesture::GroupSteps { from } => match self.hit_test(x, y) {
                 Some(Control::Editor(EditorControl::Step(to))) => self.group_steps(from, to),

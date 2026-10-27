@@ -974,6 +974,160 @@ fn scroll_lists_drag_without_activating_and_clamp_to_content() {
     assert_eq!(ui.screen(), Screen::Settings(SettingsPage::Midi));
 }
 
+/// The Settings page list of `scroll_lists_drag_without_activating_and_clamp_to_content`.
+fn settings_page_list() -> (UiState, (i32, i32), crate::layout::ListId) {
+    let mut ui = UiState::new();
+    activate(&mut ui, Control::OpenMainMenu);
+    activate(&mut ui, Control::Menu(MenuAction::Settings));
+    activate(&mut ui, Control::Setting(SettingControl::Groups));
+    activate(&mut ui, Control::Choose(2));
+    let start = center(
+        &ui,
+        Control::Setting(SettingControl::Page(SettingsPage::SceneBypass)),
+    );
+    let list = ui.layout().scroller_at(start.0, start.1).unwrap().id;
+    (ui, start, list)
+}
+
+#[test]
+fn a_quick_flick_keeps_the_list_coasting_until_it_slows_down() {
+    let (mut ui, (x, y), list) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    tick(&mut ui, 1_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 1_020);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 30 });
+    tick(&mut ui, 1_040);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    let dragged = ui.offset(list);
+    assert!(dragged > 0 && !ui.animating());
+    tick(&mut ui, 1_045);
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating(), "a fast release starts to coast");
+    assert_eq!(
+        ui.offset(list),
+        dragged,
+        "the release itself does not move it"
+    );
+
+    let mut now = 1_045;
+    let mut last = dragged;
+    let mut steps = 0;
+    while ui.animating() {
+        now += 20;
+        tick(&mut ui, now);
+        assert!(
+            ui.offset(list) >= last,
+            "it only goes on in the same direction"
+        );
+        assert_eq!(ui.take_scroll_moved(), ui.offset(list) != last);
+        last = ui.offset(list);
+        steps += 1;
+        assert!(steps < 200, "it slows down and stops");
+    }
+    assert!(last > dragged, "it went further than the finger did");
+    let max = ui
+        .layout()
+        .scrollers
+        .iter()
+        .find(|s| s.id == list)
+        .unwrap()
+        .max_offset();
+    assert!(last <= max);
+    tick(&mut ui, now + 20);
+    assert!(
+        !ui.take_scroll_moved(),
+        "a stopped list does not ask for frames"
+    );
+}
+
+#[test]
+fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
+    let (mut ui, (x, y), list) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    // Slow: 30 px in 300 ms is 0.1 px/ms.
+    tick(&mut ui, 2_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 2_300);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 30 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 30 });
+    assert!(!ui.animating());
+    // Held still after a fast move: the finger stopped before it lifted.
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 2_320);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    tick(&mut ui, 2_500);
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(!ui.animating());
+    // A fast flick, then a new press stops it where it is.
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 2_520);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating());
+    tick(&mut ui, 2_540);
+    let at = ui.offset(list);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    assert!(!ui.animating());
+    tick(&mut ui, 2_560);
+    assert_eq!(ui.offset(list), at);
+    assert!(
+        ui.handle_input(InputEvent::PointerUp { x, y }).is_empty(),
+        "the touch that caught the list presses nothing"
+    );
+    assert_eq!(ui.offset(list), at);
+    // The next touch is an ordinary one again.
+    assert!(!ui.hit_regions().is_empty());
+    let page = Control::Setting(SettingControl::Page(SettingsPage::SceneBypass));
+    let (px, py) = center(&ui, page);
+    ui.handle_input(InputEvent::PointerDown { x: px, y: py });
+    assert_eq!(
+        ui.handle_input(InputEvent::PointerUp { x: px, y: py }),
+        ui.activate(page),
+    );
+}
+
+#[test]
+fn a_press_outside_a_coasting_list_stops_it_and_presses_as_usual() {
+    let (mut ui, (x, y), _) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    tick(&mut ui, 3_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 3_020);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating());
+    let page = ui.screen();
+    let mut back = ui.clone();
+    back.activate(Control::Back);
+    let (bx, by) = center(&ui, Control::Back);
+    ui.handle_input(InputEvent::PointerDown { x: bx, y: by });
+    assert!(!ui.animating());
+    ui.handle_input(InputEvent::PointerUp { x: bx, y: by });
+    assert_ne!(back.screen(), page);
+    assert_eq!(ui.screen(), back.screen());
+}
+
+#[test]
+fn a_knob_turn_on_a_coasting_list_stops_it_where_the_knob_put_it() {
+    let (mut ui, (x, y), list) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    tick(&mut ui, 4_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 4_020);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating());
+    ui.handle_input(InputEvent::Knob {
+        knob: KnobIndex(0),
+        delta: -1,
+    });
+    let turned = ui.offset(list);
+    tick(&mut ui, 4_040);
+    assert!(!ui.animating());
+    assert_eq!(ui.offset(list), turned);
+}
+
 #[test]
 fn keyboard_enforces_name_rules_and_routes_each_target() {
     let mut ui = ui_with(rich());
