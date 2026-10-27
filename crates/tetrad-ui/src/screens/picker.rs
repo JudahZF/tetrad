@@ -2,8 +2,8 @@
 //! 400 px drawer over the dimmed Grid. Step 1 lists the 19 stock categories as
 //! 78 px icon rows. A category tap collapses them to a 100 px icon rail beside
 //! the GUITAR / BASS tabs and a 60 px device list; the stack button of a row
-//! opens its Virtual Device Presets (`vd_presets.rs`). Name search and
-//! clipboard paste rows are owned additions (I). Glyphs are owned vectors.
+//! opens its Virtual Device Presets (`vd_presets.rs`). The Extensions row, name
+//! search and clipboard paste rows are owned additions (I). Glyphs are owned vectors.
 
 use tetrad_assets::{Icon, IconSize, Rgb};
 
@@ -90,6 +90,15 @@ fn backdrop(ui: &UiState, l: &mut Layout) {
     }
 }
 
+/// Category rows: the stock groups, then Extensions when an extension block is installed.
+fn groups(ui: &UiState) -> Vec<DeviceGroup> {
+    let mut groups = DeviceGroup::ALL.to_vec();
+    if ui.snapshot.models.iter().any(|model| model.extension) {
+        groups.push(DeviceGroup::Extensions);
+    }
+    groups
+}
+
 /// Extra rows after the categories: paste (with a clipboard, add mode) and search.
 fn extras(ui: &UiState) -> Vec<(Control, Icon, &'static str)> {
     let mut rows = Vec::new();
@@ -116,8 +125,9 @@ fn row_y(top: i32, index: usize) -> i32 {
 fn categories(ui: &UiState, l: &mut Layout) {
     let p = l.palette;
     let drawer = drawer(ui);
+    let groups = groups(ui);
     let extras = extras(ui);
-    let rows = DeviceGroup::ALL.len() + extras.len();
+    let rows = groups.len() + extras.len();
     let content = rows as u32 * CATEGORY_ROW + 2 * LIST_PAD as u32;
     let offset = ui.offset(ListId::PickerCategories);
     l.scroll(
@@ -126,7 +136,7 @@ fn categories(ui: &UiState, l: &mut Layout) {
         content,
         offset,
         |l, top| {
-            for (index, group) in DeviceGroup::ALL.into_iter().enumerate() {
+            for (index, &group) in groups.iter().enumerate() {
                 let row = Rect::new(drawer.x, row_y(top, index), DRAWER, CATEGORY_ROW);
                 l.control(
                     row,
@@ -155,7 +165,7 @@ fn categories(ui: &UiState, l: &mut Layout) {
             for (index, (control, icon, label)) in extras.into_iter().enumerate() {
                 let row = Rect::new(
                     drawer.x,
-                    row_y(top, DeviceGroup::ALL.len() + index),
+                    row_y(top, groups.len() + index),
                     DRAWER,
                     CATEGORY_ROW,
                 );
@@ -199,16 +209,17 @@ fn tile(l: &mut Layout, bounds: Rect, hue: Option<Rgb>, fill: Rgb, mark: Mark) {
 /// Step 2 rail: one icon per category; the open one keeps its tile.
 fn rail(ui: &UiState, l: &mut Layout) {
     let p = l.palette;
+    let groups = groups(ui);
     let extras = extras(ui);
     let open = ui.picker.group.filter(|_| ui.picker.query.is_empty());
-    let rows = DeviceGroup::ALL.len() + extras.len();
+    let rows = groups.len() + extras.len();
     l.scroll(
         ListId::PickerCategories,
         Rect::new(0, 0, RAIL, HEIGHT),
         rows as u32 * CATEGORY_ROW + 2 * LIST_PAD as u32,
         ui.offset(ListId::PickerCategories),
         |l, top| {
-            for (index, group) in DeviceGroup::ALL.into_iter().enumerate() {
+            for (index, &group) in groups.iter().enumerate() {
                 let row = Rect::new(0, row_y(top, index), RAIL, CATEGORY_ROW);
                 l.control(
                     row,
@@ -227,12 +238,7 @@ fn rail(ui: &UiState, l: &mut Layout) {
                 );
             }
             for (index, (control, icon, label)) in extras.into_iter().enumerate() {
-                let row = Rect::new(
-                    0,
-                    row_y(top, DeviceGroup::ALL.len() + index),
-                    RAIL,
-                    CATEGORY_ROW,
-                );
+                let row = Rect::new(0, row_y(top, groups.len() + index), RAIL, CATEGORY_ROW);
                 l.control(
                     row,
                     control,
@@ -248,7 +254,8 @@ fn rail(ui: &UiState, l: &mut Layout) {
     );
 }
 
-/// Models listed for the open group and tab, or the search hits, by name.
+/// Models listed for the open group and tab, or the search hits, by name. Extensions
+/// lists the extension blocks of every category.
 fn shown_models(ui: &UiState) -> Vec<&ModelEntry> {
     let picker = &ui.picker;
     let query = picker.query.to_lowercase();
@@ -258,7 +265,9 @@ fn shown_models(ui: &UiState) -> Vec<&ModelEntry> {
         .iter()
         .filter(|model| {
             let place = DeviceGroup::of(model.category);
-            if query.is_empty() {
+            if query.is_empty() && picker.group == Some(DeviceGroup::Extensions) {
+                model.extension && place.is_some()
+            } else if query.is_empty() {
                 place.is_some_and(|(group, instrument)| {
                     Some(group) == picker.group
                         && (!group.has_bass() || instrument == picker.instrument)
@@ -371,6 +380,8 @@ fn devices(ui: &UiState, l: &mut Layout) {
 
     let models = shown_models(ui);
     let searching = !picker.query.is_empty();
+    // Search hits and extension blocks mix categories, so each row names its category.
+    let captions = searching || picker.group == Some(DeviceGroup::Extensions);
     l.scroll(
         ListId::PickerModels,
         list,
@@ -390,7 +401,7 @@ fn devices(ui: &UiState, l: &mut Layout) {
                     row,
                     model,
                     current.map(|m| m.id) == Some(model.id),
-                    searching,
+                    captions,
                 );
             }
         },
@@ -399,6 +410,7 @@ fn devices(ui: &UiState, l: &mut Layout) {
         let text = match picker.group {
             _ if searching => "No results",
             Some(DeviceGroup::Plugins) => "No plugins installed",
+            Some(DeviceGroup::Extensions) => "No extension blocks installed",
             _ if ui.snapshot.models.is_empty() => "No models in the application catalog",
             _ => "No devices",
         };
@@ -418,7 +430,7 @@ fn model_row(
     row: Rect,
     model: &ModelEntry,
     current: bool,
-    searching: bool,
+    caption: bool,
 ) {
     let p = l.palette;
     // Virtual Device Presets do not exist for Neural Capture blocks (manual).
@@ -449,7 +461,7 @@ fn model_row(
         );
     }
     let text_x = row.x + if pinned { 40 } else { 16 };
-    if searching {
+    if caption {
         l.text(
             Rect::new(text_x, row.y + 8, (body.right() - text_x - 8) as u32, 24),
             model.name.clone(),
@@ -679,6 +691,8 @@ fn group_icon(group: DeviceGroup) -> Icon {
         DeviceGroup::FxLoop => Icon::FxLoop,
         DeviceGroup::Looper => Icon::Looper,
         DeviceGroup::Utility => Icon::Utility,
+        // The Settings → Extensions glyph.
+        DeviceGroup::Extensions => Icon::Plugin,
     }
 }
 
