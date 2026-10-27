@@ -3,6 +3,7 @@
 // are in `wavenet.ts`.
 
 import type { BlockBuilder, BlockIr, Signal } from "@tetrad/extensions";
+import { controls } from "./tone";
 
 /** The QC's sample rate. A model trained for another rate sounds wrong. */
 const SAMPLE_RATE = 48_000;
@@ -94,7 +95,7 @@ export function weightCount({ inputSize, hiddenSize: h, numLayers }: LstmModel):
  * The block graph: input gain, the LSTM layers, the linear head and output gain. Mono: the
  * model runs once and both channels get its output.
  */
-export function lstm(dsp: BlockBuilder, model: LstmModel): BlockIr {
+export function lstm(dsp: BlockBuilder, model: LstmModel, tone = false): BlockIr {
   const { hiddenSize: h, weights } = model;
   let at = 0;
   const take = (n: number) => {
@@ -103,8 +104,7 @@ export function lstm(dsp: BlockBuilder, model: LstmModel): BlockIr {
     return values;
   };
   dsp.mono();
-  const inputGain = dsp.parameter("Input", 0, 4, 1);
-  const outputGain = dsp.parameter("Output", 0, 4, 1);
+  const { input: inputGain, output } = controls(dsp, tone);
   let x: Signal[] = [dsp.mul(dsp.input(), inputGain)];
   for (let layer = 0; layer < model.numLayers; layer++) {
     const columns = x.length + h;
@@ -135,7 +135,7 @@ export function lstm(dsp: BlockBuilder, model: LstmModel): BlockIr {
   }
   const head = take(h);
   const [bias = 0] = take(1);
-  const out = dsp.mul(dot(dsp, head, x, bias), outputGain);
+  const out = output(dot(dsp, head, x, bias));
   return dsp.finish(out);
 }
 

@@ -110,10 +110,19 @@ pub const SPLASH_POLLS: u8 = 50;
 pub const CONTROL_TICK: Duration = Duration::from_millis(100);
 /// Owned: tetrad-ui clock for long presses and toasts (w2b-ui M3).
 pub const UI_TICK: Duration = Duration::from_millis(50);
+/// Owned: tetrad-ui clock while a flicked list coasts, 50 Hz like the touch screen reports.
+pub const ANIMATION_TICK: Duration = Duration::from_millis(20);
 /// Confirmed: `0x50ed30` starts the diagnostics timer at 1000 ms.
 pub const DIAGNOSTICS_TICK: Duration = Duration::from_secs(1);
 /// Owned: the loop sleeps at most this long; stock receive workers sleep 1 ms.
 pub const IDLE_POLL: Duration = Duration::from_millis(1);
+/// Owned: the loop sleeps at most this long once nothing has used the unit for [`ACTIVE_HOLD`]
+/// (no touch, knob, footswitch, MIDI, Cortex Control or remote input, no coasting list). The
+/// unit has one core: this halves the wake-ups of an idle unit, and the first input after a
+/// quiet time waits a few ms more.
+pub const QUIET_POLL: Duration = Duration::from_millis(8);
+/// Owned: how long after the last input the loop keeps polling at [`IDLE_POLL`].
+pub const ACTIVE_HOLD: Duration = Duration::from_millis(500);
 /// Notices kept for the UI and logs; older ones are dropped and counted.
 pub const NOTICE_LIMIT: usize = 256;
 /// Owned: a failed Wi-Fi bring-up is retried at this interval from [`Timer::Services`].
@@ -995,6 +1004,8 @@ pub struct Device<P: Platform> {
     phase_max: PhaseTimes,
     /// UI renders (presented or not) since the last [`Self::take_renders`].
     renders: u32,
+    /// When the last input that someone made arrived ([`ACTIVE_HOLD`]).
+    interaction_at: Duration,
     /// Grid clip lights as last requested for display ([`meters_need_frame`]).
     shown_clips: tetrad_ui::GridClips,
     /// Wall time of each phase of the last [`Self::step`].
@@ -1070,6 +1081,7 @@ impl<P: Platform> Device<P> {
             splash_gone: false,
             phase_max: PhaseTimes::default(),
             renders: 0,
+            interaction_at: Duration::ZERO,
             shown_clips: tetrad_ui::GridClips::default(),
             last_phases: PhaseTimes::default(),
             probe: probe::Probe::default(),
@@ -1448,7 +1460,10 @@ impl<P: Platform> Device<P> {
         let control = &self.bridges.control;
         if !busy && !handled && !control.spreading() && !control.transmitting() {
             let next = self.timers.values().min().copied();
-            let wait = next.map_or(IDLE_POLL, |at| at.saturating_sub(now).min(IDLE_POLL));
+            let quiet = now.saturating_sub(self.interaction_at) >= ACTIVE_HOLD
+                && !self.bridges.ui.animating();
+            let poll = if quiet { QUIET_POLL } else { IDLE_POLL };
+            let wait = next.map_or(poll, |at| at.saturating_sub(now).min(poll));
             self.clock.clone().sleep(wait);
         }
         None
@@ -1498,8 +1513,10 @@ impl<P: Platform> Device<P> {
         }
     }
 
-    /// Queues one event, for platforms or tests that inject directly.
+    /// Queues one event, for platforms or tests that inject directly. An injected event counts
+    /// as input for the loop's [`ACTIVE_HOLD`].
     pub fn push(&mut self, event: Event) {
+        self.interaction_at = self.clock.now();
         self.queue.push_back(event);
     }
 
@@ -1574,6 +1591,22 @@ impl<P: Platform> Device<P> {
                 Input::Power(action) => Event::Shutdown(action),
             })
         }));
+        // Only input that someone makes: USB and mini MIDI arrive from the DSP, but DSP meters and
+        // diagnostics arrive on their own.
+        if (self.queue.iter().skip(before)).any(|event| {
+            matches!(
+                event,
+                Event::Hal(_)
+                    | Event::Midi { .. }
+                    | Event::Dsp(_, DspEvent::MidiReceived { .. })
+                    | Event::Control(_)
+                    | Event::UiInput(ui::UiInput::Touch(_))
+                    | Event::Extension(_)
+                    | Event::Remote(_)
+            )
+        }) {
+            self.interaction_at = self.clock.now();
+        }
         self.queue.len() > before
     }
 
@@ -1943,7 +1976,12 @@ impl<P: Platform> Device<P> {
             Timer::VolumeRepeat => self.bridges.input.on_volume_timer(),
             Timer::PowerLongPress => self.bridges.input.on_power_timer(),
             Timer::UiTick => {
-                self.start_timer(Timer::UiTick, UI_TICK);
+                let period = if self.bridges.ui.animating() {
+                    ANIMATION_TICK
+                } else {
+                    UI_TICK
+                };
+                self.start_timer(Timer::UiTick, period);
                 let now_ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
                 self.on_ui(ui::UiInput::View(tetrad_ui::InputEvent::Tick { now_ms }))
             }
@@ -2135,6 +2173,13 @@ impl<P: Platform> Device<P> {
                         effects.push(Effect::Notice(error.subsystem(), error.to_string()));
                     }
                 },
+            }
+        }
+        // A flick that just started brings the next tick forward.
+        if self.bridges.ui.animating() {
+            let soon = now + ANIMATION_TICK;
+            if self.timers.get(&Timer::UiTick).is_none_or(|&at| at > soon) {
+                self.timers.insert(Timer::UiTick, soon);
             }
         }
         effects

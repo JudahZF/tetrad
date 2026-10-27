@@ -20,9 +20,9 @@ const extension: ExtensionDefinition = {
       const architecture = file["architecture"];
       switch (architecture) {
         case "LSTM":
-          return lstm(ctx.blocks.builder(), parseLstm(namFile(asset.name, file)));
+          return lstm(ctx.blocks.builder(), parseLstm(namFile(asset.name, file)), true);
         case "WaveNet":
-          return wavenet(ctx.blocks.builder(), parseWavenet(namFile(asset.name, file)));
+          return wavenet(ctx.blocks.builder(), parseWavenet(namFile(asset.name, file)), true);
         case "SlimmableContainer":
           throw new Error(`${asset.name} is an A2 model; the Neural Amp Modeler A2 extension plays it`);
         default:

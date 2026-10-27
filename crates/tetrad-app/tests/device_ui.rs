@@ -64,11 +64,15 @@ fn scroll_menu(ui: &mut Ui, state: &State, now: Duration) {
         state,
         now + Duration::from_millis(50),
     );
-    ui.handle(
-        UiInput::Touch(at(40, false)),
-        state,
-        now + Duration::from_millis(100),
-    );
+    let released = now + Duration::from_millis(100);
+    ui.handle(UiInput::Touch(at(40, false)), state, released);
+    // The flick coasts; a tap on a moving list would only catch it, so let it come to rest.
+    let mut tick = released;
+    while ui.animating() {
+        tick += Duration::from_millis(20);
+        let now_ms = tick.as_millis() as u64;
+        ui.handle(UiInput::View(InputEvent::Tick { now_ms }), state, tick);
+    }
 }
 
 /// [`scroll_menu`] through the device.
@@ -334,7 +338,7 @@ fn footswitch_tempo_popup_hides_after_four_seconds() {
     tap(&mut ui, state, at, ms(8_000));
     scroll_menu(&mut ui, state, ms(8_500));
     let at = target(&ui, Control::Menu(tetrad_ui::MenuAction::Tempo));
-    tap(&mut ui, state, at, ms(9_000));
+    tap(&mut ui, state, at, ms(12_000));
     assert_eq!(tick(&mut ui, ms(20_000)), Screen::Tempo, "touch opens stay");
 }
 
