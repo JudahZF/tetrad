@@ -2398,3 +2398,24 @@ fn a_failed_reverse_read_drops_the_slot_frame() {
     assert_eq!(state.history.frame_types(), (vec![], vec![]));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Owned: the tuner mute follows the Tuner screen alone. Closing it (a MIDI tuner off too)
+/// unmutes even with LIVE TUNER on, where stock keeps the mute.
+#[test]
+fn closing_the_tuner_unmutes_with_the_live_tuner_on() {
+    let mut state = state();
+    state.settings.update(|settings| {
+        settings.tuner.mutes_outputs = true;
+        settings.tuner.live_tuner = true;
+    });
+    reduce(Action::ScreenShown(Screen::Tuner), &mut state).unwrap();
+    assert!(state.tuner_muted);
+    let effects = reduce(Action::ScreenShown(Screen::Grid), &mut state).unwrap();
+    assert!(!state.tuner_muted);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Dsp(DspCommand::TunerMute))),
+        "{effects:?}"
+    );
+}
