@@ -1,0 +1,24 @@
+{
+  "id": "tetrad.nam-a2",
+  "name": "Neural Amp Modeler A2",
+  "version": "0.1.0",
+  "description": "Plays Neural Amp Modeler A2 models (.nam files) as DSP blocks. An A2 file holds two sizes; the QC plays A2-Lite, about a quarter of one DSP core. Copy .nam files to the extension's asset folder; each becomes a Guitar Amplifier block. For LSTM and A1 models, use NAM A1.",
+  "api": 5,
+  "capabilities": [
+    "blocks"
+  ],
+  "blocks": [
+    {
+      "id": "amp",
+      "name": "NAM A2",
+      "category": "guitar_amplifier",
+      "generated": true,
+      "asset": {
+        "label": "NAM A2 model",
+        "extensions": [
+          ".nam"
+        ]
+      }
+    }
+  ]
+}

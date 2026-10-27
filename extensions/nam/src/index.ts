@@ -1,4 +1,6 @@
-// Neural Amp Modeler: builds one DSP block from each LSTM or WaveNet `.nam` file.
+// Neural Amp Modeler A1: builds one DSP block from each LSTM or WaveNet `.nam` file. A2 files
+// (several sizes in one `SlimmableContainer`) are for the Neural Amp Modeler A2 extension,
+// `extensions/nam-a2`, which shares this folder's WaveNet code.
 //
 // Tetrad sends each asset file of the `amp` block to the provider. The provider reads the
 // model and builds a qcdsp graph that does what NeuralAmpModelerCore's `nam::lstm::LSTM` or
@@ -8,21 +10,24 @@
 
 import type { ExtensionDefinition } from "@tetrad/extensions";
 
-import { lstm, parseLstm, read } from "./nam";
+import { lstm, namFile, parse, parseLstm } from "./nam";
 import { parseWavenet, wavenet } from "./wavenet";
 
 const extension: ExtensionDefinition = {
   activate(ctx) {
     ctx.blocks.provide("amp", (asset) => {
-      const file = read(asset.name, asset.text);
-      switch (file.architecture) {
+      const file = parse(asset.name, asset.text);
+      const architecture = file["architecture"];
+      switch (architecture) {
         case "LSTM":
-          return lstm(ctx.blocks.builder(), parseLstm(file));
+          return lstm(ctx.blocks.builder(), parseLstm(namFile(asset.name, file)));
         case "WaveNet":
-          return wavenet(ctx.blocks.builder(), parseWavenet(file));
+          return wavenet(ctx.blocks.builder(), parseWavenet(namFile(asset.name, file)));
+        case "SlimmableContainer":
+          throw new Error(`${asset.name} is an A2 model; the Neural Amp Modeler A2 extension plays it`);
         default:
           throw new Error(
-            `${asset.name} is a ${String(file.architecture)} model; this version plays LSTM and WaveNet models only`,
+            `${asset.name} is a ${String(architecture)} model; this version plays LSTM and WaveNet models only`,
           );
       }
     });

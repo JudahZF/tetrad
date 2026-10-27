@@ -289,8 +289,17 @@
           },
           activation: (target, fn) => {
             open();
-            if (!ACTIVATIONS.includes(fn)) throw new TypeError(`activation is one of ${ACTIVATIONS.join(", ")}`);
-            netOps.push({ op: "activation", buffer: buffer(target), function: fn });
+            let fnIr = fn;
+            if (typeof fn === "object" && fn !== null && Object.keys(fn).join() === "leakyRelu") {
+              const slope = fn.leakyRelu;
+              if (typeof slope !== "number" || !(slope >= 0 && slope <= 1)) {
+                throw new RangeError("a leaky ReLU slope is from 0 to 1");
+              }
+              fnIr = { leaky_relu: { negative_slope: slope } };
+            } else if (!ACTIVATIONS.includes(fn)) {
+              throw new TypeError(`activation is one of ${ACTIVATIONS.join(", ")}, or { leakyRelu: slope }`);
+            }
+            netOps.push({ op: "activation", buffer: buffer(target), function: fnIr });
           },
           add: (input, output) => {
             open();
