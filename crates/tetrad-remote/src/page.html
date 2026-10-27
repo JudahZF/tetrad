@@ -124,9 +124,11 @@ async function call(path, options) {
 async function connect(candidate) {
   pin = candidate;
   const { status, body } = await call("/api/status");
-  if (status === 200) {
+  // 422: the PIN is right but IRs cannot be saved now (the library is closed). The support
+  // file still downloads, and it may show why.
+  if (status === 200 || status === 422) {
     localStorage.setItem(PIN_KEY, pin);
-    $("sub").textContent = "Saving to: " + body.folder;
+    $("sub").textContent = status === 200 ? "Saving to: " + body.folder : body.error;
     show(true);
     return;
   }

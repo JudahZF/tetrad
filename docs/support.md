@@ -46,6 +46,8 @@ curl -H 'x-tetrad-pin: 4821' -o support.zip http://192.168.1.20/api/support
   prints the serial; each copy becomes `<serial>`.
 - Presets, Neural Captures, IRs and parameter values. `preset.txt` lists block models only.
 
-The logs go in as they are. Tetrad's own lines carry no secrets. Extensions also write to the
-boot log and to `extensions.txt`, and an extension can write any text. If you use an extension
-that may print something private, look at those files before you send the zip.
+In every file, each copy of the serial, a sign-in token or the account name is replaced with
+`<serial>`, `<token>` or `<account>`. The logs are otherwise as they are. Tetrad's own lines
+carry no secrets. Extensions also write to the boot log and to `extensions.txt`, and an
+extension can write any text. If you use an extension that may print something private, look
+at those files before you send the zip.

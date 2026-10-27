@@ -3,7 +3,7 @@
 //! state, so no secret reaches it: no tokens, licence data, Wi-Fi secrets, account names,
 //! Remote PIN, presets or captures. The serial goes in only as a short hash. The boot logs
 //! and `launch.log` go in as they are (their last [`LOG_TAIL`] bytes), except that every copy
-//! of the serial becomes `<serial>`.
+//! of the serial, a sign-in token or the account name is replaced.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -134,32 +134,38 @@ pub fn collect(state: &State, context: &Context<'_>, files: &mut impl Files) -> 
             Err(error) => entries.push(text(&format!("{name}.error.txt"), error.to_string())),
         }
     }
-    // Stock boot prints the serial (`SN_U:`, `SN_S:`, `SN_B:`), and an extension could too.
+    // Stock boot prints the serial (`SN_U:`, `SN_S:`, `SN_B:`), and a log line of an
+    // extension could hold anything the unit knows.
+    let settings = state.settings.settings();
+    let serial = state.info.serial.as_ref().map(|serial| serial.as_str());
+    let secrets = [
+        (serial.unwrap_or_default(), "<serial>"),
+        (settings.tokens.access_token.expose(), "<token>"),
+        (settings.tokens.refresh_token.expose(), "<token>"),
+        (settings.account.username.as_str(), "<account>"),
+        (settings.account.ui_username.as_str(), "<account>"),
+    ];
     for entry in &mut entries {
-        entry.data = redact_serial(std::mem::take(&mut entry.data), state);
+        for (secret, mark) in secrets {
+            entry.data = redact(std::mem::take(&mut entry.data), secret, mark);
+        }
     }
     entries
 }
 
-/// `data` with every copy of the serial replaced by `<serial>`.
-fn redact_serial(data: Vec<u8>, state: &State) -> Vec<u8> {
-    let Some(serial) = state
-        .info
-        .serial
-        .as_ref()
-        .map(|serial| serial.as_str().as_bytes())
-    else {
+/// `data` with every copy of `secret` replaced by `mark`. Values shorter than 4 bytes are
+/// left alone: they would match too much and identify nothing.
+fn redact(data: Vec<u8>, secret: &str, mark: &str) -> Vec<u8> {
+    let secret = secret.as_bytes();
+    if secret.len() < 4 {
         return data;
-    };
+    }
     let mut out = Vec::with_capacity(data.len());
     let mut rest = data.as_slice();
-    while let Some(at) = rest
-        .windows(serial.len())
-        .position(|window| window == serial)
-    {
+    while let Some(at) = (rest.windows(secret.len())).position(|window| window == secret) {
         out.extend_from_slice(&rest[..at]);
-        out.extend_from_slice(b"<serial>");
-        rest = &rest[at + serial.len()..];
+        out.extend_from_slice(mark.as_bytes());
+        rest = &rest[at + secret.len()..];
     }
     out.extend_from_slice(rest);
     out
@@ -636,7 +642,7 @@ mod tests {
         let mut files = MemFiles::default();
         files.put(
             "/media/p4/logs/system/902-mmcblk0p1.log",
-            "SN_U: QC1234567\n[1.0s] Services: Wi-Fi associated\n",
+            "SN_U: QC1234567\nlogin MARKER-USER MARKER-ACCESS\n[1.0s] Services: Wi-Fi associated\n",
         );
         let extensions = [];
         let zip = zip(&collect(&state, &context(&extensions), &mut files), None);
@@ -654,7 +660,8 @@ mod tests {
         assert!(text("summary.txt").contains(&unit_id(MARKERS[4])));
         assert!(text("licences.txt").contains("stored previous: 5, 15"));
         let log = text("logs/boot-902.log");
-        assert!(log.contains("SN_U: <serial>\n") && log.contains("Wi-Fi associated"));
+        assert!(log.contains("SN_U: <serial>\nlogin <account> <token>\n"));
+        assert!(log.contains("Wi-Fi associated"));
     }
 
     /// The Remote reply time and memory: a runaway log goes in as its end only, and only the
