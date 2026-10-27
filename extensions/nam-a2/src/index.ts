@@ -30,7 +30,7 @@ const extension: ExtensionDefinition = {
       if (model.architecture !== "WaveNet") {
         throw new Error(`${asset.name} has a ${String(model.architecture)} size; A2 sizes are WaveNets`);
       }
-      return wavenet(ctx.blocks.builder(), parseWavenet(model));
+      return wavenet(ctx.blocks.builder(), parseWavenet(model), true);
     });
   },
 };

@@ -83,11 +83,13 @@ pub(crate) fn rich() -> UiSnapshot {
                 id: 1001,
                 name: "AMP ONE".into(),
                 category: ModelCategory::GuitarAmp,
+                extension: false,
             },
             ModelEntry {
                 id: 6002,
                 name: "ECHO TWO".into(),
                 category: ModelCategory::Delay,
+                extension: false,
             },
         ]
         .into(),
@@ -1083,6 +1085,47 @@ fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
         ui.handle_input(InputEvent::PointerUp { x: px, y: py }),
         ui.activate(page),
     );
+}
+
+#[test]
+fn a_press_outside_a_coasting_list_stops_it_and_presses_as_usual() {
+    let (mut ui, (x, y), _) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    tick(&mut ui, 3_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 3_020);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating());
+    let page = ui.screen();
+    let mut back = ui.clone();
+    back.activate(Control::Back);
+    let (bx, by) = center(&ui, Control::Back);
+    ui.handle_input(InputEvent::PointerDown { x: bx, y: by });
+    assert!(!ui.animating());
+    ui.handle_input(InputEvent::PointerUp { x: bx, y: by });
+    assert_ne!(back.screen(), page);
+    assert_eq!(ui.screen(), back.screen());
+}
+
+#[test]
+fn a_knob_turn_on_a_coasting_list_stops_it_where_the_knob_put_it() {
+    let (mut ui, (x, y), list) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    tick(&mut ui, 4_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 4_020);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating());
+    ui.handle_input(InputEvent::Knob {
+        knob: KnobIndex(0),
+        delta: -1,
+    });
+    let turned = ui.offset(list);
+    tick(&mut ui, 4_040);
+    assert!(!ui.animating());
+    assert_eq!(ui.offset(list), turned);
 }
 
 #[test]
@@ -2735,6 +2778,7 @@ fn device_list_groups_models_by_category_and_instrument_tab() {
             id: 2001,
             name: "BASS ONE".into(),
             category: ModelCategory::BassAmp,
+            extension: false,
         });
         snapshot.models = models.into();
     }
@@ -2770,6 +2814,56 @@ fn device_list_groups_models_by_category_and_instrument_tab() {
     // Step 1 is a right-hand drawer (shot sn-2): a tap on the Grid left of it closes it.
     assert!(tap(&mut ui, 200, 300).is_empty());
     assert_eq!(ui.screen(), Screen::Grid);
+}
+
+/// (O) The Extensions row shows only with an extension block installed, and lists the
+/// extension blocks of every category (they stay in their stock category too).
+#[test]
+fn extensions_row_lists_extension_blocks_of_every_category() {
+    let extensions = Control::Picker(PickerControl::Group(DeviceGroup::Extensions));
+    // Open the picker and scroll the categories to their end, where the row is.
+    let open = |ui: &mut UiState| {
+        activate(ui, Control::SelectCell(cell(1, 3)));
+        for _ in 0..5 {
+            drag(ui, (600, 400), (600, 60));
+        }
+    };
+    let mut snapshot = rich();
+    snapshot.rows[1].input = InputPort::Input1;
+    let mut ui = ui_with(snapshot.clone());
+    open(&mut ui);
+    assert!(shows(&ui, Control::Picker(PickerControl::Search)));
+    assert!(!shows(&ui, extensions));
+
+    {
+        let mut models = snapshot.models.to_vec();
+        for (id, category) in [(800, ModelCategory::GuitarAmp), (801, ModelCategory::Synth)] {
+            models.push(ModelEntry {
+                id,
+                name: format!("EXT {id}"),
+                category,
+                extension: true,
+            });
+        }
+        snapshot.models = models.into();
+    }
+    let mut ui = ui_with(snapshot);
+    open(&mut ui);
+    activate(&mut ui, extensions);
+    assert!(shows(&ui, Control::Picker(PickerControl::Model(800))));
+    assert!(shows(&ui, Control::Picker(PickerControl::Model(801))));
+    assert!(!shows(&ui, Control::Picker(PickerControl::Model(1001))));
+    // Scroll the rail back to Amp: the amp block is there too, the synth is not.
+    for _ in 0..5 {
+        drag(&mut ui, (50, 60), (50, 400));
+    }
+    activate(
+        &mut ui,
+        Control::Picker(PickerControl::Group(DeviceGroup::Amp)),
+    );
+    assert_eq!(ui.picker.group, Some(DeviceGroup::Amp));
+    assert!(shows(&ui, Control::Picker(PickerControl::Model(800))));
+    assert!(!shows(&ui, Control::Picker(PickerControl::Model(801))));
 }
 
 /// Virtual Device Presets (shots 093/040): a row tap auditions, Back reverts
@@ -4571,6 +4665,7 @@ fn holding_a_device_row_pins_it_to_the_top() {
             id: 1003,
             name: "AAA AMP".into(),
             category: ModelCategory::GuitarAmp,
+            extension: false,
         });
         snapshot.models = models.into();
     }

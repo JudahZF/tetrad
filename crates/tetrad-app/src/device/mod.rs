@@ -1619,12 +1619,14 @@ impl<P: Platform> Device<P> {
                 Input::Power(action) => Event::Shutdown(action),
             })
         }));
-        // Only input that someone makes: DSP meters and diagnostics arrive on their own.
+        // Only input that someone makes: USB and mini MIDI arrive from the DSP, but DSP meters and
+        // diagnostics arrive on their own.
         if (self.queue.iter().skip(before)).any(|event| {
             matches!(
                 event,
                 Event::Hal(_)
                     | Event::Midi { .. }
+                    | Event::Dsp(_, DspEvent::MidiReceived { .. })
                     | Event::Control(_)
                     | Event::UiInput(ui::UiInput::Touch(_))
                     | Event::Extension(_)
