@@ -156,6 +156,8 @@ Each block has the controls of the [Neural Amp Modeler plugin](https://github.co
 The block plays the smallest size of an A2 file, A2-Lite: A2-Full needs more DSP memory and CPU
 than one core has. The plugin's noise gate, loudness normalisation, calibration modes and EQ
 switch, and its cab IR, are not in the block. The A1 extension has the same knobs.
+NAM A1 0.5.0 and NAM A2 0.2.0 changed the knobs: in a preset saved with an older version, set
+the knobs of each NAM block again.
 
 The model runs in mono: both channels get its output. The page of the extension says why a file did not load.
 Models must be for 48 kHz. Each block runs on one DSP core, so a model must fit in one core's
