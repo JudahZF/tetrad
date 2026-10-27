@@ -30,6 +30,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
   and Output (-40 to +40 dB). Before, a block had only Input and Output (0 to 4). A preset
   saved with an older version loads wrong values for these knobs: set the knobs of its NAM
   blocks again (#21, thanks Rick Peters).
+- The default extension repository has Neural Amp Modeler A1 0.5.0 and A2 0.2.0 (API 5, tag
+  `extensions-2026-10-27`). A1 0.4.0 and A2 0.1.0 were not published.
 
 ## [0.1.0-alpha.8](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.8) (2026-10-25)
 

@@ -79,9 +79,11 @@ Check a package at any time with `$T check FILE.tetradext`.
 | `tetrad.sweep-synth-0.1.0.tetradext` (mono guitar and bass synth blocks, API 2) | `extensions-2026-10-24` |
 | `tetrad.midi-mapper-0.3.0.tetradext` (note-offs release their note, API 3) | `extensions-2026-10-24.2` |
 | `tetrad.custom-footswitch-0.1.0.tetradext` (a 4-page Custom footswitch mode, data only, API 4) | `extensions-2026-10-24.3` |
+| `tetrad.nam-0.5.0.tetradext` (Neural Amp Modeler A1, with the NAM plugin's tone controls, API 5) | `extensions-2026-10-27` |
+| `tetrad.nam-a2-0.2.0.tetradext` (Neural Amp Modeler A2, plays A2-Lite, API 5) | `extensions-2026-10-27` |
 
 Devices before API 2 skip the API 2 packages, and so on for each API level (API 5 is the
-leaky ReLU activation of Neural Amp Modeler A1 0.4.0 and A2 0.1.0):
+leaky ReLU activation of Neural Amp Modeler A1 0.5.0 and A2 0.2.0):
 `latest()` filters on the API version. The
 example graphs come from `cargo qcdsp export --example <name> --output <file>` (the slapback is
 `--example delay --delay-samples 3600`). Sweep Synth's graphs are `--example sweep-synth` and
