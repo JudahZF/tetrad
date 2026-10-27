@@ -1,7 +1,8 @@
 # Remote
 
 Remote is a web page on your Quad Cortex. Use it to add IRs from a computer or a phone on the
-same Wi-Fi network, with no app to install.
+same Wi-Fi network, with no app to install, and to download the support file for a bug report
+([support.md](support.md)).
 
 The Quad Cortex cannot show up as a USB drive: its USB port belongs to the stock DSP firmware,
 not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.

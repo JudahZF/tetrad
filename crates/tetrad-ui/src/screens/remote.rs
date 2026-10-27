@@ -8,11 +8,19 @@ use crate::render::Align;
 use crate::*;
 
 const ROW: u32 = 60;
-const HELP: &str = "Open the address in a browser on the same Wi-Fi network, enter the PIN and \
-    drop IR files on the page. Plain HTTP: turn Remote off on networks you do not trust.";
+pub(super) const HELP: &str = "Open the address in a browser on the same Wi-Fi network, enter \
+    the PIN and drop IR files on the page. Plain HTTP: turn Remote off on networks you do not \
+    trust.";
+/// Send Report (owned; stock uploads the logs, Tetrad never does): the support file
+/// (docs/support.md) comes from the Remote page instead.
+pub(super) const SEND_REPORT_HELP: &str = "For a bug report, open the address in a browser on \
+    the same Wi-Fi network, enter the PIN and tap Download under Support file. Send that file \
+    with your report. It holds no passwords, tokens or presets.";
 
-/// `body` is the settings content under the page title.
-pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
+/// `body` is the settings content under the page title; `help` follows the rows. The Remote
+/// page shows the last upload status too; Send Report (the support file is downloaded here)
+/// does not.
+pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect, help: &str, status: bool) {
     let p = l.palette;
     let view = &ui.snapshot.remote;
     // Stock rows run 8 px past the text inset (`screens::settings`).
@@ -27,7 +35,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
             rows.push(("PIN", pin.as_str(), LARGE));
         }
     }
-    if let Some(status) = &view.status {
+    if let Some(status) = view.status.as_ref().filter(|_| status) {
         rows.push(("Status", status.as_str(), MEDIUM));
     }
     for (name, value, font) in rows {
@@ -56,7 +64,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
             body.width - 16,
             (body.bottom() - top).max(0) as u32,
         ),
-        HELP,
+        help,
         MEDIUM,
         p.muted,
     );

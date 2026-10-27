@@ -1,7 +1,7 @@
 //! Remote (owned, Tetrad; docs/remote.md): the device side of the web page that uploads IRs
-//! over Wi-Fi. The platform runs the HTTP server ([`RemoteBackend`]); this bridge keeps the
-//! on/off setting (`remote.json`) and the PIN, and imports each upload as a Cortex Control IR
-//! import does.
+//! over Wi-Fi and hands out the support file (`super::support`). The platform runs the HTTP
+//! server ([`RemoteBackend`]); this bridge keeps the on/off setting (`remote.json`) and the
+//! PIN, and imports each upload as a Cortex Control IR import does.
 
 use std::path::Path;
 
@@ -187,6 +187,10 @@ impl<P: Platform> Device<P> {
                 Err(reason) => Reply::Refused(reason),
             },
             Request::Upload { name, wav, .. } => self.remote_upload(&name, &wav),
+            Request::Support { .. } => {
+                let (name, zip) = self.support_file();
+                Reply::File { name, zip }
+            }
         }
     }
 

@@ -3279,23 +3279,20 @@ fn a_dsp_crash_shows_the_error_dialog_and_its_reboot_restarts() {
 }
 
 /// r27-ui (census #2): a services refusal that answers a user request shows in the
-/// MessageDialog (owned rule, `UserJob`); before r27 it stayed in the log.
+/// MessageDialog (owned rule, `UserJob`); before r27 it stayed in the log. The update check
+/// signs with the serial, which the sim does not have.
 #[test]
 fn a_services_refusal_of_a_user_request_shows_in_the_message_dialog() {
-    let (mut device, log, _media) = boot();
-    let page = Screen::Settings(SettingsPage::SendReport);
+    let log = Rc::new(RefCell::new(Log::default()));
+    let mut device = common::start_online(Sim::new(STOCK, &media(), &log));
+    let page = Screen::Settings(SettingsPage::Updates);
     device.push(Event::UiInput(UiInput::Show(page)));
     device.step();
     activate(
         &mut device,
-        Control::Action(tetrad_ui::DeviceAction::SendReport),
+        Control::Updater(tetrad_ui::UpdaterCommand::Check),
     );
-    assert!(
-        (log.borrow().notices.iter())
-            .any(|notice| notice.detail.contains("support reports are turned off")),
-        "{:?}",
-        log.borrow().notices
-    );
+    let refusal = "device serial file is missing";
     let notice = device
         .bridges()
         .ui
@@ -3305,11 +3302,7 @@ fn a_services_refusal_of_a_user_request_shows_in_the_message_dialog() {
         .clone()
         .unwrap();
     assert_eq!((notice.title.as_str(), notice.button), ("Network", "OK"));
-    assert!(
-        notice.body.contains("support reports are turned off"),
-        "{}",
-        notice.body
-    );
+    assert!(notice.body.contains(refusal), "{}", notice.body);
 }
 
 /// r27-ui MERGE REQUEST 1 (built by r28-ui): the first boot after an update reads the marker
