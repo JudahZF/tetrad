@@ -1467,8 +1467,11 @@ impl UiState {
         match input {
             InputEvent::PointerDown { x, y } => {
                 // A touch on a coasting list catches it: it stops, and nothing under the
-                // finger is pressed. The finger can drag the list again.
-                let caught = self.fling.take().is_some();
+                // finger is pressed. The finger can drag the list again. A touch elsewhere
+                // stops it too, and presses as usual.
+                let caught = self.fling.take().is_some_and(|fling| {
+                    (self.layout().scroller_at(x, y)).is_some_and(|s| s.id == fling.list)
+                });
                 // Qt closes a popup on a press outside it (stock ⋮ menu: ~50 ms after the
                 // press, QC 2026-10-17); the release then does nothing.
                 if self.dismiss_at(x, y) {

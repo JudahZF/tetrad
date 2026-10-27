@@ -1086,6 +1086,27 @@ fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
 }
 
 #[test]
+fn a_press_outside_a_coasting_list_stops_it_and_presses_as_usual() {
+    let (mut ui, (x, y), _) = settings_page_list();
+    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
+    tick(&mut ui, 3_000);
+    ui.handle_input(InputEvent::PointerDown { x, y });
+    tick(&mut ui, 3_020);
+    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
+    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
+    assert!(ui.animating());
+    let page = ui.screen();
+    let mut back = ui.clone();
+    back.activate(Control::Back);
+    let (bx, by) = center(&ui, Control::Back);
+    ui.handle_input(InputEvent::PointerDown { x: bx, y: by });
+    assert!(!ui.animating());
+    ui.handle_input(InputEvent::PointerUp { x: bx, y: by });
+    assert_ne!(back.screen(), page);
+    assert_eq!(ui.screen(), back.screen());
+}
+
+#[test]
 fn keyboard_enforces_name_rules_and_routes_each_target() {
     let mut ui = ui_with(rich());
     activate(&mut ui, Control::OpenMainMenu);
