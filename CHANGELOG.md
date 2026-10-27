@@ -16,6 +16,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
   0 to 1).
 - Extension API 5: the leaky ReLU activation. Hosts before API 5 do not offer API 5 packages, so
   they keep Neural Amp Modeler 0.3.1 and do not see Neural Amp Modeler A2.
+- Block list: an Extensions row after the stock categories lists every block from an
+  extension, with its category. The row shows when an extension block is installed. The blocks
+  also stay in the list of their own category.
 
 ### Changed
 

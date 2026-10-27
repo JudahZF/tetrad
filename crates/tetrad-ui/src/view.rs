@@ -832,11 +832,13 @@ pub struct ModelEntry {
     pub id: u32,
     pub name: String,
     pub category: ModelCategory,
+    /// (O) A community block from an extension package.
+    pub extension: bool,
 }
 
 /// Stock Virtual Device List categories in manual order (spec `w4-ui-spec-grid`
-/// §3, shots 076/090; 19 rows). Guitar and bass model categories share one
-/// group and split into the GUITAR / BASS tabs.
+/// §3, shots 076/090; 19 rows), plus the owned [`Self::Extensions`] row. Guitar and
+/// bass model categories share one group and split into the GUITAR / BASS tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DeviceGroup {
     Plugins,
@@ -858,6 +860,9 @@ pub enum DeviceGroup {
     FxLoop,
     Looper,
     Utility,
+    /// (O) Every block from an extension, whatever its category. Not in [`Self::ALL`]:
+    /// the picker shows it after the stock rows when an extension block is installed.
+    Extensions,
 }
 
 impl DeviceGroup {
@@ -904,6 +909,7 @@ impl DeviceGroup {
             Self::FxLoop => "FX Loop",
             Self::Looper => "Looper",
             Self::Utility => "Utility",
+            Self::Extensions => "Extensions",
         }
     }
 
@@ -944,7 +950,7 @@ impl DeviceGroup {
     }
 
     /// Tile border colour: the stock colour of the group's categories; Plugins
-    /// is the accent (stock green, shot 076).
+    /// (stock green, shot 076) and Extensions are the accent.
     pub fn hue(self, p: &Palette) -> Rgb {
         ModelCategory::PICKER
             .into_iter()

@@ -104,8 +104,9 @@ Tetrad stops an extension that goes past a limit.
 
 A package can bring DSP blocks. When the extension is installed and **Enabled**, Tetrad
 compiles its blocks for the DSP, and each block shows in the block list of its category, like a
-stock model. You edit it with the knobs and the screen, and you can use it in scenes, stomps
-and [Mappings](mappings.md).
+stock model. The **Extensions** row at the end of the block list also shows all blocks from
+extensions, with the category of each. You edit a block with the knobs and the screen, and you
+can use it in scenes, stomps and [Mappings](mappings.md).
 
 - The extension's page lists its **DSP blocks**, with the CPU that each one uses on a DSP core,
   or the reason that a block is not ready.

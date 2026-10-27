@@ -905,6 +905,7 @@ pub(super) fn models(specs: &Specs) -> Vec<ModelEntry> {
                     id: model.id,
                     name: model.name.clone(),
                     category,
+                    extension: model.community.is_some(),
                 })
         })
         .take(MAX_LIST_ITEMS)
