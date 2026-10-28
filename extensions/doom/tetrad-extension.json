@@ -1,0 +1,12 @@
+{
+  "id": "tetrad.doom",
+  "name": "DOOM",
+  "version": "0.1.0",
+  "description": "The shareware episode of DOOM on the screen, played with the footswitches (qcDOOM by Thomas Van Iseghem).",
+  "api": 7,
+  "app": {
+    "label": "Play DOOM",
+    "exec": "qcdoom",
+    "args": ["-iwad", "{app}/doom1.wad"]
+  }
+}

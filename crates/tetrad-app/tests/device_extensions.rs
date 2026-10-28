@@ -13,18 +13,22 @@ use base64::Engine;
 use common::{Media, STOCK, Sim, light_preset};
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
+use tetrad_app::device::actions::Action;
 use tetrad_app::device::extensions::{
     Capabilities, Extensions, FiredTrigger, Installation, LocalBackend, RunState,
 };
-use tetrad_app::device::platform::Input;
+use tetrad_app::device::platform::{Input, TouchSample};
 use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Device, Event};
 use tetrad_engine::{Column, Row, Site, Slot};
 use tetrad_extensions::catalog::sha256_hex;
-use tetrad_extensions::package::Package;
+use tetrad_extensions::package::{AppFile, Package};
 use tetrad_extensions::repository::{Fetch, FetchError};
+use tetrad_hal::hal::Event as HalEvent;
+use tetrad_hal::node::Element;
 use tetrad_midi::{Channel, MidiMessage, U7};
 use tetrad_services::fake::MemFiles;
+use tetrad_settings::controls::FootswitchMode;
 use tetrad_ui::{
     Control, ExtensionCommand, ExtensionState, ExtensionsView, GridPosition, InputEvent,
     ParamControl,
@@ -109,12 +113,30 @@ fn repository_of_page(
     module: Option<&str>,
     page: Option<&str>,
 ) -> Web {
+    repository_of_files(manifest, module, page, &[])
+}
+
+/// [`repository_of_page`] with program files, served as release assets next to the package.
+fn repository_of_files(
+    manifest: serde_json::Value,
+    module: Option<&str>,
+    page: Option<&str>,
+    app_files: &[(&str, &[u8])],
+) -> Web {
     let api = manifest["api"].clone();
+    let app = manifest.get("app").is_some();
     let package = Package {
         manifest: serde_json::from_value(manifest).unwrap(),
         module: module.map(Into::into),
         blocks: Default::default(),
         remote_page: page.map(Into::into),
+        app_files: (app_files.iter())
+            .map(|(name, bytes)| AppFile {
+                name: (*name).into(),
+                size: bytes.len() as u64,
+                sha256: sha256_hex(bytes),
+            })
+            .collect(),
     }
     .encode()
     .unwrap();
@@ -131,7 +153,8 @@ fn repository_of_page(
                 "name": "test.mapper-1.0.0.tetradext",
                 "size": package.len(),
                 "sha256": sha256_hex(&package),
-            }
+            },
+            "app": app,
         }]
     }))
     .unwrap();
@@ -151,6 +174,12 @@ fn repository_of_page(
         format!("https://github.com/{SOURCE}/releases/download/v1/test.mapper-1.0.0.tetradext"),
         package,
     );
+    for (name, bytes) in app_files {
+        files.insert(
+            format!("https://github.com/{SOURCE}/releases/download/v1/test.mapper-1.0.0.{name}"),
+            bytes.to_vec(),
+        );
+    }
     drop(files);
     web
 }
@@ -452,6 +481,7 @@ impl Bridge {
             storage: Default::default(),
             enabled: true,
             remote: None,
+            app: None,
         };
         let key = installation.key.clone();
         let mut installations: Vec<Installation> = (self.extensions.keys())
@@ -690,6 +720,7 @@ fn installations_offer_static_blocks_and_one_block_per_asset() {
         storage: Default::default(),
         enabled: true,
         remote: None,
+        app: None,
     };
     let outcome = extensions.set_installations(vec![installation], &mut backend);
     assert!(outcome.community_changed);
@@ -808,6 +839,7 @@ fn remote_shows_only_enabled_extensions() {
             title: id.into(),
             page: "<p>x</p>".into(),
         }),
+        app: None,
     };
     let ids = |extensions: &Extensions| -> (Vec<String>, Vec<String>) {
         (
@@ -1264,5 +1296,110 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     assert_eq!(
         (tap.action.clone(), tap.label.as_str(), tap.detail.as_str()),
         (Some(SlotAction::LoadPreset), "Light", "Load preset")
+    );
+}
+
+/// A program installs with its files and starts from its page with `{app}` resolved. While it
+/// runs it has the screen and the footswitches: Tetrad presents no frame and ignores a
+/// footswitch. A touch held for 2 s ends it, and Tetrad draws the screen again.
+#[test]
+fn a_program_takes_the_screen_until_a_held_touch_ends_it() {
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let manifest = json!({
+        "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0", "api": 7,
+        "app": {"label": "Play", "exec": "game", "args": ["-iwad", "{app}/game.wad"]}
+    });
+    let files: [(&str, &[u8]); 2] = [("game", b"\x7fELF"), ("game.wad", b"IWAD")];
+    let web = repository_of_files(manifest, None, None, &files);
+    let (mut device, _media) = boot(media, web);
+    pump(&mut device, "the store load", |d| {
+        !view(d).sources.is_empty()
+    });
+    device.push(Event::Extensions(ExtensionCommand::AddSource {
+        repository: SOURCE.into(),
+    }));
+    pump(&mut device, "the key", |d| view(d).pending_trust.is_some());
+    device.push(Event::Extensions(ExtensionCommand::TrustSource {
+        repository: SOURCE.into(),
+        trust: true,
+    }));
+    pump(&mut device, "the catalog", |d| {
+        !view(d).available.is_empty()
+    });
+    assert!(view(&device).available[0].app, "the Available row warns");
+    device.push(Event::Extensions(ExtensionCommand::Install {
+        source: SOURCE.into(),
+        id: "test.mapper".into(),
+    }));
+    pump(&mut device, "the install", |d| {
+        view(d)
+            .installed
+            .first()
+            .is_some_and(|e| e.app.as_deref() == Some("Play"))
+    });
+
+    let apps = device.platform().apps.clone();
+    device.push(Event::Extensions(ExtensionCommand::Launch {
+        key: KEY.into(),
+    }));
+    pump(&mut device, "the start", |_| apps.borrow().running);
+    let launch = apps.borrow().started[0].clone();
+    assert_eq!(std::fs::read(&launch.program).unwrap(), b"\x7fELF");
+    let folder = launch.program.parent().unwrap().display().to_string();
+    assert_eq!(launch.args, ["-iwad", &format!("{folder}/game.wad")]);
+    assert!(launch.dir.ends_with("tetrad/assets/test.mapper"));
+
+    // In Scene mode, footswitch B would select scene 2.
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Scene)));
+    assert!(device.step().is_none());
+    let shown = device.platform().presented();
+    let scene = |d: &Device<Sim>| {
+        d.state()
+            .current
+            .as_ref()
+            .unwrap()
+            .deployment
+            .scene()
+            .index()
+    };
+    let switch_b = Element::all().nth(1).unwrap();
+    for value in [1, 0] {
+        device.push(Event::Hal(HalEvent::Stomp {
+            element: switch_b,
+            value,
+        }));
+    }
+    device.push(Event::UiInput(UiInput::Touch(TouchSample {
+        x: 400,
+        y: 240,
+        pressed: true,
+    })));
+    for _ in 0..50 {
+        assert!(device.step().is_none());
+    }
+    assert!(apps.borrow().running, "a short touch does not end it");
+    assert_eq!(scene(&device), 0, "Tetrad ignores the footswitch");
+    pump(&mut device, "the held touch", |_| !apps.borrow().running);
+    // The rest of the quit touch, here a move to the ⋮ button and the release, reaches no
+    // page: it would tap whatever is under the finger.
+    for pressed in [true, false] {
+        device.push(Event::UiInput(UiInput::Touch(TouchSample {
+            x: 764,
+            y: 22,
+            pressed,
+        })));
+        assert!(device.step().is_none());
+    }
+    assert!(
+        !device.bridges().ui.view().overlay_open(),
+        "the touch opened a menu"
+    );
+    pump(&mut device, "the whole frame", |d| {
+        d.platform().presented() > shown
+    });
+    assert_eq!(
+        device.platform().presented(),
+        shown + 1,
+        "no frame while it ran, one after"
     );
 }

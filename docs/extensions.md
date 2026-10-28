@@ -14,6 +14,8 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
   sweeps on each note.
 - **Custom Footswitch Mode** adds a fourth footswitch mode: four pages of ten switches, each
   with an action that you choose. See [footswitch-modes.md](footswitch-modes.md).
+- **DOOM** plays the shareware episode of DOOM on the screen. The footswitches are the
+  controls. See [DOOM](#doom).
 
 - [Use extensions](#use-extensions)
 - [DSP blocks](#dsp-blocks)
@@ -89,12 +91,36 @@ DSP Examples 0.2.0 had a stereo copy of the guitar block, "qcdsp Micro Synth". D
 0.3.0 does not have it. After you update, a preset that uses it plays the stock Gain block
 (0 dB) in that slot. Put Sweep Synth in the slot, set its controls again and save the preset.
 
+### DOOM
+
+DOOM is a [program](#ship-a-program): the original qcDOOM binary by Thomas Van Iseghem, with the
+shareware WAD. Its Available row says **Runs a program with full access to the unit**. The
+program is not confined as the TypeScript extensions are, so install it only from a repository
+that you trust.
+
+1. Install **DOOM** and open its page.
+2. Tap **Play DOOM**. DOOM takes the screen and the footswitches. Tetrad keeps the sound, MIDI,
+   the volume knob and the expression pedals.
+3. To quit, hold the screen for 2 seconds (or push the power button). Tetrad comes back.
+
+| Switch | Action | Switch | Action |
+| --- | --- | --- | --- |
+| A | Turn left | E | Strafe left |
+| B | Forward | F | Back |
+| C | Turn right | G | Strafe right |
+| D | Fire | H | Use |
+| TEMPO | Menu | DOWN | Enter |
+
+In the menu, A, B, C and F move and DOWN chooses. Saved games are in
+`/media/p4/tetrad/assets/tetrad.doom/`.
+
 ### Limits
 
 Each extension runs in a separate low-priority process with a 128 MiB address-space limit, a
 32 MiB JavaScript heap, 50 ms of CPU time for each piece of work, 1 s for an event handler and
 3 s to start. When it builds a DSP block from a file, the limits are 2 s of CPU time and 5 s.
-Tetrad stops an extension that goes past a limit.
+Tetrad stops an extension that goes past a limit. A [program](#ship-a-program) has none of
+these limits; it runs at nice 10.
 
 ## DSP blocks
 
@@ -217,7 +243,8 @@ manifest does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-bl
 `pressed` on trigger firings (see below); API 4 adds `footswitchMode`
 ([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)); API 5 adds
 the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)); API 6 adds `remote`
-([a tab on the Remote page](#add-a-tab-to-the-remote-page)). A manifest of an
+([a tab on the Remote page](#add-a-tab-to-the-remote-page)); API 7 adds `app`
+([a program](#ship-a-program)). A manifest of an
 older API still works. Use API 3 only to send releases: Tetrad before API 3 does not install
 API 3 packages, because it would take a release for a press. Use API 5 for a block that uses
 `leakyRelu`: Tetrad before API 5 refuses it. A package with a Remote page is format 3, which older
@@ -350,6 +377,44 @@ lists them. See `extensions/fixtures/theme-pack` for a complete example.
 
 Tetrad builds before 0.1.0-alpha.5 do not know the `themes` field. They refuse the package at
 install and change nothing.
+
+### Ship a program
+
+A package can bring a native program, such as a game, and start it from the extension's page.
+The program runs as Tetrad does: as root, with full access to the unit, outside the limits of
+the TypeScript extensions. Tetrad shows **Runs a program with full access to the unit** on the
+Available row, before the install.
+
+While the program runs:
+
+- Tetrad draws nothing on the screen; the program can write `/dev/fb0` (800×480, RGB565).
+- Tetrad does not act on the footswitches, the knobs and TEMPO. The program can read them from
+  `/dev/zencoder/knob_stomp1` to `knob_stomp11` (evdev): each reader gets every event.
+- The sound, MIDI, the volume knob and the expression pedals stay with Tetrad.
+- A touch held for 2 seconds, or the power button, stops the program (SIGKILL). The program
+  should not need the touch screen. When it ends, Tetrad draws the screen again.
+
+Declare it in the manifest (API 7) and put its files in `app/`, next to the manifest:
+
+```json
+{
+  "api": 7,
+  "app": { "label": "Play DOOM", "exec": "qcdoom", "args": ["-iwad", "{app}/doom1.wad"] }
+}
+```
+
+- `label` is the button on the extension's page (at most 32 characters).
+- `exec` is the file in `app/` that runs: a 32-bit ARM Linux program. A static binary is the
+  safest; the unit runs Linux 4.0.
+- `args` are at most 16 arguments. `{app}` in an argument becomes the folder of the program
+  files. The program runs in the extension's asset folder (`/media/p4/tetrad/assets/<id>/`),
+  where it can write its saves.
+
+`tetrad-ext package` pins each file of `app/` in the package by size and SHA-256 (format 4) and
+copies it next to the package as `<package name without .tetradext>.<file>`. Publish these files
+as assets of the same release as the package. Tetrad downloads them at the install and refuses
+a file that differs. A file can be up to 32 MiB, and all files together up to 64 MiB. A package
+with only a program needs no module. `extensions/doom` is a complete example.
 
 ## Write a DSP block
 

@@ -19,7 +19,7 @@ use tetrad_extensions::catalog::{
     SIGNATURE_FILE, sha256_hex,
 };
 use tetrad_extensions::manifest::{API_VERSION, Manifest};
-use tetrad_extensions::package::{PACKAGE_SUFFIX, Package};
+use tetrad_extensions::package::{AppFile, PACKAGE_SUFFIX, Package};
 use tetrad_extensions::sdk::SDK_DECLARATIONS;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
@@ -29,6 +29,8 @@ const ENTRY: &str = "src/index.ts";
 const BUNDLE: &str = "dist/index.mjs";
 /// The HTML of the extension's Remote tab, packed when the manifest has `remote`.
 const REMOTE_PAGE: &str = "remote.html";
+/// The program files of a manifest with `app`, each one packed by name.
+const APP_DIR: &str = "app";
 /// `blocks/<id>.qcdsp.json`: the IR of each static block.
 const BLOCKS_DIR: &str = "blocks";
 const BLOCK_SUFFIX: &str = ".qcdsp.json";
@@ -80,7 +82,9 @@ enum Cmd {
     /// Pack `tetrad-extension.json`, `dist/index.mjs` (when there is a module) and the static
     /// block IR into a `.tetradext` file. A data-only manifest (themes or static blocks, no
     /// capabilities, settings or commands) without `src/index.ts` packs without a module;
-    /// themes and blocks are checked here, as the device checks them.
+    /// themes and blocks are checked here, as the device checks them. With `app` in the
+    /// manifest, every file in `app/` is pinned in the package and copied next to it as
+    /// `<package stem>.<file>`: publish these files as release assets with the package.
     Package {
         dir: PathBuf,
         #[arg(long)]
@@ -392,16 +396,56 @@ fn package(dir: &Path, out: &Path) -> Result {
         }
         None => None,
     };
+    let app_files = match &manifest.app {
+        Some(_) => read_app_files(&dir.join(APP_DIR))?,
+        None => Vec::new(),
+    };
     let bytes = Package {
         manifest,
         module,
         blocks,
         remote_page,
+        app_files: app_files.iter().map(|(file, _)| file.clone()).collect(),
     }
     .encode()?;
     write(out, &bytes)?;
     println!("{} ({} bytes)", out.display(), bytes.len());
+    let package_name = out
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("bad --out")?;
+    for (file, path) in &app_files {
+        let asset = out.with_file_name(Package::app_asset_name(package_name, &file.name));
+        fs::copy(path, &asset).map_err(|e| format!("{}: {e}", asset.display()))?;
+        println!("{} ({} bytes)", asset.display(), file.size);
+    }
     Ok(())
+}
+
+/// Every regular file in `dir`, in name order, pinned by size and SHA-256.
+fn read_app_files(dir: &Path) -> Result<Vec<(AppFile, PathBuf)>> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
+        .map_err(|e| format!("{}: {e} (the manifest has an app)", dir.display()))?
+        .map(|e| e.map(|e| e.path()))
+        .collect::<std::io::Result<_>>()?;
+    paths.retain(|p| p.is_file());
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let bytes = read(&path)?;
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or("bad file name")?;
+            let file = AppFile {
+                name: name.to_owned(),
+                size: bytes.len() as u64,
+                sha256: sha256_hex(&bytes),
+            };
+            Ok((file, path))
+        })
+        .collect()
 }
 
 fn catalog(repo: &Path, key_path: &Path, tag: &str) -> Result {
@@ -434,8 +478,16 @@ fn catalog(repo: &Path, key_path: &Path, tag: &str) -> Result {
             .find(|e| e.asset.name == name && e.asset.sha256 == sha256)
             .map_or(tag, |e| e.asset.tag.as_str())
             .to_owned();
+        for file in &package.app_files {
+            let asset = Package::app_asset_name(&name, &file.name);
+            let bytes = read(&repo.join("packages").join(&asset))?;
+            if bytes.len() as u64 != file.size || sha256_hex(&bytes) != file.sha256 {
+                return Err(format!("{asset} does not match {name}").into());
+            }
+        }
         let m = package.manifest;
         extensions.push(CatalogEntry {
+            app: m.app.is_some(),
             id: m.id,
             name: m.name,
             version: m.version,
@@ -517,6 +569,20 @@ fn check(file: &Path) -> Result {
     }
     for t in &m.themes {
         println!("  theme {} \"{}\"", t.id, t.name);
+    }
+    if let Some(app) = &m.app {
+        println!(
+            "  program \"{}\": {} {}",
+            app.label,
+            app.exec,
+            app.args.join(" ")
+        );
+        for f in &package.app_files {
+            println!(
+                "    file {} ({} bytes, sha256 {})",
+                f.name, f.size, f.sha256
+            );
+        }
     }
     println!(
         "  module {} bytes, package {} bytes, sha256 {}",
@@ -670,7 +736,13 @@ fn stage(repo: &Path, source: &str, store_dir: &Path) -> Result {
             continue;
         };
         let bytes = read(&repo.join("packages").join(&entry.asset.name))?;
-        let installed = store.install(&source, &key, entry, &bytes)?;
+        let files = (Package::decode(&bytes)?.app_files.iter())
+            .map(|file| {
+                let asset = Package::app_asset_name(&entry.asset.name, &file.name);
+                Ok((file.name.clone(), read(&repo.join("packages").join(asset))?))
+            })
+            .collect::<Result<_>>()?;
+        let installed = store.install(&source, &key, entry, &bytes, &files)?;
         println!("installed {} {}", installed.key, installed.current.version);
     }
     Ok(())

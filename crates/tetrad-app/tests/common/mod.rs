@@ -914,6 +914,26 @@ pub struct Sim {
     pub extensions: Option<tetrad_app::device::extensions::LocalBackend>,
     /// The Remote server; `None` (default): Remote does not run.
     pub remote: Option<FakeRemote>,
+    /// Extension programs the device started.
+    pub apps: Rc<RefCell<SimApps>>,
+}
+
+/// The programs [`Platform::start_app`] started. A program runs until the device stops it.
+#[derive(Debug, Default)]
+pub struct SimApps {
+    pub started: Vec<tetrad_app::device::app::AppLaunch>,
+    pub running: bool,
+}
+
+struct SimApp(Rc<RefCell<SimApps>>);
+
+impl tetrad_app::device::app::AppProcess for SimApp {
+    fn exited(&mut self) -> Option<String> {
+        (!self.0.borrow().running).then(|| "stopped".into())
+    }
+    fn stop(&mut self) {
+        self.0.borrow_mut().running = false;
+    }
 }
 
 /// A Remote server with no socket: tests push [`Input::Remote`] calls and read the replies.
@@ -1045,7 +1065,14 @@ impl Sim {
             disk_space: None,
             extensions: None,
             remote: None,
+            apps: Rc::default(),
         }
+    }
+
+    /// Frames presented so far.
+    #[allow(dead_code)]
+    pub fn presented(&self) -> usize {
+        self.clock.log.borrow().frames.len()
     }
 
     /// Queues a HAL event (a jack detect, a stomp) for the next HAL poll.
@@ -1187,6 +1214,15 @@ impl Platform for Sim {
     }
     fn extensions(&mut self) -> Option<&mut dyn tetrad_app::device::extensions::ExtensionBackend> {
         self.extensions.as_mut().map(|backend| backend as _)
+    }
+    fn start_app(
+        &mut self,
+        launch: &tetrad_app::device::app::AppLaunch,
+    ) -> Result<Box<dyn tetrad_app::device::app::AppProcess>, String> {
+        let mut apps = self.apps.borrow_mut();
+        apps.started.push(launch.clone());
+        apps.running = true;
+        Ok(Box::new(SimApp(self.apps.clone())))
     }
     fn remote(&mut self) -> Option<&mut dyn tetrad_app::device::remote::RemoteBackend> {
         self.remote.as_mut().map(|backend| backend as _)

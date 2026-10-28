@@ -15,6 +15,7 @@ use crate::catalog::{
     self, CATALOG_FILE, Catalog, CatalogEntry, CatalogError, KEY_FILE, MAX_CATALOG, MAX_KEY_FILE,
     PublicKey, SIGNATURE_FILE,
 };
+use crate::package::{AppFile, Package};
 
 /// The bundled default repository.
 pub const DEFAULT_SOURCE: &str = "JudahZF/tetrad-extensions";
@@ -237,15 +238,43 @@ pub fn download(
     Ok(bytes)
 }
 
+/// Fetches one program file of a package from the package's release and checks it against the
+/// size and SHA-256 that the package pins.
+pub fn download_app_file(
+    fetch: &mut impl Fetch,
+    source: &SourceId,
+    entry: &CatalogEntry,
+    file: &AppFile,
+) -> Result<Vec<u8>, RepositoryError> {
+    let asset = catalog::Asset {
+        tag: entry.asset.tag.clone(),
+        name: Package::app_asset_name(&entry.asset.name, &file.name),
+        size: file.size,
+        sha256: file.sha256.clone(),
+    };
+    let url = source.asset_url(&asset);
+    // The package bounds the size at MAX_APP_FILE, so this fits in usize.
+    let bytes = get(fetch, url.clone(), file.size as usize)?;
+    check_bytes(&bytes, file.size, &file.sha256).map_err(|e| match e {
+        AssetMismatch::Size => RepositoryError::Size(url),
+        AssetMismatch::Hash => RepositoryError::Hash(url),
+    })?;
+    Ok(bytes)
+}
+
 pub(crate) enum AssetMismatch {
     Size,
     Hash,
 }
 
 pub(crate) fn check_asset(bytes: &[u8], entry: &CatalogEntry) -> Result<(), AssetMismatch> {
-    if bytes.len() as u64 != entry.asset.size {
+    check_bytes(bytes, entry.asset.size, &entry.asset.sha256)
+}
+
+pub(crate) fn check_bytes(bytes: &[u8], size: u64, sha256: &str) -> Result<(), AssetMismatch> {
+    if bytes.len() as u64 != size {
         Err(AssetMismatch::Size)
-    } else if catalog::sha256_hex(bytes) != entry.asset.sha256 {
+    } else if catalog::sha256_hex(bytes) != sha256 {
         Err(AssetMismatch::Hash)
     } else {
         Ok(())

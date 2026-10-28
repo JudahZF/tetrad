@@ -44,6 +44,10 @@ pub struct CatalogEntry {
     pub description: String,
     pub api: u32,
     pub asset: Asset,
+    /// The package brings a native program (`app` in the manifest, API 7). The install page
+    /// warns before the download; the install refuses a package that differs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub app: bool,
 }
 
 /// One GitHub release asset.
@@ -235,6 +239,9 @@ impl CatalogEntry {
         if !sha_ok {
             return Err("sha256 must be 64 lowercase hex digits");
         }
+        if self.app && self.api < 7 {
+            return Err("a program needs API 7");
+        }
         Ok(())
     }
 }
@@ -288,6 +295,7 @@ mod tests {
                 size: 10,
                 sha256: sha256_hex(b"x"),
             },
+            app: false,
         }
     }
 

@@ -812,6 +812,8 @@ pub enum ExtensionControl {
     Remove,
     /// A command button of the open extension.
     Run(u16),
+    /// The program button of the open extension.
+    Launch,
     /// A setting row: a toggle flips, a choice opens its list.
     Setting(u16),
     /// A number setting stepped by one.

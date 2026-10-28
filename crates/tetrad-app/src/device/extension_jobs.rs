@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 use tetrad_extensions::catalog::{Catalog, CatalogEntry, PublicKey};
+use tetrad_extensions::package::Package;
 use tetrad_extensions::repository::{self, Fetch, FetchError, SourceId};
-use tetrad_extensions::store::{self, GeneratedIr, InstallKey, Installed, Source, Store};
+use tetrad_extensions::store::{self, AppFiles, GeneratedIr, InstallKey, Installed, Source, Store};
 use tetrad_services::http::{HttpClient, HttpError, HttpRequest, Method, Route};
 
 /// The store root under the user partition.
@@ -109,6 +110,8 @@ pub struct Loaded {
     pub generated: Vec<GeneratedIr>,
     /// The HTML of the extension's Remote tab, when it has one.
     pub remote_page: Option<String>,
+    /// How to start the package's program, when it has one.
+    pub app: Option<super::app::AppLaunch>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +149,7 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
                     });
                     Loaded {
                         remote_page,
+                        app: app_launch(store, installed),
                         module: store.module_path(installed),
                         config: (state.configs.remove(&installed.key))
                             .unwrap_or_else(|| installed.current.manifest.default_config()),
@@ -186,12 +190,7 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
             JobResult::Key(source, key)
         }
         ExtensionJob::Install { source, entry } => JobResult::Installed(
-            repository::download(fetch, &source.source, &entry)
-                .map_err(|e| text(&e))
-                .and_then(|bytes| {
-                    (store.install(&source.source, &source.key, &entry, &bytes))
-                        .map_err(|e| text(&e))
-                })
+            install(store, fetch, &source, &entry)
                 .and_then(|installed| loaded(store, installed).map(Box::new)),
         ),
         ExtensionJob::SaveSources(sources) => {
@@ -236,6 +235,44 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
             JobResult::Saved((store.remove_generated(&key, &block, &variant)).map_err(|e| text(&e)))
         }
     }
+}
+
+/// The program of `installed`: its file, its arguments with the program folder for `{app}`,
+/// and the extension's asset folder to run in.
+fn app_launch(store: &Store, installed: &Installed) -> Option<super::app::AppLaunch> {
+    use tetrad_extensions::manifest::APP_DIR_PLACEHOLDER;
+    let manifest = &installed.current.manifest;
+    let spec = manifest.app.as_ref()?;
+    let files = store.app_dir(installed)?;
+    let folder = files.to_string_lossy();
+    Some(super::app::AppLaunch {
+        name: manifest.name.clone(),
+        label: spec.label.clone(),
+        program: files.join(&spec.exec),
+        args: (spec.args.iter())
+            .map(|arg| arg.replace(APP_DIR_PLACEHOLDER, &folder))
+            .collect(),
+        dir: assets_dir(store.root(), &manifest.id),
+    })
+}
+
+/// Downloads the package of `entry` and the program files it pins, then installs them.
+fn install<F: Fetch>(
+    store: &Store,
+    fetch: &mut F,
+    source: &Source,
+    entry: &CatalogEntry,
+) -> Result<Installed, String> {
+    let text = |error: &dyn std::fmt::Display| error.to_string();
+    let bytes = repository::download(fetch, &source.source, entry).map_err(|e| text(&e))?;
+    let package = Package::decode(&bytes).map_err(|e| text(&e))?;
+    let files = (package.app_files.iter())
+        .map(|file| {
+            let bytes = repository::download_app_file(fetch, &source.source, entry, file);
+            Ok((file.name.clone(), bytes.map_err(|e| text(&e))?))
+        })
+        .collect::<Result<AppFiles, String>>()?;
+    (store.install(&source.source, &source.key, entry, &bytes, &files)).map_err(|e| text(&e))
 }
 
 /// The static block IR of the package and the cached generated IR. A package that no longer
@@ -380,6 +417,7 @@ fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
     }
     let remote_page = store.remote_page(&installed).map_err(|e| e.to_string())?;
     Ok(Loaded {
+        app: app_launch(store, &installed),
         module: store.module_path(&installed),
         blocks,
         generated,

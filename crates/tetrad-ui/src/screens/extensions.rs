@@ -374,13 +374,15 @@ fn available_row(
     );
     let x = row.x + 16;
     let width = (install.x - 12 - x) as u32;
-    // A second installation from another source doubles its blocks: the warning takes the
-    // description's line.
-    let note = if extension.duplicates.is_empty() {
-        (extension.description.clone(), p.muted)
-    } else {
+    // A second installation from another source doubles its blocks, and a program runs
+    // outside the extension limits: the warning takes the description's line.
+    let note = if !extension.duplicates.is_empty() {
         let from = extension.duplicates.join(", ");
         (format!("Also installed from {from}"), p.warning)
+    } else if extension.app {
+        (APP_WARNING.to_owned(), p.warning)
+    } else {
+        (extension.description.clone(), p.muted)
     };
     let lines = [
         (8, 22, extension.name.clone(), BODY, p.text),
@@ -409,9 +411,14 @@ fn available_row(
     divider(l, row);
 }
 
+/// What a program may do, on the Available row.
+const APP_WARNING: &str = "Runs a program with full access to the unit";
+
 /// One block of the detail page.
 enum Part<'a> {
     Meta,
+    /// The program button and what the program may do.
+    App(&'a str),
     Description(Vec<String>),
     Enabled,
     Fault(Vec<String>),
@@ -437,7 +444,7 @@ impl Part<'_> {
             Self::Commands(_) => COMMAND_PITCH,
             Self::StatusLine(_) => STATUS_LINE,
             Self::Block(_) => BLOCK_ROW,
-            Self::Mode(_) => ROW,
+            Self::Mode(_) | Self::App(_) => ROW,
             Self::Log(lines) => lines.len() as u32 * LOG_LINE + 16,
             Self::Enabled | Self::Update(_) | Self::Setting(..) | Self::Remove => ROW,
         }
@@ -462,6 +469,10 @@ fn parts(extension: &InstalledExtension, width: u32) -> Vec<Part<'_>> {
     }
     if let Some(version) = &extension.update {
         parts.push(Part::Update(version));
+    }
+    if let Some(label) = &extension.app {
+        parts.push(Part::Header("Program"));
+        parts.push(Part::App(label));
     }
     if !extension.settings.is_empty() {
         parts.push(Part::Header("Settings"));
@@ -617,6 +628,30 @@ fn detail_part(
                     BODY,
                 );
             }
+        }
+        Part::App(label) => {
+            let width = 220;
+            let button = Rect::new(row.x, row.y + 8, width, 44);
+            l.button_in(
+                button,
+                control(ExtensionControl::Launch),
+                extension.enabled,
+                fit(label, BODY, (width - 24) as f32),
+                ButtonStyle::Primary,
+                BODY,
+            );
+            let x = button.right() + 16;
+            let text = Rect::new(x, row.y + 8, (row.right() - 8 - x).max(0) as u32, 22);
+            let lines = [
+                ("Full access to the unit", p.warning),
+                ("Hold the screen for 2 seconds to quit", p.muted),
+            ];
+            for (line, (words, color)) in lines.into_iter().enumerate() {
+                let text = Rect::new(text.x, text.y + line as i32 * 22, text.width, 20);
+                let words = fit(words, CAPTION, text.width as f32);
+                l.text(text, words, CAPTION, color, Align::Left);
+            }
+            divider(l, row);
         }
         Part::Mode(mode) => {
             let button = Rect::new(row.right() - 8 - 104, row.y + 10, 104, HEADER_BUTTON);
@@ -968,7 +1003,10 @@ pub(crate) fn same_targets(a: &ExtensionsView, b: &ExtensionsView) -> bool {
                         (extension.settings.iter())
                             .map(|s| s.key.as_str())
                             .collect(),
-                        (extension.commands.iter()).map(|c| c.id.as_str()).collect(),
+                        (extension.commands.iter())
+                            .map(|c| c.id.as_str())
+                            .chain(extension.app.as_deref())
+                            .collect(),
                     )
                 })
                 .collect(),
@@ -1047,6 +1085,10 @@ impl UiState {
                 enabled: !extension.enabled,
             }),
             C::Retry => send(ExtensionCommand::Retry { key }),
+            C::Launch if extension.enabled && extension.app.is_some() => {
+                send(ExtensionCommand::Launch { key })
+            }
+            C::Launch => Vec::new(),
             C::Update => send(ExtensionCommand::Update { key }),
             C::Remove => {
                 let name = extension.name.clone();
@@ -1236,6 +1278,7 @@ pub(crate) mod tests {
             log: Vec::new(),
             themes: Vec::new(),
             footswitch_mode: None,
+            app: None,
         };
         let mapper = InstalledExtension {
             update: Some("1.1.0".into()),
@@ -1285,6 +1328,7 @@ pub(crate) mod tests {
                 version: "0.1.0".into(),
                 description: String::new(),
                 duplicates: Vec::new(),
+                app: false,
             }],
             sources: vec![source(DEFAULT, true), source(OTHER, false)],
             pending_trust: None,
@@ -1458,6 +1502,33 @@ pub(crate) mod tests {
             activate(&mut ui, ext(ExtensionControl::Retry)),
             sent(ExtensionCommand::Retry { key: key("clock") })
         );
+    }
+
+    /// A program shows its button on the extension's page and starts on a tap, only while the
+    /// extension is on.
+    #[test]
+    fn a_program_button_launches_while_the_extension_is_on() {
+        let mut view = sample();
+        view.installed[1].app = Some("Play DOOM".into());
+        let mut ui = page(view.clone());
+        activate(&mut ui, ext(ExtensionControl::Open(1)));
+        let button = |ui: &UiState| {
+            (ui.hit_regions().into_iter())
+                .find(|region| region.control == ext(ExtensionControl::Launch))
+                .expect("the program button shows")
+        };
+        let shown = button(&ui);
+        assert_eq!((shown.label.as_str(), shown.enabled), ("Play DOOM", true));
+        let centre = shown.bounds.center();
+        assert_eq!(
+            crate::tests::tap(&mut ui, centre.0, centre.1),
+            sent(ExtensionCommand::Launch { key: key("clock") })
+        );
+
+        view.installed[1].enabled = false;
+        with_extensions(&mut ui, view);
+        assert!(!button(&ui).enabled);
+        assert!(activate(&mut ui, ext(ExtensionControl::Launch)).is_empty());
     }
 
     #[test]
