@@ -12,8 +12,8 @@ mod server;
 #[cfg(feature = "dev")]
 pub use api::AUTH_DOMAIN;
 pub use api::{
-    BackupOp, Call, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, PIN_HEADER, Reply, Request,
-    TabInfo, ThemesOp,
+    BackupOp, Call, EditorOp, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, PIN_HEADER,
+    Reply, Request, TabInfo, ThemesOp,
 };
 pub use http::{MAX_BODY, serve_one};
 pub use server::Server;

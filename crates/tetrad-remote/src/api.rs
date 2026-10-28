@@ -61,6 +61,10 @@ pub enum Request {
     Extensions { pin: String, op: ExtensionsOp },
     /// The themes of the unit and the theme files.
     Themes { pin: String, op: ThemesOp },
+    /// The mappings of the loaded preset and the global mappings (docs/mappings.md).
+    Mappings { pin: String, op: EditorOp },
+    /// The layouts of the Custom footswitch mode (docs/footswitch-modes.md).
+    Footswitch { pin: String, op: EditorOp },
     /// Dev build: the running version, and the proof that the unit takes updates.
     #[cfg(feature = "dev")]
     UpdateStatus { pin: String },
@@ -121,7 +125,9 @@ impl Request {
             | Self::Library { pin, .. }
             | Self::Backup { pin, .. }
             | Self::Extensions { pin, .. }
-            | Self::Themes { pin, .. } => pin,
+            | Self::Themes { pin, .. }
+            | Self::Mappings { pin, .. }
+            | Self::Footswitch { pin, .. } => pin,
             #[cfg(feature = "dev")]
             Self::UpdateStatus { pin }
             | Self::UpdateBegin { pin, .. }
@@ -208,6 +214,14 @@ pub enum ThemesOp {
     Select { id: String },
     /// Removes the theme file of `file:<id>`.
     Delete { id: String },
+}
+
+/// An editor page of data that the device keeps: the view, and one edit as JSON text that the
+/// device reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditorOp {
+    View,
+    Command { json: Vec<u8> },
 }
 
 /// One request for the device. `id` matches the [`Reply`] to the open connection.

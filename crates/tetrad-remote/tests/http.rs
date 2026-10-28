@@ -3,8 +3,8 @@ use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 use tetrad_remote::{
-    BackupOp, Call, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, MAX_BODY, Reply, Request,
-    Server, TabInfo, ThemesOp, serve_one,
+    BackupOp, Call, EditorOp, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, MAX_BODY, Reply,
+    Request, Server, TabInfo, ThemesOp, serve_one,
 };
 
 /// A connection: the request bytes in, the response bytes out.
@@ -810,6 +810,28 @@ fn the_page_routes_reach_the_device() {
             },
         ),
         (
+            format!("GET /api/footswitch HTTP/1.1\r\n{host}\r\n\r\n").into(),
+            Request::Footswitch {
+                pin: pin(),
+                op: EditorOp::View,
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/mappings/command HTTP/1.1\r\n{host}\r\n\
+                     Content-Length: 2\r\n\r\n"
+                ),
+                b"{}",
+            ),
+            Request::Mappings {
+                pin: pin(),
+                op: EditorOp::Command {
+                    json: b"{}".to_vec(),
+                },
+            },
+        ),
+        (
             upload(
                 &format!(
                     "POST /api/themes/select?id=file%3Adusk HTTP/1.1\r\n{host}\r\n\
@@ -898,7 +920,15 @@ fn bad_page_requests_are_refused_without_a_device_call() {
 #[test]
 fn the_page_has_every_part() {
     let (_, page, _) = exchange(b"GET / HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n", Reply::Off);
-    for id in ["irs", "backup", "themes", "notices", "extensions"] {
+    for id in [
+        "irs",
+        "mappings",
+        "footswitch",
+        "backup",
+        "themes",
+        "notices",
+        "extensions",
+    ] {
         assert!(page.contains(&format!("<section id=\"{id}\"")), "{id}");
     }
     assert!(!page.contains("<!--parts-->"));

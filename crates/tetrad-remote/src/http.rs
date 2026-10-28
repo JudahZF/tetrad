@@ -3,7 +3,9 @@
 
 use std::io::{self, Read, Write};
 
-use crate::api::{BackupOp, ExtensionsOp, LibraryOp, PIN_HEADER, Reply, Request, ThemesOp};
+use crate::api::{
+    BackupOp, EditorOp, ExtensionsOp, LibraryOp, PIN_HEADER, Reply, Request, ThemesOp,
+};
 
 const MAX_HEAD: usize = 8 * 1024;
 const MAX_HEADERS: usize = 32;
@@ -14,8 +16,10 @@ const PAGE: &str = include_str!("page.html");
 /// Where the pages of the sidebar go ([`page`]). Each part adds its own section, style and
 /// script.
 const PARTS_MARK: &str = "<!--parts-->";
-const PARTS: [&str; 5] = [
+const PARTS: [&str; 7] = [
     include_str!("parts/irs.html"),
+    include_str!("parts/mappings.html"),
+    include_str!("parts/footswitch.html"),
     include_str!("parts/backup.html"),
     include_str!("parts/themes.html"),
     include_str!("parts/notices.html"),
@@ -299,6 +303,22 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
                 id: file_id(&head.query)?,
             },
         })),
+        ("GET", "/api/mappings") => Ok(Route::Device(Request::Mappings {
+            pin: device(head.pin)?,
+            op: EditorOp::View,
+        })),
+        ("POST", "/api/mappings/command") => Ok(Route::Device(Request::Mappings {
+            pin: device(head.pin)?,
+            op: EditorOp::Command { json: body },
+        })),
+        ("GET", "/api/footswitch") => Ok(Route::Device(Request::Footswitch {
+            pin: device(head.pin)?,
+            op: EditorOp::View,
+        })),
+        ("POST", "/api/footswitch/command") => Ok(Route::Device(Request::Footswitch {
+            pin: device(head.pin)?,
+            op: EditorOp::Command { json: body },
+        })),
         (
             _,
             "/api/status"
@@ -316,7 +336,11 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
             | "/api/themes"
             | "/api/themes/save"
             | "/api/themes/select"
-            | "/api/themes/delete",
+            | "/api/themes/delete"
+            | "/api/mappings"
+            | "/api/mappings/command"
+            | "/api/footswitch"
+            | "/api/footswitch/command",
         ) => Err(Fail::Status(405, "method not allowed")),
         (_, path) if PAGE_PATHS.contains(&path) => Err(Fail::Status(405, "method not allowed")),
         _ => Err(Fail::Status(404, "not found")),

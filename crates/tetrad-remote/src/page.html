@@ -391,7 +391,7 @@ async function sendFile(info, file, line) {
 
 /* Pages: every section of #panes with a data-tab that is not hidden is a page in the sidebar,
    under its data-group. The sidebar shows whenever the PIN is accepted. */
-const GROUPS = ["Library", "Unit", "Extensions", "Developer"];
+const GROUPS = ["Library", "Controls", "Unit", "Extensions", "Developer"];
 let currentTab = "";
 function syncTabs() {
   const all = [...document.querySelectorAll("#panes > section[data-tab]")];

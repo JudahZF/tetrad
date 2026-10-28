@@ -256,6 +256,8 @@ impl<P: Platform> Device<P> {
             Request::Backup { op, .. } => self.remote_backup(op),
             Request::Extensions { op, .. } => self.remote_extensions(op),
             Request::Themes { op, .. } => self.remote_themes(op),
+            Request::Mappings { op, .. } => self.remote_mappings(op),
+            Request::Footswitch { op, .. } => self.remote_footswitch(op),
             #[cfg(feature = "dev")]
             Request::UpdateStatus { .. } => Reply::UpdateStatus {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
