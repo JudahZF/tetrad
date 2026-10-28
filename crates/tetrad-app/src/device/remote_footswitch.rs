@@ -378,10 +378,12 @@ fn slot_action(
     Ok(match action {
         Action::System {
             action: SystemAction::CustomPage(PageStep::Go(page)),
-        } if page >= view.pages => return Err(format!("There is no page {}", page + 1)),
+        } if page >= view.pages => {
+            return Err(format!("There is no page {}", u16::from(page) + 1));
+        }
         Action::System {
             action: SystemAction::Scene(scene),
-        } if scene >= 8 => return Err(format!("There is no scene {}", scene + 1)),
+        } if scene >= 8 => return Err(format!("There is no scene {}", u16::from(scene) + 1)),
         Action::System { action } => SlotAction::System(action),
         Action::Block {
             row,

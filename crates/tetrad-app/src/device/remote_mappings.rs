@@ -246,7 +246,7 @@ fn checked(
                 .map(|shown| shown.id)
                 .find(|&shown| field_key(shown) == field)
                 .ok_or_else(|| format!("{} has no value {field}", row.trigger_label))?;
-            if ticks == 0 || ticks.abs() > 127 {
+            if ticks == 0 || !(-127..=127).contains(&ticks) {
                 return Err("ticks goes from -127 to 127 and is not 0".into());
             }
             MappingCommand::StepField {

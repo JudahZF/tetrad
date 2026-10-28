@@ -345,6 +345,10 @@ fn a_bad_command_is_refused_with_a_reason_and_changes_nothing() {
             "is not 0",
         ),
         (
+            row("step", json!({ "field": "low", "ticks": i32::MIN })),
+            "goes from -127 to 127",
+        ),
+        (
             row(
                 "trigger",
                 json!({ "trigger": { "kind": "extension", "key": "a/b:c", "trigger": "midi" } }),

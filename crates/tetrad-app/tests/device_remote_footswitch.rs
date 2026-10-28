@@ -419,6 +419,15 @@ fn a_bad_command_is_refused_and_writes_nothing() {
     let cases = [
         (edit("global", 2, 0, tuner.clone()), "There is no page 3"),
         (
+            edit(
+                "global",
+                0,
+                0,
+                json!({ "kind": "action", "action": { "kind": "system", "action": { "customPage": { "go": 255 } } } }),
+            ),
+            "There is no page 256",
+        ),
+        (
             edit("global", 0, 10, tuner.clone()),
             "There is no switch 11",
         ),

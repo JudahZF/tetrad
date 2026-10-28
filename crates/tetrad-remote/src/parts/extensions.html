@@ -176,7 +176,8 @@
     } else {
       input = el("input", { type: "number", min: s.min, max: s.max, step: 1, value: s.value });
       input.addEventListener("change", () => {
-        const value = Number(input.value);
+        // NaN for an empty field: it is refused, not sent as 0.
+        const value = input.valueAsNumber;
         if (Number.isInteger(value) && value >= s.min && value <= s.max) change(value);
         else say(s.label + " is a whole number from " + s.min + " to " + s.max, "failed");
       });
