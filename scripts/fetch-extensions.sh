@@ -19,7 +19,10 @@ for file in tetrad-extensions.json tetrad-extensions.sig tetrad-extensions.pub; 
     curl -fsSL -o "$dir/$file" "https://raw.githubusercontent.com/$repo/HEAD/$file"
 done
 
-jq -r '.extensions[].asset | "\(.tag) \(.name) \(.sha256)"' "$dir/tetrad-extensions.json" |
+# Not piped: `set -e` sees a jq failure only outside a pipeline.
+assets=$(jq -r '.extensions[].asset | "\(.tag) \(.name) \(.sha256)"' "$dir/tetrad-extensions.json")
+count=$(jq '.extensions | length' "$dir/tetrad-extensions.json")
+printf '%s\n' "$assets" |
     while read -r tag name sha256; do
         package="$dir/packages/$name"
         if ! echo "$sha256  $package" | sha256sum -c --status - 2>/dev/null; then
@@ -28,4 +31,4 @@ jq -r '.extensions[].asset | "\(.tag) \(.name) \(.sha256)"' "$dir/tetrad-extensi
                 { echo "error: $name does not match the catalog" >&2; exit 1; }
         fi
     done
-echo "$repo: $(jq '.extensions | length' "$dir/tetrad-extensions.json") packages in $dir/packages"
+echo "$repo: $count packages in $dir/packages"

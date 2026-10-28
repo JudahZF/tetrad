@@ -21,11 +21,12 @@ use tetrad_extensions::runner::{self, Limits};
 const A1: &str = "tetrad.nam";
 const A2: &str = "tetrad.nam-a2";
 
-/// The newest published package of extension `id`.
+/// The newest published package of extension `id`; `None` without `TETRAD_EXTENSIONS_DIR`. A
+/// folder without the package fails the test.
 fn package(id: &str) -> Option<Package> {
     let dir = Path::new(&std::env::var_os("TETRAD_EXTENSIONS_DIR")?).join("packages");
-    std::fs::read_dir(&dir)
-        .ok()?
+    let newest = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
@@ -34,7 +35,8 @@ fn package(id: &str) -> Option<Package> {
         })
         .map(|p| Package::decode(&std::fs::read(p).unwrap()).unwrap())
         .filter(|package| package.manifest.id == id)
-        .max_by(|a, b| a.manifest.version.cmp(&b.manifest.version))
+        .max_by(|a, b| a.manifest.version.cmp(&b.manifest.version));
+    Some(newest.unwrap_or_else(|| panic!("no {id} package in {}", dir.display())))
 }
 
 struct Host {

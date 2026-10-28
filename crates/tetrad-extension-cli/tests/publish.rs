@@ -194,6 +194,12 @@ fn a_program_publishes_its_files_as_assets() {
             .success()
     };
     assert!(sign("r2"));
+    // A catalog changed without the key is not signed again.
+    let catalog_path = tmp.0.join("repo/tetrad-extensions.json");
+    let signed = fs::read_to_string(&catalog_path).unwrap();
+    fs::write(&catalog_path, signed.replace("\"r1\"", "\"rX\"")).unwrap();
+    assert!(!sign("r3"), "an edited catalog");
+    fs::write(&catalog_path, signed).unwrap();
     fs::write(&qcdoom, elf).unwrap();
 
     tetrad_ext(&[
