@@ -1,5 +1,5 @@
-//! Remote (docs/remote.md): the web page Tetrad serves on the LAN to upload IRs and to download
-//! the support file (docs/support.md). This crate
+//! Remote (docs/remote.md): the web page Tetrad serves on the LAN to manage IRs, backups,
+//! extensions and themes, and to download the support file (docs/support.md). This crate
 //! reads HTTP, routes requests and runs the server thread. It does no library work: each
 //! request that needs the device goes out as a [`Call`], and the device answers it with a
 //! [`Reply`].
@@ -11,7 +11,10 @@ mod server;
 
 #[cfg(feature = "dev")]
 pub use api::AUTH_DOMAIN;
-pub use api::{Call, ExtensionFiles, FileEntry, PIN_HEADER, Reply, Request, TabInfo};
+pub use api::{
+    BackupOp, Call, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, PIN_HEADER, Reply, Request,
+    TabInfo, ThemesOp,
+};
 pub use http::{MAX_BODY, serve_one};
 pub use server::Server;
 

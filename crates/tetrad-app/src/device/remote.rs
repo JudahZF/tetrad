@@ -251,6 +251,11 @@ impl<P: Platform> Device<P> {
                 let (name, zip) = self.support_file();
                 Reply::File { name, zip }
             }
+            Request::Notices { .. } => self.remote_notices(),
+            Request::Library { op, .. } => self.remote_library(op),
+            Request::Backup { op, .. } => self.remote_backup(op),
+            Request::Extensions { op, .. } => self.remote_extensions(op),
+            Request::Themes { op, .. } => self.remote_themes(op),
             #[cfg(feature = "dev")]
             Request::UpdateStatus { .. } => Reply::UpdateStatus {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -451,6 +456,29 @@ impl<P: Platform> Device<P> {
             }
             Err(error) => self.remote_update_refused(error.to_string()),
         }
+    }
+
+    /// The recent notices, newest last, without the private values (as in the support file).
+    /// `ago` is in seconds, so the page can show the time of day from its own clock.
+    fn remote_notices(&self) -> Reply {
+        use tetrad_dsp_host::session::Clock;
+        let now = self.clock.now();
+        let notices = &self.state.notices;
+        let list: Vec<_> = (notices.iter())
+            .map(|notice| {
+                let detail = super::support::private_out(&self.state, notice.detail.clone().into());
+                serde_json::json!({
+                    "ago": now.saturating_sub(notice.at).as_secs(),
+                    "subsystem": format!("{:?}", notice.subsystem),
+                    "detail": String::from_utf8_lossy(&detail),
+                })
+            })
+            .collect();
+        Reply::Json(serde_json::json!({
+            "notices": list,
+            "dropped": notices.dropped,
+            "repeats": notices.repeats,
+        }))
     }
 
     /// The recent notices as `usb.rs` lists them: the time, the subsystem and the text.

@@ -19,23 +19,30 @@
 html { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--font); }
 body { margin: 0; }
 main { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
-main.wide { max-width: 980px; }
+main.wide { max-width: 1040px; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
 h1 { margin: 0; font-size: 34px; line-height: 1.1; text-transform: uppercase; letter-spacing: .01em; }
 h1 span { color: var(--accent); }
-.sub { color: var(--muted); margin: 6px 0 28px; }
+.sub { color: var(--muted); margin: 6px 0 0; }
+.actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.actions small { display: block; color: var(--muted); font-size: 13px; text-align: right; }
+.actions small:empty { display: none; }
 [hidden] { display: none !important; }
 form { display: flex; gap: 10px; flex-wrap: wrap; }
-input[type=text] {
-  font: 700 28px/1 var(--font); letter-spacing: .3em; width: 9ch; padding: 10px 14px;
-  background: var(--panel); color: var(--fg); border: 2px solid var(--line); border-radius: 12px;
+input[type=text], input[type=number], select {
+  font: 16px var(--font); padding: 8px 12px; min-height: 42px;
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px;
 }
-input[type=text]:focus { outline: none; border-color: var(--accent); }
+input[type=text]:focus, input[type=number]:focus, select:focus { outline: none; border-color: var(--accent); }
+#pin { font: 700 28px/1 var(--font); letter-spacing: .3em; width: 9ch; padding: 10px 14px; border-width: 2px; border-radius: 12px; }
 button {
   font: 600 16px var(--font); padding: 0 22px; min-height: 52px; border: 0; border-radius: 12px;
   background: var(--accent); color: #fff; cursor: pointer;
 }
+button.ghost { background: var(--panel); color: var(--fg); border: 1px solid var(--line); min-height: 42px; padding: 0 16px; font-size: 15px; }
 .link { background: none; color: var(--muted); padding: 0; min-height: 0; text-decoration: underline; white-space: nowrap; }
 .message { min-height: 1.5em; margin: 12px 0 0; color: var(--bad); }
+.message.ok { color: var(--good); }
 .drop {
   display: block; border: 2px dashed var(--accent); border-radius: 16px; padding: 40px 20px;
   text-align: center; color: var(--muted); cursor: pointer;
@@ -58,6 +65,8 @@ li .state { font-weight: 600; white-space: nowrap; }
 .side button:hover { background: var(--panel); }
 .side button[aria-selected=true] { background: var(--accent); color: #fff; }
 .panes { min-width: 0; }
+.panes > section > h2 { margin: 0 0 12px; font-size: 22px; text-transform: uppercase; }
+.panes > section > .lead { color: var(--muted); margin: 0 0 16px; }
 .tab-off { display: none !important; }
 iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 @media (max-width: 720px) {
@@ -66,25 +75,32 @@ iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); bo
   .side .group { display: none; }
   .side button { min-height: 40px; background: var(--panel); border: 1px solid var(--line); }
 }
-.ext { margin: 0; }
-.ext h2 { margin: 0 0 12px; font-size: 22px; text-transform: uppercase; }
-.small { min-height: 0; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border: 1px solid var(--line); }
+.small { min-height: 0; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); }
+.small.danger { color: var(--bad); }
+.small.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .ready { color: var(--good); }
-.foot { margin-top: 28px; color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; }
-.support { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line);
-  display: flex; justify-content: space-between; align-items: center; gap: 14px; }
-.support small { display: block; color: var(--muted); font-size: 13px; }
-.support small:empty { display: none; }
+.foot { margin-top: 28px; color: var(--muted); font-size: 13px; }
 button:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Tetrad Remote<span>.</span></h1>
-  <p class="sub" id="sub">Upload IRs and extension files to your Quad Cortex.</p>
+  <header class="top">
+    <div>
+      <h1>Tetrad Remote<span>.</span></h1>
+      <p class="sub" id="sub">Manage the IRs, backups, extensions and themes of your Quad Cortex.</p>
+    </div>
+    <div class="actions" id="actions" hidden>
+      <div>
+        <button class="ghost" id="support" type="button" title="Versions, settings and logs for a bug report. No passwords, tokens or presets.">Support file</button>
+        <small id="support-state" role="status"></small>
+      </div>
+      <button class="link" id="forget" type="button">Change PIN</button>
+    </div>
+  </header>
 
   <section id="login">
-    <p>Enter the PIN from <b>Settings → Tetrad → Remote</b> on the unit.</p>
+    <p>Enter the PIN from <b>Settings → Tetrad → Remote</b> on the unit, or scan the code on that page.</p>
     <form id="pin-form" autocomplete="off">
       <input id="pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required aria-label="PIN">
       <button type="submit">Connect</button>
@@ -94,52 +110,39 @@ button:disabled { opacity: .5; cursor: default; }
 
   <div class="shell" id="shell" hidden>
   <nav class="side" id="tabs" aria-label="Pages"></nav>
-  <div class="panes" id="panes">
-  <section id="upload" data-tab="IRs" data-group="Library" hidden>
-    <label class="drop" id="drop">
-      <strong>Drop IR files here</strong>
-      or tap to choose. WAV or AIFF, any sample rate, mono or stereo.
-      <input id="files" type="file" multiple accept=".wav,.wave,.aif,.aiff,audio/wav,audio/x-wav,audio/aiff">
-    </label>
-    <ul id="list"></ul>
-    <div class="foot">
-      <span>The unit keeps the first 1,024 samples (21 ms) at 48 kHz, as stock does.</span>
-      <button class="link" id="forget" type="button">Change PIN</button>
-    </div>
-    <div class="support">
-      <div>
-        <b>Support file</b>
-        <small>Versions, settings and logs for a bug report. No passwords, tokens or presets.</small>
-        <small id="support-state" role="status"></small>
-      </div>
-      <button id="support" type="button">Download</button>
-    </div>
-  </section>
-
-  </div>
+  <div class="panes" id="panes"></div>
   </div>
 </main>
 <script>
 "use strict";
-const RATE = 48000;
-const SAMPLES = 1024;
-const MAX_NAME = 60;
 const PIN_KEY = "tetrad-remote-pin";
+const AGAIN = "Enter the PIN shown on the unit";
 
 const $ = (id) => document.getElementById(id);
 let pin = localStorage.getItem(PIN_KEY) || "";
+/** Uploads go one at a time, across all pages. */
 let queue = Promise.resolve();
+
+/**
+ * The pages in parts/ add their section to #panes and register here:
+ * `connect()` runs when the PIN is accepted, `disconnect()` when the page asks for the PIN again,
+ * and `refresh()` every few seconds while the page is open and visible.
+ */
+const parts = [];
 
 function show(loggedIn, message) {
   $("login").hidden = loggedIn;
-  $("upload").hidden = !loggedIn;
-  if (!loggedIn && $("update")) $("update").hidden = true;
   $("shell").hidden = !loggedIn;
+  $("actions").hidden = !loggedIn;
+  if (!loggedIn && $("update")) $("update").hidden = true;
   document.querySelector("main").classList.toggle("wide", loggedIn);
-  if (!loggedIn) for (const entry of extensionFiles.values()) entry.box.remove();
-  if (!loggedIn) extensionFiles.clear();
-  if (!loggedIn) for (const tab of extensionTabs.values()) tab.section.remove();
-  if (!loggedIn) extensionTabs.clear();
+  if (!loggedIn) {
+    for (const entry of extensionFiles.values()) entry.box.remove();
+    extensionFiles.clear();
+    for (const tab of extensionTabs.values()) tab.section.remove();
+    extensionTabs.clear();
+    for (const part of parts) if (part.disconnect) part.disconnect();
+  }
   syncTabs();
   $("login-message").textContent = message || "";
 }
@@ -153,80 +156,37 @@ async function call(path, options) {
     return { status: 0, body: { error: "The unit is not reachable" } };
   }
   const body = await response.json().catch(() => ({ error: "Unexpected answer" }));
+  // A 401 after the login: the unit made a new PIN (Remote restarted, or too many wrong PINs).
+  if (response.status === 401) forget($("shell").hidden ? body.error : AGAIN);
   return { status: response.status, body };
+}
+
+/** A POST with the query `params` and an empty body. */
+function post(path, params) {
+  const query = new URLSearchParams(params || {}).toString();
+  return call(path + (query ? "?" + query : ""), { method: "POST", body: "" });
 }
 
 async function connect(candidate) {
   pin = candidate;
   const { status, body } = await call("/api/status");
-  // 422: the PIN is right but IRs cannot be saved now (the library is closed). The support
-  // file still downloads, and it may show why.
+  // 422: the PIN is right but IRs cannot be saved now (the library is closed). The other pages
+  // and the support file still work, and the support file may show why.
   if (status === 200 || status === 422) {
     localStorage.setItem(PIN_KEY, pin);
-    $("sub").textContent = status === 200 ? "Saving to: " + body.folder : body.error;
+    $("sub").textContent = status === 200 ? "Saving IRs to: " + body.folder : body.error;
     show(true);
     // Only a dev build has it (update.html).
     if (typeof offerUpdate === "function") offerUpdate();
+    for (const part of parts) if (part.connect) part.connect();
     pollFiles();
     loadTabs();
     return;
   }
-  forget(body.error);
+  if (status !== 401) forget(body.error);
 }
 
-/** The file name without its extension, as the unit shows names: at most 60 UTF-16 units. */
-function irName(file) {
-  let name = file.name.replace(/\.[^.]*$/, "").replace(/\s+/g, " ").trim();
-  if (name.length > MAX_NAME) {
-    name = name.slice(0, MAX_NAME);
-    const last = name.charCodeAt(name.length - 1);
-    if (last >= 0xd800 && last <= 0xdbff) name = name.slice(0, -1);
-  }
-  return name;
-}
-
-/**
- * Any file the browser decodes → 48 kHz (decodeAudioData resamples to its context rate) →
- * one channel (the destination mixes stereo to ½ L + ½ R) → the first 1,024 samples.
- */
-async function convert(file) {
-  const decoded = await new OfflineAudioContext(1, 1, RATE).decodeAudioData(await file.arrayBuffer());
-  const frames = Math.min(SAMPLES, decoded.length);
-  const context = new OfflineAudioContext(1, frames, RATE);
-  const source = context.createBufferSource();
-  source.buffer = decoded;
-  source.connect(context.destination);
-  source.start();
-  const rendered = await context.startRendering();
-  const count = decoded.numberOfChannels;
-  const channels = count === 1 ? "mono" : (count === 2 ? "stereo" : count + " channels") + " → mono";
-  const cut = decoded.length > SAMPLES ? ", first " + SAMPLES + " samples" : "";
-  return { samples: rendered.getChannelData(0), detail: "48 kHz " + channels + cut };
-}
-
-/** The stock IR WAV: RIFF, an 18-byte IEEE-float fmt chunk, the data chunk at byte 38. */
-function wav(samples) {
-  const view = new DataView(new ArrayBuffer(46 + samples.length * 4));
-  const tag = (at, text) => { for (let i = 0; i < 4; i++) view.setUint8(at + i, text.charCodeAt(i)); };
-  tag(0, "RIFF");
-  view.setUint32(4, 38 + samples.length * 4, true);
-  tag(8, "WAVE");
-  tag(12, "fmt ");
-  view.setUint32(16, 18, true);
-  view.setUint16(20, 3, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, RATE, true);
-  view.setUint32(28, RATE * 4, true);
-  view.setUint16(32, 4, true);
-  view.setUint16(34, 32, true);
-  view.setUint16(36, 0, true);
-  tag(38, "data");
-  view.setUint32(42, samples.length * 4, true);
-  samples.forEach((sample, i) => view.setFloat32(46 + i * 4, sample, true));
-  return view.buffer;
-}
-
-function row(file, list = $("list")) {
+function row(file, list) {
   const item = document.createElement("li");
   const name = document.createElement("span");
   name.className = "name";
@@ -246,26 +206,16 @@ function row(file, list = $("list")) {
   };
 }
 
-async function send(file, line) {
-  const name = irName(file);
-  if (!name) return line.set("No name", "failed");
-  line.set("Converting…", "working");
-  let converted;
-  try {
-    converted = await convert(file);
-  } catch (error) {
-    return line.set("Not an audio file", "failed");
-  }
-  line.set("Uploading…", "working", converted.detail);
-  const { status, body } = await call("/api/irs?name=" + encodeURIComponent(name), {
-    method: "POST",
-    headers: { "Content-Type": "audio/wav" },
-    body: wav(converted.samples),
+/** A drop box: files dropped on it, or chosen with a tap, go to `take`. */
+function dropZone(drop, input, take) {
+  input.addEventListener("change", (event) => { take(event.target.files); event.target.value = ""; });
+  drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    drop.classList.remove("over");
+    take(event.dataTransfer.files);
   });
-  if (status === 200) return line.set("Added as " + body.name, "added");
-  line.set(body.error || "Failed", "failed");
-  // The unit made a new PIN (Remote restarted, or too many wrong PINs).
-  if (status === 401) forget("Enter the PIN shown on the unit");
 }
 
 /** GET /api/support with the PIN header, saved through a Blob link (a plain link sends no PIN). */
@@ -283,19 +233,23 @@ async function downloadSupport() {
   }
   button.disabled = false;
   if (response && response.ok) {
-    const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "");
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(await response.blob());
-    link.download = named ? named[1] : "tetrad-support.zip";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
-    return set("Saved " + link.download, "added");
+    save(await response.blob(), (/filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "") || [])[1] || "tetrad-support.zip");
+    return set("Saved", "added");
   }
   const body = response
     ? await response.json().catch(() => ({}))
     : { error: "The unit is not reachable" };
   set(body.error || "Failed", "failed");
-  if (response && response.status === 401) forget("Enter the PIN shown on the unit");
+  if (response && response.status === 401) forget(AGAIN);
+}
+
+/** Saves `blob` as a download named `name`. */
+function save(blob, name) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
 }
 
 function forget(message) {
@@ -303,14 +257,6 @@ function forget(message) {
   pin = "";
   $("pin").value = "";
   show(false, message);
-}
-
-function add(files) {
-  for (const file of files) {
-    const line = row(file);
-    line.set("Waiting", "working");
-    queue = queue.then(() => send(file, line));
-  }
 }
 
 const FILE_CHUNK = 48 * 1024;
@@ -336,7 +282,6 @@ function fileName(name, allowed) {
 
 async function loadFiles() {
   const { status, body } = await call("/api/files");
-  if (status === 401) return forget("Enter the PIN shown on the unit");
   if (status !== 200) return [];
   const seen = new Set();
   for (const info of body.extensions) {
@@ -362,7 +307,6 @@ async function pollFiles(again) {
 /** The page of an extension that takes files: a page of the sidebar with its name. */
 function buildExtension(info) {
   const box = document.createElement("section");
-  box.className = "ext";
   box.dataset.tab = info.name;
   box.dataset.group = "Extensions";
   const title = document.createElement("h2");
@@ -379,7 +323,7 @@ function buildExtension(info) {
   box.append(title, drop, results, list);
   $("panes").append(box);
   let current = info;
-  const add = (files) => {
+  dropZone(drop, input, (files) => {
     for (const file of files) {
       const line = row(file, results);
       line.set("Waiting", "working");
@@ -387,14 +331,6 @@ function buildExtension(info) {
         .then(() => { uploading++; return sendFile(current, file, line).finally(() => { uploading--; }); })
         .then(() => pollFiles());
     }
-  };
-  input.addEventListener("change", (event) => { add(event.target.files); event.target.value = ""; });
-  drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
-  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-  drop.addEventListener("drop", (event) => {
-    event.preventDefault();
-    drop.classList.remove("over");
-    add(event.dataTransfer.files);
   });
   return {
     box,
@@ -420,16 +356,13 @@ function fileRow(info, file) {
   name.append(detail);
   const remove = document.createElement("button");
   remove.type = "button";
-  remove.className = "small";
+  remove.className = "small danger";
   remove.textContent = "Delete";
   remove.addEventListener("click", async () => {
     if (!confirm("Delete " + file.name + " from the unit?")) return;
     remove.disabled = true;
-    const { status, body } = await call(
-      "/api/files/delete?id=" + encodeURIComponent(info.id) + "&name=" + encodeURIComponent(file.name),
-      { method: "POST", body: "" },
-    );
-    if (status === 401) return forget("Enter the PIN shown on the unit");
+    const { status, body } = await post("/api/files/delete", { id: info.id, name: file.name });
+    if (status === 401) return;
     if (status !== 200) { remove.disabled = false; alert(body.error || "Failed"); return; }
     pollFiles();
   });
@@ -451,7 +384,6 @@ async function sendFile(info, file, line) {
         "&offset=" + offset + last,
       { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file.slice(offset, end) },
     );
-    if (status === 401) forget("Enter the PIN shown on the unit");
     if (status !== 200) return line.set(body.error || "Failed", "failed");
   }
   line.set("Added", "added", renamed || bytes(file.size));
@@ -459,7 +391,7 @@ async function sendFile(info, file, line) {
 
 /* Pages: every section of #panes with a data-tab that is not hidden is a page in the sidebar,
    under its data-group. The sidebar shows whenever the PIN is accepted. */
-const GROUPS = ["Library", "Extensions", "Developer"];
+const GROUPS = ["Library", "Unit", "Extensions", "Developer"];
 let currentTab = "";
 function syncTabs() {
   const all = [...document.querySelectorAll("#panes > section[data-tab]")];
@@ -519,7 +451,6 @@ const extensionTabs = new Map();
 
 async function loadTabs() {
   const { status, body } = await call("/api/tabs");
-  if (status === 401) return forget("Enter the PIN shown on the unit");
   if (status !== 200) return;
   const present = new Set(body.tabs.map((info) => info.id));
   for (const [id, tab] of extensionTabs) {
@@ -547,7 +478,7 @@ async function showTab(name) {
     if (tab.info.title !== name || tab.loaded) continue;
     tab.loaded = true;
     const { status, body } = await call("/api/tabs/page?id=" + encodeURIComponent(tab.info.id));
-    if (status === 401) return forget("Enter the PIN shown on the unit");
+    if (status === 401) return;
     tab.frame.srcdoc = status === 200 ? FRAME_BRIDGE + body.html : "<p>" + (body.error || "Failed") + "</p>";
   }
 }
@@ -561,7 +492,6 @@ window.addEventListener("message", async (event) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(m.message === undefined ? null : m.message),
   });
-  if (status === 401) forget("Enter the PIN shown on the unit");
   const answer = status === 200 ? { result: body.result } : { error: body.error || "Failed" };
   event.source.postMessage(Object.assign({ type: "tetrad-reply", n: m.n }, answer), "*");
 });
@@ -572,6 +502,7 @@ setInterval(async () => {
   if (!pin || document.hidden || uploading || $("shell").hidden) return;
   await loadFiles();
   await loadTabs();
+  for (const part of parts) if (part.refresh) part.refresh();
 }, 8000);
 
 $("pin-form").addEventListener("submit", (event) => {
@@ -580,24 +511,24 @@ $("pin-form").addEventListener("submit", (event) => {
 });
 $("forget").addEventListener("click", () => forget());
 $("support").addEventListener("click", downloadSupport);
-$("files").addEventListener("change", (event) => {
-  add(event.target.files);
-  event.target.value = "";
-});
-const drop = $("drop");
-drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
-drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-drop.addEventListener("drop", (event) => {
-  event.preventDefault();
-  drop.classList.remove("over");
-  add(event.dataTransfer.files);
-});
-// Files dropped beside the zone would open in the tab.
+// Files dropped beside a drop box would open in the tab.
 window.addEventListener("dragover", (event) => event.preventDefault());
 window.addEventListener("drop", (event) => event.preventDefault());
-
+</script>
+<!--parts-->
+<!--update-->
+<script>
+"use strict";
+// The code on the unit's Remote page opens this page with the PIN after the #. The browser does
+// not send that part to the unit; it leaves the address bar here.
+{
+  const scanned = /^#pin=([0-9]{4})$/.exec(location.hash);
+  if (scanned) {
+    pin = scanned[1];
+    history.replaceState(null, "", location.pathname);
+  }
+}
 if (pin) connect(pin); else show(false);
 </script>
-<!--update-->
 </body>
 </html>
