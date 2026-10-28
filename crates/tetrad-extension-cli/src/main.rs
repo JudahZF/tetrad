@@ -90,7 +90,8 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Write and sign the catalog for `<repo-dir>/packages/*.tetradext`.
+    /// Write and sign the catalog for `<repo-dir>/packages/*.tetradext`. The program files of a
+    /// new package must be next to it, as `tetrad-ext package` writes them.
     Catalog {
         #[arg(long)]
         repo_dir: PathBuf,
@@ -452,8 +453,15 @@ fn catalog(repo: &Path, key_path: &Path, tag: &str) -> Result {
     let key = read_signing_key(key_path)?;
     let catalog_path = repo.join(CATALOG_FILE);
     // Packages already published keep the tag of the release that holds them.
+    // The catalog in the folder (a fetched one, for example) keeps tags and counts as published
+    // only with this key's signature: a changed catalog never gets signed again unseen.
     let previous = match fs::read(&catalog_path) {
-        Ok(bytes) => Catalog::parse_unsigned(&bytes)?.extensions,
+        Ok(bytes) => {
+            let signature = read(&repo.join(SIGNATURE_FILE))?;
+            Catalog::verify(&bytes, &signature, &public_key(&key)?)
+                .map_err(|e| format!("{}: {e}", catalog_path.display()))?
+                .extensions
+        }
         Err(_) => Vec::new(),
     };
 
@@ -473,12 +481,14 @@ fn catalog(repo: &Path, key_path: &Path, tag: &str) -> Result {
             .ok_or("bad file name")?
             .to_owned();
         let sha256 = sha256_hex(&bytes);
-        let tag = previous
+        let published = previous
             .iter()
-            .find(|e| e.asset.name == name && e.asset.sha256 == sha256)
-            .map_or(tag, |e| e.asset.tag.as_str())
-            .to_owned();
-        for file in &package.app_files {
+            .find(|e| e.asset.name == name && e.asset.sha256 == sha256);
+        let tag = published.map_or(tag, |e| e.asset.tag.as_str()).to_owned();
+        // The program files of a new package must be here to upload. A published package keeps
+        // them in its release, so a checkout without them can still sign the catalog.
+        let new_files = (published.is_none()).then_some(&package.app_files);
+        for file in new_files.into_iter().flatten() {
             let asset = Package::app_asset_name(&name, &file.name);
             let bytes = read(&repo.join("packages").join(&asset))?;
             if bytes.len() as u64 != file.size || sha256_hex(&bytes) != file.sha256 {

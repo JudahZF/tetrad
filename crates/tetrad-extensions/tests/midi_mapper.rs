@@ -12,10 +12,12 @@ use tetrad_extensions::protocol::{
 };
 use tetrad_extensions::runner::{self, Limits};
 
+/// The newest published package, from `TETRAD_EXTENSIONS_DIR` (`scripts/fetch-extensions.sh`);
+/// `None` without the variable. A folder without the package fails the test.
 fn package() -> Option<Package> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/repository/packages");
-    std::fs::read_dir(&dir)
-        .ok()?
+    let dir = Path::new(&std::env::var_os("TETRAD_EXTENSIONS_DIR")?).join("packages");
+    let newest = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
@@ -23,7 +25,8 @@ fn package() -> Option<Package> {
             name.starts_with("tetrad.midi-mapper-") && name.ends_with(".tetradext")
         })
         .map(|p| Package::decode(&std::fs::read(p).unwrap()).unwrap())
-        .max_by(|a, b| a.manifest.version.cmp(&b.manifest.version))
+        .max_by(|a, b| a.manifest.version.cmp(&b.manifest.version));
+    Some(newest.unwrap_or_else(|| panic!("no MIDI Mapper package in {}", dir.display())))
 }
 
 struct Host {
@@ -92,7 +95,7 @@ fn midi(message: MidiEvent) -> Event {
 #[test]
 fn fires_a_trigger_for_each_cc_note_and_program_change() {
     let Some(package) = package() else {
-        eprintln!("skipped: build extensions/repository/packages/*midi-mapper*.tetradext first");
+        eprintln!("skipped: set TETRAD_EXTENSIONS_DIR (scripts/fetch-extensions.sh)");
         return;
     };
     let (input, to_runner) = std::io::pipe().unwrap();
