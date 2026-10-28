@@ -93,6 +93,8 @@
   }
 
   async function send(command) {
+    // An edit can renumber the rows, so the next one waits for the reply and its new ids.
+    if (sending) return say("Wait for the last change to reach the unit", "working");
     sending = true;
     // The value in a list or a box is sent; the reply may redraw it.
     if (document.activeElement && $("mappings").contains(document.activeElement)) document.activeElement.blur();

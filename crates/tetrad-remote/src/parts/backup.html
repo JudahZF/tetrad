@@ -76,7 +76,13 @@
     } catch (error) {
       return { error: "The unit is not reachable" };
     }
-    if (response.ok) return { data: await response.arrayBuffer() };
+    if (response.ok) {
+      try {
+        return { data: await response.arrayBuffer() };
+      } catch (error) {
+        return { error: "The download stopped" };
+      }
+    }
     if (response.status === 401) forget(AGAIN);
     const body = await response.json().catch(() => ({}));
     return { error: body.error || "Failed" };
@@ -137,7 +143,8 @@
     working = true;
     uploading++;
     $("backup-create").disabled = true;
-    queue = queue.then(action).finally(() => {
+    // A failure here must not leave the shared queue rejected: every later upload would skip.
+    queue = queue.then(action).catch((error) => say("backup-down-message", error.message)).finally(() => {
       working = false;
       uploading--;
       $("backup-create").disabled = false;
