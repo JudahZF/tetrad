@@ -84,12 +84,14 @@ pub(crate) fn rich() -> UiSnapshot {
                 name: "AMP ONE".into(),
                 category: ModelCategory::GuitarAmp,
                 extension: false,
+                plugin: None,
             },
             ModelEntry {
                 id: 6002,
                 name: "ECHO TWO".into(),
                 category: ModelCategory::Delay,
                 extension: false,
+                plugin: None,
             },
         ]
         .into(),
@@ -2779,6 +2781,7 @@ fn device_list_groups_models_by_category_and_instrument_tab() {
             name: "BASS ONE".into(),
             category: ModelCategory::BassAmp,
             extension: false,
+            plugin: None,
         });
         snapshot.models = models.into();
     }
@@ -2816,6 +2819,69 @@ fn device_list_groups_models_by_category_and_instrument_tab() {
     assert_eq!(ui.screen(), Screen::Grid);
 }
 
+/// (O) The picker and the Directory Plugin Presets leave out an unlicensed plugin: its models
+/// in their group and in search, and its folder. A licensed plugin that waits for activation
+/// stays; a hidden folder keeps the index of the next one intact.
+#[test]
+fn unlicensed_plugins_are_hidden_from_the_picker_and_directory() {
+    let mut snapshot = rich();
+    {
+        let mut models = snapshot.models.to_vec();
+        for (id, name, plugin) in [(1002, "AMP TWO", 3), (1003, "AMP THREE", 5)] {
+            models.push(ModelEntry {
+                id,
+                name: name.into(),
+                category: ModelCategory::GuitarAmp,
+                extension: false,
+                plugin: Some(plugin),
+            });
+        }
+        snapshot.models = models.into();
+    }
+    let folder = |name: &str, plugin| DirectoryPlugin {
+        plugin,
+        name: name.into(),
+        path: format!("/opt/neuraldsp/Plugins/{name}"),
+        read_only: true,
+        children: Vec::new(),
+        presets: Vec::new(),
+    };
+    std::sync::Arc::make_mut(&mut snapshot.directory).plugins = vec![
+        folder("Unlicensed", Some(3)),
+        folder("Inactive", Some(5)),
+        folder("User folder", None),
+    ];
+    snapshot.rows[1].input = InputPort::Input1;
+    snapshot.locked_models.extend([1002, 1003]);
+    snapshot.unlicensed_plugins.insert(3);
+    let mut ui = ui_with(snapshot.clone());
+    activate(&mut ui, Control::SelectCell(cell(1, 3)));
+    activate(
+        &mut ui,
+        Control::Picker(PickerControl::Group(DeviceGroup::Amp)),
+    );
+    let listed = |ui: &UiState| {
+        [1001, 1002, 1003].map(|id| shows(ui, Control::Picker(PickerControl::Model(id))))
+    };
+    assert_eq!(listed(&ui), [true, false, true]);
+    ui.picker.query = "amp".into();
+    assert_eq!(listed(&ui), [true, false, true]);
+
+    let mut ui = ui_with(snapshot);
+    activate(&mut ui, Control::Navigate(Screen::Presets));
+    activate(&mut ui, Control::Library(LibraryControl::Category));
+    activate(&mut ui, Control::Choose(4));
+    let folders = ui
+        .hit_regions()
+        .into_iter()
+        .filter_map(|row| match row.control {
+            Control::Library(LibraryControl::PluginFolder(index)) => Some(index),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(folders, [1, 2]);
+}
+
 /// (O) The Extensions row shows only with an extension block installed, and lists the
 /// extension blocks of every category (they stay in their stock category too).
 #[test]
@@ -2843,6 +2909,7 @@ fn extensions_row_lists_extension_blocks_of_every_category() {
                 name: format!("EXT {id}"),
                 category,
                 extension: true,
+                plugin: None,
             });
         }
         snapshot.models = models.into();
@@ -3541,6 +3608,7 @@ fn directory_plugin_preset_rows_audition_the_selected_folder() {
         instrument: PreferredInstrument::NotSet,
     };
     std::sync::Arc::make_mut(&mut snapshot.directory).plugins = vec![DirectoryPlugin {
+        plugin: None,
         name: "Owned".into(),
         path: "/opt/neuraldsp/Plugins/Owned".into(),
         read_only: true,
@@ -3590,6 +3658,7 @@ fn directory_plugin_presets_sort_by_preferred_instrument_code() {
         instrument,
     };
     std::sync::Arc::make_mut(&mut snapshot.directory).plugins = vec![DirectoryPlugin {
+        plugin: None,
         name: "Owned".into(),
         path: "/opt/neuraldsp/Plugins/Owned".into(),
         read_only: true,
@@ -4666,6 +4735,7 @@ fn holding_a_device_row_pins_it_to_the_top() {
             name: "AAA AMP".into(),
             category: ModelCategory::GuitarAmp,
             extension: false,
+            plugin: None,
         });
         snapshot.models = models.into();
     }

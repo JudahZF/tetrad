@@ -137,6 +137,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
                 name: format!("{} Model {}", category.label(), n + 1),
                 category,
                 extension: false,
+                plugin: None,
             })
         })
         .collect::<Vec<_>>()
@@ -673,6 +674,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                         name: name.into(),
                         category,
                         extension: true,
+                        plugin: None,
                     }),
             );
             snapshot.models = models.into();
