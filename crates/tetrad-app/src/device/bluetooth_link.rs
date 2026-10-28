@@ -4,7 +4,7 @@
 //! reach the same handlers as the Remote page's, and `extension` reaches an extension's
 //! `ctx.ble.onMessage`.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -79,20 +79,25 @@ pub struct LinkState {
     pub pin: Option<String>,
     /// The connected host gave the PIN, now or with an earlier link of its bond.
     pub authorized: bool,
+    /// The PIN was given on this connection (a new pairing keeps only this).
+    pub pin_given: bool,
     /// The host's app turned on Link replies on an encrypted link.
     pub listening: bool,
     wrong: u8,
     /// No PIN is taken before this time.
     wait_until: Duration,
-    /// Requests of this connection that an extension answers later: a late answer for another
-    /// connection is dropped.
-    pending: HashSet<u64>,
+    /// The requests of this connection that wait for an answer: the unit's call ID and the
+    /// app's request ID. A late answer for another connection finds nothing and is dropped.
+    pending: HashMap<u64, u64>,
+    /// The next call ID; never reused, so an old answer cannot take a new request's place.
+    next_call: u64,
 }
 
 impl LinkState {
     /// A new connection, or none: nothing carries over but the PIN and its wait.
     pub fn reset(&mut self) {
         self.authorized = false;
+        self.pin_given = false;
         self.listening = false;
         self.pending.clear();
     }
@@ -150,11 +155,14 @@ impl<P: Platform> Device<P> {
             }
         };
         let id = request.id;
-        match self.link_answer(id, request.op, body, now) {
-            Some(answer) => self.link_send(answer),
-            None => {
-                self.bridges.bluetooth.link.pending.insert(id);
-            }
+        // Registered before the dispatch: an extension that fails at once answers through it.
+        let link = &mut self.bridges.bluetooth.link;
+        let call = link.next_call;
+        link.next_call = (link.next_call + 1) & !LINK_CALL;
+        link.pending.insert(call, id);
+        if let Some(answer) = self.link_answer(id, LINK_CALL | call, request.op, body, now) {
+            self.bridges.bluetooth.link.pending.remove(&call);
+            self.link_send(answer);
         }
     }
 
@@ -165,7 +173,14 @@ impl<P: Platform> Device<P> {
     }
 
     /// The reply to one request; `None` when an extension answers later.
-    fn link_answer(&mut self, id: u64, op: Op, body: &[u8], now: Duration) -> Option<Vec<u8>> {
+    fn link_answer(
+        &mut self,
+        id: u64,
+        call: u64,
+        op: Op,
+        body: &[u8],
+        now: Duration,
+    ) -> Option<Vec<u8>> {
         match op {
             Op::Hello => {
                 let bluetooth = &self.bridges.bluetooth;
@@ -192,6 +207,7 @@ impl<P: Platform> Device<P> {
                     return Some(error(id, "Wrong PIN"));
                 }
                 link.wrong = 0;
+                link.pin_given = true;
                 self.authorize_host();
                 return Some(reply(
                     id,
@@ -204,11 +220,10 @@ impl<P: Platform> Device<P> {
             }
             _ => {}
         }
-        let call = LINK_CALL | id;
         let request = match op {
             Op::Hello | Op::Auth { .. } => unreachable!("answered above"),
             Op::Extension { extension, message } => {
-                return self.link_extension(call, &extension, message);
+                return self.link_extension(id, call, &extension, message);
             }
             // The app's link has no PIN of its own: the pairing and `auth` stand for it.
             Op::Status => Request::Status { pin: String::new() },
@@ -253,8 +268,13 @@ impl<P: Platform> Device<P> {
     }
 
     /// The `extension` request: the extension's `ctx.ble.onMessage` answers it later.
-    fn link_extension(&mut self, call: u64, extension: &str, message: Json) -> Option<Vec<u8>> {
-        let id = call & !LINK_CALL;
+    fn link_extension(
+        &mut self,
+        id: u64,
+        call: u64,
+        extension: &str,
+        message: Json,
+    ) -> Option<Vec<u8>> {
         if self.platform.extensions().is_none() {
             return Some(error(id, "extensions do not run in this mode"));
         }
@@ -271,10 +291,10 @@ impl<P: Platform> Device<P> {
 
     /// An extension answered an `extension` request.
     pub(super) fn answer_link_extension(&mut self, answer: BleReply) {
-        let id = answer.request & !LINK_CALL;
-        if !self.bridges.bluetooth.link.pending.remove(&id) {
+        let pending = &mut self.bridges.bluetooth.link.pending;
+        let Some(id) = pending.remove(&(answer.request & !LINK_CALL)) else {
             return;
-        }
+        };
         let message = match answer.result {
             Ok(value) => reply(id, json!({ "reply": "extension", "value": value }), &[]),
             Err(text) => error(id, text),
@@ -284,10 +304,10 @@ impl<P: Platform> Device<P> {
 
     /// An extension answered a tab call that came over the link.
     pub(super) fn answer_link_tab(&mut self, call: u64, answer: Reply) {
-        let id = call & !LINK_CALL;
-        if !self.bridges.bluetooth.link.pending.remove(&id) {
+        let pending = &mut self.bridges.bluetooth.link.pending;
+        let Some(id) = pending.remove(&(call & !LINK_CALL)) else {
             return;
-        }
+        };
         self.link_send(remote_reply(id, &answer));
     }
 

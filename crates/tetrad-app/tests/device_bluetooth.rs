@@ -127,3 +127,38 @@ fn a_new_pairing_with_a_known_address_must_give_the_pin_again() {
     let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
     assert!(saved[0].app);
 }
+
+#[test]
+fn pairing_again_after_a_remembered_pin_must_give_the_pin_again() {
+    let (mut device, files) = boot();
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: true,
+        },
+    );
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: false,
+        },
+    );
+    // The same connection pairs again: new keys.
+    push(&mut device, Ble::Bonded(bond(3, false)));
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: true,
+        },
+    );
+    let files_request = json!({"id": 1, "op": "files"});
+    assert_eq!(
+        ask(&mut device, files_request)["error"],
+        "Give the PIN first (auth)"
+    );
+    let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
+    assert!(!saved[0].app);
+}

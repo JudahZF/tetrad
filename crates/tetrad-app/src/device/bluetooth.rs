@@ -436,9 +436,12 @@ impl<P: Platform> Device<P> {
                 // After a pairing the host knows the identity behind a private address.
                 bluetooth.host = Some(address);
                 if paired {
-                    // A PIN given on this link before the pairing ended counts for the bond.
-                    if bluetooth.link.authorized {
+                    // New keys: only a PIN given on this connection counts for them, not one
+                    // remembered by the old bond.
+                    if bluetooth.link.pin_given {
                         self.authorize_host();
+                    } else {
+                        bluetooth.link.authorized = false;
                     }
                 } else {
                     let known = (bluetooth.bonds.iter()).any(|b| b.address == address && b.app);
