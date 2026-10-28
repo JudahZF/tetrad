@@ -2071,6 +2071,9 @@ pub struct UiSnapshot {
     pub custom: Option<crate::CustomModeView>,
     /// Remote page (`crate::remote`).
     pub remote: crate::RemoteView,
+    /// Settings › Tetrad › Boot Selector: the launcher shows the boot selector. `None` until
+    /// the application read it, or when it could not.
+    pub boot_selector: Option<bool>,
     /// The application's last toast (`crate::remote::ToastView`).
     pub toast: Option<crate::ToastView>,
     pub updater: UpdaterView,
@@ -2290,6 +2293,7 @@ impl Default for UiSnapshot {
             mappings: crate::MappingsView::default(),
             custom: None,
             remote: crate::RemoteView::default(),
+            boot_selector: None,
             toast: None,
             updater: UpdaterView::default(),
             tetrad_update: TetradUpdateView::default(),

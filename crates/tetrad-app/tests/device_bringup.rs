@@ -1395,6 +1395,26 @@ fn stock_power_holds_the_value_0_mute() {
     assert_eq!(mutes, [1, 1]);
 }
 
+/// The Boot Selector switch writes the launcher's `no-chooser` file, which changes the next
+/// boot, so a bring-up run refuses it without `--persist`.
+#[test]
+fn the_boot_selector_switch_needs_persist() {
+    use tetrad_app::device::ui::Handoff;
+    let bench = Bench::new("boot-selector");
+    let full = bench.options(Stage::Full, 60_000);
+    let persist = RunOptions {
+        persist: true,
+        ..full.clone()
+    };
+    let handoff = Handoff::BootSelector { shown: false };
+    assert_eq!(
+        full.handoff_refusal(&handoff),
+        Some("a launcher file write without --persist")
+    );
+    assert_eq!(persist.handoff_refusal(&handoff), None);
+    assert_eq!(RunOptions::STOCK.handoff_refusal(&handoff), None);
+}
+
 /// Review bring-up safety 2 R3: Reset Wi-Fi (`REMOVE_NETWORK all` + `SAVE_CONFIG`) loses SSH,
 /// so every bring-up run refuses it, also with `--services --persist`; a Wi-Fi connect or
 /// forget writes `wpa_supplicant.conf`, so it needs `--persist`. A stock run refuses none.

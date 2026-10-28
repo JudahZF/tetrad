@@ -135,6 +135,8 @@ pub enum Handoff {
     Theme(tetrad_theme::ThemeId),
     /// The Remote page switches → `Device::set_remote`.
     Remote { enabled: bool, pin_in_menu: bool },
+    /// The Boot Selector page switch → `Device::set_boot_selector`.
+    BootSelector { shown: bool },
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -827,6 +829,9 @@ impl Ui {
                 enabled,
                 pin_in_menu,
             })],
+            C::SetBootSelector { shown } => {
+                vec![Request::Handoff(Handoff::BootSelector { shown })]
+            }
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],

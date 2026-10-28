@@ -484,7 +484,13 @@ fn menus_use_stock_labels_in_stock_order() {
         .collect();
     assert_eq!(
         pages,
-        ["Tetrad Updates", "Appearance", "Extensions", "Remote"]
+        [
+            "Tetrad Updates",
+            "Appearance",
+            "Extensions",
+            "Remote",
+            "Boot Selector"
+        ]
     );
 }
 
@@ -2576,6 +2582,25 @@ fn main_menu_is_a_scrolling_list_with_sections() {
     );
     drag(&mut ui, (600, 400), (600, 40));
     assert!(shown(&ui, MenuAction::Settings));
+}
+
+/// The Boot Selector switch flips the launcher state the application read; before a read (or
+/// after a failed one) it shows no state and takes no tap.
+#[test]
+fn the_boot_selector_switch_needs_a_known_state() {
+    let page = Screen::Settings(SettingsPage::BootSelector);
+    let mut ui = ui_with(rich());
+    ui.show(page);
+    assert_eq!(activate(&mut ui, Control::BootSelectorToggle), vec![]);
+
+    let mut snapshot = rich();
+    snapshot.boot_selector = Some(true);
+    let mut ui = ui_with(snapshot);
+    ui.show(page);
+    assert_eq!(
+        activate(&mut ui, Control::BootSelectorToggle),
+        vec![UiCommand::SetBootSelector { shown: false }]
+    );
 }
 
 /// While Remote runs and its "Show PIN in menu" switch is on, the first row of the ⋮ menu is

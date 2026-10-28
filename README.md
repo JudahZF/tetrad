@@ -158,7 +158,6 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
   ([docs/support.md](docs/support.md)), and the Cortex Control log request is refused.
 - Cortex Control gain calibration is refused, because stock writes the U-Boot environment there.
 - Tetrad writes only the stock library database schema of CorOS 4.1.x (410.1).
-- The boot selector has no settings page. Use `tetrad-launcher.sh chooser on|off`.
 - Mappings cannot yet load a chosen preset, set a tempo value, send MIDI from a MIDI trigger
   or a global mapping, or run system actions from an expression pedal.
 - Remote is not tested on the unit yet. It uploads IRs and hands out the support file.

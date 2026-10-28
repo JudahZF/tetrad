@@ -220,6 +220,11 @@ impl UiState {
                     pin_in_menu: !snapshot.remote.pin_in_menu,
                 }];
             }
+            Control::BootSelectorToggle => {
+                if let Some(shown) = snapshot.boot_selector {
+                    return vec![UiCommand::SetBootSelector { shown: !shown }];
+                }
+            }
             Control::ShowChangelog => {
                 let body = snapshot.updater.changelog.clone();
                 self.reset_scroll(ListId::Changelog);

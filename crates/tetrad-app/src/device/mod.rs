@@ -10,6 +10,7 @@
 pub mod actions;
 pub mod appearance;
 mod boot;
+pub mod boot_selector;
 pub mod bringup;
 pub mod capture;
 pub mod community;
@@ -994,6 +995,7 @@ pub struct Bridges {
     pub extensions: extensions::Extensions,
     pub mappings: mappings::Mappings,
     pub remote: remote::Remote,
+    pub boot_selector: boot_selector::BootSelector,
 }
 
 pub struct Device<P: Platform> {
@@ -1083,6 +1085,7 @@ impl<P: Platform> Device<P> {
                 mappings: mappings::Mappings::default(),
                 appearance: appearance::Appearance::default(),
                 remote: remote::Remote::default(),
+                boot_selector: boot_selector::BootSelector::default(),
             },
             state: State::new(product, hal_platform, settings),
             platform,
@@ -2235,6 +2238,10 @@ impl<P: Platform> Device<P> {
                 pin_in_menu,
             } => {
                 self.set_remote(enabled, pin_in_menu);
+                Vec::new()
+            }
+            ui::Handoff::BootSelector { shown } => {
+                self.set_boot_selector(shown);
                 Vec::new()
             }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,

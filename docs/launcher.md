@@ -103,8 +103,10 @@ in `boot-choice` when it is not the default. A release build never gives exit 12
 `tetrad-dev` as an unknown word, so it starts Tetrad. When a dev selector fails, the launcher starts
 the saved choice without `--dev`.
 
-To turn the selector off: `tetrad-launcher.sh chooser off`. Then an armed boot starts Tetrad with no
-screen. `tetrad-launcher.sh chooser on` turns it on again.
+To turn the selector off: `tetrad-launcher.sh chooser off`, or the **Show at boot** switch in
+Settings → Tetrad → Boot Selector. Then an armed boot starts Tetrad with no screen.
+`tetrad-launcher.sh chooser on`, or the switch, turns it on again. Both write and remove the same
+`no-chooser` file. Tetrad reads the file at its first preset load.
 
 Checked on the unit: armed boots with each saved choice, the screen, the countdown and a touch in
 a manual run. Not checked on the unit: a touch during a real boot, the 8 second kill, and

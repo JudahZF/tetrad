@@ -50,6 +50,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         Diagnostics => Icon::PlusBold,
         Extensions | ExtensionSettings => Icon::Plugin,
         Remote => Icon::Download,
+        BootSelector => Icon::Display,
     }
 }
 
@@ -349,6 +350,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::SendReport => {
             super::remote::layout(ui, l, body, super::remote::SEND_REPORT_HELP, false)
         }
+        SettingsPage::BootSelector => boot_selector(ui, l, body),
         // Stock 091 rows (dividers, dropdowns) run 8 px past the text inset, to x 784.
         _ => {
             let area = Rect::new(body.x, body.y, body.width + 8, body.height);
@@ -826,6 +828,29 @@ fn global_bypass(ui: &UiState, l: &mut Layout, area: Rect) {
 
 /// About Us (shot 044 layout): black card, divider and the support block. Owned text: the
 /// stock card names the company and carries its logo and QR code.
+/// Boot Selector (owned, Tetrad; docs/launcher.md): one switch, then what it does. The row
+/// runs 8 px past the text inset, as the generic rows do.
+fn boot_selector(ui: &UiState, l: &mut Layout, area: Rect) {
+    const TEXT: &str = "At each boot, the boot selector shows CorOS and Tetrad for 5 seconds. \
+        Touch one to start it, or the last one you touched starts.\n\nOff: Tetrad starts at \
+        once, with no screen. To start CorOS, turn the switch on and restart.\n\nThe change \
+        applies from the next boot.";
+    let p = l.palette;
+    let shown = ui.snapshot.boot_selector;
+    let row = Rect::new(area.x, area.y, area.width + 8, ROW);
+    let control = Control::BootSelectorToggle;
+    l.control(row, control, shown.is_some(), "Show at boot", Look::Area);
+    super::extensions::switch_row(l, row, "Show at boot", shown);
+    let top = row.bottom() + 16;
+    let text = Rect::new(
+        area.x + 16,
+        top,
+        area.width - 16,
+        (area.bottom() - top) as u32,
+    );
+    l.paragraph(text, TEXT, MEDIUM, p.muted);
+}
+
 fn about(l: &mut Layout, area: Rect) {
     let p = l.palette;
     let card = Rect::new(area.x, area.y, area.width, 124);

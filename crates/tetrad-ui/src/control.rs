@@ -1019,6 +1019,8 @@ pub enum Control {
     /// The switches of the Remote page (`screens::remote`): Remote, then its PIN in the ⋮ menu.
     RemoteToggle,
     RemotePinInMenuToggle,
+    /// The switch of the Boot Selector page (`screens::settings`).
+    BootSelectorToggle,
     Updater(UpdaterCommand),
     TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
@@ -1291,6 +1293,10 @@ pub enum UiCommand {
     SetRemote {
         enabled: bool,
         pin_in_menu: bool,
+    },
+    /// The Boot Selector page switch: the launcher shows the boot selector from the next boot.
+    SetBootSelector {
+        shown: bool,
     },
     SelectScene {
         scene: SceneIndex,
@@ -2032,6 +2038,7 @@ impl fmt::Debug for UiCommand {
                 enabled,
                 pin_in_menu,
             } => show!("SetRemote", enabled, pin_in_menu),
+            C::SetBootSelector { shown } => show!("SetBootSelector", shown),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),

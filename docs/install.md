@@ -172,7 +172,8 @@ When Tetrad is selected and can start, the unit shows a screen with two buttons,
   the first choice it is Tetrad.
 - A touch on CorOS does not count as a failed Tetrad start.
 
-To start Tetrad with no selector, or to get the selector back, run on the unit:
+To start Tetrad with no selector, or to get the selector back, use the **Show at boot** switch in
+Settings → Tetrad → Boot Selector. Or run on the unit:
 
 ```sh
 ssh root@<unit-ip> sh /media/p4/tetrad/launcher/tetrad-launcher.sh chooser off

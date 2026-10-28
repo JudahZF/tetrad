@@ -1,10 +1,12 @@
 //! Remote (docs/remote.md): the Settings switch starts the server with a new PIN and is saved
 //! in `remote.json`; page requests need the PIN; an upload lands in the IR saving destination
-//! through the stock IR import. The server is a fake: tests push its calls.
+//! through the stock IR import. The server is a fake: tests push its calls. The other switch of
+//! the Tetrad group, Boot Selector, writes and removes the launcher's `no-chooser` file.
 
 mod common;
 
 use common::{FakeRemote, Media, STOCK, Sim, boot_remote, light_preset, target};
+use tetrad_app::device::boot_selector::NO_CHOOSER_FILE;
 use tetrad_app::device::platform::TouchSample;
 use tetrad_app::device::remote::{MAX_WRONG_PINS, SETTINGS_FILE};
 use tetrad_app::device::ui::UiInput;
@@ -49,8 +51,12 @@ fn tap_switch(device: &mut Device<Sim>) {
 
 /// Taps one switch of Settings → Tetrad → Remote.
 fn tap(device: &mut Device<Sim>, switch: Control) {
-    let page = Screen::Settings(SettingsPage::Remote);
-    device.push(Event::UiInput(UiInput::Show(page)));
+    tap_on(device, SettingsPage::Remote, switch);
+}
+
+/// Taps one switch of a Settings page.
+fn tap_on(device: &mut Device<Sim>, page: SettingsPage, switch: Control) {
+    device.push(Event::UiInput(UiInput::Show(Screen::Settings(page))));
     device.step();
     let tap = target(&device.bridges().ui, switch);
     for pressed in [true, false] {
@@ -260,6 +266,34 @@ fn the_pin_in_the_menu_is_a_saved_switch() {
     let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
     device.step();
     assert!(view(&device).pin_in_menu);
+}
+
+/// The Boot Selector switch shows the launcher's state: off while `no-chooser` exists. Off
+/// writes the file and on removes it, as `tetrad-launcher.sh chooser off|on` do.
+#[test]
+fn the_boot_selector_switch_writes_the_launcher_file() {
+    let shown = |device: &Device<Sim>| device.bridges().ui.view().snapshot().boot_selector;
+    let files = MemFiles::default();
+    files.put(NO_CHOOSER_FILE, "turned off by tetrad-launcher.sh\n");
+    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
+    device.step();
+    assert_eq!(shown(&device), Some(false));
+
+    tap_on(
+        &mut device,
+        SettingsPage::BootSelector,
+        Control::BootSelectorToggle,
+    );
+    assert_eq!(shown(&device), Some(true));
+    assert_eq!(files.get(NO_CHOOSER_FILE), None);
+
+    tap_on(
+        &mut device,
+        SettingsPage::BootSelector,
+        Control::BootSelectorToggle,
+    );
+    assert_eq!(shown(&device), Some(false));
+    assert!(files.get(NO_CHOOSER_FILE).is_some());
 }
 
 /// Update through the Remote page (a dev build, `docs/remote.md`): unsigned files of the update
