@@ -126,6 +126,7 @@
     const extras = [];
     if (ext.themes.length) extras.push("Themes: " + ext.themes.join(", "));
     if (ext.mode) extras.push("Footswitch mode: " + ext.mode.name + (ext.mode.detail ? " · " + ext.mode.detail : ""));
+    if (ext.app) extras.push("Program: " + ext.app + " (start it on the unit)");
     let log = null;
     if (ext.log.length) {
       log = el("details", { open: openLogs.has(ext.key) },
@@ -185,10 +186,16 @@
 
   function offer(ext, busy) {
     const install = el("button", { type: "button", className: "small primary", textContent: "Install", disabled: busy });
-    install.addEventListener("click", () => send({ op: "install", source: ext.source, id: ext.id }, install));
+    // A program runs with full access to the unit: the unit's Available row says so, and so does
+    // this one, with a question before the install.
+    install.addEventListener("click", () => {
+      if (ext.app && !confirm(ext.name + " runs a program with full access to the unit. Install it?")) return;
+      send({ op: "install", source: ext.source, id: ext.id }, install);
+    });
     return el("li", {},
       el("span", { className: "name", textContent: ext.name },
         el("small", { textContent: ext.version + " · " + ext.source + (ext.description ? " · " + ext.description : "") }),
+        ext.app ? el("small", { className: "failed", textContent: "Runs a program with full access to the unit" }) : null,
         ext.duplicates.length
           ? el("small", { className: "working", textContent: "Also installed from " + ext.duplicates.join(", ") + ": keep one on" })
           : null),

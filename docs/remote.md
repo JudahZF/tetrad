@@ -185,7 +185,8 @@ does on the unit:
   do on the unit. Remove asks first; the extension's settings and stored data stay, so a new
   install keeps them. A setting change is saved and restarts the extension, as on the unit.
 - **Available** lists what the enabled repositories offer, with **Install**. **Refresh** reads
-  the catalogs again.
+  the catalogs again. An extension that brings a program says that the program runs with full
+  access to the unit, and the page asks before it installs one. Start a program on the unit.
 
 The page installs only from repositories that the unit already trusts, and it cannot take a
 package file. Add, trust, turn off or remove a repository on the unit. When an extension is

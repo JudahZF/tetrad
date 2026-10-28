@@ -56,6 +56,7 @@ fn repository() -> Web {
         module: None,
         blocks: Default::default(),
         remote_page: None,
+        app_files: Vec::new(),
     }
     .encode()
     .unwrap();

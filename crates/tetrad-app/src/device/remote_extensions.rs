@@ -181,6 +181,7 @@ fn listed(view: &ExtensionsView) -> Value {
                 "version": extension.version,
                 "description": extension.description,
                 "duplicates": extension.duplicates,
+                "app": extension.app,
             })
         })
         .collect();
@@ -253,5 +254,6 @@ fn installed(extension: &InstalledExtension) -> Value {
         "themes": extension.themes,
         "mode": (extension.footswitch_mode.as_ref())
             .map(|mode| json!({ "name": mode.name, "detail": mode.detail })),
+        "app": extension.app,
     })
 }
