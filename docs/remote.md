@@ -78,7 +78,47 @@ name looks like a rename.
 The list follows the changes made on the unit or in Cortex Control (the page reads it again
 every 8 seconds).
 
-<!--controls-->
+## Mappings
+
+**Mappings** (under **Controls**) shows the same lists as Mappings on the unit
+([mappings.md](mappings.md)): **This preset** (with the name of the loaded preset) and **Global**.
+Each row shows the trigger, the action, the mode and the values. Click a row to edit it.
+
+- **+ Add mapping** adds a row, as + on the unit does.
+- In the editor, set the trigger (footswitch, pedal, CC or note and its number, or a trigger of
+  an extension), the action (System, the Custom mode, the bypass and parameters of each block,
+  Send MIDI), the mode and its values. − and + step a value by its own step; Shift-click steps
+  10. A CC row shows its window graph.
+- **Learn** on a MIDI or extension trigger waits for the next free message; **Cancel** stops it.
+- **Remove** asks first, then deletes the mapping.
+- Global mappings are saved at once. Preset mappings are part of the preset: save the preset on
+  the unit to keep them. Set the messages of Send MIDI on the unit (**Edit messages**).
+- A change that the unit refuses shows its reason, for example a CC that the QC's MIDI map uses.
+
+## Footswitch
+
+**Footswitch** (under **Controls**) edits the layouts of the Custom footswitch mode
+([footswitch-modes.md](footswitch-modes.md)), as **EDIT** in Gig View does. It needs an extension
+that adds the mode, such as Custom Footswitch Mode; without one, the page links to **Manage**.
+
+- The switches show as on the unit: A to D and Down on top, E to H and Tap below. Choose a page,
+  then tap a switch to change it:
+  - **Action**: System, Block (bypass or a parameter), Load a preset (the loaded one, or one
+    from a setlist), Send MIDI, or a command of an extension.
+  - **Label** (at most 16 characters; empty uses the name of the action) and **Colour** (Auto
+    or one of the eight).
+  - **Value** for a parameter, **Momentary** for a bypass, and **Messages** (up to 12) for Send
+    MIDI.
+  - **Copy to** or **Swap with** another switch on any page, and **Clear**.
+- **Copy page … to** replaces another page with this one.
+- **ALL PRESETS** and **THIS PRESET**: **Give this preset its own layout** and **Remove it** work
+  as on the unit. A change of THIS PRESET is a change of the preset: save the preset on the unit
+  to keep it. **● plays** marks the layout that plays now.
+- Each change is saved at once, and the unit's editor shows it. Playing the switches stays on the
+  unit.
+
+Both pages read the unit again every 8 seconds, but do not redraw a list or field that you are
+using.
 
 ## Backup
 
