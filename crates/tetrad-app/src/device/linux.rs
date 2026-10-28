@@ -1576,10 +1576,14 @@ impl Platform for LinuxPlatform {
             .ok_or(LinuxError::Unavailable("framebuffer"))?;
         Ok(framebuffer.present_rgb8_rows(tetrad_ui::WIDTH, tetrad_ui::HEIGHT, rgb, rows)?)
     }
+    /// One stderr line, which stock's `tee` keeps in the boot log. With a set clock it starts
+    /// with the time of day, so a report's time finds its lines.
     fn log(&mut self, notice: &Notice) {
+        let when = super::support::set_clock(self.wall_clock())
+            .map_or(String::new(), |seconds| super::support::utc(seconds) + " ");
         let _ = writeln!(
             io::stderr().lock(),
-            "[{:?}] {:?}: {}",
+            "{when}[{:?}] {:?}: {}",
             notice.at,
             notice.subsystem,
             notice.detail

@@ -836,10 +836,6 @@ impl SettingsPage {
                 Setting(S::ReloadPreset),
                 Setting(S::ReloadScene),
             ],
-            Self::SendReport => &[
-                Text("Send device diagnostics to support."),
-                Action(DeviceAction::SendReport, "SEND REPORT"),
-            ],
             Self::MyAccount
             | Self::Backups
             | Self::Connection
@@ -851,6 +847,7 @@ impl SettingsPage {
             | Self::FactoryReset
             | Self::Extensions
             | Self::Remote
+            | Self::SendReport
             | Self::GlobalBypass
             | Self::AboutContact
             | Self::DeviceInformation

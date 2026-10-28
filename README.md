@@ -69,6 +69,9 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Remote.** Add IRs from a browser on the same Wi-Fi: open the address the unit shows
   (Settings → System → Remote), enter the PIN and drop the files. See
   [docs/remote.md](docs/remote.md).
+- **Support file.** For a bug report, download a `.zip` with versions, licence states, the
+  loaded preset's blocks and recent logs from the Remote page. It holds no passwords, tokens or
+  presets. See [docs/support.md](docs/support.md).
 - **Tetrad over USB.** The `tetrad-usb` tool takes screenshots and sends a Tetrad release
   over the USB cable. See [docs/usb.md](docs/usb.md).
 - **Tetrad updates.** Update Tetrad from the touchscreen (Settings → System → Tetrad Updates).
@@ -151,13 +154,14 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
 - Not tested on the unit: Neural Capture training, loading a user Neural Capture 2 capture,
   capture over Cortex Control, the Global EQ and limiter toggles with audio, DIN MIDI, the panel
   controls one by one, cable pulls and shutdown.
-- Support reports are off: SEND REPORT and the Cortex Control log request are refused.
+- Tetrad uploads no support reports: Send Report shows how to get the support file instead
+  ([docs/support.md](docs/support.md)), and the Cortex Control log request is refused.
 - Cortex Control gain calibration is refused, because stock writes the U-Boot environment there.
 - Tetrad writes only the stock library database schema of CorOS 4.1.x (410.1).
 - The boot selector has no settings page. Use `tetrad-launcher.sh chooser on|off`.
 - Mappings cannot yet load a chosen preset, set a tempo value, send MIDI from a MIDI trigger
   or a global mapping, or run system actions from an expression pedal.
-- Remote is not tested on the unit yet. It uploads IRs only.
+- Remote is not tested on the unit yet. It uploads IRs and hands out the support file.
 
 The changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 

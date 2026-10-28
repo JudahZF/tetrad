@@ -992,10 +992,6 @@ impl UiState {
 
     fn device_action(&mut self, action: DeviceAction) -> Vec<UiCommand> {
         match action {
-            DeviceAction::SendReport => {
-                self.show_toast("Sending report...");
-                vec![UiCommand::Device { action }]
-            }
             DeviceAction::CalibrateExpression(pedal) => {
                 self.overlay = Some(Overlay::Confirm(Confirm::Expression(pedal)));
                 vec![UiCommand::Device { action }]

@@ -50,6 +50,11 @@ li small { display: block; color: var(--muted); font-size: 13px; }
 li .state { font-weight: 600; white-space: nowrap; }
 .added { color: var(--good); } .working { color: var(--busy); } .failed { color: var(--bad); }
 .foot { margin-top: 28px; color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; }
+.support { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.support small { display: block; color: var(--muted); font-size: 13px; }
+.support small:empty { display: none; }
+button:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -76,6 +81,14 @@ li .state { font-weight: 600; white-space: nowrap; }
     <div class="foot">
       <span>The unit keeps the first 1,024 samples (21 ms) at 48 kHz, as stock does.</span>
       <button class="link" id="forget" type="button">Change PIN</button>
+    </div>
+    <div class="support">
+      <div>
+        <b>Support file</b>
+        <small>Versions, settings and logs for a bug report. No passwords, tokens or presets.</small>
+        <small id="support-state" role="status"></small>
+      </div>
+      <button id="support" type="button">Download</button>
     </div>
   </section>
 </main>
@@ -111,9 +124,11 @@ async function call(path, options) {
 async function connect(candidate) {
   pin = candidate;
   const { status, body } = await call("/api/status");
-  if (status === 200) {
+  // 422: the PIN is right but IRs cannot be saved now (the library is closed). The support
+  // file still downloads, and it may show why.
+  if (status === 200 || status === 422) {
     localStorage.setItem(PIN_KEY, pin);
-    $("sub").textContent = "Saving to: " + body.folder;
+    $("sub").textContent = status === 200 ? "Saving to: " + body.folder : body.error;
     show(true);
     return;
   }
@@ -214,6 +229,36 @@ async function send(file, line) {
   if (status === 401) forget("Enter the PIN shown on the unit");
 }
 
+/** GET /api/support with the PIN header, saved through a Blob link (a plain link sends no PIN). */
+async function downloadSupport() {
+  const button = $("support");
+  const state = $("support-state");
+  const set = (text, kind) => { state.textContent = text; state.className = kind; };
+  button.disabled = true;
+  set("Building…", "working");
+  let response = null;
+  try {
+    response = await fetch("/api/support", { headers: { "X-Tetrad-Pin": pin } });
+  } catch (error) {
+    // Reported below as not reachable.
+  }
+  button.disabled = false;
+  if (response && response.ok) {
+    const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = named ? named[1] : "tetrad-support.zip";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+    return set("Saved " + link.download, "added");
+  }
+  const body = response
+    ? await response.json().catch(() => ({}))
+    : { error: "The unit is not reachable" };
+  set(body.error || "Failed", "failed");
+  if (response && response.status === 401) forget("Enter the PIN shown on the unit");
+}
+
 function forget(message) {
   localStorage.removeItem(PIN_KEY);
   pin = "";
@@ -234,6 +279,7 @@ $("pin-form").addEventListener("submit", (event) => {
   connect($("pin").value.trim());
 });
 $("forget").addEventListener("click", () => forget());
+$("support").addEventListener("click", downloadSupport);
 $("files").addEventListener("change", (event) => {
   add(event.target.files);
   event.target.value = "";
