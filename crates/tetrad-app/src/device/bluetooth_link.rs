@@ -4,6 +4,7 @@
 //! reach the same handlers as the Remote page's, and `extension` reaches an extension's
 //! `ctx.ble.onMessage`.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -78,12 +79,24 @@ pub struct LinkState {
     pub pin: Option<String>,
     /// The connected host gave the PIN, now or with an earlier link of its bond.
     pub authorized: bool,
+    /// The host's app turned on Link replies on an encrypted link.
+    pub listening: bool,
     wrong: u8,
     /// No PIN is taken before this time.
     wait_until: Duration,
+    /// Requests of this connection that an extension answers later: a late answer for another
+    /// connection is dropped.
+    pending: HashSet<u64>,
 }
 
 impl LinkState {
+    /// A new connection, or none: nothing carries over but the PIN and its wait.
+    pub fn reset(&mut self) {
+        self.authorized = false;
+        self.listening = false;
+        self.pending.clear();
+    }
+
     /// A wrong PIN: wait, and after [`MAX_WRONG_PINS`] the PIN is no longer good.
     fn wrong_pin(&mut self, now: Duration) -> bool {
         self.wrong += 1;
@@ -137,8 +150,11 @@ impl<P: Platform> Device<P> {
             }
         };
         let id = request.id;
-        if let Some(answer) = self.link_answer(id, request.op, body, now) {
-            self.link_send(answer);
+        match self.link_answer(id, request.op, body, now) {
+            Some(answer) => self.link_send(answer),
+            None => {
+                self.bridges.bluetooth.link.pending.insert(id);
+            }
         }
     }
 
@@ -256,6 +272,9 @@ impl<P: Platform> Device<P> {
     /// An extension answered an `extension` request.
     pub(super) fn answer_link_extension(&mut self, answer: BleReply) {
         let id = answer.request & !LINK_CALL;
+        if !self.bridges.bluetooth.link.pending.remove(&id) {
+            return;
+        }
         let message = match answer.result {
             Ok(value) => reply(id, json!({ "reply": "extension", "value": value }), &[]),
             Err(text) => error(id, text),
@@ -265,7 +284,11 @@ impl<P: Platform> Device<P> {
 
     /// An extension answered a tab call that came over the link.
     pub(super) fn answer_link_tab(&mut self, call: u64, answer: Reply) {
-        self.link_send(remote_reply(call & !LINK_CALL, &answer));
+        let id = call & !LINK_CALL;
+        if !self.bridges.bluetooth.link.pending.remove(&id) {
+            return;
+        }
+        self.link_send(remote_reply(id, &answer));
     }
 
     /// `scope.ble.notify`: a value pushed to the app.

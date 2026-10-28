@@ -289,7 +289,8 @@ impl<P: Platform> Device<P> {
     /// `scope.ble.notify` sends while an app that gave the PIN is connected.
     fn sync_app_listening(&mut self) {
         let bluetooth = &self.bridges.bluetooth;
-        let on = bluetooth.running && bluetooth.host.is_some() && bluetooth.link.authorized;
+        let link = &bluetooth.link;
+        let on = bluetooth.running && bluetooth.host.is_some() && link.authorized && link.listening;
         self.bridges.extensions.app_listening = on;
     }
 
@@ -374,8 +375,8 @@ impl<P: Platform> Device<P> {
             Event::HostConnected { address, bonded } => {
                 let bluetooth = &mut self.bridges.bluetooth;
                 bluetooth.host = Some(address);
-                bluetooth.link.authorized =
-                    (bluetooth.bonds.iter()).any(|bond| bond.address == address && bond.app);
+                // The PIN permission waits for the saved key (`HostSecured`).
+                bluetooth.link.reset();
                 self.sync_app_listening();
                 let known = if bonded { "paired" } else { "new" };
                 let text = format!("a {known} host connected");
@@ -384,7 +385,7 @@ impl<P: Platform> Device<P> {
             Event::HostDisconnected { reason, .. } => {
                 let bluetooth = &mut self.bridges.bluetooth;
                 bluetooth.host = None;
-                bluetooth.link.authorized = false;
+                bluetooth.link.reset();
                 self.sync_app_listening();
                 let text = format!("the host left (0x{reason:02x})");
                 self.notice(Subsystem::Bluetooth, text);
@@ -394,8 +395,9 @@ impl<P: Platform> Device<P> {
                 let bonds = &mut self.bridges.bluetooth.bonds;
                 match bonds.iter().position(|known| known.address == bond.address) {
                     Some(index) => {
-                        // The host does not know that the app gave the PIN; the device does.
-                        bond.app |= bonds[index].app;
+                        // The host does not know that the app gave the PIN; the device does. A
+                        // new pairing (new keys) must give it again.
+                        bond.app |= bonds[index].app && bonds[index].ltk == bond.ltk;
                         bonds[index] = bond;
                     }
                     None => {
@@ -428,6 +430,25 @@ impl<P: Platform> Device<P> {
             Event::MidiListening(on) => {
                 self.bridges.bluetooth.listening = on;
                 self.sync_bluetooth_midi();
+            }
+            Event::HostSecured { address, paired } => {
+                let bluetooth = &mut self.bridges.bluetooth;
+                // After a pairing the host knows the identity behind a private address.
+                bluetooth.host = Some(address);
+                if paired {
+                    // A PIN given on this link before the pairing ended counts for the bond.
+                    if bluetooth.link.authorized {
+                        self.authorize_host();
+                    }
+                } else {
+                    let known = (bluetooth.bonds.iter()).any(|b| b.address == address && b.app);
+                    bluetooth.link.authorized = known;
+                }
+                self.sync_app_listening();
+            }
+            Event::LinkListening(on) => {
+                self.bridges.bluetooth.link.listening = on;
+                self.sync_app_listening();
             }
             Event::LinkMessage(message) => self.on_link_message(&message, now),
             Event::Notice(text) => self.notice(Subsystem::Bluetooth, text),

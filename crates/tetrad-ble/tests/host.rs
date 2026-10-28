@@ -88,6 +88,10 @@ struct Rig {
 
 impl Rig {
     fn new(pairable: bool, bonds: Vec<Bond>) -> Self {
+        Self::with_link(pairable, bonds, false)
+    }
+
+    fn with_link(pairable: bool, bonds: Vec<Bond>, link: bool) -> Self {
         let mut next = 1u8;
         let rng = Box::new(move |out: &mut [u8]| {
             for byte in out {
@@ -99,7 +103,7 @@ impl Rig {
             name: None,
             advertise: true,
             pairable,
-            link: false,
+            link,
         };
         let mut rig = Self {
             host: Host::new(config, bonds, rng),
@@ -348,7 +352,16 @@ fn a_phone_pairs_plays_midi_and_comes_back_with_its_bond() {
     );
     assert_eq!(rig.ltk_request(0), phone_key);
     rig.encrypted();
-    assert_eq!(rig.take_events(), vec![Event::MidiListening(true)]);
+    assert_eq!(
+        rig.take_events(),
+        vec![
+            Event::MidiListening(true),
+            Event::HostSecured {
+                address: PHONE,
+                paired: false
+            }
+        ]
+    );
 }
 
 #[test]
@@ -396,4 +409,65 @@ fn a_silent_or_broken_controller_is_a_fault() {
             "the controller reported hardware error 0x00".into()
         )]
     );
+}
+
+#[test]
+fn midi_waits_until_a_link_reply_packet_is_whole() {
+    let phone = Bond {
+        address: PHONE,
+        address_type: 0,
+        kind: tetrad_ble::bond::Kind::Host,
+        irk: None,
+        ltk: [1; 16],
+        ediv: 0,
+        rand: [0; 8],
+        secure: true,
+        name: Some("Phone".into()),
+        notify: 0,
+        digest: Database::tetrad(true).digest(),
+        app: true,
+    };
+    let mut rig = Rig::with_link(false, vec![phone], true);
+    rig.answer_commands();
+    rig.connect();
+    assert_eq!(rig.ltk_request(0), [1; 16]);
+    rig.encrypted();
+    rig.feed(&acl_in(l2cap::ATT, &[att::op::MTU_REQUEST, 247, 0]));
+    let db = Database::tetrad(true);
+    for notify in [att::Notify::Link, att::Notify::Midi] {
+        let cccd = db.handle(Slot::Cccd(notify)).unwrap();
+        let mut write = vec![att::op::WRITE];
+        write.extend_from_slice(&cccd.to_le_bytes());
+        write.extend_from_slice(&[1, 0]);
+        rig.feed(&acl_in(l2cap::ATT, &write));
+    }
+    rig.take_frames();
+    // A reply of many 27-byte fragments, then MIDI while the controller's 30 buffers are full.
+    let message: Vec<u8> = (0..2000).map(|i| i as u8).collect();
+    rig.host
+        .apply(tetrad_ble::Command::LinkSend(message.clone()));
+    rig.host.send_midi(&[0xb0, 1, 2]);
+    rig.collect();
+    for _ in 0..20 {
+        let mut done = vec![0x04, 0x13, 5, 1];
+        done.extend_from_slice(&HANDLE.to_le_bytes());
+        done.extend_from_slice(&30u16.to_le_bytes());
+        rig.feed(&done);
+    }
+    // Every L2CAP packet arrived whole (the reassembler would fail on a cut one).
+    let reply = db.handle(Slot::LinkReply).unwrap();
+    let midi = db.handle(Slot::Midi).unwrap();
+    let mut joined = tetrad_ble::link::Reassembler::default();
+    let mut replies = Vec::new();
+    let mut midi_seen = false;
+    for (_, pdu) in rig.take_frames() {
+        let handle = u16::from_le_bytes([pdu[1], pdu[2]]);
+        if handle == reply {
+            replies.extend(joined.push(&pdu[3..]).unwrap());
+        } else if handle == midi {
+            midi_seen = true;
+        }
+    }
+    assert_eq!(replies, vec![message]);
+    assert!(midi_seen);
 }

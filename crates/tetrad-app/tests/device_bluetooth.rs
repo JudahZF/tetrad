@@ -1,0 +1,129 @@
+//! Bluetooth (docs/bluetooth.md): the Tetrad app's PIN permission. A bond keeps it only while its
+//! saved key encrypts the link; a new pairing must give the PIN again. The BLE host is a fake:
+//! tests push its events and read the Link replies it was asked to send.
+
+mod common;
+
+use common::{Media, STOCK, Sim, boot_bluetooth, light_preset};
+use serde_json::{Value, json};
+use tetrad_app::device::bluetooth::{BONDS_FILE, SETTINGS_FILE};
+use tetrad_app::device::{Device, Event};
+use tetrad_ble::bond::{Bond, Kind};
+use tetrad_ble::{Command, Event as Ble};
+use tetrad_services::fake::MemFiles;
+
+const PHONE: [u8; 6] = [0x2b, 0xa0, 0xfa, 0x1b, 0x36, 0xac];
+
+fn bond(ltk: u8, app: bool) -> Bond {
+    Bond {
+        address: PHONE,
+        address_type: 0,
+        kind: Kind::Host,
+        irk: None,
+        ltk: [ltk; 16],
+        ediv: 0,
+        rand: [0; 8],
+        secure: true,
+        name: Some("Phone".into()),
+        notify: 0,
+        digest: 0,
+        app,
+    }
+}
+
+/// A unit with Bluetooth on and one phone that gave the PIN on an earlier link.
+fn boot() -> (Device<Sim>, MemFiles) {
+    let files = MemFiles::default();
+    files.put(SETTINGS_FILE, r#"{"enabled":true}"#);
+    let bonds = serde_json::to_string(&vec![bond(1, true)]).unwrap();
+    files.put(BONDS_FILE, bonds);
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 0))]);
+    let (device, _media) = boot_bluetooth(media, files.clone());
+    (device, files)
+}
+
+fn push(device: &mut Device<Sim>, event: Ble) {
+    device.push(Event::Bluetooth(event));
+    device.step();
+}
+
+/// Sends one app request and returns the header of the reply.
+fn ask(device: &mut Device<Sim>, header: Value) -> Value {
+    push(device, Ble::LinkMessage(tetrad_usb::encode(&header, &[])));
+    let sent = &device.platform().bluetooth.as_ref().unwrap().sent;
+    let Some(Command::LinkSend(message)) = sent
+        .iter()
+        .rev()
+        .find(|c| matches!(c, Command::LinkSend(_)))
+    else {
+        panic!("no reply in {sent:?}");
+    };
+    tetrad_usb::decode::<Value>(message).unwrap().0
+}
+
+fn pin(device: &Device<Sim>) -> String {
+    let view = &device.bridges().ui.view().snapshot().bluetooth;
+    view.pin.clone().expect("a PIN while Bluetooth runs")
+}
+
+#[test]
+fn a_remembered_pin_counts_only_after_the_saved_key_encrypts_the_link() {
+    let (mut device, _files) = boot();
+    assert!(device.platform().bluetooth.as_ref().unwrap().running);
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: true,
+        },
+    );
+    // The address alone proves nothing.
+    let files = json!({"id": 1, "op": "files"});
+    assert_eq!(
+        ask(&mut device, files.clone())["error"],
+        "Give the PIN first (auth)"
+    );
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: false,
+        },
+    );
+    assert!(ask(&mut device, files)["extensions"].is_array());
+}
+
+#[test]
+fn a_new_pairing_with_a_known_address_must_give_the_pin_again() {
+    let (mut device, files) = boot();
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: true,
+        },
+    );
+    // Pairing again (the page is open) makes new keys for the same address.
+    push(&mut device, Ble::Bonded(bond(2, false)));
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: true,
+        },
+    );
+    let request = json!({"id": 1, "op": "files"});
+    assert_eq!(
+        ask(&mut device, request.clone())["error"],
+        "Give the PIN first (auth)"
+    );
+    let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
+    assert!(!saved[0].app);
+
+    let pin = pin(&device);
+    let auth = ask(&mut device, json!({"id": 2, "op": "auth", "pin": pin}));
+    assert_eq!(auth["authorized"], true);
+    assert!(ask(&mut device, request)["extensions"].is_array());
+    let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
+    assert!(saved[0].app);
+}

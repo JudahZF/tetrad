@@ -914,6 +914,8 @@ pub struct Sim {
     pub extensions: Option<tetrad_app::device::extensions::LocalBackend>,
     /// The Remote server; `None` (default): Remote does not run.
     pub remote: Option<FakeRemote>,
+    /// The BLE host; `None` (default): Bluetooth does not run.
+    pub bluetooth: Option<FakeBluetooth>,
     /// Extension programs the device started.
     pub apps: Rc<RefCell<SimApps>>,
 }
@@ -933,6 +935,33 @@ impl tetrad_app::device::app::AppProcess for SimApp {
     }
     fn stop(&mut self) {
         self.0.borrow_mut().running = false;
+    }
+}
+
+/// A BLE host with no radio: tests push [`Input::Bluetooth`] events and read the commands.
+#[derive(Debug, Default)]
+pub struct FakeBluetooth {
+    pub running: bool,
+    /// The bonds of each start.
+    pub starts: Vec<Vec<tetrad_ble::Bond>>,
+    pub sent: Vec<tetrad_ble::Command>,
+}
+
+impl tetrad_app::device::bluetooth::BluetoothBackend for FakeBluetooth {
+    fn start(
+        &mut self,
+        _config: tetrad_ble::Config,
+        bonds: Vec<tetrad_ble::Bond>,
+    ) -> Result<(), String> {
+        self.running = true;
+        self.starts.push(bonds);
+        Ok(())
+    }
+    fn stop(&mut self) {
+        self.running = false;
+    }
+    fn send(&mut self, command: tetrad_ble::Command) {
+        self.sent.push(command);
     }
 }
 
@@ -1065,6 +1094,7 @@ impl Sim {
             disk_space: None,
             extensions: None,
             remote: None,
+            bluetooth: None,
             apps: Rc::default(),
         }
     }
@@ -1226,6 +1256,9 @@ impl Platform for Sim {
     }
     fn remote(&mut self) -> Option<&mut dyn tetrad_app::device::remote::RemoteBackend> {
         self.remote.as_mut().map(|backend| backend as _)
+    }
+    fn bluetooth(&mut self) -> Option<&mut dyn tetrad_app::device::bluetooth::BluetoothBackend> {
+        self.bluetooth.as_mut().map(|backend| backend as _)
     }
     fn midi_write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         self.clock.log.borrow_mut().midi.push(bytes.to_vec());
@@ -1470,6 +1503,21 @@ pub fn boot_remote(media: Media, files: MemFiles, remote: FakeRemote) -> (Device
         std::time::UNIX_EPOCH + Duration::from_secs(1_791_635_696),
     ));
     sim.remote = Some(remote);
+    let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
+    (device, media)
+}
+
+/// [`boot_remote`] with a BLE host (the fake) as well.
+#[allow(dead_code)]
+pub fn boot_bluetooth(media: Media, files: MemFiles) -> (Device<Sim>, Media) {
+    let log = Rc::new(RefCell::new(Log::default()));
+    let mut sim = Sim::new(STOCK, &media, &log);
+    sim.services.files = files;
+    sim.wall_clock.set(Some(
+        std::time::UNIX_EPOCH + Duration::from_secs(1_791_635_696),
+    ));
+    sim.remote = Some(FakeRemote::default());
+    sim.bluetooth = Some(FakeBluetooth::default());
     let device = Device::start_with(sim, tetrad_app::device::bringup::RunOptions::STOCK).unwrap();
     (device, media)
 }
