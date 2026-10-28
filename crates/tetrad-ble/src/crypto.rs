@@ -3,7 +3,7 @@
 //!
 //! Every value here is in the order it has on the air and in HCI: least significant octet
 //! first. The specification writes these functions most significant octet first, so `e` and
-//! [`cmac`] reverse their inputs and output, as the Linux kernel (`net/bluetooth/smp.c`) does.
+//! [`fn@cmac`] reverse their inputs and output, as the Linux kernel (`net/bluetooth/smp.c`) does.
 //! The tests are the kernel's self-test values, which come from the specification.
 
 use aes::Aes128;

@@ -139,7 +139,7 @@ impl HciUart {
     }
 
     /// Writes all of `bytes`, waiting while the driver's buffer is full: at most
-    /// [`WRITE_TIMEOUT`], with the output restarted when it stalls.
+    /// 2 s, with the output restarted when it stalls.
     pub fn write_all(&mut self, mut bytes: &[u8]) -> io::Result<()> {
         let until = Instant::now() + WRITE_TIMEOUT;
         while !bytes.is_empty() {
