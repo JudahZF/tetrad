@@ -1041,6 +1041,8 @@ pub struct Device<P: Platform> {
     services_up: bool,
     /// The extension program that has the screen and the footswitches.
     app: Option<app::Running>,
+    /// The touch that was down when the program ended (the quit hold): the UI gets none of it.
+    app_touch: bool,
     /// [`bringup::RunOptions::STOCK`] for `run`; a bring-up run gates stages and writes.
     options: bringup::RunOptions,
     health: bringup::Health,
@@ -1116,6 +1118,7 @@ impl<P: Platform> Device<P> {
             usb: usb::UsbLink::default(),
             services_up: false,
             app: None,
+            app_touch: false,
             options,
             health: bringup::Health::default(),
         };
@@ -1677,6 +1680,12 @@ impl<P: Platform> Device<P> {
         }
         // A running program reads the footswitches, the knobs and TEMPO itself, and the touch
         // only counts for its quit hold. The power button ends it, so that the power dialog shows.
+        if self.app_touch
+            && let Event::UiInput(ui::UiInput::Touch(sample)) = &event
+        {
+            self.app_touch = sample.pressed;
+            return Ok(Vec::new());
+        }
         if let Some(app) = &mut self.app {
             match &event {
                 Event::Hal(HalEvent::Knob { .. } | HalEvent::Stomp { .. } | HalEvent::Tempo(_)) => {
@@ -1993,6 +2002,7 @@ impl<P: Platform> Device<P> {
                 let exited = self.app.as_mut().and_then(|app| app.poll(now));
                 match (exited, self.app.take()) {
                     (Some(how), Some(app)) => {
+                        self.app_touch = app.touching();
                         // The program drew over every row: the next frame is whole.
                         self.platform.forget_display();
                         self.bridges.ui.unshown();

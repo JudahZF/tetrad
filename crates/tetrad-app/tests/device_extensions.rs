@@ -1380,6 +1380,20 @@ fn a_program_takes_the_screen_until_a_held_touch_ends_it() {
     assert!(apps.borrow().running, "a short touch does not end it");
     assert_eq!(scene(&device), 0, "Tetrad ignores the footswitch");
     pump(&mut device, "the held touch", |_| !apps.borrow().running);
+    // The rest of the quit touch, here a move to the ⋮ button and the release, reaches no
+    // page: it would tap whatever is under the finger.
+    for pressed in [true, false] {
+        device.push(Event::UiInput(UiInput::Touch(TouchSample {
+            x: 764,
+            y: 22,
+            pressed,
+        })));
+        assert!(device.step().is_none());
+    }
+    assert!(
+        !device.bridges().ui.view().overlay_open(),
+        "the touch opened a menu"
+    );
     pump(&mut device, "the whole frame", |d| {
         d.platform().presented() > shown
     });

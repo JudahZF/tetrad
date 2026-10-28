@@ -70,10 +70,14 @@ impl Running {
             .touch_down
             .is_some_and(|down| now.saturating_sub(down) >= QUIT_HOLD)
         {
-            self.touch_down = None;
             self.process.stop();
         }
         self.process.exited()
+    }
+
+    /// A finger is on the screen, such as the one that held to quit.
+    pub fn touching(&self) -> bool {
+        self.touch_down.is_some()
     }
 
     pub fn stop(&mut self) {

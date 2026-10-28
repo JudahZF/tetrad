@@ -30,8 +30,8 @@ next to the package as release assets.
 | UP | Backspace |
 
 In the menu, A, B, C and F move and DOWN chooses. qcDOOM gives no switch the `y` key, so the
-quit question of DOOM cannot be answered: hold the screen for 2 seconds to quit. The footswitch
-LEDs keep the colours that Tetrad gave them. DOOM has no sound here; the amp sound goes on.
+quit question of DOOM cannot be answered: hold the screen for 2 seconds to quit. DOOM has no
+sound here; the amp sound goes on.
 
 Saved games and the DOOM settings are in the asset folder of the extension,
 `/media/p4/tetrad/assets/tetrad.doom/`.
