@@ -375,7 +375,8 @@ impl Host {
             let pdu = att::notification(&bearer, handle, &frame);
             let packet = l2cap::frame(l2cap::ATT, &pdu);
             for (i, fragment) in packet.chunks(self.acl_size).enumerate() {
-                self.bulk.push_back((link, hci::acl(link, i == 0, fragment)));
+                self.bulk
+                    .push_back((link, hci::acl(link, i == 0, fragment)));
             }
         }
         self.pump();
@@ -999,6 +1000,7 @@ impl Host {
             name: None,
             notify: link.notify,
             digest: self.digest,
+            app: false,
         };
         self.bonds.retain(|known| known.address != address);
         self.bonds.push(bond.clone());

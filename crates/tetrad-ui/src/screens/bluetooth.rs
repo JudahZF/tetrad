@@ -76,12 +76,15 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect) {
             view.midi,
         );
         row.y += ROW as i32;
-        let host = match &view.host {
+        let mut host = match &view.host {
             Some(host) => format!("Connected: {host}"),
             None if view.host_mode && view.enabled => "A phone or computer can connect".to_owned(),
             None if view.host_mode => "On when Bluetooth is on".to_owned(),
             None => "Phones and computers cannot connect".to_owned(),
         };
+        if let Some(pin) = view.pin.as_ref().filter(|_| view.host_mode) {
+            host = format!("{host} · App PIN {pin}");
+        }
         let toggle = Control::BluetoothHostModeToggle;
         switch_row(l, row, toggle, "Host mode", &host, view.host_mode);
         row.y += ROW as i32;

@@ -276,6 +276,14 @@ export interface Scope {
     /** Sends one firing to Mappings. Needs the `triggers` capability. */
     fire(firing: TriggerFiring): Promise<void>;
   };
+  readonly ble: {
+    /**
+     * Pushes `value` to the Tetrad app that is connected over Bluetooth and has given the
+     * PIN. Resolves `true` when it went out, `false` when no such app is connected. Needs the
+     * `ble` capability (API 7).
+     */
+    notify(value: JsonValue): Promise<boolean>;
+  };
 }
 
 /**
@@ -342,6 +350,16 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
      * `remote.html` in the package). The page calls `tetrad.send(message)` and gets the
      * handler's return value as JSON; nothing returned replies `null`, and a throw replies with
      * an error. One handler. Needs the `remote` capability.
+     */
+    onMessage(
+      handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,
+    ): void;
+  };
+  readonly ble: {
+    /**
+     * Answers messages from the Tetrad app over Bluetooth (its `extension` request). The
+     * handler's return value, as JSON, is the reply; nothing returned replies `null`, and a
+     * throw replies with an error. One handler. Needs the `ble` capability (API 7).
      */
     onMessage(
       handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,

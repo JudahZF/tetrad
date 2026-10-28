@@ -635,6 +635,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             midi: true,
             name: Some("Quad Cortex 1FEB".into()),
             status: None,
+            pin: Some("4821".into()),
             host: Some("Judah's iPhone".into()),
             devices: vec![
                 BluetoothDevice {
