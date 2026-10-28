@@ -1,6 +1,6 @@
 # Themes
 
-A theme sets the colours of the Tetrad UI. Choose one in Settings → System → Appearance. The
+A theme sets the colours of the Tetrad UI. Choose one in Settings → Tetrad → Appearance. The
 change shows at once, and Tetrad keeps it across restarts.
 
 Tetrad comes with four themes:

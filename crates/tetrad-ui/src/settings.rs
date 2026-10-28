@@ -584,6 +584,9 @@ pub enum SettingsPage {
     Extensions,
     /// Owned (Tetrad): the web page that uploads IRs over Wi-Fi.
     Remote,
+    /// Owned (Tetrad): the settings of one extension, listed under its name in the Tetrad
+    /// group. The installation is the one in `UiState::extensions`.
+    ExtensionSettings,
     GlobalBypass,
     SceneBypass,
     StompModeBypass,
@@ -599,17 +602,25 @@ pub enum SettingsPage {
     Licenses,
 }
 
-/// Groups of the settings dropdown (manual §10: Account, System, Device, Support).
+/// Groups of the settings dropdown (manual §10: Account, System, Device, Support). Owned:
+/// Tetrad holds the pages that Tetrad adds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SettingsGroup {
     Account,
     System,
     Device,
     Support,
+    Tetrad,
 }
 
 impl SettingsGroup {
-    pub const ALL: [Self; 4] = [Self::Account, Self::System, Self::Device, Self::Support];
+    pub const ALL: [Self; 5] = [
+        Self::Account,
+        Self::System,
+        Self::Device,
+        Self::Support,
+        Self::Tetrad,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -617,12 +628,12 @@ impl SettingsGroup {
             Self::System => "System",
             Self::Device => "Device",
             Self::Support => "Support",
+            Self::Tetrad => "Tetrad",
         }
     }
 
-    /// Pages in stock menu order (`0x791ac`). Owned: Tetrad Updates follows CorOS Updates, so
-    /// the two update pages sit together; Appearance follows Brightness; Extensions and
-    /// Remote end System.
+    /// Pages in stock menu order (`0x791ac`). Owned: the Tetrad group. Its menu adds one
+    /// [`SettingsPage::ExtensionSettings`] row for each extension with settings.
     pub fn pages(self) -> &'static [SettingsPage] {
         use SettingsPage::*;
         match self {
@@ -630,16 +641,12 @@ impl SettingsGroup {
             Self::System => &[
                 Connection,
                 Updates,
-                TetradUpdates,
                 Brightness,
-                Appearance,
                 PowerFunctions,
                 PowerOnMode,
                 MasterVolume,
                 DeviceStorage,
                 FactoryReset,
-                Extensions,
-                Remote,
             ],
             Self::Device => &[
                 GlobalBypass,
@@ -658,6 +665,7 @@ impl SettingsGroup {
                 Diagnostics,
                 Licenses,
             ],
+            Self::Tetrad => &[TetradUpdates, Appearance, Extensions, Remote],
         }
     }
 }
@@ -677,6 +685,9 @@ pub(crate) enum PageRow {
 
 impl SettingsPage {
     pub fn group(self) -> SettingsGroup {
+        if self == Self::ExtensionSettings {
+            return SettingsGroup::Tetrad;
+        }
         SettingsGroup::ALL
             .into_iter()
             .find(|group| group.pages().contains(&self))
@@ -717,6 +728,8 @@ impl SettingsPage {
             Self::FactoryReset => "Factory Reset",
             Self::Extensions => "Extensions",
             Self::Remote => "Remote",
+            // The menu row and the page title show the extension's name.
+            Self::ExtensionSettings => "Extension Settings",
             Self::GlobalBypass => "Global Bypass",
             Self::SceneBypass => "Scene Bypass Behavior",
             Self::StompModeBypass => "Stomp Mode Bypass",
@@ -735,7 +748,7 @@ impl SettingsPage {
 
     /// Rows for pages that are plain setting lists. Pages with their own layout (account,
     /// backups, Wi-Fi, updates, storage, information, brightness, global bypass, factory
-    /// reset, extensions, remote, about) return an empty list.
+    /// reset, extensions, extension settings, remote, about) return an empty list.
     pub(crate) fn rows(self) -> &'static [PageRow] {
         use PageRow::*;
         use SettingId as S;
@@ -847,6 +860,7 @@ impl SettingsPage {
             | Self::FactoryReset
             | Self::Extensions
             | Self::Remote
+            | Self::ExtensionSettings
             | Self::SendReport
             | Self::GlobalBypass
             | Self::AboutContact

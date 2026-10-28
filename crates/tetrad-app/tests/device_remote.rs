@@ -42,7 +42,7 @@ fn view(device: &Device<Sim>) -> RemoteView {
     device.bridges().ui.view().snapshot().remote.clone()
 }
 
-/// Taps the switch of Settings → System → Remote.
+/// Taps the switch of Settings → Tetrad → Remote.
 fn tap_switch(device: &mut Device<Sim>) {
     let page = Screen::Settings(SettingsPage::Remote);
     device.push(Event::UiInput(UiInput::Show(page)));

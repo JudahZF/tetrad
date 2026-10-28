@@ -24,9 +24,13 @@ All notable changes to Tetrad are in this file. The version numbers follow
   bug reports. It holds no passwords, tokens or presets. Settings → Support → Send Report shows
   how to get it ([docs/support.md](docs/support.md)).
 - Notices in the boot log start with the time of day (UTC) once the clock is set.
+- Settings has a Tetrad group. An extension that is on and has settings adds a row with its
+  name there; the row opens the extension's settings.
 
 ### Changed
 
+- Tetrad Updates, Appearance, Extensions and Remote moved from Settings → System to the new
+  Settings → Tetrad group.
 - Settings → Support → Send Report shows the Remote switch, address and PIN to get the support
   file. Before, SEND REPORT showed "Sending report..." and then was refused.
 - Neural Amp Modeler is now Neural Amp Modeler A1 (0.4.0), with blocks named "NAM A1 …". It

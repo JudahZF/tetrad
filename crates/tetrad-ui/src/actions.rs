@@ -588,6 +588,16 @@ impl UiState {
                 self.extensions = crate::state::ExtensionsPage::List;
                 return self.navigate(Screen::Settings(page));
             }
+            SettingControl::ExtensionSettings(index) => {
+                let installed = &self.snapshot.extensions.installed;
+                let Some(key) = installed.get(usize::from(index)).map(|e| e.key.clone()) else {
+                    return Vec::new();
+                };
+                self.reset_scroll(ListId::SettingsPage);
+                self.extensions = crate::state::ExtensionsPage::List;
+                self.extension_section = Some(key);
+                return self.navigate(Screen::Settings(SettingsPage::ExtensionSettings));
+            }
             SettingControl::IoTab(tab) => {
                 self.reset_scroll(ListId::IoPage);
                 return self.navigate(Screen::Io(tab));
