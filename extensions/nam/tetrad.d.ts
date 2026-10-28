@@ -280,7 +280,7 @@ export interface Scope {
     /**
      * Pushes `value` to the Tetrad app that is connected over Bluetooth and has given the
      * PIN. Resolves `true` when it went out, `false` when no such app is connected. Needs the
-     * `ble` capability (API 7).
+     * `ble` capability (API 8).
      */
     notify(value: JsonValue): Promise<boolean>;
   };
@@ -359,7 +359,7 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
     /**
      * Answers messages from the Tetrad app over Bluetooth (its `extension` request). The
      * handler's return value, as JSON, is the reply; nothing returned replies `null`, and a
-     * throw replies with an error. One handler. Needs the `ble` capability (API 7).
+     * throw replies with an error. One handler. Needs the `ble` capability (API 8).
      */
     onMessage(
       handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,
