@@ -1,8 +1,213 @@
 <section id="extensions" data-tab="Manage" data-group="Extensions">
   <h2>Manage</h2>
-  <p class="lead">Not built yet.</p>
+  <p class="lead">Turn extensions on or off, change their settings, and install them from the repositories that the unit trusts. To add or trust a repository, use Settings → Tetrad → Extensions on the unit.</p>
+  <p class="ext-status" id="ext-status" role="status"></p>
+  <h3>Installed</h3>
+  <div id="ext-installed"></div>
+  <div class="ext-bar">
+    <h3>Available</h3>
+    <button type="button" class="small" id="ext-refresh" title="Read the catalog of each repository again">Refresh</button>
+  </div>
+  <ul id="ext-available"></ul>
+  <p class="foot" id="ext-sources"></p>
 </section>
+<style>
+#extensions h3 { margin: 28px 0 8px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+#extensions .ext-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 28px; }
+#extensions .ext-bar h3 { margin: 0; }
+#extensions .ext-status { margin: 0; }
+#extensions .ext-status:empty { display: none; }
+#extensions ul { margin-top: 8px; }
+#extensions .ext-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 12px; }
+#extensions .ext-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+#extensions .ext-head strong { font-size: 18px; overflow-wrap: anywhere; }
+#extensions .ext-card p { margin: 6px 0 0; }
+#extensions .ext-meta { color: var(--muted); font-size: 13px; }
+#extensions .ext-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#extensions .ext-setting { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid var(--line); }
+#extensions .ext-settings { margin-top: 12px; }
+#extensions input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+#extensions input[type=number] { width: 9ch; }
+#extensions .ext-card li { padding: 6px 0; font-size: 14px; }
+#extensions details { margin-top: 12px; }
+#extensions summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+#extensions pre { margin: 8px 0 0; padding: 8px; max-height: 240px; overflow: auto; background: var(--bg); border-radius: 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
 <script>
 "use strict";
-$("panes").append($("extensions"));
+// Manage extensions (docs/remote.md): what Settings → Tetrad → Extensions does on the unit, on a
+// big screen. A command answers with the new list. Repositories and their trust stay on the unit.
+{
+  $("panes").append($("extensions"));
+  const STATES = { running: ["Running", "added"], starting: ["Starting…", "working"], off: ["Off", ""], faulted: ["Faulted", "failed"] };
+  /** The keys and states of the last list: a change reloads the file pages and the tabs. */
+  let shape = null;
+  /** The next quick look while a job runs or an extension starts. */
+  let again = 0;
+  let sending = false;
+  /** The extensions whose log is open. */
+  const openLogs = new Set();
+
+  const el = (tag, props, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children.filter((child) => child !== null && child !== ""));
+    return node;
+  };
+  const say = (text, kind) => {
+    $("ext-status").textContent = text || "";
+    $("ext-status").className = "ext-status " + (kind || "");
+  };
+
+  async function load() {
+    clearTimeout(again);
+    const { status, body } = await call("/api/extensions");
+    if (status === 401) return;
+    if (status !== 200) return say(body.error || "Failed", "failed");
+    show(body);
+  }
+
+  async function send(command, button) {
+    sending = true;
+    if (button) button.disabled = true;
+    say("Working…", "working");
+    const { status, body } = await call("/api/extensions/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(command),
+    });
+    sending = false;
+    if (status === 401) return;
+    if (status === 200) return show(body);
+    if (button) button.disabled = false;
+    const error = body.error || "Failed";
+    await load();
+    say(error, "failed");
+  }
+
+  function show(list) {
+    const next = list.installed.map((e) => e.key + "=" + e.state).join(",");
+    if (shape !== null && next !== shape) { loadFiles(); loadTabs(); }
+    shape = next;
+    if (!sending) say(list.status, list.busy ? "working" : "");
+    // A list or a number in use keeps what the user picks or types until it is sent.
+    const active = document.activeElement;
+    if (!(active && $("ext-installed").contains(active) && active.matches("select, input[type=number]"))) {
+      $("ext-installed").replaceChildren(...(list.installed.length
+        ? list.installed.map(card)
+        : [el("p", { className: "lead", textContent: "No extensions are installed." })]));
+    }
+    $("ext-available").replaceChildren(...(list.available.length
+      ? list.available.map((e) => offer(e, list.busy))
+      : [el("li", { className: "lead", textContent: "Nothing more to install. Refresh reads the repositories again." })]));
+    const sources = list.sources.filter((s) => s.enabled).map((s) => s.repository + ": " + s.status);
+    $("ext-sources").textContent = sources.length ? "Repositories: " + sources.join(" · ") : "No repository is on.";
+    $("ext-refresh").disabled = list.busy;
+    if (list.busy || list.installed.some((e) => e.state === "starting")) {
+      again = setTimeout(() => { if (pin && !$("shell").hidden) load(); }, 2000);
+    }
+  }
+
+  function card(ext) {
+    const [label, kind] = STATES[ext.state] || [ext.state, ""];
+    const button = (text, className, command, ask) => {
+      const node = el("button", { type: "button", className: "small " + className, textContent: text });
+      node.addEventListener("click", () => {
+        if (!ask || confirm(ask)) send(Object.assign({ key: ext.key }, command), node);
+      });
+      return node;
+    };
+    const actions = el("div", { className: "ext-row" },
+      ext.enabled ? button("Turn off", "", { op: "disable" }) : button("Turn on", "primary", { op: "enable" }),
+      ext.update ? button("Update to " + ext.update, "primary", { op: "update" }) : null,
+      ext.state === "faulted" ? button("Retry", "", { op: "retry" }) : null,
+      button("Remove", "danger", { op: "remove" },
+        "Remove " + ext.name + "? Its settings and stored data stay on the unit, so a new install keeps them."));
+    const lines = (items, className) => items.map((text) => el("p", { className, textContent: text }));
+    const extras = [];
+    if (ext.themes.length) extras.push("Themes: " + ext.themes.join(", "));
+    if (ext.mode) extras.push("Footswitch mode: " + ext.mode.name + (ext.mode.detail ? " · " + ext.mode.detail : ""));
+    let log = null;
+    if (ext.log.length) {
+      log = el("details", { open: openLogs.has(ext.key) },
+        el("summary", { textContent: "Log (" + ext.log.length + (ext.log.length === 1 ? " line)" : " lines)") }),
+        el("pre", { textContent: ext.log.join("\n") }));
+      log.addEventListener("toggle", () => { if (log.open) openLogs.add(ext.key); else openLogs.delete(ext.key); });
+    }
+    return el("div", { className: "ext-card" },
+      el("div", { className: "ext-head" },
+        el("strong", { textContent: ext.name }),
+        el("span", { className: "state " + kind, textContent: label })),
+      el("p", { className: "ext-meta", textContent: ext.version + " · " + ext.source }),
+      ext.description ? el("p", { textContent: ext.description }) : null,
+      ext.fault ? el("p", { className: "failed", textContent: ext.fault }) : null,
+      ext.duplicates.length
+        ? el("p", { className: "working", textContent: "Also on from " + ext.duplicates.join(", ") + ": turn one off or remove it." })
+        : null,
+      actions,
+      ext.settings.length ? el("div", { className: "ext-settings" }, ...ext.settings.map((s) => setting(ext, s))) : null,
+      ext.commands.length
+        ? el("div", { className: "ext-row" }, ...ext.commands.map((c) => button(c.label, "", { op: "run", command: c.id })))
+        : null,
+      ...lines(ext.status, ""),
+      ext.blocks.length
+        ? el("ul", {}, ...ext.blocks.map((block) => el("li", {},
+          el("span", { className: "name", textContent: block.name }),
+          el("small", { className: block.ready ? "" : "failed", textContent: block.detail }))))
+        : null,
+      ...lines(extras, "ext-meta"),
+      log);
+  }
+
+  /** One setting of the manifest, as on the unit: a list, a switch or a whole number. */
+  function setting(ext, s) {
+    const change = (value) => {
+      input.blur();
+      send({ op: "setting", key: ext.key, setting: s.key, value });
+    };
+    let input;
+    if (s.kind === "choice") {
+      input = el("select", {}, ...s.options.map((option, i) =>
+        el("option", { value: String(i), textContent: option, selected: i === s.value })));
+      input.addEventListener("change", () => change(Number(input.value)));
+    } else if (s.kind === "toggle") {
+      input = el("input", { type: "checkbox", checked: s.value });
+      input.addEventListener("change", () => change(input.checked));
+    } else {
+      input = el("input", { type: "number", min: s.min, max: s.max, step: 1, value: s.value });
+      input.addEventListener("change", () => {
+        const value = Number(input.value);
+        if (Number.isInteger(value) && value >= s.min && value <= s.max) change(value);
+        else say(s.label + " is a whole number from " + s.min + " to " + s.max, "failed");
+      });
+    }
+    return el("label", { className: "ext-setting" }, el("span", { textContent: s.label }), input);
+  }
+
+  function offer(ext, busy) {
+    const install = el("button", { type: "button", className: "small primary", textContent: "Install", disabled: busy });
+    install.addEventListener("click", () => send({ op: "install", source: ext.source, id: ext.id }, install));
+    return el("li", {},
+      el("span", { className: "name", textContent: ext.name },
+        el("small", { textContent: ext.version + " · " + ext.source + (ext.description ? " · " + ext.description : "") }),
+        ext.duplicates.length
+          ? el("small", { className: "working", textContent: "Also installed from " + ext.duplicates.join(", ") + ": keep one on" })
+          : null),
+      install);
+  }
+
+  $("ext-refresh").addEventListener("click", () => send({ op: "refresh" }, $("ext-refresh")));
+  parts.push({
+    connect: load,
+    disconnect() {
+      clearTimeout(again);
+      shape = null;
+      openLogs.clear();
+      $("ext-installed").replaceChildren();
+      $("ext-available").replaceChildren();
+      $("ext-sources").textContent = "";
+      say("");
+    },
+    refresh() { if (!sending) load(); },
+  });
+}
 </script>
