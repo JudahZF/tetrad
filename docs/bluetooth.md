@@ -2,11 +2,13 @@
 
 The Wi-Fi chip of the Quad Cortex (a Microchip WILC3000) also has a Bluetooth Low Energy (BLE)
 radio. Stock CorOS does not use it. Tetrad uses it for BLE MIDI: a phone, a tablet or a computer
-can send MIDI to the unit and get the unit's MIDI, with no cable.
+can send MIDI to the unit and get the unit's MIDI, with no cable. The Tetrad app (in work) uses
+the same link to do what the Remote page does.
 
 - [Turn on Bluetooth](#turn-on-bluetooth)
 - [Pair a phone or computer](#pair-a-phone-or-computer)
 - [BLE MIDI](#ble-midi)
+- [The Tetrad app link](#the-tetrad-app-link)
 - [Limits](#limits)
 - [Problems](#problems)
 - [How it works](#how-it-works)
@@ -64,6 +66,53 @@ on the phone or computer too, or that device cannot connect until it pairs again
 - **Latency:** after a host connects, Tetrad asks for a connection interval of 15 to 30 ms. The
   host decides; most computers and phones take it.
 
+## The Tetrad app link
+
+The unit has a GATT service for the Tetrad app: the **Tetrad Link**. Over it the app does what the
+Remote page does: add IRs, send and delete extension files (NAM models), use the tabs of
+extensions, and download the support file. It also sends messages to extensions with the `ble`
+capability and gets the events they push ([extensions.md](extensions.md#answer-the-tetrad-app)).
+
+**The PIN.** While Bluetooth is on, the Host mode line of the Bluetooth page shows the **App
+PIN** (4 digits, new at each start of Bluetooth). The app asks for it once per pairing: the unit
+then remembers that this phone gave it. FORGET removes the pairing and that permission. Each
+wrong PIN makes the next try wait 1 second; after 10 wrong PINs the unit makes a new PIN.
+
+**For app authors.**
+
+| | |
+| --- | --- |
+| Service | `5162a6fe-ad05-405f-b22e-6e4047a5b524` |
+| Request characteristic | `…b525`: write without response (or write), app → unit; needs an encrypted link |
+| Reply characteristic | `…b526`: notify, unit → app; needs an encrypted link |
+| Frame | One flags byte (1 START, 2 END), then a piece of a message. A message runs from a START frame to an END frame; a frame is at most the ATT MTU less 3 bytes. Ask for a large MTU (the unit takes 247). |
+| Message | The format of the USB link ([usb.md](usb.md#messages)): the length of a JSON header (u32, little-endian), the JSON header, then a binary body. At most 64 KiB from the app. |
+
+Each request has an `id` (a number) and an `op`; its reply has the same `id`, and an `error`
+field when it was refused. The unit answers one request at a time, in order.
+
+| `op` | Fields | Body | Reply |
+| --- | --- | --- | --- |
+| `hello` | | | `tetrad` (version), `protocol` (1), `name`, `authorized` |
+| `auth` | `pin` | | `authorized: true`, or an error |
+| `status` | | | `folder`: the IR saving destination |
+| `ir-upload` | `name` | the IR as the Remote page sends it (mono, 48 kHz, 32-bit float WAV) | `name`, `folder` |
+| `files` | | | `extensions`, as `GET /api/files` ([remote.md](remote.md#extension-files)) |
+| `file-chunk` | `extension`, `name`, `offset`, `last` | the next bytes of the file | `received`, or `name` and `size` after the last piece |
+| `file-delete` | `extension`, `name` | | `name` |
+| `tabs` | | | `tabs`: the extension tabs (`id`, `title`) |
+| `tab-page` | `extension` | | `html` |
+| `tab-call` | `extension`, `message` (JSON) | | `result`: the extension's answer |
+| `support` | | | `name`; the body is the support file (zip) |
+| `extension` | `extension`, `message` (JSON) | | `value`: the answer of the extension's `ctx.ble.onMessage` |
+
+Every op except `hello` and `auth` needs the PIN first. An extension pushes an event with
+`scope.ble.notify(value)`; it arrives as a message with no `id`:
+`{"event": "extension", "extension": "<id>", "value": …}`.
+
+At 115200 baud the link carries about 8 KB/s: an IR takes a second, a 3 MiB NAM model several
+minutes. The Remote page over Wi-Fi is faster for large files.
+
 ## Limits
 
 - One phone or computer at a time. While one is connected, the unit does not advertise.
@@ -100,9 +149,10 @@ For developers.
   server, SMP (Just Works with LE Secure Connections or legacy pairing) and the BLE MIDI packet
   format. It does no I/O. `tetrad-sys` `ble` runs it on its own thread with the UART;
   `tetrad-app` `device/bluetooth.rs` is the device side.
-- **The GATT table:** GAP, GATT (with Service Changed) and the BLE MIDI service
-  (`03B80E5A-EDE8-4B33-A751-6CE34EC4C700`, characteristic `7772E5DB-3868-4112-A1A9-F2669D106BF3`).
-  The MIDI characteristic needs an encrypted link.
+- **The GATT table:** GAP, GATT (with Service Changed), the BLE MIDI service
+  (`03B80E5A-EDE8-4B33-A751-6CE34EC4C700`, characteristic `7772E5DB-3868-4112-A1A9-F2669D106BF3`)
+  and the Tetrad Link. The MIDI and Link characteristics need an encrypted link. A paired host
+  that saw another table gets a Service Changed indication when it comes back.
 - **Files:** `/media/p4/tetrad/bluetooth.json` holds the switches
   (`{"enabled":true,"host_mode":true,"midi":true}`). `/media/p4/tetrad/bluetooth-bonds.json`
   holds the pairings, with their keys. The support file never takes the keys: its
