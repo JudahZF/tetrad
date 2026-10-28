@@ -6,7 +6,7 @@
 //! MUTE (22 values for 2 own XML parameters); tetrad-catalog resolves clones (`0x5507c4`,
 //! d-engine §1), so [`SpecsCatalog`] describes them like any other model.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime};
 
 use tetrad_catalog::{Catalog, Specs, ids};
@@ -40,7 +40,7 @@ use tetrad_storage::stock::{ExpSwitch, ParamEntry, StockDb};
 use tetrad_ui::PreferredInstrument;
 
 use super::actions::LayoutEdit;
-use super::services::PresetFile;
+use super::services::{Licences, PluginStatus, PresetFile};
 use super::{Current, PresetRef};
 
 /// Looper category: momentary save inversion (`0x51898c`) and MUTE skip it.
@@ -239,15 +239,30 @@ pub struct Prepared {
     pub update: Update,
 }
 
+/// (O) Issue #17: the models of plugins with no licence at all load no DSP code. Their blocks
+/// stay on the grid with the lock, and a new licence reloads the preset (`licence_repush`).
+/// The DSP never acknowledges the run-list clear of an unlicensed Petrucci Wah, in stock too,
+/// and the unit restarts. A licensed plugin waiting for its activation still loads.
+pub fn dormant_models(specs: &Specs, licences: &Licences) -> BTreeSet<ModelId> {
+    (specs.models.values())
+        .filter(|model| {
+            (model.plugin_id)
+                .is_some_and(|plugin| licences.status(plugin) == PluginStatus::Unlicensed)
+        })
+        .map(|model| ModelId(model.id))
+        .collect()
+}
+
 /// Stock load path: migrate (`0x681d44`), import, route, fit (trying the stored recompile
 /// masks first) and compile against the `previous` deployment, in the preset's default
 /// scene. Inferred: both global features (input gate, Global EQ) are requested; the fit may
-/// inhibit them.
+/// inhibit them. The blocks of `dormant` models load no DSP code ([`dormant_models`]).
 pub fn prepare(
     mut preset: Preset,
     specs: &Specs,
     dynamic_delay_compensation: bool,
     previous: Option<&Deployment>,
+    dormant: BTreeSet<ModelId>,
 ) -> Result<Prepared, PresetError> {
     // Before the migration, which would empty a slot with an unknown model ID.
     restore_community(&mut preset, specs);
@@ -269,14 +284,14 @@ pub fn prepare(
     let layout = imported.layout.clone();
     let stored = StoredMasks::from_preset(&preset);
     let (deployment, update) = match previous {
-        None => Deployment::new_stored(layout, specs, options, scene, stored)?,
+        None => Deployment::new_stored(layout, specs, options, scene, stored, dormant)?,
         Some(previous) => {
             // A failed compile keeps the previous preset (`0x585464`). The new preset plays
             // its default scene; the load pushes every value, so the scene's own push is not
             // needed.
             let mut deployment = previous.clone();
             let _ = deployment.select_scene(scene);
-            let update = deployment.load_stored(specs, layout, stored)?;
+            let update = deployment.load_stored(specs, layout, stored, dormant)?;
             (deployment, update)
         }
     };

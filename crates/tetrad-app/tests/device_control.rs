@@ -620,7 +620,7 @@ sd_heap='0' dma='0' dm='10' pm='0' sw='100' nw='0' Latency='0'>\
         let specs = Specs::resolve(&Catalog::parse(models, report).unwrap()).unwrap();
         let mut preset = Preset::new_default("4.1.0", &SpecsCatalog(&specs)).unwrap();
         edit(&mut preset, &SpecsCatalog(&specs));
-        let prepared = prepare(preset, &specs, false, None).unwrap();
+        let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
         let (settings, _) = DeviceSettings::load(&NoFiles, Hardware::QuadCortex).unwrap();
         let mut state = State::new(Product::QuadCortex, Platform::QcOriginal, settings);
         state.specs = Some(specs);

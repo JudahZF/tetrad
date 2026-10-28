@@ -199,7 +199,8 @@ fn program_change_is_dropped_while_a_plugin_preset_is_auditioned() {
         tetrad_catalog::Specs::resolve(&tetrad_catalog::Catalog::parse(MODELS, REPORT).unwrap())
             .unwrap();
     let read = tetrad_app::device::preset::read(&presets, None, &specs).unwrap();
-    let prepared = tetrad_app::device::preset::prepare(read, &specs, false, None).unwrap();
+    let prepared =
+        tetrad_app::device::preset::prepare(read, &specs, false, None, Default::default()).unwrap();
     *state.current.get_mut() = Some(tetrad_app::device::Current {
         path: Some("/media/p4/Plugins/Owned/Clean.pb".into()),
         preset: prepared.preset,

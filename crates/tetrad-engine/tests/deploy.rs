@@ -1,11 +1,13 @@
 //! Deployment compiler contracts on a small synthetic catalog (no stock data).
 
+use std::collections::BTreeSet;
+
 use tetrad_catalog::{Catalog, Specs};
 use tetrad_engine::{
     Channel, CompileError, CompileOptions, DeployError, Deployment, DropSide, DspCore, Endpoint,
     FitError, GateMessage, Globals, InputPort, Instance, LaneSink, LaneSource, Layout, LinkKind,
     ModelId, Node, OutputPort, Pair, PlanOp, RouteError, RouterValue, RouterWrite, Row, SceneIndex,
-    Scened, SidechainSource, Site, Slot, TextParam, Update, compile, route,
+    Scened, SidechainSource, Site, Slot, StoredMasks, TextParam, Update, compile, route,
 };
 
 const MODELS: &str = "<Models>\
@@ -264,6 +266,34 @@ fn sidechain_selectors_name_preceding_blocks() {
     assert_eq!(select(0.0), Ok(SidechainSource::Off));
 }
 
+/// (O) A dormant block leaves the selector lists after it: a selector keeps naming the same
+/// source in the DSP layout, and one on the dormant block turns Off.
+#[test]
+fn dormant_blocks_keep_sidechain_sources() {
+    let specs = specs();
+    let preset = layout(
+        &specs,
+        &[(0, &[(0, LIGHT), (1, BIG), (2, LIGHT), (3, COMP)])],
+    );
+    let comp = Site::Slot(slot(0, 3));
+    let source = |value: f32| {
+        let mut preset = preset.clone();
+        preset.instance_mut(comp).unwrap().params[1] = Scened::Fixed(value);
+        let options = options(false, false);
+        let scene = SceneIndex::new(0).unwrap();
+        let stored = StoredMasks::default();
+        let dormant = BTreeSet::from([BIG]);
+        let (deployment, _) =
+            Deployment::new_stored(preset, &specs, options, scene, stored, dormant).unwrap();
+        route(deployment.dsp_layout(), &specs).unwrap().sidechains[0].scenes[0]
+    };
+    // Steps 14, 15 and 16 name the blocks in columns 0, 1 and 2.
+    assert_eq!(source(14.0 / 16.0), SidechainSource::Block(slot(0, 0)));
+    assert_eq!(source(16.0 / 16.0), SidechainSource::Block(slot(0, 2)));
+    assert_eq!(source(15.0 / 16.0), SidechainSource::Off);
+    assert_eq!(source(1.0 / 16.0), SidechainSource::FollowInput);
+}
+
 /// `0x87e90c`: each SOC counts its own sink channels; a SOC2 sink's receive
 /// router reads the SlaveLink channel that the plan keeps for the route step.
 #[test]
@@ -386,6 +416,51 @@ fn deployment_updates_follow_stock_rules() {
     });
     assert!(overflow.is_err());
     assert_eq!(deployment.layout(), &before);
+}
+
+/// (O) Issue #17: a dormant block stays in the layout, loads nothing and takes its edits
+/// without a DSP op. A load where it stops being dormant redeploys, so the DSP gets it.
+#[test]
+fn dormant_blocks_stay_in_the_layout_and_load_nothing() {
+    let specs = specs();
+    let scene0 = SceneIndex::new(0).unwrap();
+    let dormant = Site::Slot(slot(0, 1));
+    let preset = layout(&specs, &[(0, &[(0, LIGHT), (1, BIG)])]);
+    let (mut deployment, _) = Deployment::new_stored(
+        preset.clone(),
+        &specs,
+        options(false, false),
+        scene0,
+        StoredMasks::default(),
+        BTreeSet::from([BIG]),
+    )
+    .unwrap();
+    assert_eq!(deployment.layout(), &preset);
+    assert!(deployment.dsp_layout().instance(dormant).is_none());
+    assert!(deployment.plan().block(slot(0, 1)).is_none());
+    assert!(deployment.plan().block(slot(0, 0)).is_some());
+
+    let update = deployment.set_parameter(&specs, dormant, 0, 0.25).unwrap();
+    assert_eq!(update, Update::Ops(Vec::new()));
+    assert_eq!(
+        deployment.layout().instance(dormant).unwrap().params[0],
+        Scened::Fixed(0.25)
+    );
+    let update = deployment.set_bypass(&specs, dormant, true).unwrap();
+    assert_eq!(update, Update::Ops(Vec::new()));
+
+    // The DSP layout is unchanged, so a reload with BIG still dormant reuses the models.
+    let edited = deployment.layout().clone();
+    let update = deployment.load_stored(
+        &specs,
+        edited.clone(),
+        StoredMasks::default(),
+        BTreeSet::from([BIG]),
+    );
+    assert!(matches!(update, Ok(Update::Reuse(_))));
+    let update = deployment.load_stored(&specs, edited, StoredMasks::default(), BTreeSet::new());
+    assert!(matches!(update, Ok(Update::Redeploy { .. })));
+    assert!(deployment.plan().block(slot(0, 1)).is_some());
 }
 
 /// Block MUTE (`0x51e4d8` at the MUTE index): the DSP takes MUTE in the bypass record, so

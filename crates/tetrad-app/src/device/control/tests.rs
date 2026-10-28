@@ -71,7 +71,7 @@ fn state() -> State {
     let specs = Specs::resolve(&Catalog::parse(MODELS, REPORT).unwrap()).unwrap();
     let preset =
         Preset::new_default(tetrad_firmware::running().version, &SpecsCatalog(&specs)).unwrap();
-    let prepared = prepare(preset, &specs, false, None).unwrap();
+    let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
     let (settings, _) = DeviceSettings::load(&NoFiles, Hardware::QuadCortex).unwrap();
     let mut state = State::new(Product::QuadCortex, HalPlatform::QcOriginal, settings);
     state.specs = Some(specs);
@@ -405,7 +405,7 @@ pm_heap='10' sd_heap='0' dma='0' dm='10' pm='0' sw='100' nw='0' Latency='0'>\
     let block = Model::block(27000, [0.0; 23].map(ParamValue::Float));
     let slot = PresetSlot { row: 0, column: 2 };
     preset.insert_block(slot, block, &catalog).unwrap();
-    let prepared = prepare(preset, &specs, false, None).unwrap();
+    let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
     let mut state = state();
     state.specs = Some(specs);
     *state.current.get_mut() = Some(Current {

@@ -47,6 +47,14 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - The default extension repository has Neural Amp Modeler A1 0.5.0 and A2 0.2.0 (API 5, tag
   `extensions-2026-10-27`). A1 0.4.0 and A2 0.1.0 were not published.
 
+### Fixed
+
+- A preset with a Petrucci Wah you do not own made the unit restart ("Something went wrong")
+  at the next block edit or preset change: the DSP never finished clearing that block. Stock
+  CorOS 4.1.1 does the same. A block of a plugin you have no licence for now stays on the grid
+  with its lock but loads nothing on the DSP; it loads when you get the licence. Edits to it
+  are kept in the preset (#17, thanks Rick Peters).
+
 ## [0.1.0-alpha.8](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.8) (2026-10-25)
 
 ### Fixed

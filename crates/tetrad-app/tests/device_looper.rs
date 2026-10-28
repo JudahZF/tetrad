@@ -112,7 +112,7 @@ fn state() -> State {
             &catalog,
         )
         .unwrap();
-    let prepared = prepare(preset, &specs, false, None).unwrap();
+    let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
     let (mut settings, _) = DeviceSettings::load(&NoFiles, Hardware::QuadCortex).unwrap();
     settings.update(|settings| {
         settings.tempo.params.insert(1, 1.0);

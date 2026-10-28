@@ -350,7 +350,8 @@ impl DeviceModel for StateModel<'_> {
             return Err(refused("no preset is loaded".into()));
         };
         let ddc = state.settings.settings().general.dynamic_delay_compensation;
-        let prepared = preset::prepare(preset, specs, ddc, Some(&current.deployment))
+        let dormant = preset::dormant_models(specs, &state.licences);
+        let prepared = preset::prepare(preset, specs, ddc, Some(&current.deployment), dormant)
             .map_err(|error| refused(error.to_string()))?;
         let undo = state.history.begin(current, state.now, UndoPath::Direct);
         self.effects.push(Effect::ControlRecall {
