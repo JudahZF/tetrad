@@ -382,8 +382,15 @@ fn run(
     let result = serve(&mut uart, config, bonds, commands, woken, events);
     // However the thread ends: no advertising and no links without a host behind them.
     let reset = tetrad_ble::hci::command(tetrad_ble::hci::op::RESET, &[]);
-    // The close does not watch the output: make sure the reset leaves first.
-    let _ = (uart.write_all(&reset)).and_then(|()| uart.drain(Duration::from_millis(300)));
+    // The close does not watch the output, so the reset must leave first: restart a stalled
+    // transfer now (what it held no longer matters), then wait as long as the queue takes to
+    // send, with the watchdog's own margin.
+    let _ = uart.restart_output();
+    let _ = (uart.write_all(&reset)).and_then(|()| {
+        let pending = uart.pending_output()? as u64;
+        let within = Duration::from_micros(100_000 + pending * 400).min(WRITE_TIMEOUT);
+        uart.drain(within)
+    });
     if let Err(reason) = result {
         let _ = events.send(Event::Fault(reason));
     }
