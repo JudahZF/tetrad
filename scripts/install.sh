@@ -184,9 +184,10 @@ find_files() {
     [ -f "$BINARY" ] || die "no file at $BINARY"
     # ELF, 32-bit, machine 0x28 (ARM): a host build would fail on the unit.
     elf=$(od -An -tx1 -N20 "$BINARY" | tr -d ' \n')
+    arm_hint="a plain 'cargo build' builds for this computer; build for the unit with: nix develop path:./qc-dev -c ./qc-dev/build-arm.sh . dist in a git checkout (https://github.com/JudahZF/tetrad/blob/main/docs/development.md#device-arm-build)"
     case $elf in
-        7f454c4601*) [ "$(printf '%s' "$elf" | cut -c37-38)" = 28 ] || die "$BINARY is not an ARM binary" ;;
-        *) die "$BINARY is not an ARM Linux binary" ;;
+        7f454c4601*) [ "$(printf '%s' "$elf" | cut -c37-38)" = 28 ] || die "$BINARY is not an ARM binary; $arm_hint" ;;
+        *) die "$BINARY is not an ARM Linux binary; $arm_hint" ;;
     esac
     LDIR=
     for d in "$ROOT/launcher" "$ROOT/scripts/launcher"; do

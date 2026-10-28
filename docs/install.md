@@ -33,7 +33,9 @@ The script uses these local files:
 | The launcher scripts | `launcher/` or `scripts/launcher/`: `tetrad-launch.sh`, `tetrad-launcher.sh`, `tetrad-update.sh` | `scripts/launcher/` |
 
 To use a binary at a different path, add `--binary PATH`. The binary must be the 32-bit ARM
-build. The script stops if the file is not an ARM Linux binary.
+build. The script stops if the file is not an ARM Linux binary. A plain `cargo build --release`
+does not make this file: it builds for your computer. Use `build-arm.sh` as above
+([development.md](https://github.com/JudahZF/tetrad/blob/main/docs/development.md#device-arm-build)).
 
 ## 2. Set up SSH
 

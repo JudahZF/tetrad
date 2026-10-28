@@ -3,6 +3,14 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- `scripts/install.sh`: when the binary is not the 32-bit ARM build (for example from a plain
+  `cargo build --release`), the error now gives the `qc-dev/build-arm.sh` command. The build
+  guides tell the host build and the device build apart.
+
 ## [0.1.0-alpha.9](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.9) (2026-10-28)
 
 ### Added

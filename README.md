@@ -167,7 +167,9 @@ The changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 ## Contribute
 
 To build Tetrad, run the tests or find your way in the code, see
-[docs/development.md](docs/development.md).
+[docs/development.md](docs/development.md). A build for the unit needs the ARM toolchain in
+`qc-dev/` ([Device (ARM) build](docs/development.md#device-arm-build)); `cargo build` alone
+builds for your computer.
 
 ## Licence
 
