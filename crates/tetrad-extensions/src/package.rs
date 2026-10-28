@@ -268,6 +268,10 @@ impl Package {
                     "a name must be 1..=64 characters of [A-Za-z0-9._-], not starting with '.'",
                 );
             }
+            // Its release asset would take or look like a package's name.
+            if file.name == PACKAGE_SUFFIX[1..] || file.name.ends_with(PACKAGE_SUFFIX) {
+                return fail("a name cannot end in tetradext");
+            }
             if self.app_files[..i].iter().any(|f| f.name == file.name) {
                 return fail("a name is listed twice");
             }
@@ -597,7 +601,17 @@ mod tests {
             );
         };
         refused(&|p| p.app_files[0].name = "other".into());
-        refused(&|p| p.app_files[0].name = "../qcdoom".into());
+        // A second file with a bad name: one that leaves the folder, or whose release asset
+        // would take or look like a package's name.
+        for name in ["../qcdoom", "tetradext", "data.tetradext"] {
+            refused(&|p| {
+                let extra = AppFile {
+                    name: name.into(),
+                    ..p.app_files[0].clone()
+                };
+                p.app_files.push(extra)
+            });
+        }
         refused(&|p| p.app_files[0].sha256 = "AB".repeat(32));
         refused(&|p| p.app_files[0].size = MAX_APP_FILE + 1);
         refused(&|p| p.app_files.push(p.app_files[0].clone()));
