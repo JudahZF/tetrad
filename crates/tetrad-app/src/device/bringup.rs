@@ -290,7 +290,8 @@ impl RunOptions {
     /// and a Directory upload and its preset or capture overwrite answer (publishes to the
     /// account); the capture download overwrite answer (a `zenui.db` write); and a capture
     /// save (a `zenui.db` record, r21-control MR 6); a Wi-Fi connect or forget (a
-    /// `wpa_supplicant.conf` write). Always: a CorOS update download or install (the install
+    /// `wpa_supplicant.conf` write); the Boot Selector switch (the launcher's `no-chooser`
+    /// file, it changes the next boot). Always: a CorOS update download or install (the install
     /// pre-steps mute and lock before the job is refused, review-r21 H4), a Tetrad update
     /// install and Reset Wi-Fi (review bring-up safety 2 R3). Outside bring-up: nothing.
     pub fn handoff_refusal(&self, handoff: &Handoff) -> Option<&'static str> {
@@ -339,6 +340,9 @@ impl RunOptions {
             }
             Handoff::Capture(C::SaveCapture { .. }) if !self.persist => {
                 Some("a capture save without --persist")
+            }
+            Handoff::BootSelector { .. } if !self.persist => {
+                Some("a launcher file write without --persist")
             }
             // Bring-up never opens a listening port (`LinuxPlatform::enable_remote`).
             Handoff::Remote { .. } => Some("Remote (it runs only in `tetrad run`)"),
