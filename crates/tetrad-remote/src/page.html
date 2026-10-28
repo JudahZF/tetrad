@@ -49,6 +49,10 @@ li .name { overflow-wrap: anywhere; }
 li small { display: block; color: var(--muted); font-size: 13px; }
 li .state { font-weight: 600; white-space: nowrap; }
 .added { color: var(--good); } .working { color: var(--busy); } .failed { color: var(--bad); }
+.ext { margin-top: 40px; }
+.ext h2 { margin: 0 0 12px; font-size: 22px; text-transform: uppercase; }
+.small { min-height: 0; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border: 1px solid var(--line); }
+.ready { color: var(--good); }
 .foot { margin-top: 28px; color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; }
 .support { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line);
   display: flex; justify-content: space-between; align-items: center; gap: 14px; }
@@ -60,7 +64,7 @@ button:disabled { opacity: .5; cursor: default; }
 <body>
 <main>
   <h1>Tetrad Remote<span>.</span></h1>
-  <p class="sub" id="sub">Upload IRs to your Quad Cortex.</p>
+  <p class="sub" id="sub">Upload IRs and extension files to your Quad Cortex.</p>
 
   <section id="login">
     <p>Enter the PIN from <b>Settings → Tetrad → Remote</b> on the unit.</p>
@@ -91,6 +95,10 @@ button:disabled { opacity: .5; cursor: default; }
       <button id="support" type="button">Download</button>
     </div>
   </section>
+
+  <section id="extfiles" hidden>
+    <div id="extlist"></div>
+  </section>
 </main>
 <script>
 "use strict";
@@ -106,6 +114,7 @@ let queue = Promise.resolve();
 function show(loggedIn, message) {
   $("login").hidden = loggedIn;
   $("upload").hidden = !loggedIn;
+  if (!loggedIn) $("extfiles").hidden = true;
   $("login-message").textContent = message || "";
 }
 
@@ -130,6 +139,7 @@ async function connect(candidate) {
     localStorage.setItem(PIN_KEY, pin);
     $("sub").textContent = status === 200 ? "Saving to: " + body.folder : body.error;
     show(true);
+    pollFiles();
     return;
   }
   forget(body.error);
@@ -187,7 +197,7 @@ function wav(samples) {
   return view.buffer;
 }
 
-function row(file) {
+function row(file, list = $("list")) {
   const item = document.createElement("li");
   const name = document.createElement("span");
   name.className = "name";
@@ -197,7 +207,7 @@ function row(file) {
   const state = document.createElement("span");
   state.className = "state";
   item.append(name, state);
-  $("list").prepend(item);
+  list.prepend(item);
   return {
     set(text, kind, info) {
       state.textContent = text;
@@ -273,6 +283,154 @@ function add(files) {
     queue = queue.then(() => send(file, line));
   }
 }
+
+const FILE_CHUNK = 48 * 1024;
+const MAX_FILE_NAME = 48;
+const extensionFiles = new Map();
+let uploading = 0;
+let polls = 0;
+
+function bytes(size) {
+  return size >= 1048576 ? (size / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(size / 1024)) + " KB";
+}
+
+/** The name the extension reads: letters, digits, space, . _ - and an extension it lists. */
+function fileName(name, allowed) {
+  const lower = name.toLowerCase();
+  const extension = allowed.find((e) => lower.endsWith(e));
+  if (!extension) return null;
+  const stem = name.slice(0, name.length - extension.length)
+    .replace(/[^A-Za-z0-9 ._-]/g, "").replace(/\s+/g, " ").trim().replace(/^\.+/, "")
+    .slice(0, MAX_FILE_NAME).trim();
+  return stem ? stem + extension : null;
+}
+
+async function loadFiles() {
+  const { status, body } = await call("/api/files");
+  if (status === 401) return forget("Enter the PIN shown on the unit");
+  if (status !== 200) return [];
+  const root = $("extlist");
+  const seen = new Set();
+  for (const info of body.extensions) {
+    seen.add(info.id);
+    if (!extensionFiles.has(info.id)) extensionFiles.set(info.id, buildExtension(info, root));
+    extensionFiles.get(info.id).update(info);
+  }
+  for (const [id, entry] of extensionFiles) {
+    if (!seen.has(id)) { entry.box.remove(); extensionFiles.delete(id); }
+  }
+  $("extfiles").hidden = extensionFiles.size === 0;
+  return body.extensions;
+}
+
+/** Reads the files again until the extensions have read them all (they build in the background). */
+async function pollFiles(again) {
+  polls = again ? polls + 1 : 0;
+  const all = await loadFiles();
+  const waiting = all.some((info) => info.files.some((file) => file.state === "waiting"));
+  if (waiting && polls < 15) setTimeout(() => pollFiles(true), 2000);
+}
+
+function buildExtension(info, root) {
+  const box = document.createElement("div");
+  box.className = "ext";
+  const title = document.createElement("h2");
+  const drop = document.createElement("label");
+  drop.className = "drop";
+  const strong = document.createElement("strong");
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.accept = info.extensions.join(",");
+  drop.append(strong, "or tap to choose.", input);
+  const results = document.createElement("ul");
+  const list = document.createElement("ul");
+  box.append(title, drop, results, list);
+  root.append(box);
+  let current = info;
+  const add = (files) => {
+    for (const file of files) {
+      const line = row(file, results);
+      line.set("Waiting", "working");
+      queue = queue
+        .then(() => { uploading++; return sendFile(current, file, line).finally(() => { uploading--; }); })
+        .then(() => pollFiles());
+    }
+  };
+  input.addEventListener("change", (event) => { add(event.target.files); event.target.value = ""; });
+  drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    drop.classList.remove("over");
+    add(event.dataTransfer.files);
+  });
+  return {
+    box,
+    update(next) {
+      current = next;
+      title.textContent = next.name;
+      strong.textContent = "Drop " + next.label + " files here";
+      input.accept = next.extensions.join(",");
+      list.replaceChildren(...next.files.map((file) => fileRow(next, file)));
+    },
+  };
+}
+
+function fileRow(info, file) {
+  const item = document.createElement("li");
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = file.name;
+  const detail = document.createElement("small");
+  const state = { ready: "Ready", waiting: "Reading…", failed: "Failed" }[file.state] || file.state;
+  detail.textContent = bytes(file.size) + " · " + state + (file.detail ? ": " + file.detail : "");
+  if (file.state === "failed") detail.className = "failed";
+  name.append(detail);
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "small";
+  remove.textContent = "Delete";
+  remove.addEventListener("click", async () => {
+    if (!confirm("Delete " + file.name + " from the unit?")) return;
+    remove.disabled = true;
+    const { status, body } = await call(
+      "/api/files/delete?id=" + encodeURIComponent(info.id) + "&name=" + encodeURIComponent(file.name),
+      { method: "POST", body: "" },
+    );
+    if (status === 401) return forget("Enter the PIN shown on the unit");
+    if (status !== 200) { remove.disabled = false; alert(body.error || "Failed"); return; }
+    pollFiles();
+  });
+  item.append(name, remove);
+  return item;
+}
+
+async function sendFile(info, file, line) {
+  const name = fileName(file.name, info.extensions);
+  if (!name) return line.set("Not a " + info.label + " file", "failed", info.extensions.join(", "));
+  if (file.size > info.maxBytes) return line.set("Too large", "failed", "At most " + bytes(info.maxBytes));
+  const renamed = name !== file.name ? "Stored as " + name : "";
+  for (let offset = 0; offset === 0 || offset < file.size; offset += FILE_CHUNK) {
+    const end = Math.min(offset + FILE_CHUNK, file.size);
+    line.set(Math.round((100 * end) / Math.max(1, file.size)) + "%", "working", bytes(file.size));
+    const last = end >= file.size ? "&last=1" : "";
+    const { status, body } = await call(
+      "/api/files/chunk?id=" + encodeURIComponent(info.id) + "&name=" + encodeURIComponent(name) +
+        "&offset=" + offset + last,
+      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file.slice(offset, end) },
+    );
+    if (status === 401) forget("Enter the PIN shown on the unit");
+    if (status !== 200) return line.set(body.error || "Failed", "failed");
+  }
+  line.set("Added", "added", renamed || bytes(file.size));
+}
+
+/* The unit can change while this page is open (an extension turned off or on): look again every
+   few seconds, but not during an upload and not while the page is hidden. */
+setInterval(() => {
+  if (pin && !document.hidden && !uploading && !$("upload").hidden) loadFiles();
+}, 8000);
 
 $("pin-form").addEventListener("submit", (event) => {
   event.preventDefault();

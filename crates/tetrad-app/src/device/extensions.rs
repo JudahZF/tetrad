@@ -276,6 +276,18 @@ pub struct Installation {
     pub enabled: bool,
 }
 
+/// An installation that builds blocks from asset files: what Remote shows for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetKind {
+    pub key: String,
+    pub id: String,
+    pub name: String,
+    /// What the files are, such as "NAM model".
+    pub label: String,
+    /// The extensions of the files, with the dot.
+    pub extensions: Vec<String>,
+}
+
 impl Installation {
     /// The store key; `None` only for a key that was not made by the store.
     fn install_key(&self) -> Option<InstallKey> {
@@ -542,6 +554,61 @@ impl Extensions {
             }
         }
         outcome
+    }
+
+    /// The enabled installations that build DSP blocks from asset files (NAM models, for example),
+    /// in key order: where Remote shows and takes their files. A disabled extension is not shown.
+    pub fn asset_kinds(&self) -> Vec<AssetKind> {
+        self.slots
+            .values()
+            .filter(|slot| slot.installation.enabled)
+            .filter_map(|slot| {
+                let installation = &slot.installation;
+                let specs: Vec<_> = (installation.blocks.iter())
+                    .filter(|block| block.generated)
+                    .filter_map(|block| block.asset.as_ref())
+                    .collect();
+                let label = specs.first()?.label.clone();
+                let mut extensions: Vec<String> = Vec::new();
+                for extension in specs.iter().flat_map(|spec| spec.extensions.iter()) {
+                    if !extensions.contains(extension) {
+                        extensions.push(extension.clone());
+                    }
+                }
+                Some(AssetKind {
+                    key: installation.key.clone(),
+                    id: installation.id.clone(),
+                    name: installation.name.clone(),
+                    label,
+                    extensions,
+                })
+            })
+            .collect()
+    }
+
+    /// What became of the asset file with the block variant `variant`: `("ready", "")` for a
+    /// built block, `("failed", reason)` for a failed build, else `("waiting", "")`.
+    pub fn asset_state(&self, key: &str, variant: &str) -> (&'static str, String) {
+        let Some(slot) = self.slots.get(key) else {
+            return ("waiting", String::new());
+        };
+        if let Some(error) = slot
+            .build_errors
+            .iter()
+            .find_map(|((_, v), error)| (v == variant).then(|| error.clone()))
+        {
+            return ("failed", error);
+        }
+        if slot.generated.keys().any(|(_, v)| v == variant) {
+            return ("ready", String::new());
+        }
+        ("waiting", String::new())
+    }
+
+    /// Reads the asset folder of `key` again, so a file that Remote stored or removed shows up
+    /// (or goes) without a restart. Nothing happens while the extension does not run.
+    pub fn rescan_assets(&mut self, key: &str, backend: &mut dyn ExtensionBackend) {
+        self.scan_assets(key, backend);
     }
 
     pub fn installation(&self, key: &str) -> Option<&Installation> {

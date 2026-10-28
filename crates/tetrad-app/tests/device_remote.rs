@@ -126,6 +126,47 @@ fn an_upload_needs_the_pin_and_lands_in_the_ir_saving_destination() {
     assert_eq!(view(&device).status.as_deref(), Some("Added V30 SM57"));
 }
 
+/// The file manager needs the PIN, lists nothing without an extension that takes files, and refuses
+/// a file for an extension that is not there.
+#[test]
+fn the_file_manager_needs_the_pin_and_an_extension_that_takes_files() {
+    let files = MemFiles::default();
+    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
+    tap_switch(&mut device);
+    let list = |pin: &str| Request::Files { pin: pin.into() };
+    let chunk = |pin: &str| Request::FileChunk {
+        pin: pin.into(),
+        id: "tetrad.nam".into(),
+        name: "A.nam".into(),
+        offset: 0,
+        last: true,
+        bytes: b"{}".to_vec(),
+    };
+    assert_eq!(ask(&mut device, list("9999")), Reply::WrongPin);
+    assert_eq!(ask(&mut device, chunk("9999")), Reply::WrongPin);
+    assert_eq!(
+        ask(&mut device, list("0001")),
+        Reply::Files {
+            extensions: Vec::new()
+        }
+    );
+    let Reply::Refused(reason) = ask(&mut device, chunk("0001")) else {
+        panic!("a file for an extension that is not installed");
+    };
+    assert!(reason.contains("takes no files"), "{reason}");
+    assert!(
+        files
+            .get("/media/p4/tetrad/assets/tetrad.nam/A.nam")
+            .is_none()
+    );
+    let delete = Request::FileDelete {
+        pin: "0001".into(),
+        id: "tetrad.nam".into(),
+        name: "A.nam".into(),
+    };
+    assert!(matches!(ask(&mut device, delete), Reply::Refused(_)));
+}
+
 /// After [`MAX_WRONG_PINS`] wrong PINs the unit makes a new PIN: the old one stops working.
 #[test]
 fn too_many_wrong_pins_make_a_new_pin() {

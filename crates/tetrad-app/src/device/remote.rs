@@ -206,11 +206,91 @@ impl<P: Platform> Device<P> {
                 Err(reason) => Reply::Refused(reason),
             },
             Request::Upload { name, wav, .. } => self.remote_upload(&name, &wav),
+            Request::Files { .. } => self.remote_files(),
+            Request::FileChunk {
+                id,
+                name,
+                offset,
+                last,
+                bytes,
+                ..
+            } => self.remote_file_chunk(&id, &name, offset, last, &bytes),
+            Request::FileDelete { id, name, .. } => self.remote_file_delete(&id, &name),
             Request::Support { .. } => {
                 let (name, zip) = self.support_file();
                 Reply::File { name, zip }
             }
         }
+    }
+
+    /// The extensions that take asset files, and their files.
+    fn remote_files(&mut self) -> Reply {
+        use super::remote_files::list;
+        let kinds = self.bridges.extensions.asset_kinds();
+        let extensions = &self.bridges.extensions;
+        let state = |key: &str, variant: &str| extensions.asset_state(key, variant);
+        match list(self.platform.services().files(), &kinds, &state) {
+            Ok(extensions) => Reply::Files { extensions },
+            Err(reason) => Reply::Refused(reason),
+        }
+    }
+
+    fn remote_file_chunk(
+        &mut self,
+        id: &str,
+        name: &str,
+        offset: u64,
+        last: bool,
+        bytes: &[u8],
+    ) -> Reply {
+        let kinds = self.bridges.extensions.asset_kinds();
+        let files = self.platform.services().files();
+        match super::remote_files::chunk(files, &kinds, id, name, offset, last, bytes) {
+            Ok(reply @ Reply::FileStored { .. }) => {
+                self.notice(Subsystem::Remote, format!("Remote: {name} stored for {id}"));
+                self.bridges
+                    .remote
+                    .show_toast(format!("File added: {name}"));
+                self.rescan_assets(&kinds, id);
+                reply
+            }
+            Ok(reply) => reply,
+            Err(reason) => {
+                self.notice(
+                    Subsystem::Remote,
+                    format!("Remote: {name} not stored for {id}: {reason}"),
+                );
+                Reply::Refused(reason)
+            }
+        }
+    }
+
+    fn remote_file_delete(&mut self, id: &str, name: &str) -> Reply {
+        let kinds = self.bridges.extensions.asset_kinds();
+        let files = self.platform.services().files();
+        match super::remote_files::delete(files, &kinds, id, name) {
+            Ok(reply) => {
+                self.notice(
+                    Subsystem::Remote,
+                    format!("Remote: {name} removed from {id}"),
+                );
+                self.rescan_assets(&kinds, id);
+                reply
+            }
+            Err(reason) => Reply::Refused(reason),
+        }
+    }
+
+    /// The extension `id` reads its asset folder again.
+    fn rescan_assets(&mut self, kinds: &[super::extensions::AssetKind], id: &str) {
+        let Some(kind) = kinds.iter().find(|kind| kind.id == id) else {
+            return;
+        };
+        let key = kind.key.clone();
+        let _ = self.extensions(|extensions, backend, _| {
+            extensions.rescan_assets(&key, backend);
+            super::extensions::Outcome::default()
+        });
     }
 
     /// After [`MAX_WRONG_PINS`] wrong PINs: the old PIN no longer works.
