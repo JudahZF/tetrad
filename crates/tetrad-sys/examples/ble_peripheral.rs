@@ -20,7 +20,7 @@ fn main() {
         pairable: true,
         link: false,
     };
-    let mut bluetooth = Bluetooth::start(config, bonds.clone()).expect("start");
+    let mut bluetooth = Bluetooth::start(config, bonds.clone(), None).expect("start");
     let mut next_cc = Instant::now() + Duration::from_secs(2);
     let mut value = 0u8;
     loop {

@@ -66,6 +66,9 @@ pub struct Bluetooth {
     /// New devices may pair: the Bluetooth page is open.
     pairable: bool,
     restarts: u8,
+    /// The keys of bonds that FORGET removed: a bond update that was already on its way must
+    /// not bring one back. A new pairing has new keys.
+    forgotten: Vec<[u8; 16]>,
 }
 
 impl Bluetooth {
@@ -219,10 +222,12 @@ impl<P: Platform> Device<P> {
         let Some(address) = bond::parse_address(address) else {
             return;
         };
-        self.bridges
-            .bluetooth
-            .bonds
-            .retain(|bond| bond.address != address);
+        let bluetooth = &mut self.bridges.bluetooth;
+        let (gone, kept) = std::mem::take(&mut bluetooth.bonds)
+            .into_iter()
+            .partition(|bond| bond.address == address);
+        bluetooth.bonds = kept;
+        (bluetooth.forgotten).extend(gone.iter().map(|bond: &Bond| bond.ltk));
         self.bluetooth_command(Command::Forget(address));
         self.save_bonds();
     }
@@ -348,6 +353,7 @@ impl<P: Platform> Device<P> {
                 let text = format!("the host left (0x{reason:02x})");
                 self.notice(Subsystem::Bluetooth, text);
             }
+            Event::Bonded(bond) if self.bridges.bluetooth.forgotten.contains(&bond.ltk) => {}
             Event::Bonded(bond) => {
                 let bonds = &mut self.bridges.bluetooth.bonds;
                 match bonds.iter().position(|known| known.address == bond.address) {

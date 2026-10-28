@@ -1932,6 +1932,8 @@ pub struct LinuxRemote {
 #[derive(Default)]
 pub struct LinuxBluetooth {
     host: Option<tetrad_sys::ble::Bluetooth>,
+    /// The last host thread, still ending; the next start waits for it, never the device loop.
+    stopping: Option<tetrad_sys::ble::Stopping>,
 }
 
 impl crate::device::bluetooth::BluetoothBackend for LinuxBluetooth {
@@ -1940,16 +1942,18 @@ impl crate::device::bluetooth::BluetoothBackend for LinuxBluetooth {
         config: tetrad_ble::Config,
         bonds: Vec<tetrad_ble::Bond>,
     ) -> Result<(), String> {
-        // A new start ends the old thread first: one host owns the UART.
-        self.host = None;
-        let host = tetrad_sys::ble::Bluetooth::start(config, bonds)
+        // One host owns the UART: the new thread waits until the old one ended.
+        self.stop();
+        let host = tetrad_sys::ble::Bluetooth::start(config, bonds, self.stopping.take())
             .map_err(|error| format!("Bluetooth thread: {error}"))?;
         self.host = Some(host);
         Ok(())
     }
 
     fn stop(&mut self) {
-        self.host = None;
+        if let Some(host) = self.host.take() {
+            self.stopping = Some(host.stop());
+        }
     }
 
     fn send(&mut self, command: tetrad_ble::Command) {

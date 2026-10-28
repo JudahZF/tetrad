@@ -327,7 +327,9 @@ pub struct Bluetooth {
 }
 
 impl Bluetooth {
-    pub fn start(config: Config, bonds: Vec<Bond>) -> io::Result<Self> {
+    /// Starts a host thread. `after`: a thread that is still stopping; the new thread waits for
+    /// it before it opens the UART.
+    pub fn start(config: Config, bonds: Vec<Bond>, after: Option<Stopping>) -> io::Result<Self> {
         let (commands, inbox) = mpsc::channel();
         let (outbox, events) = mpsc::channel();
         let (wake, woken) = UnixStream::pair()?;
@@ -337,7 +339,11 @@ impl Bluetooth {
         wake.set_nonblocking(true)?;
         let thread = std::thread::Builder::new()
             .name("bluetooth".into())
-            .spawn(move || run(config, bonds, &inbox, &woken, &outbox))?;
+            .spawn(move || {
+                // The old thread still owns the UART until it ends.
+                drop(after);
+                run(config, bonds, &inbox, &woken, &outbox)
+            })?;
         Ok(Self {
             commands,
             wake,
@@ -356,13 +362,30 @@ impl Bluetooth {
     pub fn events(&mut self) -> Vec<Event> {
         self.events.try_iter().collect()
     }
+
+    /// Tells the thread to end, without waiting: a controller that is starting or a stalled
+    /// UART can take seconds.
+    pub fn stop(mut self) -> Stopping {
+        let _ = self.wake.shutdown(std::net::Shutdown::Both);
+        Stopping(self.thread.take())
+    }
 }
 
 impl Drop for Bluetooth {
-    /// Ends the thread: it resets the controller (no advertising, no links) and returns.
+    /// Ends the thread and waits: it resets the controller (no advertising, no links) and
+    /// returns.
     fn drop(&mut self) {
         let _ = self.wake.shutdown(std::net::Shutdown::Both);
-        if let Some(thread) = self.thread.take() {
+        drop(Stopping(self.thread.take()));
+    }
+}
+
+/// A host thread that was told to end ([`Bluetooth::stop`]). Dropping it waits for the end.
+pub struct Stopping(Option<JoinHandle<()>>);
+
+impl Drop for Stopping {
+    fn drop(&mut self) {
+        if let Some(thread) = self.0.take() {
             let _ = thread.join();
         }
     }
@@ -475,6 +498,8 @@ fn serve(
                 Err(_) => return Ok(()),
             }
         }
+        // The clock first: MIDI out takes its timestamp from it.
+        host.tick(now);
         loop {
             match commands.try_recv() {
                 Ok(command) => host.apply(command),
@@ -482,7 +507,6 @@ fn serve(
                 Err(TryRecvError::Disconnected) => return Ok(()),
             }
         }
-        host.tick(now);
     }
 }
 
