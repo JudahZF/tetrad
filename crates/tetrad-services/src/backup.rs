@@ -79,8 +79,8 @@ const BACKUP_SET_FILES: [&str; 8] = [
 pub enum Scope {
     /// Every safe member under the data root, as stock (cloud and Cortex Control backups).
     Any,
-    /// Only the backup set: the four trees that the restore clears and [`BACKUP_SET_FILES`]
-    /// (O). For an archive from the Remote page, which nothing signs: any other member (the
+    /// Only the backup set: the four trees that the restore clears and the top-level files of
+    /// a stock backup (`zenui.db`, `ZenjackConfig.ini`, the folder and favourites files) (O). For an archive from the Remote page, which nothing signs: any other member (the
     /// Tetrad folder with its launcher, the account files) fails the check before anything is
     /// removed.
     BackupSet,
