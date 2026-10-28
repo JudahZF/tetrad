@@ -33,7 +33,7 @@ enum Command {
     Log,
     /// Send a Tetrad release to the unit. `DIR` holds the release assets: `tetrad`, the three
     /// `tetrad-*.sh` scripts, `tetrad-update.json` and `tetrad-update.json.sig`. Then start the
-    /// install on the unit: Settings > System > Tetrad Updates > UPDATE TETRAD.
+    /// install on the unit: Settings > Tetrad > Tetrad Updates > UPDATE TETRAD.
     Install { dir: PathBuf },
     /// Send a JSON message to an installed extension with the `usb` capability and print its
     /// reply.
@@ -134,8 +134,8 @@ fn install(link: &mut Link, dir: &Path) -> Result<(), Error> {
     }
     link.call(Op::InstallReady, &[], SHORT)?;
     println!(
-        "Tetrad {version} is on the unit. To install it, open Settings > System > Tetrad Updates \
-         on the unit and tap UPDATE TETRAD."
+        "Tetrad {version} is on the unit. To install it, open Settings > Tetrad > Tetrad Updates \
+         (Settings > System on 0.1.0-alpha.8 and earlier) on the unit and tap UPDATE TETRAD."
     );
     Ok(())
 }

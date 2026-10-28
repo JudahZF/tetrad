@@ -58,7 +58,7 @@ gaps = "Tested on a unit with Cortex Control 4.1.0 under Proton on Linux; macOS 
 id = "services"
 what = "Wi-Fi, DHCP, time, internet checks, cloud sign-in, downloads and uploads, local and cloud backups."
 tested = "unit"
-gaps = "Support reports are off."
+gaps = "No support report uploads; the support file comes from the Remote page (docs/support.md)."
 
 [[capability]]
 id = "library"
@@ -121,9 +121,9 @@ gaps = "Not run on a unit: switch latency, the LED frames and the Bank Up hold."
 
 [[capability]]
 id = "remote"
-what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, behind a 4-digit PIN."
+what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, and downloads the support file (docs/support.md), behind a 4-digit PIN."
 tested = "host"
-gaps = "Not run on the unit yet. IR upload only."
+gaps = "Not run on the unit yet."
 
 [[capability]]
 id = "owned_dsp_blocks"

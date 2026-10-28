@@ -34,6 +34,8 @@ pub enum Request {
         id: String,
         name: String,
     },
+    /// The support file (docs/support.md).
+    Support { pin: String },
 }
 
 impl Request {
@@ -43,7 +45,8 @@ impl Request {
             | Self::Upload { pin, .. }
             | Self::Files { pin }
             | Self::FileChunk { pin, .. }
-            | Self::FileDelete { pin, .. } => pin,
+            | Self::FileDelete { pin, .. }
+            | Self::Support { pin } => pin,
         }
     }
 }
@@ -79,6 +82,11 @@ pub enum Reply {
     FileDeleted {
         name: String,
     },
+    /// A download: the file name and a zip archive.
+    File {
+        name: String,
+        zip: Vec<u8>,
+    },
     WrongPin,
     Off,
     Refused(String),
@@ -112,7 +120,8 @@ pub struct FileEntry {
 }
 
 impl Reply {
-    /// The status code and the JSON body.
+    /// The status code and the JSON body. [`Reply::File`] is written as the file itself
+    /// (`http::serve_one`), never as JSON.
     pub(crate) fn response(&self) -> (u16, serde_json::Value) {
         use serde_json::json;
         match self {
@@ -137,6 +146,7 @@ impl Reply {
             Self::FileReceived { received } => (200, json!({ "received": received })),
             Self::FileStored { name, size } => (200, json!({ "name": name, "size": size })),
             Self::FileDeleted { name } => (200, json!({ "name": name })),
+            Self::File { name, .. } => (200, json!({ "name": name })),
             Self::WrongPin => (401, json!({ "error": "Wrong PIN" })),
             Self::Off => (503, json!({ "error": "Remote is off" })),
             Self::Refused(reason) => (422, json!({ "error": reason })),

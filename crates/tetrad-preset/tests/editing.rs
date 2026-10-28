@@ -378,6 +378,40 @@ fn migration_applies_the_recovered_model_import_rules() {
     assert_eq!(preset.side_chain_follow_exists, Some(true));
 }
 
+/// Factory plugin presets (created 3.0.0) store `0xFFFFFFFF` for empty grid slots and for the
+/// mixer and splitter of the odd rows. They load as empty: no unknown block, no refusal.
+#[test]
+fn migration_loads_the_plugin_preset_empty_sentinel() {
+    let sentinel = Model {
+        hash: Some(u32::MAX),
+        ..Model::default()
+    };
+    let mut preset = Preset::new_default("3.0.0", &CATALOG).unwrap();
+    preset.chains[0].models[7] = sentinel.clone();
+    preset.chains[1].models = vec![sentinel.clone(); 8];
+    preset.chains[1].mixer = vec![sentinel.clone()];
+    preset.chains[1].splitter = vec![sentinel.clone()];
+
+    let mut kept = preset.clone();
+    let report = kept.migrate(&Catalog { complete: false }).unwrap();
+    assert!(report.unknown_blocks.is_empty());
+    assert_eq!(kept.block(Slot { row: 1, column: 0 }).unwrap(), None);
+
+    let report = preset.migrate(&CATALOG).unwrap();
+    assert!(report.unknown_blocks.is_empty());
+    assert_eq!(preset.chains[0].models[7], Model::empty_slot());
+    assert!(
+        preset.chains[1]
+            .models
+            .iter()
+            .all(|m| *m == Model::empty_slot())
+    );
+    assert_eq!(preset.chains[1].mixer, [sentinel]);
+    // Grid edits need hash 0 in the grid: the sidechain follow reads it as empty.
+    let slot = Slot { row: 1, column: 2 };
+    preset.insert_block(slot, block(100), &CATALOG).unwrap();
+}
+
 #[test]
 fn migration_converts_legacy_preset_level_data() {
     let mut preset = Preset::new_default("4.1.0", &CATALOG).unwrap();

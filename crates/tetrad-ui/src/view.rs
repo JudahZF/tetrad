@@ -834,6 +834,8 @@ pub struct ModelEntry {
     pub category: ModelCategory,
     /// (O) A community block from an extension package.
     pub extension: bool,
+    /// The ModelRepo `plugin_id` of a plugin model, as [`BlockInfo::plugin`].
+    pub plugin: Option<u32>,
 }
 
 /// Stock Virtual Device List categories in manual order (spec `w4-ui-spec-grid`
@@ -2128,6 +2130,10 @@ pub struct UiSnapshot {
     /// Plugin models whose licence is not active: the Grid tile and the model picker show a
     /// lock (`plugin_lock.png`, `0x005a6004`: drawn unless the plugin status is 2).
     pub locked_models: std::collections::BTreeSet<u32>,
+    /// (O) Plugin ids with no licence at all (status 0). The model picker and the Directory
+    /// Plugin Presets leave their models and folders out; stock lists them with the lock. A
+    /// licensed plugin that waits for its activation stays, with the lock.
+    pub unlicensed_plugins: std::collections::BTreeSet<u32>,
     /// The newest device notice a user action raised: the stock MessageDialog shows it once.
     pub notice: Option<NoticeView>,
     /// The preset name of a Directory upload whose name is already on the account: the
@@ -2313,6 +2319,7 @@ impl Default for UiSnapshot {
             gate_meters: [None; GRID_ROWS],
             mini: false,
             locked_models: std::collections::BTreeSet::new(),
+            unlicensed_plugins: std::collections::BTreeSet::new(),
             notice: None,
             upload_overwrite: None,
             capture_overwrite: None,
@@ -2740,6 +2747,8 @@ pub struct DirectoryPlugin {
     pub children: Vec<String>,
     /// Plugin presets (`folder` = folder below the plugin, `value` = `.pb` path).
     pub presets: Vec<DirectoryItem>,
+    /// The plugin id of a stock plugin folder name; `None` for any other folder.
+    pub plugin: Option<u32>,
 }
 
 /// Recents and favorites kept per kind: the stock recents push keeps 64 (`0x7ceb78`).

@@ -1,9 +1,11 @@
 //! Remote view model (owned, Tetrad; docs/remote.md). The application fills [`RemoteView`];
-//! the System › Remote page shows it and answers with [`crate::UiCommand::SetRemote`].
+//! the Tetrad › Remote page shows it and answers with [`crate::UiCommand::SetRemote`].
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteView {
     pub enabled: bool,
+    /// The second switch: while Remote runs, the first row of the ⋮ menu shows the PIN.
+    pub pin_in_menu: bool,
     /// The page address (`http://<ip>`) while the unit has a Wi-Fi lease.
     pub address: Option<String>,
     /// The PIN the page asks for, while Remote runs.

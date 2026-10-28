@@ -255,14 +255,20 @@ fn rail(ui: &UiState, l: &mut Layout) {
 }
 
 /// Models listed for the open group and tab, or the search hits, by name. Extensions
-/// lists the extension blocks of every category.
+/// lists the extension blocks of every category. Unlicensed plugin models are left out.
 fn shown_models(ui: &UiState) -> Vec<&ModelEntry> {
     let picker = &ui.picker;
     let query = picker.query.to_lowercase();
+    let unlicensed = &ui.snapshot.unlicensed_plugins;
     let mut models: Vec<&ModelEntry> = ui
         .snapshot
         .models
         .iter()
+        .filter(|model| {
+            !model
+                .plugin
+                .is_some_and(|plugin| unlicensed.contains(&plugin))
+        })
         .filter(|model| {
             let place = DeviceGroup::of(model.category);
             if query.is_empty() && picker.group == Some(DeviceGroup::Extensions) {
@@ -490,8 +496,8 @@ fn model_row(
             Align::Left,
         );
     }
-    // An unlicensed plugin model shows the stock lock (`plugin_lock.png`); its place in
-    // the row is inferred (no stock shot), right of the name.
+    // A locked plugin model shows the stock lock (`plugin_lock.png`); its place in the row
+    // is inferred (no stock shot), right of the name.
     if ui.snapshot.locked_models.contains(&model.id) {
         let size = IconSize::Small.px();
         l.push(
