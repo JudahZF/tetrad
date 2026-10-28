@@ -12,11 +12,16 @@ All notable changes to Tetrad are in this file. The version numbers follow
   footswitches, and Tetrad keeps the sound. Hold the screen for 2 seconds to quit. The program
   files are release assets that the package pins by SHA-256 (package format 4). Programs run
   with full access to the unit: the Available row says so before the install.
-- DOOM 0.1.0 (`extensions/doom`): the original qcDOOM binary by Thomas Van Iseghem with the
-  shareware WAD, played with the footswitches.
+- DOOM 0.1.0 in the default extension repository (`extensions/doom`): the original qcDOOM binary
+  by Thomas Van Iseghem with the shareware WAD, played with the footswitches.
 
 ### Changed
 
+- The default extension repository has one home, `JudahZF/tetrad-extensions`: this repository no
+  longer keeps a copy of its catalog and packages. `scripts/fetch-extensions.sh` downloads them,
+  for the tests (CI checks that the published packages still decode and run) and for a publish.
+- `tetrad-ext catalog` checks the program files of new packages only, so a checkout without the
+  files of a published program can sign the catalog.
 - `scripts/install.sh`: when the binary is not the 32-bit ARM build (for example from a plain
   `cargo build --release`), the error now gives the `qc-dev/build-arm.sh` command. The build
   guides tell the host build and the device build apart.

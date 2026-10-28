@@ -12,8 +12,9 @@ use tetrad_extensions::protocol::{
 };
 use tetrad_extensions::runner::{self, Limits};
 
+/// The newest published package, from `TETRAD_EXTENSIONS_DIR` (`scripts/fetch-extensions.sh`).
 fn package() -> Option<Package> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/repository/packages");
+    let dir = Path::new(&std::env::var_os("TETRAD_EXTENSIONS_DIR")?).join("packages");
     std::fs::read_dir(&dir)
         .ok()?
         .flatten()
@@ -92,7 +93,7 @@ fn midi(message: MidiEvent) -> Event {
 #[test]
 fn fires_a_trigger_for_each_cc_note_and_program_change() {
     let Some(package) = package() else {
-        eprintln!("skipped: build extensions/repository/packages/*midi-mapper*.tetradext first");
+        eprintln!("skipped: set TETRAD_EXTENSIONS_DIR (scripts/fetch-extensions.sh)");
         return;
     };
     let (input, to_runner) = std::io::pipe().unwrap();

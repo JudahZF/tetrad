@@ -33,7 +33,13 @@ jobs:
       - name: Build
         run: cargo build --locked --workspace --all-targets
 
+      # The tests decode the packages that units download from the default extension repository.
+      - name: Fetch the published extensions
+        run: scripts/fetch-extensions.sh "$RUNNER_TEMP/extensions"
+
       - name: Test
+        env:
+          TETRAD_EXTENSIONS_DIR: ${{ runner.temp }}/extensions
         run: cargo test --locked --workspace
 
       - name: Clippy

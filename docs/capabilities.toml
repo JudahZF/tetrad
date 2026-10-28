@@ -121,9 +121,9 @@ gaps = "Not run on a unit: switch latency, the LED frames and the Bank Up hold."
 
 [[capability]]
 id = "extension_apps"
-what = "A native program in an extension package (API 7, manifest `app`): its files are release assets pinned by the package, and the extension's page starts it. While it runs, Tetrad presents no frames and drops footswitch, knob and TEMPO input; a 2 s touch or the power button stops it. DOOM (qcDOOM) is the example."
-tested = "host"
-gaps = "Not run on a unit yet."
+what = "A native program in an extension package (API 7, manifest `app`): its files are release assets pinned by the package, and the extension's page starts it. While it runs, Tetrad presents no frames and drops footswitch, knob and TEMPO input; a 2 s touch or the power button stops it. DOOM (qcDOOM) is the example, in the default repository."
+tested = "unit"
+gaps = "On the test unit DOOM started from its page, drew, and quit with the 2 s hold (also over the Play button, without a new start); it was a dev build with DOOM staged by hand. Not tested: the install from the published repository, playing with the footswitches, the power button stop and the footswitch LEDs."
 
 [[capability]]
 id = "remote"

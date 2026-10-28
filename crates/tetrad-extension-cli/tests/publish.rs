@@ -174,6 +174,28 @@ fn a_program_publishes_its_files_as_assets() {
             .unwrap();
     assert!(catalog.extensions[0].app);
 
+    // Without the program files, signing again still works for the published package: they are
+    // in its release.
+    let qcdoom = tmp.0.join("repo/packages/test.doom-0.1.0.qcdoom");
+    let elf = fs::read(&qcdoom).unwrap();
+    fs::remove_file(&qcdoom).unwrap();
+    let sign = |tag: &str| {
+        Command::new(env!("CARGO_BIN_EXE_tetrad-ext"))
+            .args([
+                "catalog",
+                "--repo-dir",
+                &path("repo"),
+                "--key",
+                &path("keys/signing.key"),
+            ])
+            .args(["--tag", tag])
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(sign("r2"));
+    fs::write(&qcdoom, elf).unwrap();
+
     tetrad_ext(&[
         "stage",
         "--repo-dir",

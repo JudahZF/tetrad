@@ -156,13 +156,16 @@ update guides in `docs/`, the README images in `docs/images/`, `README.md`, `CHA
 
 ### Extensions
 
-The host tests need no Node.js: they use the packaged extensions in
-`extensions/repository/packages/`. `tests/nam.rs` in `tetrad-extensions` runs the Neural Amp
-Modeler package on a synthetic LSTM model and compares it with a port of NeuralAmpModelerCore.
+The host tests need no Node.js. The packages that units download from the default repository,
+[JudahZF/tetrad-extensions](https://github.com/JudahZF/tetrad-extensions), must still decode
+and run: `scripts/fetch-extensions.sh DIR` downloads them, and `TETRAD_EXTENSIONS_DIR=DIR cargo
+test` uses them (CI does both; without the variable these tests skip). `tests/nam.rs` in
+`tetrad-extensions` runs the Neural Amp Modeler packages on synthetic models and compares them
+with a port of NeuralAmpModelerCore.
 With `QC_CORPUS_DIR` set, `tetrad-app` also links DSP blocks against the stock Volume blob
 (`device::community` tests) and qcdsp's machine tests in `tetrad-sharc` run every example. To change an extension's TypeScript, install Node.js and npm,
-then use `tetrad-ext build`; [extensions.md](extensions.md#write-an-extension) has the steps, and
-`extensions/repository/README.md` the release steps of the default repository.
+then use `tetrad-ext build`; [extensions.md](extensions.md#write-an-extension) has the steps. The
+default repository keeps its catalog and packages itself; its README has the release steps.
 
 ## README images
 

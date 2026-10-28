@@ -1,8 +1,9 @@
 //! The newest Neural Amp Modeler A1 and A2 packages in the real runner, driven by a small fake
 //! host. Synthetic LSTM, WaveNet and A2 `.nam` files go in as assets; the graph the extension
 //! publishes must do what NeuralAmpModelerCore's `nam::lstm::LSTM` and `nam::wavenet::WaveNet`
-//! do (ported below with exact activations), within the error of qcdsp's approximations. Skips
-//! when the package is not built.
+//! do (ported below with exact activations), within the error of qcdsp's approximations. The
+//! packages are the published ones in `TETRAD_EXTENSIONS_DIR` (`scripts/fetch-extensions.sh`);
+//! skips without it.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
@@ -20,9 +21,9 @@ use tetrad_extensions::runner::{self, Limits};
 const A1: &str = "tetrad.nam";
 const A2: &str = "tetrad.nam-a2";
 
-/// The newest package of extension `id`.
+/// The newest published package of extension `id`.
 fn package(id: &str) -> Option<Package> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/repository/packages");
+    let dir = Path::new(&std::env::var_os("TETRAD_EXTENSIONS_DIR")?).join("packages");
     std::fs::read_dir(&dir)
         .ok()?
         .flatten()
@@ -43,10 +44,10 @@ struct Host {
 }
 
 impl Host {
-    /// The newest package of `id`, activated in the runner; `None` when it is not built.
+    /// The newest package of `id`, activated in the runner; `None` without the packages.
     fn start(id: &str) -> Option<Self> {
         let Some(package) = package(id) else {
-            eprintln!("skipped: build extensions/repository/packages/{id}-*.tetradext first");
+            eprintln!("skipped: set TETRAD_EXTENSIONS_DIR (scripts/fetch-extensions.sh)");
             return None;
         };
         let (input, to_runner) = std::io::pipe().unwrap();

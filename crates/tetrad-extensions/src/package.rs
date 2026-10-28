@@ -415,10 +415,15 @@ mod tests {
         refuse(&|v| v["manifest"]["commands"] = json!([{"id": "go", "label": "Go"}]));
     }
 
+    /// Every package of the published default repository: `TETRAD_EXTENSIONS_DIR` is a folder
+    /// that `scripts/fetch-extensions.sh` filled (CI does). Skips without it.
     #[test]
     fn published_default_packages_still_decode() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../extensions/repository/packages");
+        let Some(dir) = std::env::var_os("TETRAD_EXTENSIONS_DIR") else {
+            eprintln!("skipped: set TETRAD_EXTENSIONS_DIR (scripts/fetch-extensions.sh)");
+            return;
+        };
+        let dir = std::path::Path::new(&dir).join("packages");
         let mut decoded = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
