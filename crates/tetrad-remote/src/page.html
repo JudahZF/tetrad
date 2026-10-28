@@ -206,15 +206,18 @@ function row(file, list) {
   };
 }
 
-/** A drop box: files dropped on it, or chosen with a tap, go to `take`. */
+/**
+ * A drop box: files dropped on it, or chosen with a tap, go to `take` as an array. It is a copy:
+ * clearing the input (so the same file can be chosen again) empties the input's own list.
+ */
 function dropZone(drop, input, take) {
-  input.addEventListener("change", (event) => { take(event.target.files); event.target.value = ""; });
+  input.addEventListener("change", (event) => { take([...event.target.files]); event.target.value = ""; });
   drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (event) => {
     event.preventDefault();
     drop.classList.remove("over");
-    take(event.dataTransfer.files);
+    take([...event.dataTransfer.files]);
   });
 }
 
