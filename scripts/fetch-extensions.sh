@@ -3,7 +3,8 @@
 # catalog, its signature and key, and every package in DIR/packages/, each checked against the
 # catalog's SHA-256. Program files of packages with `app` stay in their releases.
 #
-# - Tests: TETRAD_EXTENSIONS_DIR=DIR cargo test (the published packages must still decode).
+# - Tests: TETRAD_EXTENSIONS_DIR=DIR cargo test, with DIR absolute (each test runs in its crate's
+#   folder): the published packages must still decode.
 # - Publishing: fetch into a clone of the repository, add the new package, then `tetrad-ext
 #   catalog` signs a catalog with every package (JudahZF/tetrad-extensions README).
 #
