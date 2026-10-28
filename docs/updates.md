@@ -1,7 +1,7 @@
 # Updates on a unit with Tetrad
 
-Tetrad has two update pages in Settings → System, one below the other. They update different
-things:
+Tetrad has two update pages: Settings → System → CorOS Updates and Settings → Tetrad → Tetrad
+Updates (on 0.1.0-alpha.8 and earlier, both are in System). They update different things:
 
 | Page | Button | What it updates | What stays |
 | --- | --- | --- | --- |
@@ -127,7 +127,7 @@ in a QEMU virtual machine with a synthetic package and the real 4.1.1 package. B
 
 ## Tetrad updates
 
-Settings → System → Tetrad Updates updates Tetrad from its GitHub releases, with no computer.
+Settings → Tetrad → Tetrad Updates updates Tetrad from its GitHub releases, with no computer.
 CorOS does not change. The page shows the running Tetrad version.
 
 1. **CHECK TETRAD.** Tetrad reads the release list of `JudahZF/tetrad` from the GitHub API. It

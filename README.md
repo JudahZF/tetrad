@@ -51,11 +51,11 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
   footswitch mode: four pages of ten switches (A–D, Down, E–H, Tap), each with a scene, preset,
   block, MIDI, system, page or extension action that you choose on the unit. See
   [docs/footswitch-modes.md](docs/footswitch-modes.md).
-- **Themes.** Choose the colours of the UI in Settings → System → Appearance: Stock, Stage
+- **Themes.** Choose the colours of the UI in Settings → Tetrad → Appearance: Stock, Stage
   High Contrast, Slate, Ember, or your own theme files and extension themes. See
   [docs/themes.md](docs/themes.md).
 - **Extensions.** Install small TypeScript programs from signed GitHub repositories
-  (Settings → System → Extensions), such as MIDI Mapper for a second MIDI channel. See
+  (Settings → Tetrad → Extensions), such as MIDI Mapper for a second MIDI channel. See
   [docs/extensions.md](docs/extensions.md).
 - **DSP blocks (experimental).** Extensions can add DSP blocks that Tetrad compiles for the
   DSP, such as Neural Amp Modeler A1 for NAM LSTM and WaveNet models (up to the trainer's lite
@@ -67,11 +67,14 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Wi-Fi and cloud.** Sign in, download and upload presets, and back up to the cloud or to the
   unit.
 - **Remote.** Add IRs from a browser on the same Wi-Fi: open the address the unit shows
-  (Settings → System → Remote), enter the PIN and drop the files. See
+  (Settings → Tetrad → Remote), enter the PIN and drop the files. See
   [docs/remote.md](docs/remote.md).
+- **Support file.** For a bug report, download a `.zip` with versions, licence states, the
+  loaded preset's blocks and recent logs from the Remote page. It holds no passwords, tokens or
+  presets. See [docs/support.md](docs/support.md).
 - **Tetrad over USB.** The `tetrad-usb` tool takes screenshots and sends a Tetrad release
   over the USB cable. See [docs/usb.md](docs/usb.md).
-- **Tetrad updates.** Update Tetrad from the touchscreen (Settings → System → Tetrad Updates).
+- **Tetrad updates.** Update Tetrad from the touchscreen (Settings → Tetrad → Tetrad Updates).
   CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates).
 - **CorOS updates.** Update CorOS from the touchscreen (Settings → System → CorOS Updates). Tetrad
   stays installed. See [docs/updates.md](docs/updates.md).
@@ -151,13 +154,14 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
 - Not tested on the unit: Neural Capture training, loading a user Neural Capture 2 capture,
   capture over Cortex Control, the Global EQ and limiter toggles with audio, DIN MIDI, the panel
   controls one by one, cable pulls and shutdown.
-- Support reports are off: SEND REPORT and the Cortex Control log request are refused.
+- Tetrad uploads no support reports: Send Report shows how to get the support file instead
+  ([docs/support.md](docs/support.md)), and the Cortex Control log request is refused.
 - Cortex Control gain calibration is refused, because stock writes the U-Boot environment there.
 - Tetrad writes only the stock library database schema of CorOS 4.1.x (410.1).
 - The boot selector has no settings page. Use `tetrad-launcher.sh chooser on|off`.
 - Mappings cannot yet load a chosen preset, set a tempo value, send MIDI from a MIDI trigger
   or a global mapping, or run system actions from an expression pedal.
-- Remote is not tested on the unit yet. It uploads IRs only.
+- Remote is not tested on the unit yet. It uploads IRs and hands out the support file.
 
 The changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 

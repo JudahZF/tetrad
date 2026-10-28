@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|send-report|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-settings|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|remote-menu|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -137,6 +137,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
                 name: format!("{} Model {}", category.label(), n + 1),
                 category,
                 extension: false,
+                plugin: None,
             })
         })
         .collect::<Vec<_>>()
@@ -615,9 +616,10 @@ fn readme(dir: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>> {
-    if view == "remote" {
+    if matches!(view, "remote" | "remote-menu" | "send-report") {
         snapshot.remote = RemoteView {
             enabled: true,
+            pin_in_menu: true,
             address: Some("http://192.168.1.20".into()),
             pin: Some("4821".into()),
             status: Some("Added V30 SM57".into()),
@@ -673,6 +675,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                         name: name.into(),
                         category,
                         extension: true,
+                        plugin: None,
                     }),
             );
             snapshot.models = models.into();
@@ -1125,6 +1128,9 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
         "remote" => {
             ui.show(Screen::Settings(SettingsPage::Remote));
         }
+        "send-report" => {
+            ui.show(Screen::Settings(SettingsPage::SendReport));
+        }
         view if view.starts_with("ext") => {
             ui.show(Screen::Settings(SettingsPage::Extensions));
             let open = |ui: &mut UiState, index| {
@@ -1140,6 +1146,12 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                     ui.handle_input(InputEvent::PointerUp { x: 500, y: 200 });
                 }
                 "ext-fault" => open(&mut ui, 2),
+                "ext-settings" => {
+                    activate(
+                        &mut ui,
+                        Control::Setting(SettingControl::ExtensionSettings(0)),
+                    );
+                }
                 "ext-detail-end" | "ext-remove" => {
                     open(&mut ui, 0);
                     // REMOVE is at the end of the page: scroll it into view.
@@ -1802,7 +1814,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 Control::Param(ParamControl::Knob(KnobIndex::new(0)?)),
             );
         }
-        "menu" => {
+        "menu" | "remote-menu" => {
             activate(&mut ui, Control::OpenMainMenu);
         }
         "settings" => {

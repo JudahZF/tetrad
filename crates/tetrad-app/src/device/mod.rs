@@ -47,6 +47,7 @@ mod probe;
 pub mod remote;
 pub mod remote_files;
 pub mod services;
+pub mod support;
 pub mod ui;
 mod upload;
 mod usb;
@@ -843,6 +844,8 @@ pub struct State {
     pub perform: actions::PerformState,
     /// (O) The Custom footswitch mode of an extension: layout, page and held slots.
     pub custom: custom::CustomMode,
+    /// This boot's number (`/opt/neuraldsp/boot_count.txt`), for the support file.
+    pub boot_count: Option<u32>,
     /// DSP response kinds without a consumer yet; each is noted once.
     unrouted: HashSet<Discriminant<DspEvent>>,
 }
@@ -941,6 +944,7 @@ impl State {
             global_eq_default: None,
             perform: actions::PerformState::default(),
             custom: custom::CustomMode::default(),
+            boot_count: None,
             unrouted: HashSet::new(),
         }
     }
@@ -1163,6 +1167,7 @@ impl<P: Platform> Device<P> {
             }
         }
         device.splash(progress::DSP_READY);
+        device.state.boot_count = Some(boot_count);
         device.migrate_settings(boot_count);
         // Before the first Tetrad frame, so a boot shows the chosen theme from the start.
         device.load_appearance();
@@ -2225,8 +2230,11 @@ impl<P: Platform> Device<P> {
             ui::Handoff::Mappings(command) => self.mapping_command(command),
             ui::Handoff::Custom(command) => self.custom_command(command),
             ui::Handoff::Theme(id) => self.set_theme(id),
-            ui::Handoff::Remote { enabled } => {
-                self.set_remote(enabled);
+            ui::Handoff::Remote {
+                enabled,
+                pin_in_menu,
+            } => {
+                self.set_remote(enabled, pin_in_menu);
                 Vec::new()
             }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,

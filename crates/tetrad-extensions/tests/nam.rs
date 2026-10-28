@@ -142,7 +142,7 @@ impl Host {
         block.validate().unwrap();
         assert_eq!(block.channels(), qcdsp::Channels::Mono);
         let names: Vec<_> = block.parameters().iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["Input", "Output"]);
+        assert_eq!(names, ["Input", "Bass", "Mid", "Treble", "Output"]);
         block
     }
 

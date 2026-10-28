@@ -19,7 +19,7 @@
 #       after each build.
 #   dev-update.sh push ARCHIVE HOST PIN [--install]
 #       Sends the files of ARCHIVE to the Remote page of a dev build, as the page does: HOST is
-#       the IP address of the unit, PIN the one that Settings > System > Remote shows. Touch
+#       the IP address of the unit, PIN the one that Settings > Tetrad > Remote shows. Touch
 #       UPDATE TETRAD on the unit after it, or give --install to start the install from here
 #       (the unit checks the files, installs them and restarts).
 #   dev-update.sh install HOST PIN
@@ -284,7 +284,7 @@ case ${1:-} in
             call POST /api/update/install
             echo "staged; the install started and the unit restarts when it is done" >&2
         else
-            echo "staged; touch UPDATE TETRAD on the unit (Settings > System > Tetrad Updates)" >&2
+            echo "staged; touch UPDATE TETRAD on the unit (Settings > Tetrad > Tetrad Updates)" >&2
         fi
         ;;
     *) usage ;;

@@ -49,6 +49,8 @@ pub enum Request {
         id: String,
         message: Vec<u8>,
     },
+    /// The support file (docs/support.md).
+    Support { pin: String },
     /// Dev build: the running version, and the proof that the unit takes updates.
     #[cfg(feature = "dev")]
     UpdateStatus { pin: String },
@@ -103,7 +105,8 @@ impl Request {
             | Self::FileDelete { pin, .. }
             | Self::Tabs { pin }
             | Self::TabPage { pin, .. }
-            | Self::TabCall { pin, .. } => pin,
+            | Self::TabCall { pin, .. }
+            | Self::Support { pin } => pin,
             #[cfg(feature = "dev")]
             Self::UpdateStatus { pin }
             | Self::UpdateBegin { pin, .. }
@@ -160,6 +163,11 @@ pub enum Reply {
     /// The extension's answer to a tab message: JSON text.
     TabReply {
         json: String,
+    },
+    /// A download: the file name and a zip archive.
+    File {
+        name: String,
+        zip: Vec<u8>,
     },
     /// The running version, and the md5 that the launcher has armed (`launcher/select`), which is
     /// the md5 of the installed `bin/tetrad` when the update went well.
@@ -243,7 +251,8 @@ pub struct FileEntry {
 }
 
 impl Reply {
-    /// The status code and the JSON body.
+    /// The status code and the JSON body. [`Reply::File`] is written as the file itself
+    /// (`http::serve_one`), never as JSON.
     pub(crate) fn response(&self) -> (u16, serde_json::Value) {
         use serde_json::json;
         match self {
@@ -311,6 +320,7 @@ impl Reply {
                     |value: serde_json::Value| json!({ "result": value }),
                 ),
             ),
+            Self::File { name, .. } => (200, json!({ "name": name })),
             Self::WrongPin => (401, json!({ "error": "Wrong PIN" })),
             Self::Off => (503, json!({ "error": "Remote is off" })),
             Self::Refused(reason) => (422, json!({ "error": reason })),

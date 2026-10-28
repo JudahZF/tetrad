@@ -209,8 +209,16 @@ impl UiState {
             Control::Updater(command) => return vec![UiCommand::Updater { command }],
             Control::TetradUpdate(command) => return vec![UiCommand::TetradUpdate { command }],
             Control::RemoteToggle => {
-                let enabled = !snapshot.remote.enabled;
-                return vec![UiCommand::SetRemote { enabled }];
+                return vec![UiCommand::SetRemote {
+                    enabled: !snapshot.remote.enabled,
+                    pin_in_menu: snapshot.remote.pin_in_menu,
+                }];
+            }
+            Control::RemotePinInMenuToggle => {
+                return vec![UiCommand::SetRemote {
+                    enabled: snapshot.remote.enabled,
+                    pin_in_menu: !snapshot.remote.pin_in_menu,
+                }];
             }
             Control::ShowChangelog => {
                 let body = snapshot.updater.changelog.clone();
@@ -587,6 +595,16 @@ impl UiState {
                 self.wifi_domains = false;
                 self.extensions = crate::state::ExtensionsPage::List;
                 return self.navigate(Screen::Settings(page));
+            }
+            SettingControl::ExtensionSettings(index) => {
+                let installed = &self.snapshot.extensions.installed;
+                let Some(key) = installed.get(usize::from(index)).map(|e| e.key.clone()) else {
+                    return Vec::new();
+                };
+                self.reset_scroll(ListId::SettingsPage);
+                self.extensions = crate::state::ExtensionsPage::List;
+                self.extension_section = Some(key);
+                return self.navigate(Screen::Settings(SettingsPage::ExtensionSettings));
             }
             SettingControl::IoTab(tab) => {
                 self.reset_scroll(ListId::IoPage);
@@ -984,10 +1002,6 @@ impl UiState {
 
     fn device_action(&mut self, action: DeviceAction) -> Vec<UiCommand> {
         match action {
-            DeviceAction::SendReport => {
-                self.show_toast("Sending report...");
-                vec![UiCommand::Device { action }]
-            }
             DeviceAction::CalibrateExpression(pedal) => {
                 self.overlay = Some(Overlay::Confirm(Confirm::Expression(pedal)));
                 vec![UiCommand::Device { action }]
@@ -1155,6 +1169,10 @@ impl UiState {
                 };
                 self.reset_scroll(ListId::Mappings);
                 return self.navigate(Screen::Mappings);
+            }
+            (_, MenuAction::Remote) => {
+                self.reset_scroll(ListId::SettingsPage);
+                return self.navigate(Screen::Settings(SettingsPage::Remote));
             }
             (_, MenuAction::Settings) => {
                 return self.navigate(Screen::Settings(SettingsPage::MyAccount));

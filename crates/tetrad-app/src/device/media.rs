@@ -691,6 +691,23 @@ fn media_folder_holds(
     })
 }
 
+/// Stock plugin folder names (`/opt/neuraldsp/Plugins`, CorOS 4.1.0) and their ModelRepo
+/// `plugin_id`. The ids match by the model names of each plugin (RE `plugin-tag-20261017`).
+const PLUGIN_FOLDERS: [(&str, u32); 12] = [
+    ("Fortin Nameless Suite X", 1),
+    ("Archetype: Plini X", 3),
+    ("Parallax X", 4),
+    ("Archetype: Nolly X", 5),
+    ("Archetype: Cory Wong X", 9),
+    ("Archetype: Gojira X", 10),
+    ("Soldano SLO-100 X", 11),
+    ("Archetype: Tim Henson X", 12),
+    ("Archetype: Petrucci X", 13),
+    ("Archetype: Rabea X", 15),
+    ("Archetype: Misha Mansoor X", 20),
+    ("Archetype: John Mayer X", 21),
+];
+
 /// Cached file lists, plugin folders and database folders for the Directory, and a notice
 /// detail per list or folder that could not be read: that part is left out and the rest of
 /// the view still builds (review r11 N5, N12). Missing favorite/recent targets are skipped,
@@ -751,6 +768,9 @@ pub fn directory_view(
     view.plugins = plugins
         .into_iter()
         .map(|folder| DirectoryPlugin {
+            plugin: (PLUGIN_FOLDERS.iter())
+                .find(|(name, _)| *name == folder.name)
+                .map(|&(_, plugin)| plugin),
             presets: folder
                 .presets
                 .into_iter()
