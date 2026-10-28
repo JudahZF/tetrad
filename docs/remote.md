@@ -306,6 +306,22 @@ the scripts rarely, and keep a way back (the SD card in a computer,
 [launcher.md](launcher.md#recovery)). A new `begin` or a refused step ends the staging: send the
 files again.
 
+## Calls
+
+Every call needs the PIN in the `X-Tetrad-Pin` header. Answers are JSON (an error is
+`{"error": ...}`), except the downloads.
+
+| Page | Calls |
+| --- | --- |
+| IRs | `POST /api/irs?name=` (one converted IR); `GET /api/library`; `POST /api/library/rename?id=&name=`, `/delete?id=`, `/link?id=&folder=&linked=1\|0`, `/destination?folder=`, `/folder?name=[&parent=]` |
+| Mappings | `GET /api/mappings`; `POST /api/mappings/command` (JSON) |
+| Footswitch | `GET /api/footswitch`; `POST /api/footswitch/command` (JSON) |
+| Backup | `GET /api/backup`; `POST /api/backup/create`; `GET /api/backup/file?offset=` (at most 512 KiB of the archive); `POST /api/backup/upload?name=&offset=[&last=1]`; `POST /api/backup/discard` |
+| Themes | `GET /api/themes`; `POST /api/themes/save` (a theme file), `/select?id=`, `/delete?id=` |
+| Notices | `GET /api/notices` |
+| Manage | `GET /api/extensions`; `POST /api/extensions/command` (JSON) |
+| Support file | `GET /api/support` |
+
 ## IR files that work
 
 The page converts each file in the browser before the upload, so most IR files work:
