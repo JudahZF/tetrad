@@ -28,7 +28,8 @@ const MIDI_PARAMETERS: l2cap::Parameters = l2cap::Parameters {
 };
 /// L2CAP packets that may wait for controller buffers; past this, MIDI notifications drop.
 const MAX_QUEUED_PACKETS: usize = 64;
-/// Tetrad Link bytes that may wait; past this, a Link message drops (a few full messages).
+/// Tetrad Link bytes that may wait; past this, a Link message drops. A message to an empty
+/// queue always goes, however large (a support file, a tab page).
 const MAX_QUEUED_LINK_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,7 +407,7 @@ impl Host {
             .flat_map(|(_, fragments)| fragments)
             .map(Vec::len)
             .sum();
-        if queued + message.len() > MAX_QUEUED_LINK_BYTES {
+        if queued > 0 && queued + message.len() > MAX_QUEUED_LINK_BYTES {
             self.notice("the Tetrad Link is behind: a message dropped".into());
             return;
         }
