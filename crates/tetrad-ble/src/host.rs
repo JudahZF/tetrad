@@ -15,14 +15,16 @@ use crate::smp::{self, Addresses, Pairing, Step};
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
 /// SMP gives a pairing 30 s (Vol 3 Part H §3.4).
 const PAIRING_TIMEOUT: Duration = Duration::from_secs(30);
-/// After a host connects, Tetrad asks for a short connection interval (BLE MIDI wants
-/// 15 ms or less) once the host has discovered the services.
-const PARAMETER_DELAY: Duration = Duration::from_secs(2);
+/// Soon after a host connects, Tetrad asks for its connection parameters: an interval of 15 to
+/// 30 ms for BLE MIDI, and a supervision timeout of 6 s. The WILC3000 shares its radio with
+/// Wi-Fi; with BlueZ's default timeout (420 ms) links dropped on a unit with a weak Wi-Fi signal
+/// (2026-10-28).
+const PARAMETER_DELAY: Duration = Duration::from_millis(300);
 const MIDI_PARAMETERS: l2cap::Parameters = l2cap::Parameters {
-    min_interval: 9,
-    max_interval: 12,
+    min_interval: 12,
+    max_interval: 24,
     latency: 0,
-    timeout: 300,
+    timeout: 600,
 };
 /// Fragments that may wait for controller buffers; past this, MIDI notifications drop.
 const MAX_QUEUED_FRAGMENTS: usize = 256;

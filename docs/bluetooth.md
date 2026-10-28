@@ -61,15 +61,17 @@ on the phone or computer too, or that device cannot connect until it pairs again
 - **Not MIDI clock:** the unit does not send MIDI clock or other real-time messages over
   Bluetooth, and it ignores the ones it gets. BLE sends data at fixed intervals of several
   milliseconds, which makes a clock jitter. Use DIN or USB for clock.
-- **Latency:** after a host connects, Tetrad asks for a connection interval of 11.25 to 15 ms.
-  The host decides; most computers and phones take it.
+- **Latency:** after a host connects, Tetrad asks for a connection interval of 15 to 30 ms. The
+  host decides; most computers and phones take it.
 
 ## Limits
 
 - One phone or computer at a time. While one is connected, the unit does not advertise.
 - The radio talks to the unit at 115200 baud: about 8 KB/s. This is enough for MIDI.
-- Wi-Fi and Bluetooth share one radio. The chip shares the air time; a large Wi-Fi transfer can
-  delay BLE messages.
+- Wi-Fi and Bluetooth share one radio, on 2.4 GHz. The chip shares the air time: a large Wi-Fi
+  transfer delays BLE messages, and with a weak Wi-Fi signal (many repeats) a link can drop. On
+  the test unit, links dropped within seconds at a Wi-Fi signal of -68 dBm. Tetrad asks each host
+  for a 6 s supervision timeout so that a link survives short gaps, but the host decides.
 
 ## Problems
 

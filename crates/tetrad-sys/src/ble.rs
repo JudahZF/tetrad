@@ -262,10 +262,16 @@ pub fn bring_up(path: &Path) -> Result<HciUart, String> {
     control("BT_DOWNLOAD_FW").map_err(io)?;
     std::thread::sleep(Duration::from_millis(300));
     control("BT_FW_CHIP_WAKEUP").map_err(io)?;
-    match state(&mut uart).map_err(io)? {
-        State::Firmware => Ok(uart),
-        other => Err(format!("the Bluetooth firmware did not start ({other:?})")),
+    // Right after boot the firmware once needed more time to answer: look a few times.
+    let mut last = State::Silent;
+    for _ in 0..4 {
+        last = state(&mut uart).map_err(io)?;
+        if last == State::Firmware {
+            return Ok(uart);
+        }
+        std::thread::sleep(Duration::from_millis(250));
     }
+    Err(format!("the Bluetooth firmware did not start ({last:?})"))
 }
 
 /// The running host: a thread with the UART. Events arrive through [`Self::events`]; a
