@@ -191,7 +191,13 @@ fn every_wire_name_is_declared() {
 #[test]
 fn extension_copies_match() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
-    for dir in ["midi-mapper", "nam", "nam-a2", "fixtures/control-macro"] {
+    for dir in [
+        "midi-mapper",
+        "nam",
+        "nam-a2",
+        "fixtures/control-macro",
+        "fixtures/remote-tab",
+    ] {
         let path = root.join(dir).join("tetrad.d.ts");
         let copy = std::fs::read_to_string(&path).unwrap();
         assert!(

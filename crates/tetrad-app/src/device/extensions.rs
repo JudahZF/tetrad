@@ -250,6 +250,7 @@ pub struct Capabilities {
     pub triggers: bool,
     pub blocks: bool,
     pub usb: bool,
+    pub remote: bool,
 }
 
 /// One installed extension as the bridge runs it.
@@ -274,6 +275,15 @@ pub struct Installation {
     pub config: Json,
     pub storage: BTreeMap<String, Json>,
     pub enabled: bool,
+    /// The extension's tab on the Remote page.
+    pub remote: Option<RemoteTab>,
+}
+
+/// The tab of an extension on the Remote page: its title and its HTML.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteTab {
+    pub title: String,
+    pub page: String,
 }
 
 /// An installation that builds blocks from asset files: what Remote shows for it.
@@ -315,6 +325,10 @@ struct Session {
     usb_waiting: VecDeque<u32>,
     /// The USB request ID of each open [`Event::Usb`] scope.
     usb_scopes: HashMap<u64, u32>,
+    /// Remote request IDs of [`Event::Remote`] events in the backlog, in order.
+    remote_waiting: VecDeque<u64>,
+    /// The Remote request ID of each open [`Event::Remote`] scope.
+    remote_scopes: HashMap<u64, u64>,
 }
 
 impl Session {
@@ -327,6 +341,11 @@ impl Session {
         {
             self.usb_scopes.insert(scope, request);
         }
+        if matches!(event, Event::Remote { .. })
+            && let Some(request) = self.remote_waiting.pop_front()
+        {
+            self.remote_scopes.insert(scope, request);
+        }
     }
 
     /// Error replies for every USB request the session can no longer answer.
@@ -335,6 +354,18 @@ impl Session {
             request,
             result: Err(format!("the extension stopped: {reason}")),
         })
+    }
+
+    /// Error replies for every Remote request the session can no longer answer.
+    fn remote_orphans(&mut self, reason: &str) -> Vec<RemoteReply> {
+        let scopes = std::mem::take(&mut self.remote_scopes);
+        let waiting = std::mem::take(&mut self.remote_waiting);
+        (scopes.into_values().chain(waiting))
+            .map(|request| RemoteReply {
+                request,
+                result: Err(format!("the extension stopped: {reason}")),
+            })
+            .collect()
     }
 }
 
@@ -419,6 +450,15 @@ pub struct Outcome {
     jobs: Vec<ExtensionJob>,
     /// Answers to USB messages ([`Extensions::usb_message`]), for the USB link.
     pub usb_replies: Vec<UsbReply>,
+    /// Answers to the messages of Remote tabs ([`Extensions::remote_message`]).
+    pub remote_replies: Vec<RemoteReply>,
+}
+
+/// The answer of an extension to one message of its Remote tab.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteReply {
+    pub request: u64,
+    pub result: Result<Json, String>,
 }
 
 /// The answer of an extension to one USB message: its handler's return value or its error.
@@ -705,6 +745,8 @@ impl Extensions {
                     backlog: VecDeque::new(),
                     usb_waiting: VecDeque::new(),
                     usb_scopes: HashMap::new(),
+                    remote_waiting: VecDeque::new(),
+                    remote_scopes: HashMap::new(),
                 });
             }
             Err(error) => {
@@ -724,9 +766,12 @@ impl Extensions {
         let Some(slot) = self.slots.get_mut(key) else {
             return;
         };
-        if let Some(session) = slot.session.take() {
+        if let Some(mut session) = slot.session.take() {
             let _ = backend.send(key, &HostMessage::Stop);
             backend.stop(key);
+            outcome
+                .remote_replies
+                .extend(session.remote_orphans("disabled"));
             outcome.usb_replies.extend(session.orphans("disabled"));
         }
         slot.end_session(None);
@@ -861,6 +906,50 @@ impl Extensions {
         Ok(outcome)
     }
 
+    /// The enabled extensions that have a tab on the Remote page, in key order.
+    pub fn remote_tabs(&self) -> Vec<(&str, &Installation)> {
+        (self.slots.iter())
+            .filter(|(_, slot)| slot.installation.enabled && slot.installation.remote.is_some())
+            .map(|(key, slot)| (key.as_str(), &slot.installation))
+            .collect()
+    }
+
+    /// A message from the tab of the extension with manifest ID `id`. Its handler's answer comes
+    /// back in [`Outcome::remote_replies`] under `request`.
+    pub fn remote_message(
+        &mut self,
+        id: &str,
+        request: u64,
+        message: Json,
+        backend: &mut dyn ExtensionBackend,
+    ) -> Result<Outcome, String> {
+        let (key, slot) = (self.slots.iter_mut())
+            .find(|(_, slot)| slot.installation.id == id)
+            .ok_or_else(|| format!("no extension {id} is installed"))?;
+        if !slot.installation.capabilities.remote {
+            return Err(format!("{id} does not have the remote capability"));
+        }
+        let session = (slot.session.as_mut())
+            .filter(|_| slot.state == RunState::Running)
+            .ok_or_else(|| format!("{id} is not running"))?;
+        if !slot.registrations.remote {
+            return Err(format!("{id} has no Remote handler"));
+        }
+        // A message over the runner frame limit would fault the extension when it is sent.
+        let event = Event::Remote { message };
+        let frame = HostMessage::Event {
+            scope: u64::MAX,
+            event: event.clone(),
+        };
+        tetrad_extensions::protocol::encode(&frame)
+            .map_err(|error| format!("the message is too large for an extension: {error}"))?;
+        session.remote_waiting.push_back(request);
+        let key = key.clone();
+        let mut outcome = Outcome::default();
+        self.deliver(&key, event, backend, &mut outcome);
+        Ok(outcome)
+    }
+
     /// A message on a reserved channel. Without a running owner it is dropped.
     pub fn on_midi(
         &mut self,
@@ -984,8 +1073,11 @@ impl Extensions {
         let Some(slot) = self.slots.get_mut(key) else {
             return;
         };
-        if let Some(session) = slot.session.take() {
+        if let Some(mut session) = slot.session.take() {
             backend.stop(key);
+            outcome
+                .remote_replies
+                .extend(session.remote_orphans(&reason));
             outcome.usb_replies.extend(session.orphans(&reason));
         }
         slot.end_session(Some(&reason));
@@ -1107,6 +1199,12 @@ impl Extensions {
                         None => Ok(result.unwrap_or(Json::Null)),
                     };
                     outcome.usb_replies.push(UsbReply { request, result });
+                } else if let Some(request) = session.remote_scopes.remove(&scope) {
+                    let result = match error {
+                        Some(error) => Err(error),
+                        None => Ok(result.unwrap_or(Json::Null)),
+                    };
+                    outcome.remote_replies.push(RemoteReply { request, result });
                 }
                 while session.in_flight < IN_FLIGHT {
                     let Some(event) = session.backlog.pop_front() else {
@@ -1169,6 +1267,9 @@ impl Extensions {
         }
         if registrations.usb && !slot.installation.capabilities.usb {
             return Err("answers USB messages without the usb capability".into());
+        }
+        if registrations.remote && !slot.installation.capabilities.remote {
+            return Err("answers Remote messages without the remote capability".into());
         }
         let triggers = &registrations.triggers;
         if !triggers.is_empty() && !slot.installation.capabilities.triggers {
@@ -2653,9 +2754,16 @@ fn installation(loaded: &Loaded) -> Installation {
             triggers: manifest.has(Capability::Triggers),
             blocks: manifest.has(Capability::Blocks),
             usb: manifest.has(Capability::Usb),
+            remote: manifest.has(Capability::Remote),
         },
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),
         enabled: loaded.installed.enabled,
+        remote: (manifest.remote.as_ref())
+            .zip(loaded.remote_page.as_ref())
+            .map(|(tab, page)| RemoteTab {
+                title: tab.title.clone(),
+                page: page.clone(),
+            }),
     }
 }

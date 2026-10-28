@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tetrad_library::stock::{IrImport, import_user_ir, saving_destination};
 use tetrad_media::ir::IrLimits;
 use tetrad_media::user::{MAX_IR_NAME_UNITS, simplify_name};
-use tetrad_remote::{Call, Reply, Request};
+use tetrad_remote::{Call, Reply, Request, TabInfo};
 use tetrad_storage::stock::{ProductType, StockView};
 use tetrad_ui::{RemoteView, ToastView};
 
@@ -181,26 +181,29 @@ impl<P: Platform> Device<P> {
 
     /// Answers one page request.
     pub(super) fn remote_call(&mut self, call: Call) {
-        let reply = self.remote_reply(call.request);
+        // A tab message gets its reply later, when the extension has answered.
+        let Some(reply) = self.remote_reply(call.id, call.request) else {
+            return;
+        };
         if let Some(backend) = self.platform.remote() {
             backend.reply(call.id, reply);
         }
     }
 
-    fn remote_reply(&mut self, request: Request) -> Reply {
+    fn remote_reply(&mut self, call: u64, request: Request) -> Option<Reply> {
         let remote = &mut self.bridges.remote;
         let Some(pin) = remote.pin.as_deref() else {
-            return Reply::Off;
+            return Some(Reply::Off);
         };
         if pin != request.pin() {
             remote.wrong += 1;
             if remote.wrong >= MAX_WRONG_PINS {
                 self.new_remote_pin();
             }
-            return Reply::WrongPin;
+            return Some(Reply::WrongPin);
         }
         remote.wrong = 0;
-        match request {
+        Some(match request {
             Request::Status { .. } => match self.ir_destination() {
                 Ok((_, folder)) => Reply::Status { folder },
                 Err(reason) => Reply::Refused(reason),
@@ -220,6 +223,72 @@ impl<P: Platform> Device<P> {
                 let (name, zip) = self.support_file();
                 Reply::File { name, zip }
             }
+            Request::Tabs { .. } => self.remote_tabs(),
+            Request::TabPage { id, .. } => self.remote_tab_page(&id),
+            Request::TabCall { id, message, .. } => {
+                return self.remote_tab_call(call, &id, &message);
+            }
+        })
+    }
+
+    /// The tabs of the extensions that have one.
+    fn remote_tabs(&self) -> Reply {
+        let tabs = (self.bridges.extensions.remote_tabs().into_iter())
+            .filter_map(|(_, installation)| {
+                let tab = installation.remote.as_ref()?;
+                Some(TabInfo {
+                    id: installation.id.clone(),
+                    title: tab.title.clone(),
+                })
+            })
+            .collect();
+        Reply::Tabs { tabs }
+    }
+
+    fn remote_tab_page(&self, id: &str) -> Reply {
+        let page = (self.bridges.extensions.remote_tabs().into_iter())
+            .find(|(_, installation)| installation.id == id)
+            .and_then(|(_, installation)| installation.remote.as_ref())
+            .map(|tab| tab.page.clone());
+        match page {
+            Some(html) => Reply::TabPage { html },
+            None => Reply::Refused(format!("{id} has no tab")),
+        }
+    }
+
+    /// Hands a message of a tab to its extension. `None`: the extension has it, and its answer
+    /// ([`Self::answer_tab`]) is the reply to call `call`.
+    fn remote_tab_call(&mut self, call: u64, id: &str, message: &[u8]) -> Option<Reply> {
+        let message: serde_json::Value = match serde_json::from_slice(message) {
+            Ok(message) => message,
+            Err(_) => return Some(Reply::Refused("The message is not JSON".into())),
+        };
+        let mut refused = Some("Extensions are not running".to_owned());
+        let _ = self.extensions(|extensions, backend, _| {
+            match extensions.remote_message(id, call, message, backend) {
+                Ok(outcome) => {
+                    refused = None;
+                    outcome
+                }
+                Err(reason) => {
+                    refused = Some(reason);
+                    super::extensions::Outcome::default()
+                }
+            }
+        });
+        refused.map(Reply::Refused)
+    }
+
+    /// The extension answered a tab message (or stopped): the reply to the page.
+    pub(super) fn answer_tab(&mut self, reply: super::extensions::RemoteReply) {
+        let answer = match reply.result {
+            Ok(value) => Reply::TabReply {
+                json: value.to_string(),
+            },
+            Err(reason) => Reply::Refused(reason),
+        };
+        if let Some(backend) = self.platform.remote() {
+            backend.reply(reply.request, answer);
         }
     }
 

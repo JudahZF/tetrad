@@ -121,7 +121,7 @@ gaps = "Not run on a unit: switch latency, the LED frames and the Bank Up hold."
 
 [[capability]]
 id = "remote"
-what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, and downloads the support file (docs/support.md), behind a 4-digit PIN."
+what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, and downloads the support file (docs/support.md), behind a 4-digit PIN. It also manages the asset files of extensions (NAM models) and shows tabs that extensions supply."
 tested = "host"
 gaps = "Not run on the unit yet."
 

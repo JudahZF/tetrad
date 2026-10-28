@@ -27,6 +27,8 @@ type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 const MANIFEST_FILE: &str = "tetrad-extension.json";
 const ENTRY: &str = "src/index.ts";
 const BUNDLE: &str = "dist/index.mjs";
+/// The HTML of the extension's Remote tab, packed when the manifest has `remote`.
+const REMOTE_PAGE: &str = "remote.html";
 /// `blocks/<id>.qcdsp.json`: the IR of each static block.
 const BLOCKS_DIR: &str = "blocks";
 const BLOCK_SUFFIX: &str = ".qcdsp.json";
@@ -381,10 +383,20 @@ fn package(dir: &Path, out: &Path) -> Result {
         None
     };
     let blocks = read_blocks(dir, &manifest)?;
+    let remote_page = match &manifest.remote {
+        Some(_) if dir.join(REMOTE_PAGE).exists() => {
+            Some(String::from_utf8(read(&dir.join(REMOTE_PAGE))?)?)
+        }
+        Some(_) => {
+            return Err(format!("the manifest has a remote tab; {REMOTE_PAGE} is missing").into());
+        }
+        None => None,
+    };
     let bytes = Package {
         manifest,
         module,
         blocks,
+        remote_page,
     }
     .encode()?;
     write(out, &bytes)?;

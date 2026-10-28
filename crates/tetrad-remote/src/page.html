@@ -19,6 +19,7 @@
 html { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--font); }
 body { margin: 0; }
 main { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+main.wide { max-width: 980px; }
 h1 { margin: 0; font-size: 34px; line-height: 1.1; text-transform: uppercase; letter-spacing: .01em; }
 h1 span { color: var(--accent); }
 .sub { color: var(--muted); margin: 6px 0 28px; }
@@ -49,7 +50,23 @@ li .name { overflow-wrap: anywhere; }
 li small { display: block; color: var(--muted); font-size: 13px; }
 li .state { font-weight: 600; white-space: nowrap; }
 .added { color: var(--good); } .working { color: var(--busy); } .failed { color: var(--bad); }
-.ext { margin-top: 40px; }
+.shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 32px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 16px; }
+.side .group { margin: 18px 0 4px; padding: 0 14px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.side .group:first-child { margin-top: 0; }
+.side button { min-height: 42px; padding: 0 14px; text-align: left; background: none; color: var(--fg); border-radius: 10px; overflow-wrap: anywhere; }
+.side button:hover { background: var(--panel); }
+.side button[aria-selected=true] { background: var(--accent); color: #fff; }
+.panes { min-width: 0; }
+.tab-off { display: none !important; }
+iframe.exttab { width: 100%; min-height: 70vh; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+@media (max-width: 720px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .side { flex-direction: row; flex-wrap: wrap; position: static; }
+  .side .group { display: none; }
+  .side button { min-height: 40px; background: var(--panel); border: 1px solid var(--line); }
+}
+.ext { margin: 0; }
 .ext h2 { margin: 0 0 12px; font-size: 22px; text-transform: uppercase; }
 .small { min-height: 0; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border: 1px solid var(--line); }
 .ready { color: var(--good); }
@@ -75,7 +92,10 @@ button:disabled { opacity: .5; cursor: default; }
     <p class="message" id="login-message" role="status"></p>
   </section>
 
-  <section id="upload" hidden>
+  <div class="shell" id="shell" hidden>
+  <nav class="side" id="tabs" aria-label="Pages"></nav>
+  <div class="panes" id="panes">
+  <section id="upload" data-tab="IRs" data-group="Library" hidden>
     <label class="drop" id="drop">
       <strong>Drop IR files here</strong>
       or tap to choose. WAV or AIFF, any sample rate, mono or stereo.
@@ -96,9 +116,8 @@ button:disabled { opacity: .5; cursor: default; }
     </div>
   </section>
 
-  <section id="extfiles" hidden>
-    <div id="extlist"></div>
-  </section>
+  </div>
+  </div>
 </main>
 <script>
 "use strict";
@@ -114,7 +133,13 @@ let queue = Promise.resolve();
 function show(loggedIn, message) {
   $("login").hidden = loggedIn;
   $("upload").hidden = !loggedIn;
-  if (!loggedIn) $("extfiles").hidden = true;
+  $("shell").hidden = !loggedIn;
+  document.querySelector("main").classList.toggle("wide", loggedIn);
+  if (!loggedIn) for (const entry of extensionFiles.values()) entry.box.remove();
+  if (!loggedIn) extensionFiles.clear();
+  if (!loggedIn) for (const tab of extensionTabs.values()) tab.section.remove();
+  if (!loggedIn) extensionTabs.clear();
+  syncTabs();
   $("login-message").textContent = message || "";
 }
 
@@ -140,6 +165,7 @@ async function connect(candidate) {
     $("sub").textContent = status === 200 ? "Saving to: " + body.folder : body.error;
     show(true);
     pollFiles();
+    loadTabs();
     return;
   }
   forget(body.error);
@@ -309,17 +335,16 @@ async function loadFiles() {
   const { status, body } = await call("/api/files");
   if (status === 401) return forget("Enter the PIN shown on the unit");
   if (status !== 200) return [];
-  const root = $("extlist");
   const seen = new Set();
   for (const info of body.extensions) {
     seen.add(info.id);
-    if (!extensionFiles.has(info.id)) extensionFiles.set(info.id, buildExtension(info, root));
+    if (!extensionFiles.has(info.id)) extensionFiles.set(info.id, buildExtension(info));
     extensionFiles.get(info.id).update(info);
   }
   for (const [id, entry] of extensionFiles) {
     if (!seen.has(id)) { entry.box.remove(); extensionFiles.delete(id); }
   }
-  $("extfiles").hidden = extensionFiles.size === 0;
+  syncTabs();
   return body.extensions;
 }
 
@@ -331,9 +356,12 @@ async function pollFiles(again) {
   if (waiting && polls < 15) setTimeout(() => pollFiles(true), 2000);
 }
 
-function buildExtension(info, root) {
-  const box = document.createElement("div");
+/** The page of an extension that takes files: a page of the sidebar with its name. */
+function buildExtension(info) {
+  const box = document.createElement("section");
   box.className = "ext";
+  box.dataset.tab = info.name;
+  box.dataset.group = "Extensions";
   const title = document.createElement("h2");
   const drop = document.createElement("label");
   drop.className = "drop";
@@ -346,7 +374,7 @@ function buildExtension(info, root) {
   const results = document.createElement("ul");
   const list = document.createElement("ul");
   box.append(title, drop, results, list);
-  root.append(box);
+  $("panes").append(box);
   let current = info;
   const add = (files) => {
     for (const file of files) {
@@ -426,10 +454,121 @@ async function sendFile(info, file, line) {
   line.set("Added", "added", renamed || bytes(file.size));
 }
 
+/* Pages: every section of #panes with a data-tab that is not hidden is a page in the sidebar,
+   under its data-group. The sidebar shows whenever the PIN is accepted. */
+const GROUPS = ["Library", "Extensions", "Developer"];
+let currentTab = "";
+function syncTabs() {
+  const all = [...document.querySelectorAll("#panes > section[data-tab]")];
+  const sections = all.filter((section) => !section.hidden);
+  const names = sections.map((section) => section.dataset.tab);
+  if (!names.includes(currentTab)) currentTab = names[0] || "";
+  const bar = $("tabs");
+  const items = [];
+  for (const group of GROUPS) {
+    const inGroup = sections.filter((section) => (section.dataset.group || "Extensions") === group);
+    if (!inGroup.length) continue;
+    const label = document.createElement("div");
+    label.className = "group";
+    label.textContent = group;
+    items.push(label);
+    for (const section of inGroup) {
+      const name = section.dataset.tab;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("aria-selected", String(name === currentTab));
+      button.textContent = name;
+      button.addEventListener("click", () => { currentTab = name; syncTabs(); });
+      items.push(button);
+    }
+  }
+  bar.replaceChildren(...items);
+  for (const section of all) section.classList.toggle("tab-off", section.dataset.tab !== currentTab);
+  if (currentTab) showTab(currentTab);
+}
+
+/* The tabs that extensions add: a page of the extension in a frame that has no access to this
+   page, the PIN or the network. It sends messages with tetrad.send(); this page forwards them
+   to the extension and sends the answer back. */
+const FRAME_BRIDGE = `<!doctype html><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'">
+<script>
+(function () {
+  let n = 0;
+  const waiting = new Map();
+  window.addEventListener("message", (event) => {
+    const m = event.data;
+    if (event.source !== parent || !m || m.type !== "tetrad-reply" || !waiting.has(m.n)) return;
+    const w = waiting.get(m.n);
+    waiting.delete(m.n);
+    if (m.error) w.reject(new Error(m.error)); else w.resolve(m.result);
+  });
+  window.tetrad = { send(message) {
+    return new Promise((resolve, reject) => {
+      const id = ++n;
+      waiting.set(id, { resolve, reject });
+      parent.postMessage({ type: "tetrad-call", n: id, message }, "*");
+    });
+  } };
+})();
+<\/script>`;
+const extensionTabs = new Map();
+
+async function loadTabs() {
+  const { status, body } = await call("/api/tabs");
+  if (status === 401) return forget("Enter the PIN shown on the unit");
+  if (status !== 200) return;
+  const present = new Set(body.tabs.map((info) => info.id));
+  for (const [id, tab] of extensionTabs) {
+    if (!present.has(id)) { tab.section.remove(); extensionTabs.delete(id); }
+  }
+  for (const info of body.tabs) {
+    if (extensionTabs.has(info.id)) continue;
+    const section = document.createElement("section");
+    section.dataset.tab = info.title;
+    section.dataset.group = "Extensions";
+    const frame = document.createElement("iframe");
+    frame.className = "exttab";
+    frame.setAttribute("sandbox", "allow-scripts");
+    frame.title = info.title;
+    section.append(frame);
+    $("panes").append(section);
+    extensionTabs.set(info.id, { section, frame, loaded: false, info });
+  }
+  syncTabs();
+}
+
+/** Loads the page of an extension tab when it is shown the first time. */
+async function showTab(name) {
+  for (const tab of extensionTabs.values()) {
+    if (tab.info.title !== name || tab.loaded) continue;
+    tab.loaded = true;
+    const { status, body } = await call("/api/tabs/page?id=" + encodeURIComponent(tab.info.id));
+    if (status === 401) return forget("Enter the PIN shown on the unit");
+    tab.frame.srcdoc = status === 200 ? FRAME_BRIDGE + body.html : "<p>" + (body.error || "Failed") + "</p>";
+  }
+}
+
+window.addEventListener("message", async (event) => {
+  const tab = [...extensionTabs.values()].find((candidate) => candidate.frame.contentWindow === event.source);
+  const m = event.data;
+  if (!tab || !m || m.type !== "tetrad-call") return;
+  const { status, body } = await call("/api/tabs/call?id=" + encodeURIComponent(tab.info.id), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(m.message === undefined ? null : m.message),
+  });
+  if (status === 401) forget("Enter the PIN shown on the unit");
+  const answer = status === 200 ? { result: body.result } : { error: body.error || "Failed" };
+  event.source.postMessage(Object.assign({ type: "tetrad-reply", n: m.n }, answer), "*");
+});
+
 /* The unit can change while this page is open (an extension turned off or on): look again every
    few seconds, but not during an upload and not while the page is hidden. */
-setInterval(() => {
-  if (pin && !document.hidden && !uploading && !$("upload").hidden) loadFiles();
+setInterval(async () => {
+  if (!pin || document.hidden || uploading || $("shell").hidden) return;
+  await loadFiles();
+  await loadTabs();
 }, 8000);
 
 $("pin-form").addEventListener("submit", (event) => {

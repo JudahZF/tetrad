@@ -2,7 +2,9 @@ use std::io::{self, Cursor, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use tetrad_remote::{Call, ExtensionFiles, FileEntry, MAX_BODY, Reply, Request, Server, serve_one};
+use tetrad_remote::{
+    Call, ExtensionFiles, FileEntry, MAX_BODY, Reply, Request, Server, TabInfo, serve_one,
+};
 
 /// A connection: the request bytes in, the response bytes out.
 struct Pipe {
@@ -258,6 +260,104 @@ fn bad_file_requests_are_refused_without_a_device_call() {
         (
             format!("POST /api/files/chunk?id=a.b&name=A.nam&offset=0 HTTP/1.1\r\n{host}\r\n"),
             "HTTP/1.1 411 Length Required",
+        ),
+    ] {
+        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
+        assert_eq!(status, expected, "{request}");
+        assert_eq!(seen, None, "{request}");
+    }
+}
+
+/// The tab routes: the list, the page and a message reach the device with the PIN and the decoded
+/// id; the answers become JSON, and the extension's own JSON text becomes `result`.
+#[test]
+fn the_tab_routes_reach_the_device() {
+    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    let tabs = Reply::Tabs {
+        tabs: vec![TabInfo {
+            id: "tetrad.nam".into(),
+            title: "Models".into(),
+        }],
+    };
+    let (status, response, seen) = exchange(
+        format!("GET /api/tabs HTTP/1.1\r\n{host}\r\n").as_bytes(),
+        tabs,
+    );
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.ends_with(r#"{"tabs":[{"id":"tetrad.nam","title":"Models"}]}"#));
+    assert_eq!(seen, Some(Request::Tabs { pin: "4821".into() }));
+
+    let page = Reply::TabPage {
+        html: "<p>hi</p>".into(),
+    };
+    let (_, response, seen) = exchange(
+        format!("GET /api/tabs/page?id=tetrad.nam HTTP/1.1\r\n{host}\r\n").as_bytes(),
+        page,
+    );
+    assert!(response.ends_with(r#"{"html":"<p>hi</p>"}"#));
+    assert_eq!(
+        seen,
+        Some(Request::TabPage {
+            pin: "4821".into(),
+            id: "tetrad.nam".into()
+        })
+    );
+
+    let head =
+        format!("POST /api/tabs/call?id=tetrad.nam HTTP/1.1\r\n{host}Content-Length: 11\r\n\r\n");
+    let reply = Reply::TabReply {
+        json: r#"{"models":["Twin"]}"#.into(),
+    };
+    let (status, response, seen) = exchange(&upload(&head, br#"{"op":"ls"}"#), reply);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(
+        response.ends_with(r#"{"result":{"models":["Twin"]}}"#),
+        "{response}"
+    );
+    assert_eq!(
+        seen,
+        Some(Request::TabCall {
+            pin: "4821".into(),
+            id: "tetrad.nam".into(),
+            message: br#"{"op":"ls"}"#.to_vec(),
+        })
+    );
+    // An extension that answers with text that is not JSON does not break the page.
+    let bad = Reply::TabReply {
+        json: "{oops".into(),
+    };
+    let (_, response, _) = exchange(&upload(&head, br#"{"op":"ls"}"#), bad);
+    assert!(response.contains(r#""error""#), "{response}");
+}
+
+/// What the tab routes refuse before the device is asked.
+#[test]
+fn bad_tab_requests_are_refused_without_a_device_call() {
+    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    for (request, expected) in [
+        (
+            format!("GET /api/tabs/page HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!("POST /api/tabs/call HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            format!("POST /api/tabs/call?id=a.b HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 411 Length Required",
+        ),
+        (
+            "GET /api/tabs HTTP/1.1\r\nHost: 10.0.0.41\r\n\r\n".to_owned(),
+            "HTTP/1.1 401 Unauthorized",
+        ),
+        (
+            format!("POST /api/tabs HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        (
+            format!("GET /api/tabs/call?id=a.b HTTP/1.1\r\n{host}\r\n"),
+            "HTTP/1.1 405 Method Not Allowed",
         ),
     ] {
         let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);

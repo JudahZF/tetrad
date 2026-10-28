@@ -1,0 +1,27 @@
+<!-- The page of the tab. It runs in a frame without access to the Remote page, to the PIN or to
+     the network; its only way out is tetrad.send(message), which returns what the extension's
+     ctx.remote.onMessage handler returns (or rejects with its error). -->
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 16px; color: #888; }
+  textarea { width: 100%; min-height: 8em; box-sizing: border-box; font: inherit; }
+  button { font: inherit; padding: 8px 16px; margin-top: 8px; }
+  #status { margin-left: 12px; }
+</style>
+<h2>Note</h2>
+<textarea id="note" aria-label="Note"></textarea>
+<div><button id="save" type="button">Save</button><span id="status"></span></div>
+<script>
+  const note = document.getElementById("note");
+  const status = document.getElementById("status");
+  const run = async (message, done) => {
+    try {
+      const reply = await tetrad.send(message);
+      note.value = reply.text;
+      status.textContent = done;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  };
+  document.getElementById("save").addEventListener("click", () => run({ op: "save", text: note.value }, "Saved"));
+  run({ op: "load" }, "");
+</script>

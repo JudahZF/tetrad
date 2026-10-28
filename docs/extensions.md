@@ -212,14 +212,16 @@ tetrad-ext package --out ../packages .
 ```
 
 Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`,
-`triggers`, `usb` and `blocks`. The host refuses every call that needs a capability the manifest
-does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); API 3 adds
+`triggers`, `usb`, `remote` and `blocks`. The host refuses every call that needs a capability the
+manifest does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); API 3 adds
 `pressed` on trigger firings (see below); API 4 adds `footswitchMode`
 ([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)); API 5 adds
-the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)). A manifest of an
+the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)); API 6 adds `remote`
+([a tab on the Remote page](#add-a-tab-to-the-remote-page)). A manifest of an
 older API still works. Use API 3 only to send releases: Tetrad before API 3 does not install
 API 3 packages, because it would take a release for a press. Use API 5 for a block that uses
-`leakyRelu`: Tetrad before API 5 refuses it.
+`leakyRelu`: Tetrad before API 5 refuses it. A package with a Remote page is format 3, which older
+hosts do not read.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`). The settings show on the extension's page and, while the extension
 is on, in Settings → Tetrad under the extension's `name`.
@@ -275,6 +277,42 @@ value stays held.
 scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail
 with `staleContext`. There is no module loader: bundle everything into one file (`tetrad-ext
 build` does this).
+
+### Add a tab to the Remote page
+
+An extension can put its own page on the [Remote](remote.md#extension-tabs) page of the unit: a
+tab with HTML that you write, and a handler that answers it.
+
+1. Declare it in the manifest (API 6): the `remote` capability and a title of at most 20
+   characters.
+
+   ```json
+   { "api": 6, "capabilities": ["remote"], "remote": { "title": "Notes" } }
+   ```
+
+2. Write the page as `remote.html` next to `tetrad-extension.json`. `tetrad-ext package` puts it
+   in the package (format 3; at most 256 KiB). It is a piece of HTML with its own `<style>` and
+   `<script>`, not a whole document (Remote adds the doctype and the bridge below).
+3. Answer its messages in `activate`:
+
+   ```ts
+   ctx.remote.onMessage(async (message, scope) => {
+     return { echo: message }; // any JSON; a throw replies with an error
+   });
+   ```
+
+   The handler runs as every handler does: the same limits, and the same capabilities (for
+   example `storage`). A message is JSON of at most 64 KiB. One handler per extension, and it
+   works while the extension runs: a stopped extension answers with an error.
+4. In the page, `tetrad.send(message)` returns a promise with what the handler returned, or
+   rejects with its error text. That is the only way out of the page: it runs in a frame without
+   access to the Remote page, its PIN, its storage or the network (the frame is sandboxed and its
+   content policy has `connect-src 'none'`). The page can use inline styles and scripts and
+   `data:` images, nothing else.
+
+`extensions/fixtures/remote-tab` is a complete example (a note that the unit keeps). A call that
+takes longer than 5 seconds gets "The unit did not answer" on the page, and the handler's answer
+is dropped. Keep the handler quick, and for slow work answer at once and let the page ask again.
 
 ### Ship themes
 

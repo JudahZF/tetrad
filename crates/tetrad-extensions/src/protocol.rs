@@ -98,6 +98,9 @@ pub struct Registrations {
     /// The extension answers [`Event::Usb`] (`ctx.usb.onMessage`).
     #[serde(default)]
     pub usb: bool,
+    /// The extension answers [`Event::Remote`] (`ctx.remote.onMessage`).
+    #[serde(default)]
+    pub remote: bool,
 }
 
 /// Most triggers one extension may declare.
@@ -156,6 +159,11 @@ pub enum Event {
     /// A message from a computer over USB (`tetrad-usb ext`). The handler's return value,
     /// in [`RunnerMessage::Done`], is the reply.
     Usb {
+        message: Value,
+    },
+    /// A message from the extension's tab on the Remote page. The handler's return value, in
+    /// [`RunnerMessage::Done`], is the reply to the tab.
+    Remote {
         message: Value,
     },
     /// Build the IR of a generated block from an asset. The handler ends with one

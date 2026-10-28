@@ -3071,6 +3071,9 @@ impl<P: Platform> Device<P> {
         for reply in outcome.usb_replies {
             self.usb.answer_extension(reply);
         }
+        for reply in outcome.remote_replies {
+            self.answer_tab(reply);
+        }
         let mut effects = outcome.effects;
         for fired in &outcome.triggers {
             let step = (self.bridges.mappings).on_extension(fired, &self.state, self.clock.now());

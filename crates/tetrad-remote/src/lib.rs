@@ -9,7 +9,7 @@ mod api;
 mod http;
 mod server;
 
-pub use api::{Call, ExtensionFiles, FileEntry, PIN_HEADER, Reply, Request};
+pub use api::{Call, ExtensionFiles, FileEntry, PIN_HEADER, Reply, Request, TabInfo};
 pub use http::{MAX_BODY, serve_one};
 pub use server::Server;
 

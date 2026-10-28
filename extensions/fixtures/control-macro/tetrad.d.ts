@@ -336,6 +336,17 @@ export interface ActivationContext<C extends ConfigOf<C> = Config> {
       handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,
     ): void;
   };
+  readonly remote: {
+    /**
+     * Answers the messages of the extension's tab on the Remote page (`remote` in the manifest,
+     * `remote.html` in the package). The page calls `tetrad.send(message)` and gets the
+     * handler's return value as JSON; nothing returned replies `null`, and a throw replies with
+     * an error. One handler. Needs the `remote` capability.
+     */
+    onMessage(
+      handler: (message: JsonValue, scope: Scope) => JsonValue | void | Promise<JsonValue | void>,
+    ): void;
+  };
 }
 
 /** The default export of an extension module. `activate` may return a disposer. */

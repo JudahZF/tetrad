@@ -29,11 +29,26 @@ Both switches stay as you set them after a restart. Remote gets a new PIN at eac
 the port does not open, the Remote switch stays on and the page shows why; turn it off and on
 to try again.
 
+## Extension tabs
+
+An extension can add its own page to Remote (for example a list of its models with information
+that Tetrad does not know). The pages are in a sidebar: **IRs** under **Library**, one page for each extension that takes
+files and one for each extension that has a tab under **Extensions**,
+and **Update** under **Developer** in a dev build. On a phone the sidebar becomes a row of
+buttons above the page. The page of an extension loads when you open it, in a frame that cannot
+reach the PIN, the other pages or the network; its only way to the unit is through the extension
+that supplied it. Authors: [extensions.md](extensions.md#add-a-tab-to-the-remote-page).
+
+The calls are `GET /api/tabs` (the extension tabs), `GET /api/tabs/page?id=<extension id>` (the page, as
+JSON with `html`) and `POST /api/tabs/call?id=<extension id>` (a JSON message in the body; the
+answer is `{"result": ...}` or `{"error": ...}`), all with the PIN. An extension that is off, or
+that has no handler, answers with an error.
+
 ## Extension files
 
 Some extensions build their DSP blocks from files that you copy to the unit, such as the models
 of Neural Amp Modeler A1 and A2 ([extensions.md](extensions.md#neural-amp-modeler)). When one of these
-extensions is installed, the Remote page shows a part for it, below the IR box:
+extensions is installed, the Remote page has a page for it in the sidebar, under **Extensions**, named like the extension (for example **Neural Amp Modeler A1**):
 
 - **Drop files** on the box, or tap it to choose them. The page sends each file in pieces of 48 KB
   and shows the progress. A file goes to the folder that the extension reads
