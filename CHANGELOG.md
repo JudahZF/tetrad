@@ -14,6 +14,13 @@ All notable changes to Tetrad are in this file. The version numbers follow
   with full access to the unit: the Available row says so before the install.
 - DOOM 0.1.0 in the default extension repository (`extensions/doom`): the original qcDOOM binary
   by Thomas Van Iseghem with the shareware WAD, played with the footswitches.
+- Bluetooth: Settings → Tetrad → Bluetooth turns on the Bluetooth radio of the unit's Wi-Fi chip,
+  which stock CorOS does not use. A Mac, phone or tablet pairs with the unit (new devices only
+  while the page is open) and uses it as a BLE MIDI device: notes, CCs, program changes and
+  SysEx in, and the unit's MIDI out, but no MIDI clock. Host mode and MIDI over Bluetooth are
+  switches on the page; FORGET removes a pairing. The support file has a `bluetooth.txt` with
+  the state and the names of the paired devices, never their keys
+  ([docs/bluetooth.md](docs/bluetooth.md)).
 
 ### Changed
 

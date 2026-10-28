@@ -126,6 +126,12 @@ tested = "unit"
 gaps = "On the test unit DOOM started from its page, drew, and quit with the 2 s hold (also over the Play button, without a new start); it was a dev build with DOOM staged by hand. Not tested: the install from the published repository, playing with the footswitches, the power button stop and the footswitch LEDs."
 
 [[capability]]
+id = "bluetooth_midi"
+what = "Bluetooth on the WILC3000's BLE radio (Settings → Tetrad → Bluetooth): Tetrad's own BLE host, Just Works pairing while the page is open, and BLE MIDI in and out with a phone or computer (docs/bluetooth.md)."
+tested = "unit"
+gaps = "Tested with BlueZ on Linux; macOS, iOS, Android and Windows hosts are not tested. No MIDI clock over Bluetooth. One phone or computer at a time."
+
+[[capability]]
 id = "remote"
 what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, and downloads the support file (docs/support.md), behind a 4-digit PIN. It also manages the asset files of extensions (NAM models) and shows tabs that extensions supply."
 tested = "host"
