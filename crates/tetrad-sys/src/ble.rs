@@ -129,6 +129,15 @@ impl HciUart {
         Ok(pending)
     }
 
+    /// Waits up to `within` until every written byte has left, restarting a stalled output.
+    pub fn drain(&mut self, within: Duration) -> io::Result<()> {
+        let until = Instant::now() + within;
+        while self.keep_output_moving()? > 0 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(())
+    }
+
     /// Writes all of `bytes`, waiting while the driver's buffer is full: at most
     /// [`WRITE_TIMEOUT`], with the output restarted when it stalls.
     pub fn write_all(&mut self, mut bytes: &[u8]) -> io::Result<()> {
@@ -373,7 +382,8 @@ fn run(
     let result = serve(&mut uart, config, bonds, commands, woken, events);
     // However the thread ends: no advertising and no links without a host behind them.
     let reset = tetrad_ble::hci::command(tetrad_ble::hci::op::RESET, &[]);
-    let _ = uart.write_all(&reset);
+    // The close does not watch the output: make sure the reset leaves first.
+    let _ = (uart.write_all(&reset)).and_then(|()| uart.drain(Duration::from_millis(300)));
     if let Err(reason) = result {
         let _ = events.send(Event::Fault(reason));
     }
