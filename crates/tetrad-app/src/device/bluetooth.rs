@@ -369,7 +369,9 @@ impl<P: Platform> Device<P> {
                 self.notice(Subsystem::Bluetooth, text);
             }
             Event::Midi(message) => {
-                if self.bridges.bluetooth.midi {
+                // An update install or a backup restore drops MIDI input, as for USB and DIN.
+                let held = self.bridges.services.inputs_masked() || self.restore_hold();
+                if self.bridges.bluetooth.midi && !held {
                     let effects = self.bridges.midi.on_ble(&message, &mut self.state, now);
                     return effects.unwrap_or_else(|error| {
                         self.notice(Subsystem::Midi, error.to_string());

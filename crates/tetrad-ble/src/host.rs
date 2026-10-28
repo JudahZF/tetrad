@@ -756,7 +756,15 @@ impl Host {
     }
 
     fn on_signal(&mut self, handle: u16, packet: &[u8]) {
+        let central = self
+            .links
+            .get(&handle)
+            .is_some_and(|link| link.role == Role::Central);
         match l2cap::parse_signal(packet) {
+            // Only the central takes this request; a peripheral rejects it.
+            Signal::UpdateRequest { identifier, .. } if !central => {
+                self.send(handle, l2cap::SIGNAL, &l2cap::reject(identifier));
+            }
             Signal::UpdateRequest {
                 identifier,
                 parameters,
@@ -816,12 +824,16 @@ impl Host {
         link.bearer = bearer;
         let notify = link.notify;
         let identity = link.identity;
+        let encrypted = link.encrypted;
         self.links.insert(handle, link);
         if let Some(answer) = answer {
             self.send(handle, l2cap::ATT, &answer);
         }
-        // A bonded host keeps its notification switches for the next link.
-        self.update_bond(identity, |bond, _| bond.notify = notify);
+        // A bonded host keeps its notification switches for the next link. Only its key proves
+        // it: before encryption the address alone could be anyone's.
+        if encrypted {
+            self.update_bond(identity, |bond, _| bond.notify = notify);
+        }
         self.refresh_listening(handle);
     }
 
