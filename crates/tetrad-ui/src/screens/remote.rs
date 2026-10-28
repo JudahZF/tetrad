@@ -15,13 +15,13 @@ const ROW: u32 = 60;
 /// Pixels per QR module, and the light border around the code (4 modules, as the standard asks).
 const QR_SCALE: u32 = 4;
 const QR_QUIET: u32 = 4;
-pub(super) const HELP: &str = "Open the address in a browser on the same Wi-Fi network, enter \
-    the PIN and drop IR files on the page. Plain HTTP: turn Remote off on networks you do not \
-    trust.";
+pub(super) const HELP: &str = "Scan the code, or open the address in a browser on the same \
+    Wi-Fi network and enter the PIN. The page manages IRs, mappings, footswitch layouts, backups, \
+    themes and extensions. Plain HTTP: turn Remote off on networks you do not trust.";
 /// Send Report (owned; stock uploads the logs, Tetrad never does): the support file
 /// (docs/support.md) comes from the Remote page instead.
 pub(super) const SEND_REPORT_HELP: &str = "For a bug report, open the address in a browser on \
-    the same Wi-Fi network, enter the PIN and tap Download under Support file. Send that file \
+    the same Wi-Fi network, enter the PIN and tap Support file at the top. Send that file \
     with your report. It holds no passwords, tokens or presets.";
 
 /// `body` is the settings content under the page title; `help` follows the rows. The Remote
