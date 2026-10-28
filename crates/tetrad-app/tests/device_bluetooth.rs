@@ -7,10 +7,12 @@ mod common;
 use common::{Media, STOCK, Sim, boot_bluetooth, light_preset};
 use serde_json::{Value, json};
 use tetrad_app::device::bluetooth::{BONDS_FILE, SETTINGS_FILE};
+use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Device, Event};
 use tetrad_ble::bond::{Bond, Kind};
 use tetrad_ble::{Command, Event as Ble};
 use tetrad_services::fake::MemFiles;
+use tetrad_ui::{Control, InputEvent, Screen, SettingsPage};
 
 const PHONE: [u8; 6] = [0x2b, 0xa0, 0xfa, 0x1b, 0x36, 0xac];
 
@@ -167,4 +169,31 @@ fn pairing_again_after_a_remembered_pin_must_give_the_pin_again() {
     );
     let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
     assert!(!saved[0].app);
+}
+
+#[test]
+fn a_bond_update_on_its_way_cannot_undo_forget() {
+    let (mut device, files) = boot();
+    let page = Screen::Settings(SettingsPage::Bluetooth);
+    device.push(Event::UiInput(UiInput::Show(page)));
+    device.step();
+    let forget = Control::BluetoothForget(0);
+    device.push(Event::UiInput(UiInput::View(InputEvent::Activate(forget))));
+    device.step();
+    let sent = &device.platform().bluetooth.as_ref().unwrap().sent;
+    assert!(sent.contains(&Command::Forget(PHONE)));
+    // The host changed the bond (a notification switch) before it got the FORGET.
+    push(
+        &mut device,
+        Ble::Bonded(Bond {
+            notify: 1,
+            ..bond(1, true)
+        }),
+    );
+    let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
+    assert!(saved.is_empty());
+    // A new pairing of the same phone has new keys.
+    push(&mut device, Ble::Bonded(bond(4, false)));
+    let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
+    assert_eq!(saved.len(), 1);
 }
