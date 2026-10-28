@@ -28,6 +28,8 @@ use std::time::{Duration, Instant};
 use tetrad_ble::{Bond, Command, Config, Event, Host};
 
 pub const HCI_UART: &str = "/dev/ttySC2";
+/// The longest a write waits for room in the UART's buffer.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 /// The control node of the `wilc-spi` driver.
 pub const CONTROL: &str = "/dev/wilc_bt";
 
@@ -38,6 +40,11 @@ const FIRMWARE: u16 = 0x0013;
 /// The HCI UART: raw, 115200 8N1, no flow control, non-blocking.
 pub struct HciUart {
     file: File,
+    /// Restarts a stalled output, in every wait on the UART.
+    watch: OutputWatch,
+    opened: Instant,
+    /// Output restarts so far.
+    pub restarts: u64,
 }
 
 impl HciUart {
@@ -71,7 +78,12 @@ impl HciUart {
         }
         // SAFETY: tcflush takes the open descriptor and a constant.
         unsafe { libc::tcflush(fd, libc::TCIOFLUSH) };
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            watch: OutputWatch::default(),
+            opened: Instant::now(),
+            restarts: 0,
+        })
     }
 
     /// The bytes queued now; empty when none.
@@ -106,15 +118,35 @@ impl HciUart {
         Ok(())
     }
 
-    /// Writes all of `bytes`, waiting while the driver's buffer is full.
+    /// Restarts the output when its bytes stopped leaving ([`OutputWatch`]). Returns the bytes
+    /// that still wait.
+    pub fn keep_output_moving(&mut self) -> io::Result<usize> {
+        let pending = self.pending_output()?;
+        if self.watch.stalled(pending, self.opened.elapsed()) {
+            self.restart_output()?;
+            self.restarts += 1;
+        }
+        Ok(pending)
+    }
+
+    /// Writes all of `bytes`, waiting while the driver's buffer is full: at most
+    /// [`WRITE_TIMEOUT`], with the output restarted when it stalls.
     pub fn write_all(&mut self, mut bytes: &[u8]) -> io::Result<()> {
+        let until = Instant::now() + WRITE_TIMEOUT;
         while !bytes.is_empty() {
             match self.file.write(bytes) {
                 Ok(written) => bytes = &bytes[written..],
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= until {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "the UART takes no more output",
+                        ));
+                    }
+                    self.keep_output_moving()?;
                     wait(
                         &[(self.file.as_raw_fd(), libc::POLLOUT)],
-                        Some(Duration::from_millis(100)),
+                        Some(Duration::from_millis(10)),
                     )?;
                 }
                 Err(error) => return Err(error),
@@ -133,6 +165,8 @@ impl HciUart {
             if left.is_zero() {
                 break;
             }
+            self.keep_output_moving()?;
+            let left = left.min(Duration::from_millis(10));
             wait(&[(self.file.as_raw_fd(), libc::POLLIN)], Some(left))?;
             let read = self.read_available(&mut buf)?;
             out.extend_from_slice(&buf[..read]);
@@ -322,72 +356,67 @@ impl Drop for Bluetooth {
     }
 }
 
-fn random(out: &mut [u8]) {
-    if File::open("/dev/urandom")
-        .and_then(|mut urandom| urandom.read_exact(out))
-        .is_err()
-    {
-        // No kernel random source: the pairing still works, with weaker keys.
-        let seed = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH))
-            .map_or(0, |t| t.as_nanos() as u64)
-            ^ 0x9e37_79b9_7f4a_7c15;
-        for (i, byte) in out.iter_mut().enumerate() {
-            *byte = (seed.rotate_left(i as u32 % 64) >> (i % 8)) as u8;
+fn run(
+    config: Config,
+    bonds: Vec<Bond>,
+    commands: &Receiver<Command>,
+    woken: &UnixStream,
+    events: &Sender<Event>,
+) {
+    let mut uart = match bring_up(Path::new(HCI_UART)) {
+        Ok(uart) => uart,
+        Err(reason) => {
+            let _ = events.send(Event::Fault(reason));
+            return;
         }
+    };
+    let result = serve(&mut uart, config, bonds, commands, woken, events);
+    // However the thread ends: no advertising and no links without a host behind them.
+    let reset = tetrad_ble::hci::command(tetrad_ble::hci::op::RESET, &[]);
+    let _ = uart.write_all(&reset);
+    if let Err(reason) = result {
+        let _ = events.send(Event::Fault(reason));
     }
 }
 
-fn run(
+/// Runs the host until the device side closes or something fails (`Err`, the reason).
+fn serve(
+    uart: &mut HciUart,
     config: Config,
     bonds: Vec<Bond>,
     commands: &Receiver<Command>,
     mut woken: &UnixStream,
     events: &Sender<Event>,
-) {
-    let fault = |reason: String| {
-        let _ = events.send(Event::Fault(reason));
-    };
-    let mut uart = match bring_up(Path::new(HCI_UART)) {
-        Ok(uart) => uart,
-        Err(reason) => return fault(reason),
+) -> Result<(), String> {
+    let io = |error: io::Error| format!("{HCI_UART}: {error}");
+    let mut urandom = File::open("/dev/urandom").map_err(|e| format!("/dev/urandom: {e}"))?;
+    let rng = move |out: &mut [u8]| {
+        // A read of the kernel source does not fail once it is open.
+        urandom.read_exact(out).expect("/dev/urandom")
     };
     let started = Instant::now();
-    let mut host = Host::new(config, bonds, Box::new(random));
+    let mut host = Host::new(config, bonds, Box::new(rng));
     let mut buf = [0; 512];
-    let mut watch = OutputWatch::default();
-    let mut restarts: u64 = 0;
+    let mut noticed: u64 = 0;
     loop {
         let output = host.take_output();
-        if !output.is_empty()
-            && let Err(error) = uart.write_all(&output)
-        {
-            return fault(format!("{HCI_UART}: {error}"));
+        if !output.is_empty() {
+            uart.write_all(&output).map_err(io)?;
         }
-        let mut dead = false;
         while let Some(event) = host.next_event() {
-            dead |= matches!(event, Event::Fault(_));
-            if events.send(event).is_err() {
-                return;
+            // The host sent its own fault; it is dead now.
+            let dead = matches!(event, Event::Fault(_));
+            if events.send(event).is_err() || dead {
+                return Ok(());
             }
-        }
-        if dead {
-            return;
         }
         let now = started.elapsed();
-        let pending = match uart.pending_output() {
-            Ok(pending) => pending,
-            Err(error) => return fault(format!("{HCI_UART}: {error}")),
-        };
-        if watch.stalled(pending, now) {
-            if let Err(error) = uart.restart_output() {
-                return fault(format!("{HCI_UART}: {error}"));
-            }
-            restarts += 1;
-            if restarts.is_power_of_two() {
-                let text = format!("the UART output stopped; restarted ({restarts} times)");
-                if events.send(Event::Notice(text)).is_err() {
-                    return;
-                }
+        let pending = uart.keep_output_moving().map_err(io)?;
+        if uart.restarts > noticed && uart.restarts.is_power_of_two() {
+            noticed = uart.restarts;
+            let text = format!("the UART output stopped; restarted ({noticed} times)");
+            if events.send(Event::Notice(text)).is_err() {
+                return Ok(());
             }
         }
         // While bytes wait, look again soon.
@@ -400,47 +429,37 @@ fn run(
             .map(|at| at.saturating_sub(now))
             .unwrap_or(most)
             .min(most);
-        let ready = match wait(
-            &[
-                (uart.file.as_raw_fd(), libc::POLLIN),
-                (woken.as_raw_fd(), libc::POLLIN),
-            ],
-            Some(timeout),
-        ) {
-            Ok(ready) => ready,
-            Err(error) => return fault(format!("poll: {error}")),
-        };
+        let fds = [
+            (uart.file.as_raw_fd(), libc::POLLIN),
+            (woken.as_raw_fd(), libc::POLLIN),
+        ];
+        let ready = wait(&fds, Some(timeout)).map_err(|e| format!("poll: {e}"))?;
         let now = started.elapsed();
         if ready[0] & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
-            return fault(format!("{HCI_UART} hung up"));
+            return Err(format!("{HCI_UART} hung up"));
         }
         if ready[0] & libc::POLLIN != 0 {
-            match uart.read_available(&mut buf) {
+            match uart.read_available(&mut buf).map_err(io)? {
                 // Readable with nothing to read: the line hung up.
-                Ok(0) => return fault(format!("{HCI_UART} hung up")),
-                Ok(read) => host.receive(&buf[..read], now),
-                Err(error) => return fault(format!("{HCI_UART}: {error}")),
+                0 => return Err(format!("{HCI_UART} hung up")),
+                read => host.receive(&buf[..read], now),
             }
         }
         if ready[1] != 0 {
             let mut drain = [0; 64];
             match woken.read(&mut drain) {
-                // The device side closed: stop advertising and leave the links.
-                Ok(0) => {
-                    let reset = tetrad_ble::hci::command(tetrad_ble::hci::op::RESET, &[]);
-                    let _ = uart.write_all(&reset);
-                    return;
-                }
+                // The device side closed.
+                Ok(0) => return Ok(()),
                 Ok(_) => {}
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                Err(_) => return,
+                Err(_) => return Ok(()),
             }
         }
         loop {
             match commands.try_recv() {
                 Ok(command) => host.apply(command),
                 Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => return,
+                Err(TryRecvError::Disconnected) => return Ok(()),
             }
         }
         host.tick(now);
