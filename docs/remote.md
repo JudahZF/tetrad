@@ -1,8 +1,15 @@
 # Remote
 
-Remote is a web page on your Quad Cortex. Use it to add IRs from a computer or a phone on the
-same Wi-Fi network, with no app to install, and to download the support file for a bug report
-([support.md](support.md)).
+Remote is a web page on your Quad Cortex. Use it from a computer or a phone on the same Wi-Fi
+network, with no app to install, to:
+
+- add IRs and manage the IR library,
+- edit mappings and the Custom footswitch layouts,
+- download a backup of your data, or restore one,
+- make and choose themes,
+- manage extensions,
+- read the notices of the unit, and download the support file for a bug report
+  ([support.md](support.md)).
 
 The Quad Cortex cannot show up as a USB drive: its USB port belongs to the stock DSP firmware,
 not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.
@@ -11,15 +18,14 @@ not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.
 
 1. Connect the unit to Wi-Fi (**Settings → System → Connection**).
 2. Open **Settings → Tetrad → Remote** and turn on **Remote**. The page shows the address, for
-   example `http://192.168.1.20`, and a 4-digit PIN.
-3. On a computer or phone on the same network, open the address in a browser.
-4. Enter the PIN. The browser keeps it until the PIN changes.
-5. Drop IR files on the page, or tap the box to choose them. The page uploads them one at a
-   time and shows the result of each file.
+   example `http://192.168.1.20`, a 4-digit PIN and a QR code.
+3. On a phone, scan the QR code: it opens the page with the PIN, so you do not type it. Or open
+   the address in a browser on a computer or phone on the same network, and enter the PIN.
+4. The browser keeps the PIN until the PIN changes.
 
-Each IR goes into the IR saving destination: the folder you chose with **SET AS SAVING
-DESTINATION** in the IR browser, or the IR root folder. The unit shows a short message for each
-IR it adds. Its name is the file name without the extension, at most 60 characters.
+The QR code holds the address and the PIN after a `#`, for example
+`http://192.168.1.20/#pin=4821`. A browser does not send the part after the `#` to the unit, and
+the page removes it from the address bar after it reads the PIN.
 
 To see the PIN without this page, turn on **Show PIN in menu**. While Remote runs, the first
 row of the ⋮ menu (top right of the Grid) then shows the PIN, as `Remote #1234`. A tap on it
@@ -29,15 +35,108 @@ Both switches stay as you set them after a restart. Remote gets a new PIN at eac
 the port does not open, the Remote switch stays on and the page shows why; turn it off and on
 to try again.
 
+## The pages
+
+The pages are in a sidebar. On a phone the sidebar becomes a row of buttons above the page.
+
+| Group | Pages |
+| --- | --- |
+| Library | **IRs** |
+| Controls | **Mappings**, **Footswitch** |
+| Unit | **Backup**, **Themes**, **Notices** |
+| Extensions | **Manage**, then one page for each extension that takes files and one for each extension tab |
+| Developer | **Update** (dev builds only) |
+
+The top of every page has **Support file** (it downloads the support file) and **Change PIN**.
+The line under the title names the folder that new IRs go to.
+
+## IRs
+
+Drop IR files on the box, or tap it to choose them. The page uploads them one at a time and
+shows the result of each file.
+
+Each IR goes into the IR saving destination: the folder you chose with **SET AS SAVING
+DESTINATION** in the IR browser or on this page, or the IR root folder. The unit shows a short
+message for each IR it adds. Its name is the file name without the extension, at most 60
+characters. An IR with the same samples as an IR in your library replaces that IR (the IR's id is
+made from its samples), as a Cortex Control import does: an upload of the same audio under a new
+name looks like a rename.
+
+**Library**, under the box, lists your IRs (not the factory IRs):
+
+- **Search** filters by name. The folder list shows the folders as a tree. The root (**My IRs**)
+  shows every IR; the folder that new IRs go to is marked **(new IRs)**.
+- **Save new IRs here** makes the folder in the list the saving destination.
+- **New folder** makes a folder in the folder in the list. There can be at most 30 IR folders
+  (the root counts) and 4 levels.
+- Each IR shows its date and its folders. **Folders…** puts the IR in a folder; a folder with a ✓
+  holds the IR, and choosing it takes the IR out. An IR stays in the root.
+- **Rename** and **Delete** do what they do in the IR browser. Names of IRs and folders have 4 to
+  60 characters. A preset that uses a deleted IR keeps its block, which then shows the old name
+  or `DELETED IR`, as in stock.
+
+The list follows the changes made on the unit or in Cortex Control (the page reads it again
+every 8 seconds).
+
+<!--controls-->
+
+<!--backup-->
+
+## Themes
+
+**Themes** lists every theme the unit can show (built in, theme files and themes of extensions,
+[themes.md](themes.md)), with a strip of its colours. **In use** marks the theme on the screen,
+and a theme that fails its checks shows why. **Use** shows a theme on the unit at once.
+
+The editor makes theme files:
+
+- **New theme** starts from Stock, **Edit as copy** from a built-in or extension theme, and
+  **Edit** opens a theme file. The ID follows the name until you type an ID.
+- Each colour has a colour picker. **From base** means the colour comes from the base theme;
+  **Set** means the theme sets it, and **Reset** takes it out again. Divider, Accent fill and On
+  accent show **Auto** until you set them.
+- The preview is a small copy of the unit screen in the editor's colours. Block colours do not
+  change with a theme.
+- **Save** writes `/media/p4/tetrad/themes/<id>.json`; **Save and use** also shows the theme on
+  the unit. The unit checks the theme with the same rules as a file on the card, and the reason
+  shows under the editor when it refuses one (for example `muted on background has a contrast
+  of 2.1:1; it needs 4.5:1`). A save with the ID of a theme file replaces that file, after a
+  question. The IDs of the built-in themes are refused, and so is a 33rd theme file.
+- **Delete** removes a theme file. When it was in use, the unit shows Stock.
+- **Download JSON** downloads a theme file; **Import JSON** loads one into the editor. Colours
+  that the editor does not know are left out, and the page lists them.
+
+## Notices
+
+**Notices** shows what the unit reported recently (the same notices as in the support file),
+newest first, with the time of day from your browser's clock. Choose a part of the unit or type
+words to filter them. The serial, the sign-in tokens and the account names are taken out. The
+unit keeps the last 256 notices.
+
+## Manage extensions
+
+**Manage**, at the top of the **Extensions** group, does what **Settings → Tetrad → Extensions**
+does on the unit:
+
+- Each installed extension shows its version, repository, description and state (**Running**,
+  **Starting…**, **Off**, or **Faulted** with the reason), its settings, its command buttons,
+  status lines, DSP blocks, themes, footswitch mode and its log.
+- **Turn on**/**Turn off**, **Update to …**, **Retry** (when faulted) and **Remove** do what they
+  do on the unit. Remove asks first; the extension's settings and stored data stay, so a new
+  install keeps them. A setting change is saved and restarts the extension, as on the unit.
+- **Available** lists what the enabled repositories offer, with **Install**. **Refresh** reads
+  the catalogs again.
+
+The page installs only from repositories that the unit already trusts, and it cannot take a
+package file. Add, trust, turn off or remove a repository on the unit. When an extension is
+turned on or off, installed or removed, its file and tab pages in the sidebar follow.
+
 ## Extension tabs
 
 An extension can add its own page to Remote (for example a list of its models with information
-that Tetrad does not know). The pages are in a sidebar: **IRs** under **Library**, one page for each extension that takes
-files and one for each extension that has a tab under **Extensions**,
-and **Update** under **Developer** in a dev build. On a phone the sidebar becomes a row of
-buttons above the page. The page of an extension loads when you open it, in a frame that cannot
-reach the PIN, the other pages or the network; its only way to the unit is through the extension
-that supplied it. Authors: [extensions.md](extensions.md#add-a-tab-to-the-remote-page).
+that Tetrad does not know), under **Extensions** in the sidebar. The page of an extension loads
+when you open it, in a frame that cannot reach the PIN, the other pages or the network; its only
+way to the unit is through the extension that supplied it. Authors: [extensions.md](extensions.md#add-a-tab-to-the-remote-page).
 
 The calls are `GET /api/tabs` (the extension tabs), `GET /api/tabs/page?id=<extension id>` (the page, as
 JSON with `html`) and `POST /api/tabs/call?id=<extension id>` (a JSON message in the body; the
@@ -147,7 +246,7 @@ the scripts rarely, and keep a way back (the SD card in a computer,
 [launcher.md](launcher.md#recovery)). A new `begin` or a refused step ends the staging: send the
 files again.
 
-## Files that work
+## IR files that work
 
 The page converts each file in the browser before the upload, so most IR files work:
 
