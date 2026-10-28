@@ -300,7 +300,7 @@ impl<'a> Context<'a> {
         Push {
             specs: self.specs,
             plan: self.deployment.plan(),
-            layout: self.deployment.layout(),
+            layout: self.deployment.dsp_layout(),
             scene: self.deployment.scene(),
             global_bypass: self.global_bypass,
             tuner: Tuner {

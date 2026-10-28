@@ -79,7 +79,7 @@ fn specs() -> Specs {
 /// The new-preset shape of an empty slot, deployed.
 fn new_current(library: &StockLibrary, specs: &Specs) -> Current {
     let read = preset::read(library, None, specs).unwrap();
-    let prepared = preset::prepare(read, specs, false, None).unwrap();
+    let prepared = preset::prepare(read, specs, false, None, Default::default()).unwrap();
     Current {
         path: None,
         preset: prepared.preset,
@@ -134,7 +134,7 @@ fn pasted_cab_keeps_ir_selector_and_mute_through_save_and_reload() {
 
     let saved = save(&mut library, &mut current, &specs, 0, "Cab", 1_600_000_000);
     let reloaded = preset::read(&library, Some(&saved.path), &specs).unwrap();
-    let prepared = preset::prepare(reloaded, &specs, false, None).unwrap();
+    let prepared = preset::prepare(reloaded, &specs, false, None, Default::default()).unwrap();
     let cab = prepared
         .deployment
         .layout()
@@ -511,7 +511,7 @@ fn row_ports_and_split_mix_points_survive_save_and_reload() {
         1_600_000_000,
     );
     let reloaded = preset::read(&library, Some(&saved.path), &specs).unwrap();
-    let layout = preset::prepare(reloaded, &specs, false, None)
+    let layout = preset::prepare(reloaded, &specs, false, None, Default::default())
         .unwrap()
         .deployment
         .layout()
@@ -538,7 +538,7 @@ fn a_split_without_a_stored_splitter_takes_the_new_preset_default() {
     let (_root, library) = library("junction");
     let mut read = preset::read(&library, None, &specs).unwrap();
     read.chains[0].combined_splitter[0] = tetrad_preset::Model::empty_slot();
-    let prepared = preset::prepare(read, &specs, false, None).unwrap();
+    let prepared = preset::prepare(read, &specs, false, None, Default::default()).unwrap();
     let current = Current {
         path: None,
         preset: prepared.preset,
@@ -601,7 +601,7 @@ fn a_new_mixer_takes_the_user_default_model_preset() {
     let defaults = preset::JunctionDefaults::read(&specs, &database).unwrap();
     let mut read = preset::read(&library, None, &specs).unwrap();
     read.chains[0].mixer[0] = tetrad_preset::Model::empty_slot();
-    let prepared = preset::prepare(read, &specs, false, None).unwrap();
+    let prepared = preset::prepare(read, &specs, false, None, Default::default()).unwrap();
     let current = Current {
         path: None,
         preset: prepared.preset,
@@ -904,7 +904,7 @@ fn a_save_as_of_a_factory_preset_stamps_the_account_and_the_product() {
     std::fs::write(factory.join("Factory Library/Plexi.pb"), stock.to_bytes()).unwrap();
     let path = "/opt/neuraldsp/Factory Library/Plexi.pb";
     let read = preset::read(&library, Some(path), &specs).unwrap();
-    let prepared = preset::prepare(read, &specs, false, None).unwrap();
+    let prepared = preset::prepare(read, &specs, false, None, Default::default()).unwrap();
     let mut current = Current {
         path: Some(path.into()),
         preset: prepared.preset,

@@ -1,11 +1,13 @@
 //! Deployment compiler contracts on a small synthetic catalog (no stock data).
 
+use std::collections::BTreeSet;
+
 use tetrad_catalog::{Catalog, Specs};
 use tetrad_engine::{
     Channel, CompileError, CompileOptions, DeployError, Deployment, DropSide, DspCore, Endpoint,
     FitError, GateMessage, Globals, InputPort, Instance, LaneSink, LaneSource, Layout, LinkKind,
     ModelId, Node, OutputPort, Pair, PlanOp, RouteError, RouterValue, RouterWrite, Row, SceneIndex,
-    Scened, SidechainSource, Site, Slot, TextParam, Update, compile, route,
+    Scened, SidechainSource, Site, Slot, StoredMasks, TextParam, Update, compile, route,
 };
 
 const MODELS: &str = "<Models>\
@@ -386,6 +388,51 @@ fn deployment_updates_follow_stock_rules() {
     });
     assert!(overflow.is_err());
     assert_eq!(deployment.layout(), &before);
+}
+
+/// (O) Issue #17: a dormant block stays in the layout, loads nothing and takes its edits
+/// without a DSP op. A load where it stops being dormant redeploys, so the DSP gets it.
+#[test]
+fn dormant_blocks_stay_in_the_layout_and_load_nothing() {
+    let specs = specs();
+    let scene0 = SceneIndex::new(0).unwrap();
+    let dormant = Site::Slot(slot(0, 1));
+    let preset = layout(&specs, &[(0, &[(0, LIGHT), (1, BIG)])]);
+    let (mut deployment, _) = Deployment::new_stored(
+        preset.clone(),
+        &specs,
+        options(false, false),
+        scene0,
+        StoredMasks::default(),
+        BTreeSet::from([BIG]),
+    )
+    .unwrap();
+    assert_eq!(deployment.layout(), &preset);
+    assert!(deployment.dsp_layout().instance(dormant).is_none());
+    assert!(deployment.plan().block(slot(0, 1)).is_none());
+    assert!(deployment.plan().block(slot(0, 0)).is_some());
+
+    let update = deployment.set_parameter(&specs, dormant, 0, 0.25).unwrap();
+    assert_eq!(update, Update::Ops(Vec::new()));
+    assert_eq!(
+        deployment.layout().instance(dormant).unwrap().params[0],
+        Scened::Fixed(0.25)
+    );
+    let update = deployment.set_bypass(&specs, dormant, true).unwrap();
+    assert_eq!(update, Update::Ops(Vec::new()));
+
+    // The DSP layout is unchanged, so a reload with BIG still dormant reuses the models.
+    let edited = deployment.layout().clone();
+    let update = deployment.load_stored(
+        &specs,
+        edited.clone(),
+        StoredMasks::default(),
+        BTreeSet::from([BIG]),
+    );
+    assert!(matches!(update, Ok(Update::Reuse(_))));
+    let update = deployment.load_stored(&specs, edited, StoredMasks::default(), BTreeSet::new());
+    assert!(matches!(update, Ok(Update::Redeploy { .. })));
+    assert!(deployment.plan().block(slot(0, 1)).is_some());
 }
 
 /// Block MUTE (`0x51e4d8` at the MUTE index): the DSP takes MUTE in the bypass record, so

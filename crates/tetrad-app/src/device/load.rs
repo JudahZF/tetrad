@@ -609,7 +609,8 @@ impl<P: Platform> Device<P> {
             .settings()
             .general
             .dynamic_delay_compensation;
-        let prepared = preset::prepare(preset, specs, ddc, Some(&current.deployment))?;
+        let dormant = preset::dormant_models(specs, &self.state.licences);
+        let prepared = preset::prepare(preset, specs, ddc, Some(&current.deployment), dormant)?;
         self.recall_prepared(prepared, None)
     }
 
@@ -732,7 +733,8 @@ impl<P: Platform> Device<P> {
             .settings()
             .general
             .dynamic_delay_compensation;
-        let pushed = preset::prepare(read, specs, ddc, previous)
+        let dormant = preset::dormant_models(specs, &self.state.licences);
+        let pushed = preset::prepare(read, specs, ddc, previous, dormant)
             .map_err(DeviceError::from)
             .and_then(|prepared| Ok((self.push_prepared(&prepared)?, prepared)));
         let ((expression, capturing), prepared) = match pushed {

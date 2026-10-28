@@ -547,7 +547,7 @@ fn ir_picker_tap_sends_the_live_text_edit() {
 
 /// A QC state with `preset` loaded, no DSP and no library.
 fn loaded_state(specs: Specs, preset: Preset) -> State {
-    let prepared = prepare(preset, &specs, false, None).unwrap();
+    let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
     let storage = Settings::default();
     let (settings, _) = DeviceSettings::load(&storage, Hardware::QuadCortex).unwrap();
     let mut state = State::new(Product::QuadCortex, HalPlatform::QcOriginal, settings);

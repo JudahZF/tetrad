@@ -925,7 +925,9 @@ impl DirectoryFixture {
         .unwrap();
         let presets = &self.state.library.as_ref().unwrap().presets;
         let read = tetrad_app::device::preset::read(presets, None, &specs).unwrap();
-        let prepared = tetrad_app::device::preset::prepare(read, &specs, false, None).unwrap();
+        let prepared =
+            tetrad_app::device::preset::prepare(read, &specs, false, None, Default::default())
+                .unwrap();
         *self.state.current.get_mut() = Some(tetrad_app::device::Current {
             path: Some(path.into()),
             preset: prepared.preset,

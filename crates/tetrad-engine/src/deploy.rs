@@ -11,6 +11,7 @@
 //! | Scene (`0x527248`) | every value of the push, not diffed; latency | [`Deployment::select_scene`] |
 //! | Add / replace / remove / move / split-mix | full recompile, unchanged pairs keep their cores (`0x5efa08`); a failed fit keeps the previous preset (`0x585464`) | [`Deployment::edit`] |
 //! | Preset change | recompile; reuse only when the whole preset is equal (`0x2e2490`) | [`Deployment::load`] |
+//! | Dormant model (O) | stock loads it | its blocks stay in the layout but leave the plan ([`Deployment::dsp_layout`]) |
 //!
 //! Every change works on a copy and commits only after it compiles. Ops name
 //! plan placements; typed router writes, alignment delays and gate messages are
@@ -18,13 +19,15 @@
 //! [`DeploymentPlan::gate_messages`]). Junction and lane output values stay
 //! normalized: the sender converts them with the stock fused laws.
 
+use std::collections::BTreeSet;
+
 use tetrad_catalog::{Specs, ids};
 
 use crate::gate::{GateMessage, INPUT_GAIN, input_gain, input_gain_index, stored_input_gain};
 use crate::plan::{ROUTERLESS_SIDECHAIN, SidechainScene, compile_keeping, compile_stored};
 use crate::{
-    COLUMNS, CompileError, CompileOptions, DeploymentPlan, DspCore, Endpoint, Layout, Node, Pair,
-    PairDelay, Placement, ROWS, Row, SceneIndex, Scened, Site, Slot, StoredMasks,
+    COLUMNS, CompileError, CompileOptions, DeploymentPlan, DspCore, Endpoint, Layout, ModelId,
+    Node, Pair, PairDelay, Placement, ROWS, Row, SceneIndex, Scened, Site, Slot, StoredMasks,
 };
 
 /// One incremental DSP change.
@@ -123,6 +126,12 @@ const VOLUME: u32 = 0;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Deployment {
     layout: Layout,
+    /// (O) Models whose grid blocks load no DSP code (the app's unlicensed plugin models;
+    /// issue #17: the DSP never acknowledges the run-list clear of some of them). Their
+    /// blocks stay in `layout`, and edits to them are stored, but they leave `dsp_layout`.
+    dormant: BTreeSet<ModelId>,
+    /// `layout` without the dormant blocks: the layout `plan` was compiled from.
+    dsp_layout: Layout,
     plan: DeploymentPlan,
     scene: SceneIndex,
     options: CompileOptions,
@@ -136,19 +145,23 @@ impl Deployment {
         options: CompileOptions,
         scene: SceneIndex,
     ) -> Result<(Self, Update), DeployError> {
-        Self::new_stored(layout, specs, options, scene, StoredMasks::default())
+        let stored = StoredMasks::default();
+        Self::new_stored(layout, specs, options, scene, stored, BTreeSet::new())
     }
 
-    /// [`Deployment::new`] with the preset's stored core masks (stock load).
+    /// [`Deployment::new`] with the preset's stored core masks (stock load) and the
+    /// dormant models.
     pub fn new_stored(
         layout: Layout,
         specs: &Specs,
         options: CompileOptions,
         scene: SceneIndex,
         stored: StoredMasks,
+        dormant: BTreeSet<ModelId>,
     ) -> Result<(Self, Update), DeployError> {
-        let plan = compile_stored(&layout, specs, options, stored)?;
-        let ops = push_ops(&plan, &layout, scene);
+        let dsp_layout = without_dormant(&layout, &dormant);
+        let plan = compile_stored(&dsp_layout, specs, options, stored)?;
+        let ops = push_ops(&plan, &dsp_layout, scene);
         let update = Update::Redeploy {
             clear: Vec::new(),
             plan: Box::new(plan.clone()),
@@ -157,6 +170,8 @@ impl Deployment {
         Ok((
             Self {
                 layout,
+                dormant,
+                dsp_layout,
                 plan,
                 scene,
                 options,
@@ -165,8 +180,14 @@ impl Deployment {
         ))
     }
 
+    /// The whole layout, dormant blocks included: what the grid shows and a save writes.
     pub fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    /// The layout the DSP runs: [`Self::layout`] without the dormant blocks.
+    pub fn dsp_layout(&self) -> &Layout {
+        &self.dsp_layout
     }
 
     pub fn plan(&self) -> &DeploymentPlan {
@@ -177,13 +198,38 @@ impl Deployment {
         self.scene
     }
 
-    fn recompile(&self, layout: &Layout, specs: &Specs) -> Result<DeploymentPlan, DeployError> {
-        Ok(compile_keeping(
-            layout,
+    /// Compiles an edited layout for a value edit: the DSP layout and its plan.
+    fn recompile(&self, layout: &Layout, specs: &Specs) -> Result<Compiled, DeployError> {
+        let dsp_layout = without_dormant(layout, &self.dormant);
+        let plan = compile_keeping(
+            &dsp_layout,
             specs,
             self.options,
             Some(&self.plan.assignment),
-        )?)
+        )?;
+        Ok(Compiled { dsp_layout, plan })
+    }
+
+    /// The plan placement of a grid block. `None` for a dormant block, which has none.
+    fn placement(
+        &self,
+        plan: &DeploymentPlan,
+        layout: &Layout,
+        site: Site,
+    ) -> Result<Option<Placement>, DeployError> {
+        let Site::Slot(slot) = site else {
+            return Err(DeployError::NotDeployed(site));
+        };
+        match plan.block(slot) {
+            Some(at) => Ok(Some(at)),
+            None if layout
+                .instance(site)
+                .is_some_and(|instance| self.dormant.contains(&instance.model)) =>
+            {
+                Ok(None)
+            }
+            None => Err(DeployError::NotDeployed(site)),
+        }
     }
 
     /// Sets one parameter with the stock scene rule (all scenes unless the
@@ -213,13 +259,13 @@ impl Deployment {
         if !instance.set_param(index, self.scene, value) {
             return Err(DeployError::Parameter { site, index });
         }
-        let plan = self.recompile(&layout, specs)?;
+        let compiled = self.recompile(&layout, specs)?;
         let ops = match site {
             Site::Splitter(_) | Site::Mixer(_) => vec![PlanOp::Junction { site, index }],
             Site::OutputControl(row) => vec![PlanOp::Lane { row, index }],
-            _ => self.block_ops(&plan, &layout, specs, site, index)?,
+            _ => self.block_ops(&compiled.plan, &layout, specs, site, index)?,
         };
-        self.commit(layout, plan);
+        self.commit(layout, compiled);
         Ok(Update::Ops(ops))
     }
 
@@ -231,11 +277,9 @@ impl Deployment {
         site: Site,
         index: u32,
     ) -> Result<Vec<PlanOp>, DeployError> {
-        let at = match site {
-            Site::Slot(slot) => plan.block(slot),
-            _ => None,
-        }
-        .ok_or(DeployError::NotDeployed(site))?;
+        let Some(at) = self.placement(plan, layout, site)? else {
+            return Ok(Vec::new());
+        };
         let model = layout
             .instance(site)
             .ok_or(DeployError::NotDeployed(site))?
@@ -291,10 +335,14 @@ impl Deployment {
         if !instance.set_text(index, self.scene, text) {
             return Err(DeployError::Parameter { site, index });
         }
-        let plan = self.recompile(&layout, specs)?;
-        let at = plan.block(slot).ok_or(DeployError::NotDeployed(site))?;
-        self.commit(layout, plan);
-        Ok(Update::Ops(vec![PlanOp::Text { at, index }]))
+        let compiled = self.recompile(&layout, specs)?;
+        let at = self.placement(&compiled.plan, &layout, Site::Slot(slot))?;
+        self.commit(layout, compiled);
+        Ok(Update::Ops(
+            at.map(|at| PlanOp::Text { at, index })
+                .into_iter()
+                .collect(),
+        ))
     }
 
     /// An input gate edit: INPUT GAIN writes the lane input router's return
@@ -320,7 +368,8 @@ impl Deployment {
         if !control.set_param(index, self.scene, value) {
             return Err(DeployError::Parameter { site, index });
         }
-        let plan = self.recompile(&layout, specs)?;
+        let compiled = self.recompile(&layout, specs)?;
+        let plan = &compiled.plan;
         let mut update = GateUpdate {
             ops: Vec::new(),
             gate: Vec::new(),
@@ -329,7 +378,7 @@ impl Deployment {
         if index == INPUT_GAIN {
             update
                 .ops
-                .extend(input_gain_op(&plan, &layout, row, self.scene));
+                .extend(input_gain_op(plan, &layout, row, self.scene));
             if let Some(gate) = gate {
                 update.gate.push(GateMessage::InputGain {
                     core: gate.core,
@@ -345,7 +394,7 @@ impl Deployment {
                 value,
             });
         }
-        self.commit(layout, plan);
+        self.commit(layout, compiled);
         Ok(update)
     }
 
@@ -371,7 +420,8 @@ impl Deployment {
             .ok_or(DeployError::NotDeployed(site))?;
         instance.set_bypass(self.scene, bypassed);
         let model = instance.model;
-        let plan = self.recompile(&layout, specs)?;
+        let compiled = self.recompile(&layout, specs)?;
+        let plan = &compiled.plan;
         let mut ops = Vec::new();
         if let Site::Mixer(_) = site {
             // The mixer's BYPASS mutes LEVEL B (`0x514378`) and the slave
@@ -387,18 +437,17 @@ impl Deployment {
                 index: VOLUME,
             }));
         } else {
-            let at = match site {
-                Site::Slot(slot) => plan.block(slot),
-                _ => None,
-            }
-            .ok_or(DeployError::NotDeployed(site))?;
+            let Some(at) = self.placement(plan, &layout, site)? else {
+                self.commit(layout, compiled);
+                return Ok(Update::Ops(Vec::new()));
+            };
             ops.push(PlanOp::SetBypass { at, bypassed });
-            if let Some(op) = sidechain_active(&plan, specs.model(model.0), site, at, bypassed) {
+            if let Some(op) = sidechain_active(plan, specs.model(model.0), site, at, bypassed) {
                 ops.push(op);
             }
         }
-        ops.extend(delay_ops(&plan, self.scene));
-        self.commit(layout, plan);
+        ops.extend(delay_ops(plan, self.scene));
+        self.commit(layout, compiled);
         Ok(Update::Ops(ops))
     }
 
@@ -425,25 +474,25 @@ impl Deployment {
             instance.mute = Scened::Fixed(muted);
         }
         let bypassed = instance.bypass.at(self.scene);
-        let plan = self.recompile(&layout, specs)?;
-        let at = plan.block(slot).ok_or(DeployError::NotDeployed(site))?;
-        self.commit(layout, plan);
-        Ok(Update::Ops(if changed {
-            vec![PlanOp::SetBypass { at, bypassed }]
-        } else {
-            Vec::new()
+        let compiled = self.recompile(&layout, specs)?;
+        let at = self.placement(&compiled.plan, &layout, site)?;
+        self.commit(layout, compiled);
+        Ok(Update::Ops(match at {
+            Some(at) if changed => vec![PlanOp::SetBypass { at, bypassed }],
+            _ => Vec::new(),
         }))
     }
 
-    fn commit(&mut self, layout: Layout, plan: DeploymentPlan) {
+    fn commit(&mut self, layout: Layout, compiled: Compiled) {
         self.layout = layout;
-        self.plan = plan;
+        self.dsp_layout = compiled.dsp_layout;
+        self.plan = compiled.plan;
     }
 
     /// Selects a scene: stock pushes every value of the new scene, undiffed.
     pub fn select_scene(&mut self, scene: SceneIndex) -> Update {
         self.scene = scene;
-        Update::Ops(push_ops(&self.plan, &self.layout, scene))
+        Update::Ops(push_ops(&self.plan, &self.dsp_layout, scene))
     }
 
     /// Applies a structural edit (add, remove, move, replace, split/mix, ports).
@@ -459,42 +508,52 @@ impl Deployment {
         edit(&mut layout)?;
         let previous = self.plan.assignment.clone();
         let options = self.options;
-        self.redeploy(layout, |layout| {
+        let dormant = self.dormant.clone();
+        self.redeploy(layout, dormant, |layout| {
             compile_keeping(layout, specs, options, Some(&previous))
         })
     }
 
-    /// Loads another preset. An identical layout reuses the loaded models.
+    /// Loads another preset with the same dormant models. A layout the DSP already runs
+    /// reuses the loaded models.
     pub fn load(&mut self, specs: &Specs, layout: Layout) -> Result<Update, DeployError> {
-        self.load_stored(specs, layout, StoredMasks::default())
+        let dormant = self.dormant.clone();
+        self.load_stored(specs, layout, StoredMasks::default(), dormant)
     }
 
-    /// [`Deployment::load`] with the preset's stored core masks.
+    /// [`Deployment::load`] with the preset's stored core masks and the dormant models now.
     pub fn load_stored(
         &mut self,
         specs: &Specs,
         layout: Layout,
         stored: StoredMasks,
+        dormant: BTreeSet<ModelId>,
     ) -> Result<Update, DeployError> {
         let options = self.options;
-        self.redeploy(layout, |layout| {
+        self.redeploy(layout, dormant, |layout| {
             compile_stored(layout, specs, options, stored)
         })
     }
 
+    /// Reuses the loaded models when the DSP layout is the one it runs (a layout that only
+    /// differs in dormant blocks included), else compiles it and clears the cores.
     fn redeploy(
         &mut self,
         layout: Layout,
+        dormant: BTreeSet<ModelId>,
         compile: impl FnOnce(&Layout) -> Result<DeploymentPlan, CompileError>,
     ) -> Result<Update, DeployError> {
-        if layout == self.layout {
+        let dsp_layout = without_dormant(&layout, &dormant);
+        if dsp_layout == self.dsp_layout {
+            self.layout = layout;
+            self.dormant = dormant;
             return Ok(Update::Reuse(push_ops(
                 &self.plan,
-                &self.layout,
+                &self.dsp_layout,
                 self.scene,
             )));
         }
-        let plan = compile(&layout)?;
+        let plan = compile(&dsp_layout)?;
         // Stock clears every core that holds models (`0x582570`).
         let clear = self
             .plan
@@ -503,8 +562,10 @@ impl Deployment {
             .filter(|core| !core.slots.is_empty())
             .map(|core| core.core)
             .collect();
-        let ops = push_ops(&plan, &layout, self.scene);
+        let ops = push_ops(&plan, &dsp_layout, self.scene);
         self.layout = layout;
+        self.dormant = dormant;
+        self.dsp_layout = dsp_layout;
         self.plan = plan.clone();
         Ok(Update::Redeploy {
             clear,
@@ -512,6 +573,26 @@ impl Deployment {
             ops,
         })
     }
+}
+
+/// A recompiled DSP layout and its plan.
+struct Compiled {
+    dsp_layout: Layout,
+    plan: DeploymentPlan,
+}
+
+/// `layout` without the grid blocks of `dormant` models.
+fn without_dormant(layout: &Layout, dormant: &BTreeSet<ModelId>) -> Layout {
+    let mut layout = layout.clone();
+    for slot in layout.lanes.iter_mut().flat_map(|lane| &mut lane.slots) {
+        if slot
+            .as_ref()
+            .is_some_and(|instance| dormant.contains(&instance.model))
+        {
+            *slot = None;
+        }
+    }
+    layout
 }
 
 fn sidechain_ops(plan: &DeploymentPlan, slot: Slot, scene: SceneIndex) -> Vec<PlanOp> {

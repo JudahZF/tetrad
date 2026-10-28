@@ -117,7 +117,7 @@ fn state_in(
         ..StompAssignment::default()
     });
     edit(&mut preset, &catalog);
-    let prepared = prepare(preset, &specs, false, None).unwrap();
+    let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
     let (settings, _) = DeviceSettings::load(&NoFiles, Hardware::QuadCortex).unwrap();
     let mut state = State::new(Product::QuadCortex, HalPlatform::QcOriginal, settings);
     state.specs = Some(specs);
