@@ -7,6 +7,10 @@ publish.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# The boot selector's third entry, Tetrad dev (boot_select.rs). Off in release builds.
+dev = []
+
 [dependencies]
 flate2.workspace = true
 tetrad-assets.workspace = true

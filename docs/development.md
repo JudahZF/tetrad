@@ -78,6 +78,16 @@ The result is `dist/tetrad` and `dist/tetrad.sha256`. `build-arm.sh` checks the 
 `qc-dev/check-elf.sh`. See [qc-dev/README.md](../qc-dev/README.md) for the details and a build
 without Nix.
 
+### Dev build
+
+`--features dev` makes a dev build: the boot selector gets a third button, Tetrad dev, and
+`tetrad run --dev` writes loop and frame statistics (`perf`, every 10 s) to the log. A release
+build has neither, and the release workflow does not turn the feature on. `build-arm.sh` has no
+option for features (it belongs to the `qc-dev` repository), so run the build command that it
+runs with `--features dev` added: `cargo-zigbuild zigbuild --locked --release --target
+armv7-unknown-linux-gnueabihf.2.18 -p tetrad-app --bin tetrad --features dev`, in `nix develop`.
+On the host: `cargo test --locked -p tetrad-app -p tetrad-ui --features dev`.
+
 Releases: a `v*` tag runs `.github/workflows/release.yml`. It builds `tetrad`, checks it and
 attaches `tetrad`, `tetrad.sha256`, the release archive `tetrad-<tag>-armv7.tar.gz` and its
 `.sha256` to the [GitHub release](https://github.com/JudahZF/tetrad/releases). The archive has `bin/tetrad`,
