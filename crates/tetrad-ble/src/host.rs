@@ -52,6 +52,8 @@ pub enum Command {
     SendMidi(Vec<u8>),
     /// Drop the bond with this address, and end its link.
     Forget(Address),
+    /// One Tetrad Link message for the host's app ([`crate::link`]). It waits behind MIDI.
+    LinkSend(Vec<u8>),
 }
 
 /// What the host tells the device.
@@ -87,6 +89,8 @@ pub enum Event {
     Midi(Vec<u8>),
     /// Whether a host listens for MIDI notifications on an encrypted link.
     MidiListening(bool),
+    /// One Tetrad Link message from the host's app ([`crate::link`]).
+    LinkMessage(Vec<u8>),
     /// Something for the log.
     Notice(String),
 }
@@ -103,6 +107,7 @@ struct Link {
     notify: u8,
     pairing: Option<(Pairing, Duration)>,
     midi: crate::midi::Decoder,
+    link: crate::link::Reassembler,
     /// When to ask for MIDI connection parameters.
     parameters_at: Option<Duration>,
     /// A GAP name read is out (one ATT request at a time on Tetrad's client side).
@@ -141,6 +146,9 @@ pub struct Host {
     acl_total: u16,
     in_flight: BTreeMap<u16, u16>,
     acl: VecDeque<(u16, Vec<u8>)>,
+    /// Tetrad Link replies: they go when [`Self::acl`] is empty, so MIDI never waits behind a
+    /// file.
+    bulk: VecDeque<(u16, Vec<u8>)>,
     links: BTreeMap<u16, Link>,
     bonds: Vec<Bond>,
     now: Duration,
@@ -178,6 +186,7 @@ impl Host {
             acl_total: 0,
             in_flight: BTreeMap::new(),
             acl: VecDeque::new(),
+            bulk: VecDeque::new(),
             links: BTreeMap::new(),
             bonds,
             now: Duration::ZERO,
@@ -287,6 +296,7 @@ impl Host {
             Command::SetPairable(on) => self.set_pairable(on),
             Command::SendMidi(message) => self.send_midi(&message),
             Command::Forget(address) => self.forget(&address),
+            Command::LinkSend(message) => self.send_link(&message),
         }
     }
 
@@ -347,6 +357,28 @@ impl Host {
                 self.send(link, l2cap::ATT, &pdu);
             }
         }
+    }
+
+    /// Sends a Tetrad Link message to the host that listens on the Reply characteristic.
+    fn send_link(&mut self, message: &[u8]) {
+        let Some(handle) = self.db.handle(Slot::LinkReply) else {
+            return;
+        };
+        let Some((link, bearer)) = (self.links.iter())
+            .find(|(_, link)| link.listens(Notify::Link))
+            .map(|(h, link)| (*h, link.bearer.clone()))
+        else {
+            self.notice("a Tetrad Link reply with no app listening".into());
+            return;
+        };
+        for frame in crate::link::frames(message, usize::from(bearer.mtu) - 3) {
+            let pdu = att::notification(&bearer, handle, &frame);
+            let packet = l2cap::frame(l2cap::ATT, &pdu);
+            for (i, fragment) in packet.chunks(self.acl_size).enumerate() {
+                self.bulk.push_back((link, hci::acl(link, i == 0, fragment)));
+            }
+        }
+        self.pump();
     }
 
     // ---- HCI ----
@@ -545,6 +577,7 @@ impl Host {
                 notify,
                 pairing: None,
                 midi: crate::midi::Decoder::default(),
+                link: crate::link::Reassembler::default(),
                 parameters_at: (role == Role::Peripheral).then_some(self.now + PARAMETER_DELAY),
                 asking_name: false,
                 listening: false,
@@ -564,6 +597,7 @@ impl Host {
         let sent = self.in_flight.remove(&handle).unwrap_or(0);
         self.acl_free = (self.acl_free + sent).min(self.acl_total);
         self.acl.retain(|(h, _)| *h != handle);
+        self.bulk.retain(|(h, _)| *h != handle);
         if let Some(link) = self.links.remove(&handle) {
             if link.pairing.is_some() {
                 self.events.push_back(Event::PairingFailed {
@@ -719,7 +753,8 @@ impl Host {
 
     fn pump(&mut self) {
         while self.acl_free > 0 {
-            let Some((handle, packet)) = self.acl.pop_front() else {
+            let Some((handle, packet)) = self.acl.pop_front().or_else(|| self.bulk.pop_front())
+            else {
                 break;
             };
             self.acl_free -= 1;
@@ -1012,6 +1047,14 @@ impl att::Store for LinkStore<'_> {
             Slot::Midi => {
                 for message in self.link.midi.packet(value) {
                     self.events.push_back(Event::Midi(message));
+                }
+                Ok(())
+            }
+            Slot::LinkRequest => {
+                match self.link.link.push(value) {
+                    Ok(Some(message)) => self.events.push_back(Event::LinkMessage(message)),
+                    Ok(None) => {}
+                    Err(error) => self.events.push_back(Event::Notice(error.to_string())),
                 }
                 Ok(())
             }
