@@ -215,7 +215,8 @@
         (value) => trigger({ kind: value, number: t.number }));
       const number = el("input", { type: "number", min: 0, max: 127, step: 1, value: t.number, ariaLabel: "Number" });
       number.addEventListener("change", () => {
-        const value = Number(number.value);
+        // NaN for an empty field: it is refused, not sent as 0.
+        const value = number.valueAsNumber;
         if (Number.isInteger(value) && value >= 0 && value <= 127) trigger({ kind: t.kind, number: value });
         else say("MIDI numbers go from 0 to 127");
       });

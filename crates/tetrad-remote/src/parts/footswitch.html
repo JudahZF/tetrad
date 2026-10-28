@@ -132,6 +132,11 @@
 
   /** Sends one command; the answer is the new view, or the reason of a refusal. */
   async function send(command) {
+    // Each edit starts from the last reply (a MIDI list is sent whole), so the next one waits.
+    if (sending) {
+      say("Wait for the last change to reach the unit", "working");
+      return null;
+    }
     sending = true;
     say("");
     const { status, body } = await call("/api/footswitch/command", {
@@ -393,7 +398,8 @@
       const input = el("input", { type: "number", min, max, step: 1, value: value === null ? "" : value, placeholder: empty ? "Off" : "" });
       input.addEventListener("change", () => {
         const text = input.value.trim();
-        const next = text === "" && empty ? null : Number(text);
+        // An empty field is off where off is allowed, and refused elsewhere (not sent as 0).
+        const next = text === "" ? (empty ? null : NaN) : Number(text);
         if (next !== null && !(Number.isInteger(next) && next >= min && next <= max)) {
           return say(label + " is a whole number from " + min + " to " + max + (empty ? ", or empty for off" : ""), "failed");
         }
