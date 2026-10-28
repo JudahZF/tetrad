@@ -80,7 +80,27 @@ every 8 seconds).
 
 <!--controls-->
 
-<!--backup-->
+## Backup
+
+**Backup** (under **Unit**) saves your data on a computer, and puts it back.
+
+- **Download backup** packs a backup on the unit, then the browser saves
+  `QC-Backup-YYYYMMDD-HHMM.tar.gz` (UTC). The page removes the unit's copy after the download.
+- A backup holds the stock backup set, the same as a cloud backup: presets and setlists, IRs and
+  captures (in the library database), plugin presets, `ZenjackConfig.ini` and the favourites.
+  Tetrad's own settings (themes, mappings, footswitch layouts, extensions) are not in it.
+- **Restore**: drop a backup (`.tar.gz`, at most 512 MiB) on the box. The page sends it in
+  pieces and then says to touch **RESTORE** on the unit. Nothing is restored before that touch:
+  **Settings → Tetrad → Remote** shows the file with **DISCARD** and **RESTORE**, and RESTORE asks
+  again. The restore then replaces the presets, setlists, IRs, captures, plugin presets and
+  favourites with the backup, keeps the Wi-Fi settings, and reloads, as a cloud restore does.
+- The unit checks every file in the backup before it removes anything. A backup with other
+  files than the backup set is refused. Input and return levels are not converted: the unit
+  takes the backup as its own.
+- One backup at a time: a new upload replaces the one that waits, and a download is refused
+  while a received backup waits (discard it first) or while another backup runs (cloud, Cortex
+  Control or Remote). Turning Remote off or on removes the backup files of this page.
+
 
 ## Themes
 
