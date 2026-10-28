@@ -87,6 +87,7 @@ Tetrad. The selector writes the file only when a touch picks the UI that is not 
 | --- | --- |
 | 10 | CorOS: the launcher starts stock ZenUI |
 | 11 | Tetrad: the launcher continues with step 9 |
+| 12 | Tetrad dev (a dev build only): the launcher continues with step 9 and starts `tetrad run --dev` |
 | any other | A failure: the launcher starts the saved choice, with no screen |
 
 The codes 10 and 11 are not codes that a crash, a kill or a command-line error gives. So an old
@@ -95,6 +96,12 @@ binary without `select` also gives the saved choice.
 The launcher kills a selector that runs for more than 8 seconds. The boot never waits on the
 selector. The selector saves the boot splash rows of the framebuffer and writes them back before
 it exits.
+
+A dev build ([development.md](development.md#dev-build)) shows a third button, **Tetrad dev**. It
+starts Tetrad with `--dev`, which writes the `perf` statistics to the log. It saves as `tetrad-dev`
+in `boot-choice` when it is not the default. A release build never gives exit 12 and reads
+`tetrad-dev` as an unknown word, so it starts Tetrad. When a dev selector fails, the launcher starts
+the saved choice without `--dev`.
 
 To turn the selector off: `tetrad-launcher.sh chooser off`. Then an armed boot starts Tetrad with no
 screen. `tetrad-launcher.sh chooser on` turns it on again.
