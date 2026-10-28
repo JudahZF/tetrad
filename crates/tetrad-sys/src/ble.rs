@@ -332,6 +332,9 @@ impl Bluetooth {
         let (outbox, events) = mpsc::channel();
         let (wake, woken) = UnixStream::pair()?;
         woken.set_nonblocking(true)?;
+        // The device loop never waits on a busy Bluetooth thread: a full socket already holds
+        // a wake-up.
+        wake.set_nonblocking(true)?;
         let thread = std::thread::Builder::new()
             .name("bluetooth".into())
             .spawn(move || run(config, bonds, &inbox, &woken, &outbox))?;

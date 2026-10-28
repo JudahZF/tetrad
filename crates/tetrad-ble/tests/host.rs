@@ -370,6 +370,14 @@ fn a_new_phone_cannot_pair_while_tetrad_is_not_pairable() {
         reason: smp::reason::PAIRING_NOT_SUPPORTED,
         refused: true
     }));
+    // The unknown host does not keep the connection.
+    assert!(
+        rig.commands
+            .iter()
+            .any(|(opcode, _)| *opcode == hci::op::DISCONNECT),
+        "{:?}",
+        rig.commands
+    );
 }
 
 #[test]

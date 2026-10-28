@@ -863,6 +863,7 @@ impl Host {
             return;
         }
         if !self.config.pairable {
+            let unknown = link.identity.is_none();
             self.send(
                 handle,
                 l2cap::SMP,
@@ -872,6 +873,11 @@ impl Host {
                 reason: smp::reason::PAIRING_NOT_SUPPORTED,
                 refused: true,
             });
+            // An unknown host must not keep the one host connection (no advertising while it
+            // stays) from a paired one.
+            if unknown {
+                self.disconnect(handle, status::AUTHENTICATION_FAILURE);
+            }
             return;
         }
         let addresses = Addresses {
