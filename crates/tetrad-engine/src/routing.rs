@@ -17,7 +17,7 @@ use tetrad_catalog::{ModelRole, ParameterType, Specs};
 
 use crate::{
     COLUMNS, Column, InputPort, Instance, Layout, ModelId, OutputPort, Pair, ROWS, Row, SCENES,
-    SceneIndex, Site, Slot,
+    SceneIndex, Scened, Site, Slot,
 };
 
 /// What feeds a lane at its first column.
@@ -368,6 +368,54 @@ fn preceding(layout: &Layout, sink: Slot) -> Vec<Slot> {
 /// the preceding blocks. Stored values are `step / (steps − 1)`.
 pub fn sidechain_steps(layout: &Layout, sink: Slot) -> u32 {
     14 + preceding(layout, sink).len() as u32
+}
+
+/// (O) `stripped` is `full` without some grid blocks (dormant models): each sidechain selector
+/// of `stripped` is re-encoded for its shorter source list, so it names the same source. A
+/// selector on a removed block becomes Off.
+pub(crate) fn keep_sidechain_sources(full: &Layout, stripped: &mut Layout, specs: &Specs) {
+    let slots = (0..ROWS).flat_map(|row| {
+        (0..COLUMNS).map(move |column| Slot {
+            row: Row(row as u8),
+            column: Column(column as u8),
+        })
+    });
+    for slot in slots {
+        let Some(instance) = stripped.instance(Site::Slot(slot)) else {
+            continue;
+        };
+        let Some((sidechain, param)) = specs.model(instance.model.0).and_then(|spec| {
+            let sidechain = spec.sidechain?;
+            Some((sidechain, spec.parameter(sidechain.source_param)?))
+        }) else {
+            continue;
+        };
+        let (before, after) = (preceding(full, slot), preceding(stripped, slot));
+        if before.len() == after.len() {
+            continue;
+        }
+        let (mut old, mut new) = (param.scale.clone(), param.scale.clone());
+        old.set_steps(14 + before.len() as i32);
+        new.set_steps(14 + after.len() as i32);
+        let keep = |value: f32| {
+            let step = old.step_index(value).unwrap_or(0);
+            let step = match usize::try_from(step - 14) {
+                Ok(index) => (before.get(index))
+                    .and_then(|source| after.iter().position(|kept| kept == source))
+                    .map_or(0, |index| 14 + index as i64),
+                Err(_) => i64::from(step),
+            };
+            new.step_value(step).unwrap_or(0.0)
+        };
+        let instance = stripped
+            .instance_mut(Site::Slot(slot))
+            .expect("checked above");
+        let selector = &mut instance.params[sidechain.source_param as usize];
+        *selector = match *selector {
+            Scened::Fixed(value) => Scened::Fixed(keep(value)),
+            Scened::PerScene(values) => Scened::PerScene(values.map(keep)),
+        };
+    }
 }
 
 impl Layout {

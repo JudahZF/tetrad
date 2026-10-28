@@ -159,7 +159,7 @@ impl Deployment {
         stored: StoredMasks,
         dormant: BTreeSet<ModelId>,
     ) -> Result<(Self, Update), DeployError> {
-        let dsp_layout = without_dormant(&layout, &dormant);
+        let dsp_layout = without_dormant(&layout, &dormant, specs);
         let plan = compile_stored(&dsp_layout, specs, options, stored)?;
         let ops = push_ops(&plan, &dsp_layout, scene);
         let update = Update::Redeploy {
@@ -200,7 +200,7 @@ impl Deployment {
 
     /// Compiles an edited layout for a value edit: the DSP layout and its plan.
     fn recompile(&self, layout: &Layout, specs: &Specs) -> Result<Compiled, DeployError> {
-        let dsp_layout = without_dormant(layout, &self.dormant);
+        let dsp_layout = without_dormant(layout, &self.dormant, specs);
         let plan = compile_keeping(
             &dsp_layout,
             specs,
@@ -509,7 +509,7 @@ impl Deployment {
         let previous = self.plan.assignment.clone();
         let options = self.options;
         let dormant = self.dormant.clone();
-        self.redeploy(layout, dormant, |layout| {
+        self.redeploy(specs, layout, dormant, |layout| {
             compile_keeping(layout, specs, options, Some(&previous))
         })
     }
@@ -530,7 +530,7 @@ impl Deployment {
         dormant: BTreeSet<ModelId>,
     ) -> Result<Update, DeployError> {
         let options = self.options;
-        self.redeploy(layout, dormant, |layout| {
+        self.redeploy(specs, layout, dormant, |layout| {
             compile_stored(layout, specs, options, stored)
         })
     }
@@ -539,11 +539,12 @@ impl Deployment {
     /// differs in dormant blocks included), else compiles it and clears the cores.
     fn redeploy(
         &mut self,
+        specs: &Specs,
         layout: Layout,
         dormant: BTreeSet<ModelId>,
         compile: impl FnOnce(&Layout) -> Result<DeploymentPlan, CompileError>,
     ) -> Result<Update, DeployError> {
-        let dsp_layout = without_dormant(&layout, &dormant);
+        let dsp_layout = without_dormant(&layout, &dormant, specs);
         if dsp_layout == self.dsp_layout {
             self.layout = layout;
             self.dormant = dormant;
@@ -581,10 +582,11 @@ struct Compiled {
     plan: DeploymentPlan,
 }
 
-/// `layout` without the grid blocks of `dormant` models.
-fn without_dormant(layout: &Layout, dormant: &BTreeSet<ModelId>) -> Layout {
-    let mut layout = layout.clone();
-    for slot in layout.lanes.iter_mut().flat_map(|lane| &mut lane.slots) {
+/// `layout` without the grid blocks of `dormant` models; sidechain selectors keep their
+/// sources.
+fn without_dormant(layout: &Layout, dormant: &BTreeSet<ModelId>, specs: &Specs) -> Layout {
+    let mut stripped = layout.clone();
+    for slot in stripped.lanes.iter_mut().flat_map(|lane| &mut lane.slots) {
         if slot
             .as_ref()
             .is_some_and(|instance| dormant.contains(&instance.model))
@@ -592,7 +594,8 @@ fn without_dormant(layout: &Layout, dormant: &BTreeSet<ModelId>) -> Layout {
             *slot = None;
         }
     }
-    layout
+    crate::routing::keep_sidechain_sources(layout, &mut stripped, specs);
+    stripped
 }
 
 fn sidechain_ops(plan: &DeploymentPlan, slot: Slot, scene: SceneIndex) -> Vec<PlanOp> {
