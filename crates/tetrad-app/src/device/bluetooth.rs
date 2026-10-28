@@ -257,10 +257,7 @@ impl<P: Platform> Device<P> {
             }
             Err(reason) => {
                 bluetooth.status = Some(reason.clone());
-                self.notice(
-                    Subsystem::Bluetooth,
-                    format!("Bluetooth not started: {reason}"),
-                );
+                self.notice(Subsystem::Bluetooth, format!("not started: {reason}"));
             }
         }
     }
@@ -326,10 +323,10 @@ impl<P: Platform> Device<P> {
                 bluetooth.restarts = 0;
                 bluetooth.status = None;
                 bluetooth.name = Some(name.clone());
-                self.notice(Subsystem::Bluetooth, format!("Bluetooth on as {name}"));
+                self.notice(Subsystem::Bluetooth, format!("on as {name}"));
             }
             Event::Fault(reason) => {
-                self.notice(Subsystem::Bluetooth, format!("Bluetooth stopped: {reason}"));
+                self.notice(Subsystem::Bluetooth, format!("stopped: {reason}"));
                 let restarts = self.bridges.bluetooth.restarts;
                 if restarts < MAX_RESTARTS {
                     self.bridges.bluetooth.restarts += 1;
@@ -343,12 +340,12 @@ impl<P: Platform> Device<P> {
             Event::HostConnected { address, bonded } => {
                 self.bridges.bluetooth.host = Some(address);
                 let known = if bonded { "paired" } else { "new" };
-                let text = format!("Bluetooth: a {known} host connected");
+                let text = format!("a {known} host connected");
                 self.notice(Subsystem::Bluetooth, text);
             }
             Event::HostDisconnected { reason, .. } => {
                 self.bridges.bluetooth.host = None;
-                let text = format!("Bluetooth: the host left (0x{reason:02x})");
+                let text = format!("the host left (0x{reason:02x})");
                 self.notice(Subsystem::Bluetooth, text);
             }
             Event::Bonded(bond) => {
@@ -356,7 +353,7 @@ impl<P: Platform> Device<P> {
                 match bonds.iter().position(|known| known.address == bond.address) {
                     Some(index) => bonds[index] = bond,
                     None => {
-                        let text = format!("Bluetooth: paired with {}", bond.label());
+                        let text = format!("paired with {}", bond.label());
                         bonds.push(bond);
                         self.notice(Subsystem::Bluetooth, text);
                     }
@@ -368,7 +365,7 @@ impl<P: Platform> Device<P> {
                     let text = "To pair a new device, open Settings › Tetrad › Bluetooth";
                     self.bridges.remote.show_toast(text.to_owned());
                 }
-                let text = format!("Bluetooth: a pairing failed (0x{reason:02x})");
+                let text = format!("a pairing failed (0x{reason:02x})");
                 self.notice(Subsystem::Bluetooth, text);
             }
             Event::Midi(message) => {
@@ -384,7 +381,7 @@ impl<P: Platform> Device<P> {
                 self.bridges.bluetooth.listening = on;
                 self.sync_bluetooth_midi();
             }
-            Event::Notice(text) => self.notice(Subsystem::Bluetooth, format!("Bluetooth: {text}")),
+            Event::Notice(text) => self.notice(Subsystem::Bluetooth, text),
         }
         Vec::new()
     }
