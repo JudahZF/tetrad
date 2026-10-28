@@ -86,7 +86,7 @@ impl Services {
             manifest,
         };
         let text = format!(
-            "Tetrad {} from USB: Settings > System > Tetrad Updates > UPDATE TETRAD",
+            "Tetrad {} from USB: Settings > Tetrad > Tetrad Updates > UPDATE TETRAD",
             offer.version()
         );
         self.tetrad = TetradUpdate::Available(offer);

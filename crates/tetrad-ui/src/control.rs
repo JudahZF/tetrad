@@ -71,7 +71,7 @@ pub enum MenuAction {
     CpuMonitor,
     Looper,
     /// Owned (Tetrad): the Remote PIN ("Remote #1234"), the first row of the ⋮ menu while Remote
-    /// runs and its "Show PIN in menu" switch is on; opens Settings → System → Remote.
+    /// runs and its "Show PIN in menu" switch is on; opens Settings → Tetrad → Remote.
     Remote,
     Settings,
     ChangeDevice,
@@ -456,8 +456,11 @@ pub enum SettingControl {
     Step(SettingId, i8),
     Page(SettingsPage),
     IoTab(IoTab),
-    /// Open the group dropdown (Account, System, Device, Support).
+    /// Open the group dropdown (Account, System, Device, Support, Tetrad).
     Groups,
+    /// A Tetrad menu row of an installed extension (index into the installed list): its
+    /// settings section.
+    ExtensionSettings(u16),
     /// Request one value directly: a choice index (radio option), a toggle 0/1 or a raw
     /// number (brightness segment).
     Set(SettingId, i32),

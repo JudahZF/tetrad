@@ -23,7 +23,7 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 
 ## Use extensions
 
-Open **Settings → System → Extensions** (the last row).
+Open **Settings → Tetrad → Extensions**.
 
 ### Install
 
@@ -55,7 +55,8 @@ Tap an installed extension to see its page:
 
 - **Enabled** starts or stops it. A stopped extension frees its MIDI channel.
 - **Settings** come from the extension (for example MIDI Mapper's channel). A change restarts
-  the extension.
+  the extension. While the extension is on, its settings are also in the Settings menu: open
+  the **Tetrad** group and tap the row with the extension's name.
 - **Commands** are buttons that the extension adds.
 - **Status** and **Log** show what the extension reports.
 - **Faulted** means that Tetrad stopped the extension. The page shows the reason; tap **RETRY**
@@ -138,7 +139,7 @@ A2-Lite. A2-Full needs more DSP memory and CPU than one core has. A file in the 
 does not load, and the extension's page says which extension plays it.
 
 1. Install the extension from the default repository: on a Tetrad build with DSP blocks, open
-   Settings → System → Extensions, push **REFRESH** and install it.
+   Settings → Tetrad → Extensions, push **REFRESH** and install it.
 2. Copy your `.nam` files to the extension's asset folder on the unit, for example with
    `scp "Plexi.nam" qc:/media/p4/tetrad/assets/tetrad.nam-a2/`. Tetrad makes the folder at
    the first start. A file name can have letters, digits, spaces, `.`, `_` and `-`.
@@ -219,7 +220,8 @@ older API still works. Use API 3 only to send releases: Tetrad before API 3 does
 API 3 packages, because it would take a release for a press. Use API 5 for a block that uses
 `leakyRelu`: Tetrad before API 5 refuses it.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
-(`min`, `max`, `default`).
+(`min`, `max`, `default`). The settings show on the extension's page and, while the extension
+is on, in Settings → Tetrad under the extension's `name`.
 
 ### The module
 

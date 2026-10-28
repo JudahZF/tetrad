@@ -1,5 +1,5 @@
 //! Remote view model (owned, Tetrad; docs/remote.md). The application fills [`RemoteView`];
-//! the System › Remote page shows it and answers with [`crate::UiCommand::SetRemote`].
+//! the Tetrad › Remote page shows it and answers with [`crate::UiCommand::SetRemote`].
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteView {

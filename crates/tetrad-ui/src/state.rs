@@ -737,6 +737,8 @@ pub struct UiState {
     pub(crate) wifi_domains: bool,
     /// Extensions list, detail or Repositories.
     pub(crate) extensions: ExtensionsPage,
+    /// Key of the installation whose Settings › Tetrad section is open.
+    pub(crate) extension_section: Option<String>,
     /// The trust question this UI answered, until the host stops asking.
     pub(crate) trust_answered: Option<crate::PendingTrust>,
     /// Mappings tab and detail page.
@@ -817,6 +819,7 @@ impl Default for UiState {
             support: SupportView::List,
             wifi_domains: false,
             extensions: ExtensionsPage::List,
+            extension_section: None,
             trust_answered: None,
             mappings: MappingsPage::default(),
             custom_edit: CustomEdit::default(),

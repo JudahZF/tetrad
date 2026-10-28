@@ -333,7 +333,7 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
     ];
     // Owned (Tetrad): while Remote runs and its "Show PIN in menu" switch is on, the PIN is the
     // first row of the menu, so that it shows as soon as the menu opens. A tap opens
-    // Settings → System → Remote.
+    // Settings → Tetrad → Remote.
     if let Some(pin) = s.remote.pin.as_ref().filter(|_| s.remote.pin_in_menu) {
         rows.insert(
             0,

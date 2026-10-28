@@ -470,10 +470,21 @@ fn menus_use_stock_labels_in_stock_order() {
         .filter(|r| matches!(r.control, Control::Setting(SettingControl::Page(_))))
         .map(|r| r.label)
         .collect();
-    // Owned: the stock "Updates" page names CorOS, and Tetrad Updates follows it.
+    // Owned: the stock "Updates" page names CorOS.
+    assert_eq!(pages[..3], ["Connection", "CorOS Updates", "Brightness"]);
+    // Owned: the Tetrad group holds the pages that Tetrad adds.
+    activate(&mut ui, Control::Setting(SettingControl::Groups));
+    activate(&mut ui, Control::Choose(4));
+    assert_eq!(ui.screen(), Screen::Settings(SettingsPage::TetradUpdates));
+    let pages: Vec<String> = ui
+        .hit_regions()
+        .into_iter()
+        .filter(|r| matches!(r.control, Control::Setting(SettingControl::Page(_))))
+        .map(|r| r.label)
+        .collect();
     assert_eq!(
-        pages[..3],
-        ["Connection", "CorOS Updates", "Tetrad Updates"]
+        pages,
+        ["Tetrad Updates", "Appearance", "Extensions", "Remote"]
     );
 }
 

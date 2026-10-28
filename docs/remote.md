@@ -10,7 +10,7 @@ not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.
 ## Use Remote
 
 1. Connect the unit to Wi-Fi (**Settings → System → Connection**).
-2. Open **Settings → System → Remote** and turn on **Remote**. The page shows the address, for
+2. Open **Settings → Tetrad → Remote** and turn on **Remote**. The page shows the address, for
    example `http://192.168.1.20`, and a 4-digit PIN.
 3. On a computer or phone on the same network, open the address in a browser.
 4. Enter the PIN. The browser keeps it until the PIN changes.
