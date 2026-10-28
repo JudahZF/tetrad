@@ -132,6 +132,32 @@
       }
     },
     {
+      "id": "tetrad.nam",
+      "name": "Neural Amp Modeler A1",
+      "version": "0.5.0",
+      "description": "Plays Neural Amp Modeler A1 models (.nam files) as DSP blocks: LSTM and WaveNet models, including the trainer's nano, feather and lite sizes. Copy .nam files to the extension's asset folder; each becomes a Guitar Amplifier block. Neural Amp Modeler A2 plays A2 models.",
+      "api": 5,
+      "asset": {
+        "tag": "extensions-2026-10-27",
+        "name": "tetrad.nam-0.5.0.tetradext",
+        "size": 28117,
+        "sha256": "adc9ea76202e11e8307b9c83aabdd4b4e2af6e1a0892102ed4029a1aeb950993"
+      }
+    },
+    {
+      "id": "tetrad.nam-a2",
+      "name": "Neural Amp Modeler A2",
+      "version": "0.2.0",
+      "description": "Plays Neural Amp Modeler A2 models (.nam files) as DSP blocks, with the NAM plugin's tone controls. The QC plays A2-Lite, about a quarter of one DSP core. Copy .nam files to the asset folder; each becomes a Guitar Amplifier block. For LSTM and A1 models, use NAM A1.",
+      "api": 5,
+      "asset": {
+        "tag": "extensions-2026-10-27",
+        "name": "tetrad.nam-a2-0.2.0.tetradext",
+        "size": 25850,
+        "sha256": "85106fcf2ce694c6adb801c0ce68c3ebcb255290f32a7f4c5ee91fdc1f56b6c5"
+      }
+    },
+    {
       "id": "tetrad.sweep-synth",
       "name": "Sweep Synth",
       "version": "0.1.0",
