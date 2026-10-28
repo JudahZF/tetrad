@@ -71,7 +71,7 @@ pub enum MenuAction {
     CpuMonitor,
     Looper,
     /// Owned (Tetrad): the Remote PIN ("Remote #1234"), the first row of the ⋮ menu while Remote
-    /// runs; opens Settings → System → Remote.
+    /// runs and its "Show PIN in menu" switch is on; opens Settings → System → Remote.
     Remote,
     Settings,
     ChangeDevice,
@@ -1013,8 +1013,9 @@ pub enum Control {
     Custom(CustomControl),
     /// Settings → Appearance: pick the theme of row n ([`crate::AppearanceView::themes`]).
     Theme(u16),
-    /// The switch of the Remote page (`screens::remote`).
+    /// The switches of the Remote page (`screens::remote`): Remote, then its PIN in the ⋮ menu.
     RemoteToggle,
+    RemotePinInMenuToggle,
     Updater(UpdaterCommand),
     TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
@@ -1283,9 +1284,10 @@ pub enum UiCommand {
     Custom(crate::CustomCommand),
     /// Apply and store a theme (Settings → Appearance, owned).
     SetTheme(tetrad_theme::ThemeId),
-    /// The Remote page switch (`crate::remote`).
+    /// The Remote page switches (`crate::remote`).
     SetRemote {
         enabled: bool,
+        pin_in_menu: bool,
     },
     SelectScene {
         scene: SceneIndex,
@@ -2023,7 +2025,10 @@ impl fmt::Debug for UiCommand {
             C::WifiDisconnect => f.write_str("WifiDisconnect"),
             C::Updater { command } => show!("Updater", command),
             C::TetradUpdate { command } => show!("TetradUpdate", command),
-            C::SetRemote { enabled } => show!("SetRemote", enabled),
+            C::SetRemote {
+                enabled,
+                pin_in_menu,
+            } => show!("SetRemote", enabled, pin_in_menu),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),

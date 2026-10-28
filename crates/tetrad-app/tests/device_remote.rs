@@ -42,12 +42,17 @@ fn view(device: &Device<Sim>) -> RemoteView {
     device.bridges().ui.view().snapshot().remote.clone()
 }
 
-/// Taps the switch of Settings → System → Remote.
+/// Taps the Remote switch of Settings → System → Remote.
 fn tap_switch(device: &mut Device<Sim>) {
+    tap(device, Control::RemoteToggle);
+}
+
+/// Taps one switch of Settings → System → Remote.
+fn tap(device: &mut Device<Sim>, switch: Control) {
     let page = Screen::Settings(SettingsPage::Remote);
     device.push(Event::UiInput(UiInput::Show(page)));
     device.step();
-    let tap = target(&device.bridges().ui, Control::RemoteToggle);
+    let tap = target(&device.bridges().ui, switch);
     for pressed in [true, false] {
         device.push(Event::UiInput(UiInput::Touch(TouchSample {
             pressed,
@@ -83,7 +88,10 @@ fn an_upload_needs_the_pin_and_lands_in_the_ir_saving_destination() {
     let shown = view(&device);
     assert!(shown.enabled);
     assert_eq!(shown.pin.as_deref(), Some("0001"));
-    assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":true}"#);
+    assert_eq!(
+        files.get(SETTINGS_FILE).unwrap(),
+        br#"{"enabled":true,"pin_in_menu":false}"#
+    );
 
     assert_eq!(ask(&mut device, status("9999")), Reply::WrongPin);
     let Reply::Status { folder } = ask(&mut device, status("0001")) else {
@@ -149,7 +157,10 @@ fn the_switch_is_saved_across_boots() {
     tap_switch(&mut device);
     assert!(!remote(&device).running);
     assert_eq!(view(&device), RemoteView::default());
-    assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":false}"#);
+    assert_eq!(
+        files.get(SETTINGS_FILE).unwrap(),
+        br#"{"enabled":false,"pin_in_menu":false}"#
+    );
     assert_eq!(ask(&mut device, status("0001")), Reply::Off);
 }
 
@@ -167,10 +178,45 @@ fn a_failed_start_keeps_the_switch_and_turns_off() {
     let shown = view(&device);
     assert!(shown.enabled && shown.pin.is_none());
     assert_eq!(shown.status.as_deref(), Some("Port 80 is in use"));
-    assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":true}"#);
+    assert_eq!(
+        files.get(SETTINGS_FILE).unwrap(),
+        br#"{"enabled":true,"pin_in_menu":false}"#
+    );
     assert_eq!(ask(&mut device, status("0001")), Reply::Off);
 
     tap_switch(&mut device);
     assert!(!view(&device).enabled);
-    assert_eq!(files.get(SETTINGS_FILE).unwrap(), br#"{"enabled":false}"#);
+    assert_eq!(
+        files.get(SETTINGS_FILE).unwrap(),
+        br#"{"enabled":false,"pin_in_menu":false}"#
+    );
+}
+
+/// "Show PIN in menu" is saved with the Remote switch and leaves the server as it is; a boot
+/// restores both.
+#[test]
+fn the_pin_in_the_menu_is_a_saved_switch() {
+    let files = MemFiles::default();
+    files.put(SETTINGS_FILE, r#"{"enabled":true}"#);
+    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
+    device.step();
+    assert!(
+        !view(&device).pin_in_menu,
+        "off in a file from before the switch"
+    );
+
+    tap(&mut device, Control::RemotePinInMenuToggle);
+    let shown = view(&device);
+    assert!(shown.pin_in_menu);
+    assert_eq!(
+        shown.pin.as_deref(),
+        Some("0001"),
+        "the server keeps its PIN"
+    );
+    let saved = br#"{"enabled":true,"pin_in_menu":true}"#;
+    assert_eq!(files.get(SETTINGS_FILE).unwrap(), saved);
+
+    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
+    device.step();
+    assert!(view(&device).pin_in_menu);
 }

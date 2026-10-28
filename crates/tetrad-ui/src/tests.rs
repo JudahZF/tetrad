@@ -2565,10 +2565,10 @@ fn main_menu_is_a_scrolling_list_with_sections() {
     assert!(shown(&ui, MenuAction::Settings));
 }
 
-/// While Remote runs, the first row of the ⋮ menu is "Remote #<PIN>" and a tap opens Remote's
-/// Settings page; without Remote the menu is the stock one.
+/// While Remote runs and its "Show PIN in menu" switch is on, the first row of the ⋮ menu is
+/// "Remote #<PIN>" and a tap opens Remote's Settings page; otherwise the menu is the stock one.
 #[test]
-fn the_menu_shows_the_remote_pin_while_remote_runs() {
+fn the_menu_shows_the_remote_pin_when_its_switch_is_on() {
     let first_row = |ui: &UiState| {
         ui.layout()
             .items
@@ -2583,7 +2583,22 @@ fn the_menu_shows_the_remote_pin_while_remote_runs() {
     let mut snapshot = rich();
     snapshot.remote.enabled = true;
     snapshot.remote.pin = Some("4821".into());
+    let mut ui = ui_with(snapshot.clone());
+    ui.apply(Control::OpenMainMenu);
+    assert_eq!(first_row(&ui).as_deref(), Some("FILE"), "the switch is off");
+
+    snapshot.remote.pin_in_menu = true;
     let mut ui = ui_with(snapshot);
+    ui.show(Screen::Settings(SettingsPage::Remote));
+    assert_eq!(
+        activate(&mut ui, Control::RemotePinInMenuToggle),
+        vec![UiCommand::SetRemote {
+            enabled: true,
+            pin_in_menu: false,
+        }],
+        "the switch keeps Remote on"
+    );
+    ui.show(Screen::Grid);
     ui.apply(Control::OpenMainMenu);
     assert_eq!(first_row(&ui).as_deref(), Some("Remote #4821"));
     assert!(

@@ -331,9 +331,10 @@ fn main_menu(ui: &UiState, l: &mut Layout, _anchor: Option<Rect>) {
         // tap on its block.
         item(MenuAction::Settings, "Settings".into(), Icon::Gear, true),
     ];
-    // Owned (Tetrad): while Remote runs, its PIN is the first row of the menu, so that it shows
-    // as soon as the menu opens. A tap opens Settings → System → Remote.
-    if let Some(pin) = &s.remote.pin {
+    // Owned (Tetrad): while Remote runs and its "Show PIN in menu" switch is on, the PIN is the
+    // first row of the menu, so that it shows as soon as the menu opens. A tap opens
+    // Settings → System → Remote.
+    if let Some(pin) = s.remote.pin.as_ref().filter(|_| s.remote.pin_in_menu) {
         rows.insert(
             0,
             item(
