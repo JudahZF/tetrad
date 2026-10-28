@@ -1,4 +1,9 @@
-<h1 align="center">Tetrad</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/tetrad-lockup.svg">
+    <img src="docs/brand/tetrad-lockup-light.svg" width="300" alt="Tetrad">
+  </picture>
+</h1>
 
 <p align="center">An open, community-built touch UI for the Neural DSP Quad Cortex.</p>
 
