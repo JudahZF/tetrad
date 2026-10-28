@@ -584,6 +584,8 @@ pub enum SettingsPage {
     Extensions,
     /// Owned (Tetrad): the web page that uploads IRs over Wi-Fi.
     Remote,
+    /// Owned (Tetrad): turns the boot selector of the launcher on or off (docs/launcher.md).
+    BootSelector,
     /// Owned (Tetrad): the settings of one extension, listed under its name in the Tetrad
     /// group. The installation is the one in `UiState::extensions`.
     ExtensionSettings,
@@ -665,7 +667,7 @@ impl SettingsGroup {
                 Diagnostics,
                 Licenses,
             ],
-            Self::Tetrad => &[TetradUpdates, Appearance, Extensions, Remote],
+            Self::Tetrad => &[TetradUpdates, Appearance, Extensions, Remote, BootSelector],
         }
     }
 }
@@ -728,6 +730,7 @@ impl SettingsPage {
             Self::FactoryReset => "Factory Reset",
             Self::Extensions => "Extensions",
             Self::Remote => "Remote",
+            Self::BootSelector => "Boot Selector",
             // The menu row and the page title show the extension's name.
             Self::ExtensionSettings => "Extension Settings",
             Self::GlobalBypass => "Global Bypass",
@@ -748,7 +751,7 @@ impl SettingsPage {
 
     /// Rows for pages that are plain setting lists. Pages with their own layout (account,
     /// backups, Wi-Fi, updates, storage, information, brightness, global bypass, factory
-    /// reset, extensions, extension settings, remote, about) return an empty list.
+    /// reset, extensions, extension settings, remote, boot selector, about) return an empty list.
     pub(crate) fn rows(self) -> &'static [PageRow] {
         use PageRow::*;
         use SettingId as S;
@@ -860,6 +863,7 @@ impl SettingsPage {
             | Self::FactoryReset
             | Self::Extensions
             | Self::Remote
+            | Self::BootSelector
             | Self::ExtensionSettings
             | Self::SendReport
             | Self::GlobalBypass

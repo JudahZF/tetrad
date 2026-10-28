@@ -29,6 +29,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Remote: a **Show PIN in menu** switch (off by default). While Remote runs and the switch is
   on, the first row of the ⋮ menu shows the PIN as `Remote #1234`; a tap opens the Remote page.
   The switch is saved in `remote.json`. The Remote page now scrolls.
+- Settings → Tetrad → Boot Selector: a **Show at boot** switch turns the boot selector on or
+  off from the next boot, as `tetrad-launcher.sh chooser on|off` does.
 
 ### Changed
 

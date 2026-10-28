@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "dev")]
 use tetrad_app::boot_select::DEV_EXIT;
 use tetrad_app::boot_select::{BootChoice, COUNTDOWN, STOCK_EXIT, TETRAD_EXIT, write_choice};
+use tetrad_app::device::boot_selector::NO_CHOOSER_FILE;
 use tetrad_app::device::linux::WRONG_FIRMWARE_EXIT;
 
 const SCRIPTS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/launcher");
@@ -296,7 +297,8 @@ fn an_unselected_binary_starts_stock() {
 
 /// The boot selector of an armed boot: Tetrad goes on to the Tetrad path (and counts a start),
 /// CorOS starts stock without a count. `chooser off` and an unarmed launcher show no
-/// selector. The script's exit codes and kill limit agree with `tetrad_app::boot_select`.
+/// selector. The script's exit codes and kill limit agree with `tetrad_app::boot_select`, and
+/// `chooser off` reads the file that the Boot Selector switch in Settings writes.
 #[test]
 fn the_boot_selector_picks_the_ui() {
     let fake = Fake::new("chooser");
@@ -318,6 +320,9 @@ fn the_boot_selector_picks_the_ui() {
     fake.ctl("chooser off");
     assert!(fake.ctl("status").contains("chooser:  off"));
     assert_eq!(fake.boot(), [fake.tetrad_call()]);
+    fake.ctl("chooser on");
+    fs::write(fake.at(NO_CHOOSER_FILE.trim_start_matches('/')), "").unwrap();
+    assert!(fake.ctl("status").contains("chooser:  off"));
     fake.ctl("chooser on");
     fake.ctl("disarm");
     assert_eq!(fake.boot(), [STOCK_CALL]);
