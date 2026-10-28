@@ -28,7 +28,7 @@ pub(crate) fn activate(ui: &mut UiState, control: Control) -> Vec<UiCommand> {
     ui.handle_input(InputEvent::Activate(control))
 }
 
-fn tap(ui: &mut UiState, x: i32, y: i32) -> Vec<UiCommand> {
+pub(crate) fn tap(ui: &mut UiState, x: i32, y: i32) -> Vec<UiCommand> {
     ui.handle_input(InputEvent::PointerDown { x, y });
     ui.handle_input(InputEvent::PointerUp { x, y })
 }

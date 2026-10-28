@@ -1,6 +1,7 @@
 //! Limits for helper processes the device program starts.
 
 use std::io;
+use std::process::{Child, Command};
 use std::time::Duration;
 
 /// The user an extension runner switches to when it starts as root: `nobody`.
@@ -48,6 +49,27 @@ pub fn confine_extension_runner(address_space: usize) -> io::Result<()> {
         check(unsafe { libc::setuid(RUNNER_ID) })?;
     }
     Ok(())
+}
+
+/// Starts an extension program (`app` in a manifest) at nice 10, as the runners run, so the
+/// device loop keeps its CPU. The kernel kills the program when the thread that started it ends
+/// (`PR_SET_PDEATHSIG`): start it from the device loop thread, so a program never outlives Tetrad
+/// on the screen.
+pub fn spawn_app(command: &mut Command) -> io::Result<Child> {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: the hook runs in the child between fork and exec and calls only `prctl` and
+    // `setpriority`, which are async-signal-safe and only read their integer arguments.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0
+                || libc::setpriority(libc::PRIO_PROCESS, 0, 10) != 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command.spawn()
 }
 
 /// CPU time the calling thread has used: the extension runner's slice clock, so waiting for

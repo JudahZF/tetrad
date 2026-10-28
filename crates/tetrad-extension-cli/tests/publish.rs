@@ -130,3 +130,66 @@ fn package_catalog_verify_round_trip() {
     assert_eq!(installed, ["tester/exts:test.ext 1.1.0"]);
     assert_eq!(state.catalogs.len(), 1);
 }
+
+/// A program travels as release assets next to its package: `package` pins and copies the
+/// files of `app/`, `catalog` flags the entry, and `stage` installs the files with the program
+/// executable.
+#[test]
+fn a_program_publishes_its_files_as_assets() {
+    let tmp = TempDir(std::env::temp_dir().join(format!("tetrad-ext-app-{}", std::process::id())));
+    let _ = fs::remove_dir_all(&tmp.0);
+    let path = |p: &str| tmp.0.join(p).to_str().unwrap().to_owned();
+    fs::create_dir_all(tmp.0.join("doom/app")).unwrap();
+    fs::write(
+        tmp.0.join("doom/tetrad-extension.json"),
+        r#"{"id": "test.doom", "name": "DOOM", "version": "0.1.0", "api": 7,
+            "app": {"label": "Play DOOM", "exec": "qcdoom", "args": ["-iwad", "{app}/doom1.wad"]}}"#,
+    )
+    .unwrap();
+    fs::write(tmp.0.join("doom/app/qcdoom"), b"\x7fELF").unwrap();
+    fs::write(tmp.0.join("doom/app/doom1.wad"), b"IWAD").unwrap();
+
+    tetrad_ext(&["keygen", "--out", &path("keys")]);
+    tetrad_ext(&[
+        "package",
+        &path("doom"),
+        "--out",
+        &path("repo/packages/test.doom-0.1.0.tetradext"),
+    ]);
+    assert_eq!(
+        fs::read(tmp.0.join("repo/packages/test.doom-0.1.0.doom1.wad")).unwrap(),
+        b"IWAD"
+    );
+    tetrad_ext(&[
+        "catalog",
+        "--repo-dir",
+        &path("repo"),
+        "--key",
+        &path("keys/signing.key"),
+        "--tag",
+        "r1",
+    ]);
+    let catalog =
+        Catalog::parse_unsigned(&fs::read(tmp.0.join("repo/tetrad-extensions.json")).unwrap())
+            .unwrap();
+    assert!(catalog.extensions[0].app);
+
+    tetrad_ext(&[
+        "stage",
+        "--repo-dir",
+        &path("repo"),
+        "--source",
+        "tester/exts",
+        "--store",
+        &path("store"),
+    ]);
+    let store = tetrad_extensions::store::Store::open(tmp.0.join("store")).unwrap();
+    let state = store.load();
+    assert!(state.problems.is_empty(), "{:?}", state.problems);
+    let app = store.app_dir(&state.installed[0]).unwrap();
+    let mode = fs::metadata(app.join("qcdoom")).unwrap();
+    assert_eq!(
+        std::os::unix::fs::PermissionsExt::mode(&mode.permissions()) & 0o111,
+        0o111
+    );
+}

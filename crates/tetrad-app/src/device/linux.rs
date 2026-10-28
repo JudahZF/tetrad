@@ -1631,6 +1631,21 @@ impl Platform for LinuxPlatform {
     fn disk_space(&mut self) -> Option<tetrad_sys::fs::FsSpace> {
         tetrad_sys::fs::statvfs(&self.root.path("/media/p4")).ok()
     }
+    fn start_app(
+        &mut self,
+        launch: &crate::device::app::AppLaunch,
+    ) -> Result<Box<dyn crate::device::app::AppProcess>, String> {
+        let program = launch.program.display();
+        fs::create_dir_all(&launch.dir).map_err(|e| format!("{}: {e}", launch.dir.display()))?;
+        let mut command = std::process::Command::new(&launch.program);
+        command
+            .args(&launch.args)
+            .current_dir(&launch.dir)
+            .stdin(std::process::Stdio::null());
+        let child =
+            tetrad_sys::process::spawn_app(&mut command).map_err(|e| format!("{program}: {e}"))?;
+        Ok(Box::new(LinuxApp(child)))
+    }
     fn extensions(&mut self) -> Option<&mut dyn crate::device::extensions::ExtensionBackend> {
         self.extensions
             .as_mut()
@@ -1647,6 +1662,29 @@ impl Platform for LinuxPlatform {
         if let Some(framebuffer) = &mut self.framebuffer {
             framebuffer.forget_shown();
         }
+    }
+}
+
+/// A running extension program. Its output goes to the device log, as the runners' does.
+struct LinuxApp(std::process::Child);
+
+impl crate::device::app::AppProcess for LinuxApp {
+    fn exited(&mut self) -> Option<String> {
+        match self.0.try_wait() {
+            Ok(None) => None,
+            Ok(Some(status)) => Some(status.to_string()),
+            Err(error) => Some(error.to_string()),
+        }
+    }
+    fn stop(&mut self) {
+        let _ = self.0.kill();
+    }
+}
+
+impl Drop for LinuxApp {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 

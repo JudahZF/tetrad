@@ -164,6 +164,16 @@ pub trait Platform {
     /// Another program drew on the display: the next [`Self::present`] writes every row.
     fn forget_display(&mut self) {}
 
+    /// Starts an extension program ([`crate::device::app`]). Where programs do not run, it
+    /// says so.
+    fn start_app(
+        &mut self,
+        launch: &crate::device::app::AppLaunch,
+    ) -> Result<Box<dyn crate::device::app::AppProcess>, String> {
+        let _ = launch;
+        Err("programs do not run here".into())
+    }
+
     /// Extension runner processes; `None` where extensions do not run.
     fn extensions(&mut self) -> Option<&mut dyn crate::device::extensions::ExtensionBackend> {
         None

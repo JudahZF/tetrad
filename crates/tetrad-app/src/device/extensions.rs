@@ -277,6 +277,8 @@ pub struct Installation {
     pub enabled: bool,
     /// The extension's tab on the Remote page.
     pub remote: Option<RemoteTab>,
+    /// The package's program.
+    pub app: Option<super::app::AppLaunch>,
 }
 
 /// The tab of an extension on the Remote page: its title and its HTML.
@@ -2343,6 +2345,12 @@ impl Extensions {
             ExtensionCommand::Run { key, command } => {
                 outcome = self.run_command(&key, &command, backend)
             }
+            ExtensionCommand::Launch { key } => {
+                let app = (self.slots.get(&key))
+                    .filter(|slot| slot.installation.enabled)
+                    .and_then(|slot| slot.installation.app.clone());
+                outcome.effects.extend(app.map(Effect::LaunchApp));
+            }
             ExtensionCommand::SetSetting {
                 key,
                 setting,
@@ -2649,6 +2657,7 @@ impl Extensions {
                         .iter()
                         .map(|theme| theme.name.clone())
                         .collect(),
+                    app: record.app.as_ref().map(|app| app.label.clone()),
                     footswitch_mode: (manifest.footswitch_mode.as_ref()).map(|mode| {
                         let provides = provider.as_ref().is_some_and(|p| &p.key == key);
                         let detail = match &provider {
@@ -2698,6 +2707,7 @@ impl Extensions {
                         version: entry.version.to_string(),
                         description: entry.description.clone(),
                         duplicates: repositories.enabled_elsewhere(&source.source, &entry.id),
+                        app: entry.app,
                     })
                     .collect::<Vec<_>>()
             })
@@ -2765,5 +2775,6 @@ fn installation(loaded: &Loaded) -> Installation {
                 title: tab.title.clone(),
                 page: page.clone(),
             }),
+        app: loaded.app.clone(),
     }
 }

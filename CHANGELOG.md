@@ -5,6 +5,16 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ## Unreleased
 
+### Added
+
+- Extension API 7: a package can bring a native program (`app` in the manifest), such as a game.
+  Its page has a button that starts it. While it runs, the program has the screen and the
+  footswitches, and Tetrad keeps the sound. Hold the screen for 2 seconds to quit. The program
+  files are release assets that the package pins by SHA-256 (package format 4). Programs run
+  with full access to the unit: the Available row says so before the install.
+- DOOM 0.1.0 (`extensions/doom`): the original qcDOOM binary by Thomas Van Iseghem with the
+  shareware WAD, played with the footswitches.
+
 ### Changed
 
 - `scripts/install.sh`: when the binary is not the 32-bit ARM build (for example from a plain

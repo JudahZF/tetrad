@@ -7,7 +7,8 @@
 //! host before API 3 would take a release for a press, so it skips API 3 packages. API 4 adds
 //! `footswitchMode`; a manifest of an older API cannot use it. API 5 adds the leaky ReLU network
 //! activation; a host before API 5 refuses it, so it skips API 5 packages. API 6 adds the `remote`
-//! capability: a tab on the Remote page.
+//! capability: a tab on the Remote page. API 7 adds `app`: a native program that the package
+//! brings and that takes the screen and the footswitches while it runs.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use serde_json::{Map, Value};
 use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
-pub const API_VERSION: u32 = 6;
+pub const API_VERSION: u32 = 7;
 /// The oldest extension API level this host still runs.
 pub const MIN_API_VERSION: u32 = 1;
 
@@ -40,6 +41,12 @@ pub const MAX_MODE_NAME: usize = 16;
 pub const MAX_MODE_PAGES: u8 = 4;
 /// Longest title of a Remote tab.
 pub const MAX_TAB_TITLE: usize = 20;
+/// Most arguments of a program.
+pub const MAX_APP_ARGS: usize = 16;
+/// Longest argument of a program.
+pub const MAX_APP_ARG: usize = 256;
+/// Stands for the folder of the program's files in an argument (`{app}/doom1.wad`).
+pub const APP_DIR_PLACEHOLDER: &str = "{app}";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -74,6 +81,25 @@ pub struct Manifest {
     /// the page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteSpec>,
+    /// A native program (API 7). The package holds its files; the extension's page starts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<AppSpec>,
+}
+
+/// A native program of the package, such as a game. While it runs, Tetrad does not draw the
+/// screen or act on the footswitches, the knobs and TEMPO; the sound goes on. It runs as Tetrad
+/// does, with full access to the unit, in the extension's asset folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppSpec {
+    /// The button on the extension's page, such as "Play DOOM"; 1..=[`MAX_LABEL`] characters.
+    pub label: String,
+    /// The file to start: one of the package's program files.
+    pub exec: String,
+    /// At most [`MAX_APP_ARGS`] arguments of 1..=[`MAX_APP_ARG`] characters.
+    /// [`APP_DIR_PLACEHOLDER`] in an argument becomes the folder of the program files.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
 }
 
 /// The tab of an extension on the Remote page.
@@ -233,6 +259,8 @@ pub enum ManifestError {
         "remote: a tab needs both the remote capability and a title of 1..={MAX_TAB_TITLE} characters"
     )]
     Remote,
+    #[error("app: {0}")]
+    App(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -273,6 +301,12 @@ impl Manifest {
             Some(tab) if self.has(Capability::Remote) && label_ok(&tab.title, MAX_TAB_TITLE) => {}
             None if !self.has(Capability::Remote) => {}
             _ => return Err(ManifestError::Remote),
+        }
+        if self.api < 7 && self.app.is_some() {
+            return Err(ManifestError::NeedsApi(7, "app"));
+        }
+        if let Some(app) = &self.app {
+            app.validate()?;
         }
         for (i, capability) in self.capabilities.iter().enumerate() {
             if self.capabilities[..i].contains(capability) {
@@ -327,15 +361,26 @@ impl Manifest {
     }
 
     /// A data-only manifest adds themes, static DSP blocks or a footswitch mode and nothing
-    /// else: no capabilities, settings, commands or generated blocks. Its package may leave out the
-    /// module; the host runs nothing for a package without one (a package with a module still
-    /// runs it).
+    /// else: no capabilities, settings, commands, generated blocks or program. Its package may
+    /// leave out the module; the host runs nothing for a package without one (a package with a
+    /// module still runs it).
     pub fn data_only(&self) -> bool {
         !(self.themes.is_empty() && self.blocks.is_empty() && self.footswitch_mode.is_none())
-            && self.capabilities.is_empty()
-            && self.settings.is_empty()
-            && self.commands.is_empty()
-            && self.blocks.iter().all(|b| !b.generated)
+            && self.app.is_none()
+            && !self.needs_module()
+    }
+
+    /// A program with nothing that needs a module: its package may leave the module out.
+    pub fn app_only(&self) -> bool {
+        self.app.is_some() && !self.needs_module()
+    }
+
+    /// Capabilities, settings, commands and generated blocks work through the module.
+    fn needs_module(&self) -> bool {
+        !self.capabilities.is_empty()
+            || !self.settings.is_empty()
+            || !self.commands.is_empty()
+            || self.blocks.iter().any(|b| b.generated)
     }
 
     pub fn has(&self, capability: Capability) -> bool {
@@ -476,6 +521,34 @@ impl BlockSpec {
         }
         Ok(())
     }
+}
+
+impl AppSpec {
+    fn validate(&self) -> Result<(), ManifestError> {
+        if !label_ok(&self.label, MAX_LABEL) {
+            return Err(ManifestError::App("the label must be 1..=32 characters"));
+        }
+        if !file_name_ok(&self.exec) {
+            return Err(ManifestError::App("exec must be a program file name"));
+        }
+        let arg_ok =
+            |arg: &String| (1..=MAX_APP_ARG).contains(&arg.chars().count()) && !arg.contains('\0');
+        if self.args.len() > MAX_APP_ARGS || !self.args.iter().all(arg_ok) {
+            return Err(ManifestError::App(
+                "at most 16 arguments of 1..=256 characters, without NUL",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// A program file name: 1..=64 characters of `[A-Za-z0-9._-]`, not starting with `.`.
+pub fn file_name_ok(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 /// Command and block IDs: 1..=[`MAX_LABEL`] characters of `[a-z0-9-]`.
@@ -730,5 +803,40 @@ mod tests {
                 .validate(),
             Err(ManifestError::NeedsApi(6, "remote"))
         );
+    }
+
+    #[test]
+    fn a_program_needs_api_7_a_label_and_a_file_name() {
+        let app = |api: u32, app: serde_json::Value| {
+            serde_json::from_value::<Manifest>(json!({
+                "id": "tetrad.doom", "name": "DOOM", "version": "0.1.0", "api": api, "app": app
+            }))
+            .unwrap()
+        };
+        let doom =
+            json!({"label": "Play DOOM", "exec": "qcdoom", "args": ["-iwad", "{app}/doom1.wad"]});
+        let m = app(7, doom.clone());
+        assert_eq!(m.validate(), Ok(()));
+        assert!(
+            m.app_only() && !m.data_only(),
+            "a program is code, not data"
+        );
+        assert_eq!(
+            app(6, doom).validate(),
+            Err(ManifestError::NeedsApi(7, "app"))
+        );
+        for bad in [
+            json!({"label": "", "exec": "qcdoom"}),
+            json!({"label": "Play", "exec": "../qcdoom"}),
+            json!({"label": "Play", "exec": ".hidden"}),
+            json!({"label": "Play", "exec": "qcdoom", "args": [""]}),
+            json!({"label": "Play", "exec": "qcdoom", "args": ["a\u{0}b"]}),
+            json!({"label": "Play", "exec": "qcdoom", "args": vec!["x"; MAX_APP_ARGS + 1]}),
+        ] {
+            assert!(
+                matches!(app(7, bad.clone()).validate(), Err(ManifestError::App(_))),
+                "{bad}"
+            );
+        }
     }
 }

@@ -8,6 +8,7 @@
 //! [`Notice`]s (nothing is skipped silently).
 
 pub mod actions;
+pub mod app;
 pub mod appearance;
 mod boot;
 pub mod boot_selector;
@@ -242,6 +243,8 @@ pub enum Timer {
     RowMeters,
     /// NC2 job re-poll (`Nc2Effect::SchedulePoll`, 1000 ms, `0x1fe630`).
     Nc2Poll,
+    /// Every [`app::POLL`] while an extension program runs: its exit and the quit hold.
+    App,
 }
 
 /// Work a reducer asks for. Executed in order by [`Device`].
@@ -358,6 +361,8 @@ pub enum Effect {
         key: String,
         command: String,
     },
+    /// Start an extension program; it takes the screen and the footswitches ([`app`]).
+    LaunchApp(app::AppLaunch),
     /// The Custom mode went on or off: [`custom::ACTIVE_FILE`] follows.
     CustomModeChanged,
     /// Input for the UI bridge: screens, knob steps, footswitch edges, the power button.
@@ -1034,6 +1039,8 @@ pub struct Device<P: Platform> {
     usb: usb::UsbLink,
     /// The Wi-Fi bring-up (`services::Services::start`) succeeded.
     services_up: bool,
+    /// The extension program that has the screen and the footswitches.
+    app: Option<app::Running>,
     /// [`bringup::RunOptions::STOCK`] for `run`; a bring-up run gates stages and writes.
     options: bringup::RunOptions,
     health: bringup::Health,
@@ -1108,6 +1115,7 @@ impl<P: Platform> Device<P> {
             probe: probe::Probe::default(),
             usb: usb::UsbLink::default(),
             services_up: false,
+            app: None,
             options,
             health: bringup::Health::default(),
         };
@@ -1472,7 +1480,8 @@ impl<P: Platform> Device<P> {
         self.probe.leave(Label::new("sync_views"));
         lap.end(&mut self.last_phases.views);
         self.probe.set_phase(Phase::Frame);
-        if self.present {
+        // A running program owns the screen; the frame waits for its end.
+        if self.present && self.app.is_none() {
             self.probe.enter();
             self.present_frame();
             self.probe.leave(Label::new("present_frame"));
@@ -1665,6 +1674,21 @@ impl<P: Platform> Device<P> {
         };
         if masked && (self.bridges.services.inputs_masked() || self.restore_hold()) {
             return Ok(Vec::new());
+        }
+        // A running program reads the footswitches, the knobs and TEMPO itself, and the touch
+        // only counts for its quit hold. The power button ends it, so that the power dialog shows.
+        if let Some(app) = &mut self.app {
+            match &event {
+                Event::Hal(HalEvent::Knob { .. } | HalEvent::Stomp { .. } | HalEvent::Tempo(_)) => {
+                    return Ok(Vec::new());
+                }
+                Event::Hal(HalEvent::PowerButton(_)) => app.stop(),
+                Event::UiInput(ui::UiInput::Touch(sample)) => {
+                    app.touch(sample.pressed, now);
+                    return Ok(Vec::new());
+                }
+                _ => {}
+            }
         }
         let state = &mut self.state;
         Ok(match event {
@@ -1965,6 +1989,27 @@ impl<P: Platform> Device<P> {
     fn on_timer(&mut self, timer: Timer) -> Result<Vec<Effect>, DeviceError> {
         let now = self.clock.now();
         Ok(match timer {
+            Timer::App => {
+                let exited = self.app.as_mut().and_then(|app| app.poll(now));
+                match (exited, self.app.take()) {
+                    (Some(how), Some(app)) => {
+                        // The program drew over every row: the next frame is whole.
+                        self.platform.forget_display();
+                        self.bridges.ui.unshown();
+                        self.present = true;
+                        vec![Effect::Notice(
+                            Subsystem::Extensions,
+                            format!("{} ended: {how}", app.name),
+                        )]
+                    }
+                    (None, Some(app)) => {
+                        self.app = Some(app);
+                        self.start_timer(Timer::App, app::POLL);
+                        Vec::new()
+                    }
+                    (_, None) => Vec::new(),
+                }
+            }
             Timer::DismissSplash => {
                 self.state.splash_dismissed = true;
                 self.start_timer(Timer::SplashGone, SPLASH_POLL);
@@ -2535,6 +2580,10 @@ impl<P: Platform> Device<P> {
                 self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }
+            Effect::LaunchApp(launch) => {
+                self.launch_app(&launch);
+                Ok(())
+            }
             Effect::CustomModeChanged => {
                 let bytes =
                     (self.state.custom).active_file(self.state.performance.footswitch.custom);
@@ -2985,6 +3034,37 @@ impl<P: Platform> Device<P> {
         };
         self.note_pending(Subsystem::Dsp, pending);
         Ok(())
+    }
+
+    /// Starts an extension program unless one runs already.
+    fn launch_app(&mut self, launch: &app::AppLaunch) {
+        if self.app.is_some() {
+            return;
+        }
+        // A black screen first: a program can draw a smaller picture (DOOM draws 640×400). The
+        // next frame is whole, after the program or when it does not start.
+        let black = vec![0; tetrad_ui::WIDTH as usize * tetrad_ui::HEIGHT as usize * 3];
+        let cleared = self.platform.present(&black).map_err(DeviceError::platform);
+        self.report(cleared);
+        self.platform.forget_display();
+        self.bridges.ui.unshown();
+        match self.platform.start_app(launch) {
+            Ok(process) => {
+                self.app = Some(app::Running::new(launch.name.clone(), process));
+                self.start_timer(Timer::App, app::POLL);
+                self.notice(
+                    Subsystem::Extensions,
+                    format!("{} started {}", launch.name, launch.program.display()),
+                );
+            }
+            Err(error) => {
+                self.present = true;
+                self.notice(
+                    Subsystem::Extensions,
+                    format!("{} did not start: {error}", launch.name),
+                );
+            }
+        }
     }
 
     /// One UI frame and one LED frame (`leds::Leds::update`) per pass.

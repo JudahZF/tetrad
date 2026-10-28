@@ -9,6 +9,7 @@
 //! packages/<source>/<id>/<version>.tetradext   immutable package
 //! packages/<source>/<id>/<version>.mjs         its module, the file the runner starts
 //!                                              (a blocks-only package has none)
+//! packages/<source>/<id>/<version>.app/<file>  program files of a package with `app`
 //! installed/<source>~<id>.json                 installation record
 //! config/<source>~<id>.json                    settings object
 //! kv/<source>~<id>.json                        extension storage object
@@ -33,6 +34,9 @@ use crate::catalog::{Catalog, CatalogEntry, PublicKey, sha256_hex};
 use crate::manifest::{self, Manifest};
 use crate::package::{Package, PackageError};
 use crate::repository::{self, AssetMismatch, DEFAULT_KEY, DEFAULT_SOURCE, SourceId};
+
+/// Program files by name, as downloaded for [`Store::install`].
+pub type AppFiles = BTreeMap<String, Vec<u8>>;
 
 /// Largest storage object of one installation, serialized.
 pub const MAX_KV_BYTES: usize = 256 * 1024;
@@ -236,6 +240,17 @@ impl Store {
         self.package_dir(key).join(format!("{version}.mjs"))
     }
 
+    fn app_files_dir(&self, key: &InstallKey, version: &Version) -> PathBuf {
+        self.package_dir(key).join(format!("{version}.app"))
+    }
+
+    /// The folder of the program files of the current version; `None` without `app`.
+    pub fn app_dir(&self, installed: &Installed) -> Option<PathBuf> {
+        let release = &installed.current;
+        (release.manifest.app.is_some())
+            .then(|| self.app_files_dir(&installed.key, &release.version))
+    }
+
     fn record_path(&self, key: &InstallKey) -> PathBuf {
         self.root
             .join("installed")
@@ -273,7 +288,7 @@ impl Store {
     /// [`StoreState::problems`]; stale temporary files are deleted.
     pub fn load(&self) -> StoreState {
         let mut state = StoreState::default();
-        remove_temp_files(&self.root, 3, &mut state.problems);
+        remove_temp_files(&self.root, 4, &mut state.problems);
 
         state.sources = match read_bounded(&self.sources_path(), 64 * 1024) {
             Ok(None) => vec![Source::default_source()],
@@ -470,15 +485,17 @@ impl Store {
         write_atomic(&self.record_path(&installed.key), &json)
     }
 
-    /// Installs or updates to the package of `entry`, verified against that signed entry.
-    /// An update keeps the replaced version as `previous`; the version before that is
-    /// deleted. A fresh install is enabled; an update keeps the enabled flag.
+    /// Installs or updates to the package of `entry`, verified against that signed entry, with
+    /// the program files that the package pins (`files`; empty without `app`). An update keeps
+    /// the replaced version as `previous`; the version before that is deleted. A fresh install
+    /// is enabled; an update keeps the enabled flag.
     pub fn install(
         &self,
         source: &SourceId,
         signer: &PublicKey,
         entry: &CatalogEntry,
         package_bytes: &[u8],
+        files: &AppFiles,
     ) -> Result<Installed> {
         repository::check_asset(package_bytes, entry).map_err(|e| {
             StoreError::Mismatch(match e {
@@ -491,6 +508,20 @@ impl Store {
         if manifest.id != entry.id || manifest.version != entry.version || manifest.api != entry.api
         {
             return Err(StoreError::Mismatch("manifest ID, version or API"));
+        }
+        if manifest.app.is_some() != entry.app {
+            return Err(StoreError::Mismatch("program"));
+        }
+        for file in &package.app_files {
+            let bytes = files
+                .get(&file.name)
+                .ok_or(StoreError::Mismatch("a program file is missing"))?;
+            repository::check_bytes(bytes, file.size, &file.sha256).map_err(|e| {
+                StoreError::Mismatch(match e {
+                    AssetMismatch::Size => "program file size",
+                    AssetMismatch::Hash => "program file SHA-256",
+                })
+            })?;
         }
         let key = InstallKey {
             source: source.clone(),
@@ -514,6 +545,14 @@ impl Store {
         }
         if let Some(module) = &package.module {
             self.write_module(&key, &entry.version, module)?;
+        }
+        if let Some(app) = &manifest.app {
+            let dir = self.app_files_dir(&key, &entry.version);
+            for file in &package.app_files {
+                let path = dir.join(&file.name);
+                write_atomic(&path, &files[&file.name])?;
+                set_executable(&path, file.name == app.exec)?;
+            }
         }
 
         let release = Release {
@@ -665,7 +704,8 @@ impl Store {
 
     fn remove_release_files(&self, key: &InstallKey, version: &Version) -> Result<()> {
         remove_file(&self.package_path(key, version))?;
-        remove_file(&self.module_file(key, version))
+        remove_file(&self.module_file(key, version))?;
+        remove_dir(&self.app_files_dir(key, version))
     }
 
     /// The saved config checked against `manifest`, defaults filled in. No file means all
@@ -790,6 +830,19 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     write().map_err(io_error(&temp))?;
     fs::rename(&temp, path).map_err(io_error(path))?;
     sync_dir(dir)
+}
+
+/// Mode 755 for the program file that runs, 644 for the others.
+fn set_executable(path: &Path, executable: bool) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if executable { 0o755 } else { 0o644 };
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(io_error(path))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, executable);
+    Ok(())
 }
 
 fn remove_file(path: &Path) -> Result<()> {
@@ -919,6 +972,7 @@ mod tests {
             )),
             blocks: BTreeMap::new(),
             remote_page: None,
+            app_files: Vec::new(),
         })
     }
 
@@ -937,6 +991,7 @@ mod tests {
                 size: bytes.len() as u64,
                 sha256: sha256_hex(&bytes),
             },
+            app: package.manifest.app.is_some(),
         };
         (entry, bytes)
     }
@@ -957,14 +1012,20 @@ mod tests {
         let (v2, b2) = release("1.1.0");
         let (v3, b3) = release("1.2.0");
 
-        let installed = store.install(&source(), &key(), &v1, &b1).unwrap();
+        let installed = store
+            .install(&source(), &key(), &v1, &b1, &AppFiles::new())
+            .unwrap();
         assert!(installed.enabled && installed.previous.is_none());
         let module = fs::read_to_string(store.module_path(&installed).unwrap()).unwrap();
         assert!(module.ends_with("// 1.0.0"));
 
         store.set_enabled(&installed.key, false).unwrap();
-        store.install(&source(), &key(), &v2, &b2).unwrap();
-        let installed = store.install(&source(), &key(), &v3, &b3).unwrap();
+        store
+            .install(&source(), &key(), &v2, &b2, &AppFiles::new())
+            .unwrap();
+        let installed = store
+            .install(&source(), &key(), &v3, &b3, &AppFiles::new())
+            .unwrap();
         assert!(!installed.enabled, "an update keeps the enabled flag");
         assert_eq!(installed.previous.as_ref().unwrap().version, v2.version);
         assert!(
@@ -975,7 +1036,7 @@ mod tests {
         let rolled = store.rollback(&installed.key).unwrap();
         assert_eq!(rolled.current.version, v2.version);
         assert_eq!(rolled.previous.unwrap().version, v3.version);
-        let older = store.install(&source(), &key(), &v1, &b1);
+        let older = store.install(&source(), &key(), &v1, &b1, &AppFiles::new());
         assert!(
             matches!(older, Err(StoreError::Downgrade { .. })),
             "only rollback goes back"
@@ -1002,7 +1063,7 @@ mod tests {
         let mut tampered = bytes.clone();
         *tampered.last_mut().unwrap() = b' ';
         assert!(matches!(
-            store.install(&source(), &key(), &entry, &tampered),
+            store.install(&source(), &key(), &entry, &tampered, &AppFiles::new()),
             Err(StoreError::Mismatch(_))
         ));
 
@@ -1013,7 +1074,7 @@ mod tests {
             ..entry.clone()
         };
         assert!(matches!(
-            store.install(&source(), &key(), &lying, &other_bytes),
+            store.install(&source(), &key(), &lying, &other_bytes, &AppFiles::new()),
             Err(StoreError::Mismatch(_))
         ));
 
@@ -1024,7 +1085,7 @@ mod tests {
         };
         write_atomic(&store.package_path(&install_key, &entry.version), b"other").unwrap();
         assert!(matches!(
-            store.install(&source(), &key(), &entry, &bytes),
+            store.install(&source(), &key(), &entry, &bytes, &AppFiles::new()),
             Err(StoreError::Conflict(_))
         ));
     }
@@ -1034,7 +1095,9 @@ mod tests {
         let dir = TempDir::new();
         let store = Store::open(&dir.0).unwrap();
         let (entry, bytes) = release("1.0.0");
-        let installed = store.install(&source(), &key(), &entry, &bytes).unwrap();
+        let installed = store
+            .install(&source(), &key(), &entry, &bytes, &AppFiles::new())
+            .unwrap();
 
         // A lost module file is rewritten; a stale temp file is deleted.
         fs::remove_file(store.module_path(&installed).unwrap()).unwrap();
@@ -1073,8 +1136,11 @@ mod tests {
             module: None,
             blocks: BTreeMap::from([("gain".into(), qcdsp::examples::gain().unwrap())]),
             remote_page: None,
+            app_files: Vec::new(),
         });
-        let installed = store.install(&source(), &key(), &entry, &bytes).unwrap();
+        let installed = store
+            .install(&source(), &key(), &entry, &bytes, &AppFiles::new())
+            .unwrap();
         assert_eq!(store.module_path(&installed), None, "nothing to run");
         assert_eq!(
             store.blocks(&installed).unwrap().keys().collect::<Vec<_>>(),
@@ -1150,5 +1216,91 @@ mod tests {
         kv.insert("mappings".into(), json!([1, 2]));
         store.save_kv(&key, &kv).unwrap();
         assert_eq!(store.kv(&key).unwrap(), kv);
+    }
+
+    fn doom(version: &str, elf: &[u8]) -> (CatalogEntry, Vec<u8>, AppFiles) {
+        let package = Package {
+            manifest: serde_json::from_value(json!({
+                "id": "tetrad.doom", "name": "DOOM", "version": version, "api": 7,
+                "app": {"label": "Play DOOM", "exec": "qcdoom"}
+            }))
+            .unwrap(),
+            module: None,
+            blocks: BTreeMap::new(),
+            remote_page: None,
+            app_files: [("qcdoom", elf), ("doom1.wad", b"IWAD".as_slice())]
+                .map(|(name, bytes)| crate::package::AppFile {
+                    name: name.into(),
+                    size: bytes.len() as u64,
+                    sha256: sha256_hex(bytes),
+                })
+                .into(),
+        };
+        let (entry, bytes) = entry_for(&package);
+        let files = AppFiles::from([
+            ("qcdoom".to_owned(), elf.to_vec()),
+            ("doom1.wad".to_owned(), b"IWAD".to_vec()),
+        ]);
+        (entry, bytes, files)
+    }
+
+    /// The store writes only files that match the package, makes the program executable, and
+    /// an update drops the files of the version before the previous one.
+    #[test]
+    fn a_program_installs_with_its_pinned_files() {
+        let dir = TempDir::new();
+        let store = Store::open(&dir.0).unwrap();
+        let (entry, bytes, files) = doom("0.1.0", b"elf 1");
+
+        let mut changed = files.clone();
+        changed.insert("doom1.wad".into(), b"PWAD".to_vec());
+        let mut missing = files.clone();
+        missing.remove("qcdoom");
+        let unflagged = CatalogEntry {
+            app: false,
+            ..entry.clone()
+        };
+        for (entry, files) in [(&entry, &changed), (&entry, &missing), (&unflagged, &files)] {
+            assert!(
+                matches!(
+                    store.install(&source(), &key(), entry, &bytes, files),
+                    Err(StoreError::Mismatch(_))
+                ),
+                "{entry:?}"
+            );
+        }
+        assert!(
+            store.load().installed.is_empty(),
+            "a refused install leaves no record"
+        );
+
+        let installed = store
+            .install(&source(), &key(), &entry, &bytes, &files)
+            .unwrap();
+        let app = store.app_dir(&installed).unwrap();
+        assert_eq!(fs::read(app.join("qcdoom")).unwrap(), b"elf 1");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode =
+                |name: &str| fs::metadata(app.join(name)).unwrap().permissions().mode() & 0o777;
+            assert_eq!((mode("qcdoom"), mode("doom1.wad")), (0o755, 0o644));
+        }
+        assert_eq!(
+            store.module_path(&installed),
+            None,
+            "no runner for a program only"
+        );
+
+        for version in ["0.2.0", "0.3.0"] {
+            let (entry, bytes, files) = doom(version, version.as_bytes());
+            store
+                .install(&source(), &key(), &entry, &bytes, &files)
+                .unwrap();
+        }
+        assert!(
+            !app.exists(),
+            "the version before previous goes with its files"
+        );
     }
 }

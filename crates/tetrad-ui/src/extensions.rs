@@ -46,6 +46,8 @@ pub struct InstalledExtension {
     pub themes: Vec<String>,
     /// The footswitch mode it adds.
     pub footswitch_mode: Option<ExtensionMode>,
+    /// The button label of its program, such as "Play DOOM".
+    pub app: Option<String>,
 }
 
 /// The footswitch mode of a package.
@@ -118,6 +120,8 @@ pub struct AvailableExtension {
     /// The repositories ("Default" or `owner/repo`) that have this extension installed and on.
     /// Installed from here too, it would add the same blocks, themes and handlers twice.
     pub duplicates: Vec<String>,
+    /// It brings a program, which runs with full access to the unit.
+    pub app: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +170,10 @@ pub enum ExtensionCommand {
     Run {
         key: String,
         command: String,
+    },
+    /// Start the extension's program.
+    Launch {
+        key: String,
     },
     SetSetting {
         key: String,

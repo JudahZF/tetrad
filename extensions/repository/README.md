@@ -11,6 +11,7 @@ know this repository and its key from the firmware (`DEFAULT_SOURCE` and `DEFAUL
 | `tetrad-extensions.sig` | default branch, repository root | Base64 Ed25519 signature over the exact catalog bytes. |
 | `tetrad-extensions.pub` | default branch, repository root | Base64 public key. Devices show its fingerprint when a user adds a repository. |
 | `packages/*.tetradext` | release assets of the tag in the catalog | The packages. Do not commit them to the branch. |
+| `packages/<package>.<file>` | release assets of the same tag | The program files of a package with `app` (such as DOOM's `qcdoom`), next to their package. |
 
 The device reads `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/tetrad-extensions.{json,sig}`,
 verifies the signature with its pinned key, and downloads each package from
