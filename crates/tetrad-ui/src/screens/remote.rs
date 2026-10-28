@@ -1,11 +1,11 @@
 //! Owned Remote page (Tetrad; stock has none, docs/remote.md): the switches (Remote, and its
-//! PIN in the ⋮ menu), then the address and PIN a browser needs while Remote runs, and a QR
-//! code that opens the page with the PIN. Rows follow the generic settings rows (60 px with a
-//! divider); the page scrolls as they do.
+//! PIN in the ⋮ menu), a backup that the page sent with RESTORE and DISCARD, then the address
+//! and PIN a browser needs while Remote runs, and a QR code that opens the page with the PIN.
+//! Rows follow the generic settings rows (60 px with a divider); the page scrolls as they do.
 
 use super::extensions::{divider, label, switch_row};
 use super::settings::rich_height;
-use crate::layout::{LARGE, Layout, ListId, Look, MEDIUM};
+use crate::layout::{ButtonStyle, CAPTION, LARGE, Layout, ListId, Look, MEDIUM};
 use crate::render::Align;
 use crate::*;
 use qrcodegen::{QrCode, QrCodeEcc};
@@ -49,8 +49,9 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect, help: &str, remot
     // Stock rows run 8 px past the text inset (`screens::settings`).
     let area = Rect::new(body.x, body.y, body.width + 8, body.height);
     let help_width = body.width - 16;
-    let switches = if remote_page { 2 } else { 1 };
-    let content = (switches + rows.len() as u32) * ROW
+    let restore = view.restore.as_ref().filter(|_| remote_page);
+    let top_rows = if remote_page { 2 } else { 1 } + u32::from(restore.is_some());
+    let content = (top_rows + rows.len() as u32) * ROW
         + code_block
         + 16
         + rich_height(help, MEDIUM, help_width);
@@ -64,6 +65,10 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect, help: &str, remot
             let menu = "Show PIN in menu";
             l.control(row, Control::RemotePinInMenuToggle, true, menu, Look::Area);
             switch_row(l, row, menu, Some(view.pin_in_menu));
+        }
+        if let Some(backup) = restore {
+            row.y += ROW as i32;
+            restore_row(l, row, backup);
         }
         if let (Some(code), Some(address), Some(pin)) = (&code, &view.address, &view.pin) {
             let block = Rect::new(row.x, row.bottom(), row.width, code_block);
@@ -122,6 +127,33 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, body: Rect, help: &str, remot
             p.muted,
         );
     });
+}
+
+/// The backup that the page sent: its name over its size, then DISCARD and RESTORE, or the
+/// restore that runs.
+fn restore_row(l: &mut Layout, row: Rect, backup: &RemoteRestore) {
+    let p = l.palette;
+    let buttons = row.right() - 16 - 2 * 120 - 8;
+    let text = Rect::new(
+        row.x + 16,
+        row.y + 8,
+        (buttons - 16 - row.x - 16).max(0) as u32,
+        26,
+    );
+    l.text(text, backup.name.as_str(), MEDIUM, p.text, Align::Left);
+    let size = Rect::new(text.x, text.bottom(), text.width, 20);
+    l.text(size, backup.size.as_str(), CAPTION, p.muted, Align::Left);
+    let button = |index: i32| Rect::new(buttons + index * 128, row.y + 8, 120, 44);
+    if backup.restoring {
+        let state = Rect::new(buttons, row.y, (row.right() - 16 - buttons) as u32, ROW);
+        l.text(state, "Restoring…", MEDIUM, p.muted, Align::Right);
+    } else {
+        let discard = Control::RemoteDiscard;
+        l.button(button(0), discard, true, "DISCARD", ButtonStyle::Inset);
+        let restore = Control::RemoteRestore;
+        l.button(button(1), restore, true, "RESTORE", ButtonStyle::Primary);
+    }
+    divider(l, row);
 }
 
 /// The page with the PIN after the `#`, for the QR code: the page reads the PIN there, and a

@@ -1021,6 +1021,10 @@ pub enum Control {
     /// The switches of the Remote page (`screens::remote`): Remote, then its PIN in the ⋮ menu.
     RemoteToggle,
     RemotePinInMenuToggle,
+    /// The received backup of the Remote page ([`crate::RemoteView::restore`]): RESTORE asks
+    /// first, DISCARD removes it.
+    RemoteRestore,
+    RemoteDiscard,
     /// The switch of the Boot Selector page (`screens::settings`).
     BootSelectorToggle,
     Updater(UpdaterCommand),
@@ -1296,6 +1300,10 @@ pub enum UiCommand {
         enabled: bool,
         pin_in_menu: bool,
     },
+    /// Restore the backup that the Remote page sent (confirmed).
+    RemoteRestore,
+    /// Remove the backup that the Remote page sent.
+    RemoteDiscard,
     /// The Boot Selector page switch: the launcher shows the boot selector from the next boot.
     SetBootSelector {
         shown: bool,
@@ -2040,6 +2048,8 @@ impl fmt::Debug for UiCommand {
                 enabled,
                 pin_in_menu,
             } => show!("SetRemote", enabled, pin_in_menu),
+            C::RemoteRestore => f.write_str("RemoteRestore"),
+            C::RemoteDiscard => f.write_str("RemoteDiscard"),
             C::SetBootSelector { shown } => show!("SetBootSelector", shown),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),

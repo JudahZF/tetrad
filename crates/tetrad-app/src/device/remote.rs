@@ -76,6 +76,8 @@ pub struct Remote {
     /// Challenges that were given out, each with the time it was given (a challenge works once).
     #[cfg(feature = "dev")]
     nonces: Vec<(String, std::time::Duration)>,
+    /// The Backup page (`super::remote_backup`).
+    pub(super) backup: super::remote_backup::BackupPage,
 }
 
 impl Remote {
@@ -87,14 +89,19 @@ impl Remote {
             address: address.map(|address| format!("http://{address}")),
             pin: self.pin.clone(),
             status: self.status.clone(),
+            restore: self.backup.restore(),
         }
+    }
+
+    pub(super) fn running(&self) -> bool {
+        self.pin.is_some()
     }
 
     pub fn toast(&self) -> Option<ToastView> {
         self.toast.clone()
     }
 
-    fn show_toast(&mut self, text: String) {
+    pub(super) fn show_toast(&mut self, text: String) {
         let id = self.toast.as_ref().map_or(0, |toast| toast.id) + 1;
         self.toast = Some(ToastView { id, text });
     }
@@ -167,6 +174,8 @@ impl<P: Platform> Device<P> {
     }
 
     fn start_remote(&mut self) {
+        // Files of a run that ended without a stop.
+        self.drop_remote_backup();
         let started = match self.platform.remote() {
             Some(backend) => backend
                 .start()
@@ -191,6 +200,7 @@ impl<P: Platform> Device<P> {
         if let Some(backend) = self.platform.remote() {
             backend.stop();
         }
+        self.drop_remote_backup();
         let remote = &mut self.bridges.remote;
         remote.pin = None;
         remote.status = status;

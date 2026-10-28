@@ -30,7 +30,7 @@ pub use damage::Renderer;
 pub use extensions::*;
 pub use mappings::*;
 pub use png::{PngColour, png};
-pub use remote::{RemoteView, ToastView};
+pub use remote::{RemoteRestore, RemoteView, ToastView};
 pub use render::{Frame, HEIGHT, PRESET_GRID_HEIGHT, PRESET_GRID_WIDTH, WIDTH};
 pub use settings::{
     DeviceAction, InputJack, IoTab, LoopJack, OutputJack, SettingId, SettingKind, SettingValue,

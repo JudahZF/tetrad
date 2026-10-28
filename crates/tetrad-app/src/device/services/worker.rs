@@ -134,7 +134,7 @@ pub(super) fn run_backup<B: ServiceBackends + ?Sized>(
             io.files
                 .write(dest, &local.archive)
                 .map_err(BackupError::from)?;
-            BackupDone::Restored(backup::restore(io.files, root, dest)?)
+            BackupDone::Restored(backup::restore(io.files, root, dest, backup::Scope::Any)?)
         }
         BackupJob::Upload {
             archive,
@@ -217,8 +217,8 @@ pub(super) fn run_backup<B: ServiceBackends + ?Sized>(
             }
             BackupDone::Fetched
         }
-        BackupJob::Restore { archive } => {
-            BackupDone::Restored(backup::restore(io.files, root, &archive)?)
+        BackupJob::Restore { archive, scope } => {
+            BackupDone::Restored(backup::restore(io.files, root, &archive, scope)?)
         }
     })
 }

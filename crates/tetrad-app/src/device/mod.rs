@@ -385,6 +385,8 @@ pub enum Effect {
     ControlBackup(services::ControlBackup),
     /// Its result for the Control bridge.
     ControlBackupDone(services::ControlBackupDone),
+    /// The result of a Remote page backup for the Remote bridge (`Device::remote_backup_done`).
+    RemoteBackupDone(services::RemoteBackupDone),
     /// The end of a Cortex Control cloud backup (CloudBackup 41) for the Control bridge.
     CloudBackupDone(control::CloudBackupDone),
     /// A restore job failed: the library comes back and `zenui.db` reopens (`0x3fcf64`).
@@ -2301,6 +2303,7 @@ impl<P: Platform> Device<P> {
                 self.set_remote(enabled, pin_in_menu);
                 Vec::new()
             }
+            ui::Handoff::RemoteBackup { restore } => self.remote_backup_touch(restore),
             ui::Handoff::BootSelector { shown } => {
                 self.set_boot_selector(shown);
                 Vec::new()
@@ -2665,6 +2668,10 @@ impl<P: Platform> Device<P> {
                 let effects =
                     (self.bridges.control).backup_done(done, &mut self.state, self.clock.now());
                 self.apply(effects);
+                Ok(())
+            }
+            Effect::RemoteBackupDone(done) => {
+                self.remote_backup_done(done);
                 Ok(())
             }
             Effect::CloudBackupDone(done) => {

@@ -1,5 +1,6 @@
 //! Remote view model (owned, Tetrad; docs/remote.md). The application fills [`RemoteView`];
-//! the Tetrad › Remote page shows it and answers with [`crate::UiCommand::SetRemote`].
+//! the Tetrad › Remote page shows it and answers with [`crate::UiCommand::SetRemote`], and for a
+//! received backup with [`crate::UiCommand::RemoteRestore`] or [`crate::UiCommand::RemoteDiscard`].
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteView {
@@ -12,6 +13,19 @@ pub struct RemoteView {
     pub pin: Option<String>,
     /// The last upload or the last problem, such as "Port 80 is in use".
     pub status: Option<String>,
+    /// A backup that the page sent. The page offers RESTORE and DISCARD for it; nothing is
+    /// restored before that touch.
+    pub restore: Option<RemoteRestore>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteRestore {
+    /// The file name the page sent.
+    pub name: String,
+    /// As "34.2 MB".
+    pub size: String,
+    /// The restore runs.
+    pub restoring: bool,
 }
 
 /// A short message from the application. The UI shows it as a toast each time `id` changes.
