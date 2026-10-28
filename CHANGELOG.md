@@ -3,7 +3,7 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [0.1.0-alpha.9](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.9) (2026-10-28)
 
 ### Added
 
@@ -28,12 +28,28 @@ All notable changes to Tetrad are in this file. The version numbers follow
   name there; the row opens the extension's settings.
 - Remote: a **Show PIN in menu** switch (off by default). While Remote runs and the switch is
   on, the first row of the ⋮ menu shows the PIN as `Remote #1234`; a tap opens the Remote page.
-  The switch is saved in `remote.json`. The Remote page now scrolls.
+  The switch is saved in `remote.json`. The Remote page now scrolls (#22, thanks Rick Peters).
 - Settings → Tetrad → Boot Selector: a **Show at boot** switch turns the boot selector on or
   off from the next boot, as `tetrad-launcher.sh chooser on|off` does.
+- Remote: an extension that makes blocks from asset files (the NAM models) has a Files page.
+  It uploads and deletes files and shows what the extension made of each file. A new block
+  shows without a restart (#23, thanks Rick Peters).
+- Extension API 6: the `remote` capability. An extension packs `remote.html` (package format 3)
+  and gets its own page on the Remote page, in a sandboxed frame
+  ([docs/extensions.md](docs/extensions.md)) (#24, thanks Rick Peters).
+- Dev builds (the `dev` feature, never in a release): a **Tetrad dev** boot entry and a perf
+  log line (#25). A dev build updates over Wi-Fi from the Remote page or with
+  `scripts/dev-update.sh`, and `TETRAD_RELEASE_PUBKEY` gives a build its own signing key
+  ([docs/development.md](docs/development.md#your-own-updates)) (#26, thanks Rick Peters).
 
 ### Changed
 
+- Remote: the pages are in a sidebar (Library, Extensions, Developer). On a narrow screen the
+  sidebar is a row of buttons (#24, thanks Rick Peters).
+- Scrolling: a drag draws up to 50 frames per second (about 25 before), a quick flick keeps a
+  list moving, and the idle loop uses less CPU (#19, thanks Rick Peters).
+- The block picker and Plugin Presets hide the plugins that you have no licence for. A plugin
+  that waits for activation stays (#28).
 - Tetrad Updates, Appearance, Extensions and Remote moved from Settings → System to the new
   Settings → Tetrad group.
 - Settings → Support → Send Report shows the Remote switch, address and PIN to get the support
@@ -56,6 +72,11 @@ All notable changes to Tetrad are in this file. The version numbers follow
   CorOS 4.1.1 does the same. A block of a plugin you have no licence for now stays on the grid
   with its lock but loads nothing on the DSP; it loads when you get the licence. Edits to it
   are kept in the preset (#17, thanks Rick Peters).
+- Some factory plugin presets did not load ("model ID 4294967295 is not in the catalog"). They
+  load now (#29).
+- With LIVE TUNER on, the outputs stayed muted after you closed the Tuner (or a MIDI message
+  turned it off), until the setting changed. Now the mute follows the Tuner screen (#30, thanks
+  Rick Peters).
 
 ## [0.1.0-alpha.8](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.8) (2026-10-25)
 
