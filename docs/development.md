@@ -19,6 +19,18 @@ The submodules are:
 - `qc-dev/` ([JudahZF/tetrad-toolchain](https://github.com/JudahZF/tetrad-toolchain)): the public ARM toolchain (Nix
   flake and build scripts) for the device build.
 
+There are two builds:
+
+| Build | Command | Output | Use |
+| --- | --- | --- | --- |
+| Host | `cargo build` | `target/{debug,release}/tetrad`, for your computer's CPU | Tests, the offline tools, `render_owned` |
+| Device | `nix develop path:./qc-dev -c ./qc-dev/build-arm.sh . dist` | `dist/tetrad`, 32-bit ARM | The unit: `scripts/install.sh` |
+
+Only the device build runs on the unit. `cargo build --release` gives a host binary
+(x86_64 or arm64, larger than the release binary). `scripts/install.sh` refuses it with
+"is not an ARM Linux binary". To compare your build with a release, use the device build: it is
+the command that the release workflow runs.
+
 ### Host build and tests
 
 ```sh
@@ -76,7 +88,14 @@ nix develop path:./qc-dev -c ./qc-dev/build-arm.sh . dist
 
 The result is `dist/tetrad` and `dist/tetrad.sha256`. `build-arm.sh` checks the ELF file with
 `qc-dev/check-elf.sh`. See [qc-dev/README.md](../qc-dev/README.md) for the details and a build
-without Nix.
+without Nix (rustup and cargo-zigbuild).
+
+Install it from the checkout. `install.sh` finds `dist/tetrad` and `scripts/launcher/` itself
+([install.md](install.md)):
+
+```sh
+scripts/install.sh --host <unit> install
+```
 
 ### Dev build
 
