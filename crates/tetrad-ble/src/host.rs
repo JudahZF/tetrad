@@ -28,6 +28,8 @@ const MIDI_PARAMETERS: l2cap::Parameters = l2cap::Parameters {
 };
 /// L2CAP packets that may wait for controller buffers; past this, MIDI notifications drop.
 const MAX_QUEUED_PACKETS: usize = 64;
+/// Tetrad Link bytes that may wait; past this, a Link message drops (a few full messages).
+const MAX_QUEUED_LINK_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -52,8 +54,9 @@ pub enum Command {
     SendMidi(Vec<u8>),
     /// Drop the bond with this address, and end its link.
     Forget(Address),
-    /// One Tetrad Link message for the host's app ([`crate::link`]). It waits behind MIDI.
-    LinkSend(Vec<u8>),
+    /// One Tetrad Link message for the host's app ([`crate::link`]) on the connection of a
+    /// [`Event::HostSecured`]. It waits behind MIDI, and drops when that connection ended.
+    LinkSend { connection: u32, message: Vec<u8> },
 }
 
 /// What the host tells the device.
@@ -91,9 +94,11 @@ pub enum Event {
     MidiListening(bool),
     /// The host's link is encrypted. `paired`: by a pairing on this link (new keys); else by
     /// the saved bond's key. `address` is the host's identity when Tetrad knows it.
+    /// `connection` names this link for [`Command::LinkSend`]; never reused.
     HostSecured {
         address: Address,
         paired: bool,
+        connection: u32,
     },
     /// Whether the host's Tetrad app listens for Link replies on an encrypted link.
     LinkListening(bool),
@@ -105,6 +110,8 @@ pub enum Event {
 
 struct Link {
     role: Role,
+    /// Never reused, unlike the handle ([`Event::HostSecured`]).
+    connection: u32,
     peer: (u8, Address),
     /// The bonded identity of the peer, when Tetrad knows it.
     identity: Option<Address>,
@@ -167,6 +174,8 @@ pub struct Host {
     now: Duration,
     signal_id: u8,
     dropped_midi: u64,
+    /// The connection number of the next link.
+    next_connection: u32,
 }
 
 /// One L2CAP packet: its link handle and its ACL fragments, in order.
@@ -209,6 +218,7 @@ impl Host {
             now: Duration::ZERO,
             signal_id: 0,
             dropped_midi: 0,
+            next_connection: 0,
         };
         // Disconnection, encryption change, hardware error, data buffer overflow, key refresh
         // and LE meta events.
@@ -313,7 +323,10 @@ impl Host {
             Command::SetPairable(on) => self.set_pairable(on),
             Command::SendMidi(message) => self.send_midi(&message),
             Command::Forget(address) => self.forget(&address),
-            Command::LinkSend(message) => self.send_link(&message),
+            Command::LinkSend {
+                connection,
+                message,
+            } => self.send_link(connection, &message),
         }
     }
 
@@ -376,18 +389,27 @@ impl Host {
         }
     }
 
-    /// Sends a Tetrad Link message to the host that listens on the Reply characteristic.
-    fn send_link(&mut self, message: &[u8]) {
+    /// Sends a Tetrad Link message on one connection, when its app listens on the Reply
+    /// characteristic. A message for an ended connection never reaches the next host.
+    fn send_link(&mut self, connection: u32, message: &[u8]) {
         let Some(handle) = self.db.handle(Slot::LinkReply) else {
             return;
         };
         let Some((link, bearer)) = (self.links.iter())
-            .find(|(_, link)| link.listens(Notify::Link))
+            .find(|(_, link)| link.connection == connection && link.listens(Notify::Link))
             .map(|(h, link)| (*h, link.bearer.clone()))
         else {
             self.notice("a Tetrad Link reply with no app listening".into());
             return;
         };
+        let queued: usize = (self.bulk.iter())
+            .flat_map(|(_, fragments)| fragments)
+            .map(Vec::len)
+            .sum();
+        if queued + message.len() > MAX_QUEUED_LINK_BYTES {
+            self.notice("the Tetrad Link is behind: a message dropped".into());
+            return;
+        }
         for frame in crate::link::frames(message, usize::from(bearer.mtu) - 3) {
             let pdu = att::notification(&bearer, handle, &frame);
             let packet = self.fragments(link, l2cap::ATT, &pdu);
@@ -580,10 +602,13 @@ impl Host {
         let notify = identity
             .and_then(|address| self.bonds.iter().find(|bond| bond.address == address))
             .map_or(0, |bond| bond.notify);
+        let connection = self.next_connection;
+        self.next_connection = self.next_connection.wrapping_add(1);
         self.links.insert(
             handle,
             Link {
                 role,
+                connection,
                 peer: (peer_type, peer),
                 identity,
                 encrypted: false,
@@ -729,8 +754,12 @@ impl Host {
             return;
         };
         let address = link.identity.unwrap_or(link.peer.1);
-        self.events
-            .push_back(Event::HostSecured { address, paired });
+        let connection = link.connection;
+        self.events.push_back(Event::HostSecured {
+            address,
+            paired,
+            connection,
+        });
     }
 
     fn update_bond(&mut self, identity: Option<Address>, change: impl FnOnce(&mut Bond, u32)) {

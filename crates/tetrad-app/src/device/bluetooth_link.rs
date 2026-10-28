@@ -83,6 +83,8 @@ pub struct LinkState {
     pub pin_given: bool,
     /// The host's app turned on Link replies on an encrypted link.
     pub listening: bool,
+    /// The encrypted connection that replies go to; the host drops them once it ends.
+    pub connection: Option<u32>,
     wrong: u8,
     /// No PIN is taken before this time.
     wait_until: Duration,
@@ -99,6 +101,7 @@ impl LinkState {
         self.authorized = false;
         self.pin_given = false;
         self.listening = false;
+        self.connection = None;
         self.pending.clear();
     }
 
@@ -167,8 +170,14 @@ impl<P: Platform> Device<P> {
     }
 
     fn link_send(&mut self, message: Vec<u8>) {
+        let Some(connection) = self.bridges.bluetooth.link.connection else {
+            return;
+        };
         if let Some(backend) = self.platform.bluetooth() {
-            backend.send(Command::LinkSend(message));
+            backend.send(Command::LinkSend {
+                connection,
+                message,
+            });
         }
     }
 

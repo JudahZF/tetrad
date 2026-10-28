@@ -51,10 +51,10 @@ fn push(device: &mut Device<Sim>, event: Ble) {
 fn ask(device: &mut Device<Sim>, header: Value) -> Value {
     push(device, Ble::LinkMessage(tetrad_usb::encode(&header, &[])));
     let sent = &device.platform().bluetooth.as_ref().unwrap().sent;
-    let Some(Command::LinkSend(message)) = sent
+    let Some(Command::LinkSend { message, .. }) = sent
         .iter()
         .rev()
-        .find(|c| matches!(c, Command::LinkSend(_)))
+        .find(|c| matches!(c, Command::LinkSend { .. }))
     else {
         panic!("no reply in {sent:?}");
     };
@@ -77,17 +77,20 @@ fn a_remembered_pin_counts_only_after_the_saved_key_encrypts_the_link() {
             bonded: true,
         },
     );
-    // The address alone proves nothing.
+    // The address alone proves nothing, and before encryption no reply goes out.
     let files = json!({"id": 1, "op": "files"});
-    assert_eq!(
-        ask(&mut device, files.clone())["error"],
-        "Give the PIN first (auth)"
+    push(
+        &mut device,
+        Ble::LinkMessage(tetrad_usb::encode(&files, &[])),
     );
+    let sent = &device.platform().bluetooth.as_ref().unwrap().sent;
+    assert!(!sent.iter().any(|c| matches!(c, Command::LinkSend { .. })));
     push(
         &mut device,
         Ble::HostSecured {
             address: PHONE,
             paired: false,
+            connection: 0,
         },
     );
     assert!(ask(&mut device, files)["extensions"].is_array());
@@ -110,6 +113,7 @@ fn a_new_pairing_with_a_known_address_must_give_the_pin_again() {
         Ble::HostSecured {
             address: PHONE,
             paired: true,
+            connection: 0,
         },
     );
     let request = json!({"id": 1, "op": "files"});
@@ -143,6 +147,7 @@ fn pairing_again_after_a_remembered_pin_must_give_the_pin_again() {
         Ble::HostSecured {
             address: PHONE,
             paired: false,
+            connection: 0,
         },
     );
     // The same connection pairs again: new keys.
@@ -152,6 +157,7 @@ fn pairing_again_after_a_remembered_pin_must_give_the_pin_again() {
         Ble::HostSecured {
             address: PHONE,
             paired: true,
+            connection: 0,
         },
     );
     let files_request = json!({"id": 1, "op": "files"});

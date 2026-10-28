@@ -431,10 +431,15 @@ impl<P: Platform> Device<P> {
                 self.bridges.bluetooth.listening = on;
                 self.sync_bluetooth_midi();
             }
-            Event::HostSecured { address, paired } => {
+            Event::HostSecured {
+                address,
+                paired,
+                connection,
+            } => {
                 let bluetooth = &mut self.bridges.bluetooth;
                 // After a pairing the host knows the identity behind a private address.
                 bluetooth.host = Some(address);
+                bluetooth.link.connection = Some(connection);
                 if paired {
                     // New keys: only a PIN given on this connection counts for them, not one
                     // remembered by the old bond.

@@ -113,6 +113,10 @@ Every op except `hello` and `auth` needs the PIN first. An extension pushes an e
 At 115200 baud the link carries about 8 KB/s: an IR takes a second, a 3 MiB NAM model several
 minutes. The Remote page over Wi-Fi is faster for large files.
 
+Messages to the app wait in a queue of 256 KiB. When it is full, a message drops: a request
+gets no reply, and an extension's event is lost (`notify` still resolved `true`). A message
+goes only to the connection it was made for: when that connection ends, its messages drop.
+
 ## Limits
 
 - One phone or computer at a time. While one is connected, the unit does not advertise.

@@ -358,7 +358,8 @@ fn a_phone_pairs_plays_midi_and_comes_back_with_its_bond() {
             Event::MidiListening(true),
             Event::HostSecured {
                 address: PHONE,
-                paired: false
+                paired: false,
+                connection: 0,
             }
         ]
     );
@@ -442,10 +443,19 @@ fn midi_waits_until_a_link_reply_packet_is_whole() {
         rig.feed(&acl_in(l2cap::ATT, &write));
     }
     rig.take_frames();
+    // A reply for another connection (one that ended) never reaches this host.
+    rig.host.apply(tetrad_ble::Command::LinkSend {
+        connection: 1,
+        message: vec![1, 2, 3],
+    });
+    rig.collect();
+    assert!(rig.take_frames().is_empty());
     // A reply of many 27-byte fragments, then MIDI while the controller's 30 buffers are full.
     let message: Vec<u8> = (0..2000).map(|i| i as u8).collect();
-    rig.host
-        .apply(tetrad_ble::Command::LinkSend(message.clone()));
+    rig.host.apply(tetrad_ble::Command::LinkSend {
+        connection: 0,
+        message: message.clone(),
+    });
     rig.host.send_midi(&[0xb0, 1, 2]);
     rig.collect();
     for _ in 0..20 {
