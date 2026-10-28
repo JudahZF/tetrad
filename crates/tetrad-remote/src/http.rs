@@ -11,6 +11,19 @@ const MAX_HEADERS: usize = 32;
 pub const MAX_BODY: usize = 64 * 1024;
 
 const PAGE: &str = include_str!("page.html");
+/// Where a dev build puts the update part of the page ([`page`]).
+const UPDATE_MARK: &str = "<!--update-->";
+#[cfg(feature = "dev")]
+const UPDATE_PART: &str = include_str!("update.html");
+
+/// The page: in a dev build with its "Update Tetrad" part.
+fn page() -> String {
+    #[cfg(feature = "dev")]
+    return PAGE.replace(UPDATE_MARK, UPDATE_PART);
+    #[cfg(not(feature = "dev"))]
+    PAGE.replace(UPDATE_MARK, "")
+}
+
 /// Inline script and style only; the page talks to the unit and nothing else.
 const PAGE_POLICY: &str = "default-src 'none'; script-src 'unsafe-inline'; \
     style-src 'unsafe-inline'; connect-src 'self'; img-src data:; form-action 'none'; \
@@ -52,7 +65,7 @@ pub fn serve_one<S: Read + Write>(
             200,
             "text/html; charset=utf-8",
             &[("Content-Security-Policy", PAGE_POLICY)],
-            PAGE.as_bytes(),
+            page().as_bytes(),
         ),
         Ok(Route::Device(request)) => match device(request) {
             Reply::File { name, zip } => {
@@ -61,6 +74,14 @@ pub fn serve_one<S: Read + Write>(
                 let headers = [("Content-Disposition", disposition.as_str())];
                 respond(stream, 200, "application/zip", &headers, &zip)
             }
+            #[cfg(feature = "dev")]
+            Reply::Log { text } => respond(
+                stream,
+                200,
+                "text/plain; charset=utf-8",
+                &[],
+                text.as_bytes(),
+            ),
             reply => {
                 let (status, body) = reply.response();
                 json(stream, status, &body)
@@ -100,6 +121,90 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
                 wav: body,
             }))
         }
+        #[cfg(feature = "dev")]
+        ("GET", "/api/update") => Ok(Route::Device(Request::UpdateStatus {
+            pin: device(head.pin)?,
+        })),
+        #[cfg(feature = "dev")]
+        ("POST", "/api/update/begin") => {
+            let pin = device(head.pin)?;
+            let bad = || Fail::Status(400, r#"files: {"path": size, ...} required"#);
+            let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| bad())?;
+            let files = (value.get("files").and_then(serde_json::Value::as_object))
+                .ok_or_else(bad)?
+                .iter()
+                .map(|(path, size)| Ok((path.clone(), size.as_u64().ok_or_else(bad)?)))
+                .collect::<Result<_, Fail>>()?;
+            Ok(Route::Device(Request::UpdateBegin { pin, files }))
+        }
+        #[cfg(feature = "dev")]
+        ("POST", "/api/update/chunk") => {
+            let pin = device(head.pin)?;
+            let path =
+                query_value(&head.query, "path")?.ok_or(Fail::Status(400, "path required"))?;
+            let offset = query_value(&head.query, "offset")?
+                .and_then(|offset| offset.parse().ok())
+                .ok_or(Fail::Status(400, "offset required"))?;
+            Ok(Route::Device(Request::UpdateChunk {
+                pin,
+                path,
+                offset,
+                bytes: body,
+            }))
+        }
+        #[cfg(feature = "dev")]
+        ("POST", "/api/update/ready") => Ok(Route::Device(Request::UpdateReady {
+            pin: device(head.pin)?,
+        })),
+        #[cfg(feature = "dev")]
+        ("POST", "/api/update/install") => Ok(Route::Device(Request::UpdateInstall {
+            pin: device(head.pin)?,
+        })),
+        #[cfg(feature = "dev")]
+        ("GET", "/api/auth/nonce") => Ok(Route::Device(Request::AuthNonce)),
+        #[cfg(feature = "dev")]
+        ("POST", "/api/auth/pin") => {
+            let bad = || Fail::Status(400, r#"key, nonce and signature required"#);
+            let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| bad())?;
+            let text = |key: &str| {
+                (value.get(key).and_then(serde_json::Value::as_str))
+                    .map(str::to_owned)
+                    .ok_or_else(bad)
+            };
+            Ok(Route::Device(Request::AuthPin {
+                key: text("key")?,
+                nonce: text("nonce")?,
+                signature: text("signature")?,
+            }))
+        }
+        #[cfg(feature = "dev")]
+        ("POST", "/api/keys") => {
+            let pin = device(head.pin)?;
+            let bad = || Fail::Status(400, r#"key required"#);
+            let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| bad())?;
+            let key = (value.get("key").and_then(serde_json::Value::as_str)).ok_or_else(bad)?;
+            Ok(Route::Device(Request::AddKey {
+                pin,
+                key: key.to_owned(),
+            }))
+        }
+        #[cfg(feature = "dev")]
+        ("GET", "/api/log") => Ok(Route::Device(Request::Log {
+            pin: device(head.pin)?,
+        })),
+        #[cfg(feature = "dev")]
+        (
+            _,
+            "/api/update"
+            | "/api/update/begin"
+            | "/api/update/chunk"
+            | "/api/update/ready"
+            | "/api/update/install"
+            | "/api/auth/nonce"
+            | "/api/auth/pin"
+            | "/api/keys"
+            | "/api/log",
+        ) => Err(Fail::Status(405, "method not allowed")),
         ("GET", "/api/files") => Ok(Route::Device(Request::Files {
             pin: device(head.pin)?,
         })),

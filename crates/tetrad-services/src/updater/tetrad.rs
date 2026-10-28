@@ -44,6 +44,14 @@ pub const SIGNATURE: &str = "tetrad-update.json.sig";
 /// The base64 Ed25519 key that signs releases. The release workflow checks that its secret
 /// key matches this value. A new key needs one install with `scripts/install.sh`.
 pub const RELEASE_KEY: &str = "M4g350Lncizx/83Q9fJVpFZ9oiHvkr/1/2D5fiB8I2o=";
+/// The key this build trusts: [`RELEASE_KEY`], or the base64 Ed25519 key in the environment
+/// variable `TETRAD_RELEASE_PUBKEY` at build time (docs/development.md, "Your own updates").
+/// A build with its own key takes only manifests signed with the matching private key, and not
+/// the releases of [`REPOSITORY`]. The release workflow does not set it.
+pub const TRUSTED_KEY: &str = match option_env!("TETRAD_RELEASE_PUBKEY") {
+    Some(key) => key,
+    None => RELEASE_KEY,
+};
 /// The Tetrad folder on the user data partition.
 pub const HOME: &str = "/media/p4/tetrad";
 /// The files of an update, relative to [`HOME`], in sorted order. A manifest lists exactly
@@ -62,7 +70,8 @@ const RELEASES_PER_PAGE: u8 = 30;
 const MAX_RELEASES_BYTES: usize = 4 << 20;
 const MAX_MANIFEST_BYTES: usize = 64 << 10;
 const MAX_SIGNATURE_BYTES: usize = 1 << 10;
-const MAX_BINARY_BYTES: u64 = 64 << 20;
+/// The largest `bin/tetrad` that an update takes.
+pub const MAX_BINARY_BYTES: u64 = 64 << 20;
 const MAX_SCRIPT_BYTES: u64 = 256 << 10;
 const API_TIMEOUT: Duration = Duration::from_secs(30);
 const FILE_TIMEOUT: Duration = Duration::from_secs(600);
@@ -97,6 +106,31 @@ pub enum TetradUpdateError {
     File(#[from] FileError),
 }
 
+/// Checks the base64 Ed25519 `signature` of `message` against the base64 public `key`: the
+/// check of a manifest, and of a key that asks the Remote page of a dev build for its PIN.
+pub fn verify_signature(
+    key: &str,
+    message: &[u8],
+    signature: &[u8],
+) -> Result<(), TetradUpdateError> {
+    let bad = TetradUpdateError::Signature;
+    let decode = |text: &[u8]| {
+        let text = std::str::from_utf8(text).map_err(|_| bad("not UTF-8"))?;
+        BASE64.decode(text.trim()).map_err(|_| bad("not base64"))
+    };
+    let key: [u8; 32] = (decode(key.as_bytes())?.try_into()).map_err(|_| bad("bad key"))?;
+    let key = VerifyingKey::from_bytes(&key).map_err(|_| bad("bad key"))?;
+    let signature = Signature::from_slice(&decode(signature)?).map_err(|_| bad("not 64 bytes"))?;
+    (key.verify_strict(message, &signature)).map_err(|_| bad("does not match the key"))
+}
+
+/// Whether `key` is a base64 Ed25519 public key.
+pub fn is_public_key(key: &str) -> bool {
+    let bytes = BASE64.decode(key.trim()).ok();
+    let bytes: Option<[u8; 32]> = bytes.and_then(|bytes| bytes.try_into().ok());
+    bytes.is_some_and(|bytes| VerifyingKey::from_bytes(&bytes).is_ok())
+}
+
 /// What [`MANIFEST`] says about one file.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,16 +155,7 @@ impl Manifest {
         key: &str,
         version: Option<&Version>,
     ) -> Result<Self, TetradUpdateError> {
-        let bad = TetradUpdateError::Signature;
-        let decode = |text: &[u8]| {
-            let text = std::str::from_utf8(text).map_err(|_| bad("not UTF-8"))?;
-            BASE64.decode(text.trim()).map_err(|_| bad("not base64"))
-        };
-        let key: [u8; 32] = (decode(key.as_bytes())?.try_into()).map_err(|_| bad("bad key"))?;
-        let key = VerifyingKey::from_bytes(&key).map_err(|_| bad("bad key"))?;
-        let signature =
-            Signature::from_slice(&decode(signature)?).map_err(|_| bad("not 64 bytes"))?;
-        (key.verify_strict(json, &signature)).map_err(|_| bad("does not match the release key"))?;
+        verify_signature(key, json, signature)?;
         Self::parse(json, version)
     }
 
@@ -163,6 +188,26 @@ impl Manifest {
         }
         Ok(manifest)
     }
+}
+
+/// The largest size of update file `path`, or `None` when it is not one of [`FILES`].
+pub fn max_bytes(path: &str) -> Option<u64> {
+    match path {
+        BINARY => Some(MAX_BINARY_BYTES),
+        _ if FILES.contains(&path) => Some(MAX_SCRIPT_BYTES),
+        _ => None,
+    }
+}
+
+/// The manifest of an update of some of the [`FILES`], which the unit makes from the files that
+/// the Remote page of a dev build staged (docs/remote.md). Nobody signs it, and the user starts
+/// the install on the unit. The version is `running` with the build metadata `+http`: the
+/// version of a new binary is not known before it runs, and the unit does not run it before the
+/// install.
+pub fn staged_manifest(running: &Version, files: BTreeMap<String, FileEntry>) -> Manifest {
+    let mut version = running.clone();
+    version.build = semver::BuildMetadata::new("http").unwrap_or_default();
+    Manifest { version, files }
 }
 
 /// Where the files of an [`Offer`] come from.
@@ -263,7 +308,7 @@ pub fn check(
     };
     let json = get(http, asset_url(&tag, MANIFEST), MAX_MANIFEST_BYTES)?;
     let signature = get(http, asset_url(&tag, SIGNATURE), MAX_SIGNATURE_BYTES)?;
-    let manifest = Manifest::verify(&json, &signature, RELEASE_KEY, Some(&version))?;
+    let manifest = Manifest::verify(&json, &signature, TRUSTED_KEY, Some(&version))?;
     Ok(Some(Offer {
         source: Source::Release(tag),
         manifest,
@@ -313,7 +358,7 @@ pub fn install(
     }
     let staged = stage(http, files, runner, offer);
     if staged.is_err() {
-        for path in FILES {
+        for path in offer.manifest.files.keys() {
             let _ = files.remove(&part(path));
         }
         return staged;
@@ -322,7 +367,7 @@ pub fn install(
     // old md5, so the launcher starts stock CorOS until `tetrad-launcher.sh arm` runs. The
     // downloads are synced first, so a power cut never leaves a renamed file half written.
     files.sync()?;
-    for path in FILES {
+    for path in offer.manifest.files.keys() {
         files.rename(&part(path), &home(path))?;
     }
     files.sync()?;
@@ -364,27 +409,35 @@ fn stage(
             return Err(TetradUpdateError::Hash(path.clone()));
         }
     }
-    let parts: Vec<String> = FILES
-        .iter()
-        .map(|path| part(path).display().to_string())
+    // The files of the offer: all four of a release, or the binary alone ([`binary_manifest`]).
+    let parts: Vec<(&String, String)> = (offer.manifest.files.keys())
+        .map(|path| (path, part(path).display().to_string()))
         .collect();
     run(
         runner,
         &Command::new(
             "chmod",
-            ["755"].into_iter().chain(parts.iter().map(String::as_str)),
+            ["755"]
+                .into_iter()
+                .chain(parts.iter().map(|(_, file)| file.as_str())),
         ),
     )?;
-    for (path, file) in FILES.iter().zip(&parts).skip(1) {
+    for (path, file) in parts.iter().filter(|(path, _)| *path != BINARY) {
         if !runner
             .run(&Command::new("sh", ["-n", file.as_str()]))?
             .status
             .success()
         {
-            return Err(TetradUpdateError::Script((*path).to_owned()));
+            return Err(TetradUpdateError::Script((*path).clone()));
         }
     }
-    let check = Command::new(&parts[0], ["run", "--check"]).cwd(SCRIPT_DIR);
+    // Scripts alone: the installed binary is checked, as the scripts will start it.
+    let binary = if offer.manifest.files.contains_key(BINARY) {
+        part(BINARY)
+    } else {
+        home(BINARY)
+    };
+    let check = Command::new(&binary.display().to_string(), ["run", "--check"]).cwd(SCRIPT_DIR);
     match runner.run(&check)?.status {
         status if status.success() => Ok(()),
         ExitStatus::Code(4) => Err(TetradUpdateError::Unsupported(offer.version().clone())),
@@ -577,6 +630,107 @@ mod tests {
             files.get("/media/p4/tetrad/bin/tetrad").as_deref(),
             Some(&b"new-elf"[..])
         );
+    }
+
+    fn entry(bytes: &[u8]) -> FileEntry {
+        let sha256: String = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        FileEntry {
+            size: bytes.len() as u64,
+            sha256,
+        }
+    }
+
+    /// A staged offer (the Remote page of a dev build) moves only the files it lists, checks
+    /// them, arms, and leaves the other files alone.
+    #[test]
+    fn a_staged_offer_installs_just_its_files() {
+        let files = MemFiles::default();
+        files.put("/media/p4/tetrad/bin/tetrad", "old");
+        files.put("/media/p4/tetrad/launcher/tetrad-launcher.sh", "launcher");
+        files.put("/media/p4/tetrad/bin/tetrad.part", "new-elf");
+        let manifest = staged_manifest(
+            &v("0.1.0-alpha.8"),
+            BTreeMap::from([(BINARY.to_owned(), entry(b"new-elf"))]),
+        );
+        assert_eq!(manifest.version.to_string(), "0.1.0-alpha.8+http");
+        let offer = Offer {
+            source: Source::Usb,
+            manifest,
+        };
+        let mut http = ScriptedHttp::sharing(files.clone());
+        let mut runner = ScriptedRunner::default();
+        runner.expect_ok("chmod 755 /media/p4/tetrad/bin/tetrad.part");
+        runner.expect(
+            "/media/p4/tetrad/bin/tetrad.part run --check",
+            Ok(Output::code(0)),
+        );
+        runner.expect_ok("sh /media/p4/tetrad/launcher/tetrad-launcher.sh arm");
+        install(&mut http, &mut files.clone(), &mut runner, &offer).unwrap();
+        assert!(runner.is_done());
+        assert!(http.requests.is_empty());
+        assert_eq!(
+            files.get("/media/p4/tetrad/bin/tetrad").as_deref(),
+            Some(&b"new-elf"[..])
+        );
+        assert_eq!(
+            files
+                .get("/media/p4/tetrad/launcher/tetrad-launcher.sh")
+                .as_deref(),
+            Some(&b"launcher"[..])
+        );
+        assert_eq!(files.get("/media/p4/tetrad/bin/tetrad.part"), None);
+    }
+
+    /// Scripts alone: each must parse, the installed binary is checked, only the scripts move.
+    #[test]
+    fn a_scripts_only_offer_checks_the_installed_binary() {
+        let files = MemFiles::default();
+        files.put("/media/p4/tetrad/bin/tetrad", "installed");
+        let launcher = "/media/p4/tetrad/launcher/tetrad-launcher.sh";
+        files.put(&format!("{launcher}.part"), "new launcher");
+        let manifest = staged_manifest(
+            &v("0.1.0"),
+            BTreeMap::from([(
+                "launcher/tetrad-launcher.sh".to_owned(),
+                entry(b"new launcher"),
+            )]),
+        );
+        let offer = Offer {
+            source: Source::Usb,
+            manifest,
+        };
+        let mut runner = ScriptedRunner::default();
+        runner.expect_ok(&format!("chmod 755 {launcher}.part"));
+        runner.expect_ok(&format!("sh -n {launcher}.part"));
+        runner.expect(
+            "/media/p4/tetrad/bin/tetrad run --check",
+            Ok(Output::code(0)),
+        );
+        runner.expect_ok(&format!("sh {launcher} arm"));
+        let mut http = ScriptedHttp::sharing(files.clone());
+        install(&mut http, &mut files.clone(), &mut runner, &offer).unwrap();
+        assert!(runner.is_done());
+        assert_eq!(files.get(launcher).as_deref(), Some(&b"new launcher"[..]));
+        assert_eq!(
+            files.get("/media/p4/tetrad/bin/tetrad").as_deref(),
+            Some(&b"installed"[..])
+        );
+    }
+
+    /// Only the four update files have a size limit.
+    #[test]
+    fn only_update_files_have_a_limit() {
+        assert_eq!(max_bytes("bin/tetrad"), Some(MAX_BINARY_BYTES));
+        assert_eq!(
+            max_bytes("launcher/tetrad-update.sh"),
+            Some(MAX_SCRIPT_BYTES)
+        );
+        for path in ["launcher/select", "../etc/passwd", "bin/tetrad.part", ""] {
+            assert_eq!(max_bytes(path), None, "{path}");
+        }
     }
 
     /// A wrong hash or an unsupported CorOS build removes the `.part` files and keeps the old

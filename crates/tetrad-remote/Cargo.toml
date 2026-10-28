@@ -7,6 +7,11 @@ publish.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# The update endpoints and the "Update Tetrad" part of the page (docs/remote.md). Off in release
+# builds: a release has no way to send it a program.
+dev = []
+
 [dependencies]
 httparse.workspace = true
 serde_json.workspace = true

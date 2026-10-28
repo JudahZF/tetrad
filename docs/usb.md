@@ -61,6 +61,8 @@ It uses [hidapi](https://github.com/libusb/hidapi). On Linux it needs `libudev` 
    the new binary supports the CorOS build, arms it and restarts. These are the same steps as
    an update from GitHub ([updates.md](updates.md#tetrad-updates)).
 
+A build with its own key ([development.md](development.md#your-own-updates)) takes the files that
+`scripts/dev-update.sh pack` signs with that key, and a release build takes only the release key.
 Over USB, any signed version installs, an older one too. Nothing installs until you touch
 UPDATE TETRAD on the unit. During a Tetrad or CorOS install, the unit refuses a USB install.
 

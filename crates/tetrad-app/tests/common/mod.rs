@@ -925,6 +925,8 @@ pub struct FakeRemote {
     pub replies: Vec<(u64, tetrad_remote::Reply)>,
     /// PINs made so far; the next PIN is this count plus one, as four digits.
     pub pins: u32,
+    /// Challenges made so far (a dev build's key requests), as 32 hex digits of the count.
+    pub nonces: u32,
 }
 
 impl tetrad_app::device::remote::RemoteBackend for FakeRemote {
@@ -944,6 +946,12 @@ impl tetrad_app::device::remote::RemoteBackend for FakeRemote {
     fn new_pin(&mut self) -> Result<String, String> {
         self.pins += 1;
         Ok(format!("{:04}", self.pins))
+    }
+
+    #[cfg(feature = "dev")]
+    fn nonce(&mut self) -> Result<String, String> {
+        self.nonces += 1;
+        Ok(format!("{:032x}", self.nonces))
     }
 }
 

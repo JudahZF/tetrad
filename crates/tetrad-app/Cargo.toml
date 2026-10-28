@@ -13,9 +13,10 @@ path = "src/main.rs"
 
 [features]
 # A dev build: the boot selector offers a third entry, Tetrad dev, which starts `tetrad run --dev`
-# with loop and frame statistics in the log (device/perf.rs). Diagnostics only, so it is left out
-# of release builds.
-dev = ["tetrad-ui/dev"]
+# with loop and frame statistics in the log (device/perf.rs). The Remote page also takes a Tetrad
+# update (docs/remote.md). Diagnostics and a way to send the unit a program, so it is left out of
+# release builds.
+dev = ["tetrad-ui/dev", "tetrad-remote/dev"]
 
 [dependencies]
 clap.workspace = true

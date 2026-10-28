@@ -133,6 +133,7 @@ let queue = Promise.resolve();
 function show(loggedIn, message) {
   $("login").hidden = loggedIn;
   $("upload").hidden = !loggedIn;
+  if (!loggedIn && $("update")) $("update").hidden = true;
   $("shell").hidden = !loggedIn;
   document.querySelector("main").classList.toggle("wide", loggedIn);
   if (!loggedIn) for (const entry of extensionFiles.values()) entry.box.remove();
@@ -164,6 +165,8 @@ async function connect(candidate) {
     localStorage.setItem(PIN_KEY, pin);
     $("sub").textContent = status === 200 ? "Saving to: " + body.folder : body.error;
     show(true);
+    // Only a dev build has it (update.html).
+    if (typeof offerUpdate === "function") offerUpdate();
     pollFiles();
     loadTabs();
     return;
@@ -595,5 +598,6 @@ window.addEventListener("drop", (event) => event.preventDefault());
 
 if (pin) connect(pin); else show(false);
 </script>
+<!--update-->
 </body>
 </html>
