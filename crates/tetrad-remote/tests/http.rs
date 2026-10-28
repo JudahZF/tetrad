@@ -3,7 +3,8 @@ use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 use tetrad_remote::{
-    Call, ExtensionFiles, FileEntry, MAX_BODY, Reply, Request, Server, TabInfo, serve_one,
+    BackupOp, Call, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, MAX_BODY, Reply, Request,
+    Server, TabInfo, ThemesOp, serve_one,
 };
 
 /// A connection: the request bytes in, the response bytes out.
@@ -699,4 +700,206 @@ fn the_key_routes_need_no_pin_except_to_add_a_key() {
         assert_eq!(status, "HTTP/1.1 400 Bad Request", "{body}");
         assert_eq!(seen, None);
     }
+}
+
+/// The routes of the IR library, backup, extension, theme and notice pages reach the device with
+/// the PIN and their decoded parameters.
+#[test]
+fn the_page_routes_reach_the_device() {
+    let host = "Host: 192.168.1.20\r\nX-Tetrad-Pin: 4821";
+    let pin = || "4821".to_owned();
+    let cases: Vec<(Vec<u8>, Request)> = vec![
+        (
+            format!("GET /api/notices HTTP/1.1\r\n{host}\r\n\r\n").into(),
+            Request::Notices { pin: pin() },
+        ),
+        (
+            format!("GET /api/library HTTP/1.1\r\n{host}\r\n\r\n").into(),
+            Request::Library {
+                pin: pin(),
+                op: LibraryOp::List,
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/library/rename?id=CIR_ab&name=V30+%C3%A9 HTTP/1.1\r\n{host}\r\n\
+                     Content-Length: 0\r\n\r\n"
+                ),
+                b"",
+            ),
+            Request::Library {
+                pin: pin(),
+                op: LibraryOp::Rename {
+                    id: "CIR_ab".into(),
+                    name: "V30 é".into(),
+                },
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/library/link?id=CIR_ab&folder=7&linked=1 HTTP/1.1\r\n{host}\r\n\
+                     Content-Length: 0\r\n\r\n"
+                ),
+                b"",
+            ),
+            Request::Library {
+                pin: pin(),
+                op: LibraryOp::Link {
+                    id: "CIR_ab".into(),
+                    folder: 7,
+                    linked: true,
+                },
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/library/folder?name=Cabs HTTP/1.1\r\n{host}\r\n\
+                     Content-Length: 0\r\n\r\n"
+                ),
+                b"",
+            ),
+            Request::Library {
+                pin: pin(),
+                op: LibraryOp::CreateFolder {
+                    name: "Cabs".into(),
+                    parent: None,
+                },
+            },
+        ),
+        (
+            format!("GET /api/backup/file?offset=524288 HTTP/1.1\r\n{host}\r\n\r\n").into(),
+            Request::Backup {
+                pin: pin(),
+                op: BackupOp::Read { offset: 524288 },
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/backup/upload?name=qc.tar.gz&offset=0&last=1 HTTP/1.1\r\n\
+                     {host}\r\nContent-Length: 3\r\n\r\n"
+                ),
+                b"abc",
+            ),
+            Request::Backup {
+                pin: pin(),
+                op: BackupOp::Upload {
+                    name: "qc.tar.gz".into(),
+                    offset: 0,
+                    last: true,
+                    bytes: b"abc".to_vec(),
+                },
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/extensions/command HTTP/1.1\r\n{host}\r\n\
+                     Content-Length: 12\r\n\r\n"
+                ),
+                br#"{"op":"run"}"#,
+            ),
+            Request::Extensions {
+                pin: pin(),
+                op: ExtensionsOp::Command {
+                    json: br#"{"op":"run"}"#.to_vec(),
+                },
+            },
+        ),
+        (
+            upload(
+                &format!(
+                    "POST /api/themes/select?id=file%3Adusk HTTP/1.1\r\n{host}\r\n\
+                     Content-Length: 0\r\n\r\n"
+                ),
+                b"",
+            ),
+            Request::Themes {
+                pin: pin(),
+                op: ThemesOp::Select {
+                    id: "file:dusk".into(),
+                },
+            },
+        ),
+    ];
+    for (request, expected) in cases {
+        let (status, _, seen) = exchange(&request, Reply::Json(serde_json::json!({"ok": true})));
+        assert_eq!(status, "HTTP/1.1 200 OK", "{expected:?}");
+        assert_eq!(seen, Some(expected));
+    }
+}
+
+/// A JSON reply is its own body; a piece of a download is written as raw bytes.
+#[test]
+fn json_and_byte_replies_are_written_as_they_are() {
+    let host = "Host: 192.168.1.20\r\nX-Tetrad-Pin: 4821";
+    let request = format!("GET /api/library HTTP/1.1\r\n{host}\r\n\r\n");
+    let reply = Reply::Json(serde_json::json!({"irs": []}));
+    let (_, response, _) = exchange(request.as_bytes(), reply);
+    assert!(response.contains("Content-Type: application/json"));
+    assert!(response.ends_with(r#"{"irs":[]}"#));
+
+    let request = format!("GET /api/backup/file?offset=0 HTTP/1.1\r\n{host}\r\n\r\n");
+    let (status, response, _) = exchange(request.as_bytes(), Reply::Bytes(b"piece".to_vec()));
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.contains("Content-Type: application/octet-stream\r\nContent-Length: 5\r\n"));
+    assert!(response.ends_with("\r\n\r\npiece"));
+}
+
+/// Missing parameters, a wrong method, a missing PIN and an unknown path are answered without a
+/// device call.
+#[test]
+fn bad_page_requests_are_refused_without_a_device_call() {
+    let host = "Host: 192.168.1.20\r\nX-Tetrad-Pin: 4821";
+    let post =
+        |target: &str| format!("POST {target} HTTP/1.1\r\n{host}\r\nContent-Length: 0\r\n\r\n");
+    let cases = [
+        (post("/api/library/rename?id=CIR_ab"), "400"),
+        (post("/api/library/link?id=CIR_ab&folder=x"), "400"),
+        (post("/api/library/destination"), "400"),
+        (post("/api/library/folder?name=Cabs&parent=up"), "400"),
+        (post("/api/library/nothing"), "404"),
+        (post("/api/library"), "405"),
+        (
+            format!("GET /api/library/delete?id=CIR_ab HTTP/1.1\r\n{host}\r\n\r\n"),
+            "405",
+        ),
+        (
+            format!("GET /api/backup/file HTTP/1.1\r\n{host}\r\n\r\n"),
+            "400",
+        ),
+        (post("/api/backup/upload?offset=0"), "400"),
+        (post("/api/backup"), "405"),
+        (post("/api/themes/select"), "400"),
+        (
+            format!("GET /api/themes/save HTTP/1.1\r\n{host}\r\n\r\n"),
+            "405",
+        ),
+        (
+            format!("POST /api/notices HTTP/1.1\r\n{host}\r\nContent-Length: 0\r\n\r\n"),
+            "405",
+        ),
+        (
+            "GET /api/library HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n".to_owned(),
+            "401",
+        ),
+    ];
+    for (request, code) in cases {
+        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
+        assert!(status.contains(code), "{request}: {status}");
+        assert_eq!(seen, None, "{request}");
+    }
+}
+
+/// Every page part is in the page, and no mark is left in it.
+#[test]
+fn the_page_has_every_part() {
+    let (_, page, _) = exchange(b"GET / HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n", Reply::Off);
+    for id in ["irs", "backup", "themes", "notices", "extensions"] {
+        assert!(page.contains(&format!("<section id=\"{id}\"")), "{id}");
+    }
+    assert!(!page.contains("<!--parts-->"));
 }
