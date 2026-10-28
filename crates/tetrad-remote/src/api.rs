@@ -15,12 +15,14 @@ pub enum Request {
         name: String,
         wav: Vec<u8>,
     },
+    /// The support file (docs/support.md).
+    Support { pin: String },
 }
 
 impl Request {
     pub fn pin(&self) -> &str {
         match self {
-            Self::Status { pin } | Self::Upload { pin, .. } => pin,
+            Self::Status { pin } | Self::Upload { pin, .. } | Self::Support { pin } => pin,
         }
     }
 }
@@ -41,6 +43,11 @@ pub enum Reply {
         name: String,
         folder: String,
     },
+    /// A download: the file name and a zip archive.
+    File {
+        name: String,
+        zip: Vec<u8>,
+    },
     WrongPin,
     Off,
     Refused(String),
@@ -49,12 +56,14 @@ pub enum Reply {
 }
 
 impl Reply {
-    /// The status code and the JSON body.
+    /// The status code and the JSON body. [`Reply::File`] is written as the file itself
+    /// (`http::serve_one`), never as JSON.
     pub(crate) fn response(&self) -> (u16, serde_json::Value) {
         use serde_json::json;
         match self {
             Self::Status { folder } => (200, json!({ "folder": folder })),
             Self::Added { name, folder } => (200, json!({ "name": name, "folder": folder })),
+            Self::File { name, .. } => (200, json!({ "name": name })),
             Self::WrongPin => (401, json!({ "error": "Wrong PIN" })),
             Self::Off => (503, json!({ "error": "Remote is off" })),
             Self::Refused(reason) => (422, json!({ "error": reason })),

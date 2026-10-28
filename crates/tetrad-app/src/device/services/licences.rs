@@ -21,7 +21,7 @@ pub(super) const LICENCE_PLUGIN_BITS: u32 = 62;
 
 /// The plugin ids the licence manager knows (table `0xa17988..0xa179b8`, 0x001ed1d4,
 /// 0x001ed414). A licensed id outside it is never licensed.
-pub(super) const LICENSABLE_PLUGINS: [u32; 12] = [3, 10, 1, 11, 4, 5, 9, 12, 13, 21, 15, 20];
+pub const LICENSABLE_PLUGINS: [u32; 12] = [3, 10, 1, 11, 4, 5, 9, 12, 13, 21, 15, 20];
 
 /// What a plugin block may do: the result of 0x001ed368.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +69,11 @@ impl Licences {
     /// 0x001ed1d4: `plugin` is a known plugin id in the licensed set.
     pub fn is_licensed(&self, plugin: u32) -> bool {
         LICENSABLE_PLUGINS.contains(&plugin) && self.licensed >> plugin & 1 == 1
+    }
+
+    /// Bit 62 of the last `0x20` answer: licensed plugins may run.
+    pub fn active(&self) -> bool {
+        self.active
     }
 
     pub(super) fn ids(self) -> impl Iterator<Item = u32> {

@@ -201,6 +201,16 @@ pub trait Files {
         }
         Ok(data)
     }
+    /// The last `max` bytes of `path` (all of a shorter file), for log tails. The default reads
+    /// the whole file.
+    fn read_tail(&mut self, path: &Path, max: u64) -> Result<Option<Vec<u8>>, FileError> {
+        let mut data = self.read(path)?;
+        if let Some(data) = &mut data {
+            let keep = usize::try_from(max).unwrap_or(usize::MAX);
+            data.drain(..data.len().saturating_sub(keep));
+        }
+        Ok(data)
+    }
     /// Create or truncate.
     fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError>;
     /// Replace `path` in one step, so a power cut leaves the old or the new content, never a mix.
@@ -239,6 +249,9 @@ impl<T: Files + ?Sized> Files for &std::cell::RefCell<&mut T> {
     }
     fn read_bounded(&mut self, path: &Path, max: u64) -> Result<Option<Vec<u8>>, FileError> {
         self.borrow_mut().read_bounded(path, max)
+    }
+    fn read_tail(&mut self, path: &Path, max: u64) -> Result<Option<Vec<u8>>, FileError> {
+        self.borrow_mut().read_tail(path, max)
     }
     fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
         self.borrow_mut().write(path, data)

@@ -70,6 +70,9 @@ pub enum MenuAction {
     ModesConfiguration,
     CpuMonitor,
     Looper,
+    /// Owned (Tetrad): the Remote PIN ("Remote #1234"), the first row of the ⋮ menu while Remote
+    /// runs and its "Show PIN in menu" switch is on; opens Settings → Tetrad → Remote.
+    Remote,
     Settings,
     ChangeDevice,
     AddDevice,
@@ -453,8 +456,11 @@ pub enum SettingControl {
     Step(SettingId, i8),
     Page(SettingsPage),
     IoTab(IoTab),
-    /// Open the group dropdown (Account, System, Device, Support).
+    /// Open the group dropdown (Account, System, Device, Support, Tetrad).
     Groups,
+    /// A Tetrad menu row of an installed extension (index into the installed list): its
+    /// settings section.
+    ExtensionSettings(u16),
     /// Request one value directly: a choice index (radio option), a toggle 0/1 or a raw
     /// number (brightness segment).
     Set(SettingId, i32),
@@ -1010,8 +1016,9 @@ pub enum Control {
     Custom(CustomControl),
     /// Settings → Appearance: pick the theme of row n ([`crate::AppearanceView::themes`]).
     Theme(u16),
-    /// The switch of the Remote page (`screens::remote`).
+    /// The switches of the Remote page (`screens::remote`): Remote, then its PIN in the ⋮ menu.
     RemoteToggle,
+    RemotePinInMenuToggle,
     Updater(UpdaterCommand),
     TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
@@ -1280,9 +1287,10 @@ pub enum UiCommand {
     Custom(crate::CustomCommand),
     /// Apply and store a theme (Settings → Appearance, owned).
     SetTheme(tetrad_theme::ThemeId),
-    /// The Remote page switch (`crate::remote`).
+    /// The Remote page switches (`crate::remote`).
     SetRemote {
         enabled: bool,
+        pin_in_menu: bool,
     },
     SelectScene {
         scene: SceneIndex,
@@ -2020,7 +2028,10 @@ impl fmt::Debug for UiCommand {
             C::WifiDisconnect => f.write_str("WifiDisconnect"),
             C::Updater { command } => show!("Updater", command),
             C::TetradUpdate { command } => show!("TetradUpdate", command),
-            C::SetRemote { enabled } => show!("SetRemote", enabled),
+            C::SetRemote {
+                enabled,
+                pin_in_menu,
+            } => show!("SetRemote", enabled, pin_in_menu),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),

@@ -120,8 +120,10 @@ impl Model {
         }
     }
 
+    /// Model 0, or the `0xFFFFFFFF` that factory plugin presets store for an empty slot,
+    /// mixer or splitter (`tetrad_engine` admits the same two).
     pub fn is_empty(&self) -> bool {
-        self.hash.unwrap_or(0) == 0
+        matches!(self.hash.unwrap_or(0), 0 | u32::MAX)
     }
 
     pub fn param_mut(&mut self, index: usize) -> Result<&mut Param> {

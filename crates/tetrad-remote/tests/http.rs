@@ -98,6 +98,42 @@ fn routes_reach_the_device_with_pin_name_and_body() {
     );
 }
 
+/// The support file needs the PIN like every device route, and comes back as the zip itself
+/// with a download name, not as JSON.
+#[test]
+fn support_needs_the_pin_and_downloads_the_zip() {
+    let (status, _, seen) = exchange(
+        b"GET /api/support HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n",
+        Reply::Off,
+    );
+    assert_eq!(status, "HTTP/1.1 401 Unauthorized");
+    assert_eq!(seen, None);
+
+    let request = b"GET /api/support HTTP/1.1\r\nHost: 192.168.1.20\r\nX-Tetrad-Pin: 4821\r\n\r\n";
+    let (status, _, seen) = exchange(request, Reply::WrongPin);
+    assert_eq!(status, "HTTP/1.1 401 Unauthorized");
+    assert_eq!(seen, Some(Request::Support { pin: "4821".into() }));
+
+    let file = Reply::File {
+        name: "tetrad-support-2026-10-27-2041.zip".into(),
+        zip: b"PK zip bytes".to_vec(),
+    };
+    let (status, response, _) = exchange(request, file);
+    assert_eq!(status, "HTTP/1.1 200 OK");
+    assert!(response.contains("Content-Type: application/zip\r\n"));
+    assert!(response.contains(
+        "Content-Disposition: attachment; filename=\"tetrad-support-2026-10-27-2041.zip\"\r\n"
+    ));
+    assert!(response.contains("Cache-Control: no-store\r\n"));
+    assert!(response.ends_with("\r\n\r\nPK zip bytes"));
+
+    let post = b"POST /api/support HTTP/1.1\r\nHost: 192.168.1.20\r\nContent-Length: 0\r\n\r\n";
+    assert_eq!(
+        exchange(post, Reply::Off).0,
+        "HTTP/1.1 405 Method Not Allowed"
+    );
+}
+
 /// Requests the server refuses itself never reach the device.
 #[test]
 fn bad_requests_are_refused_without_a_device_call() {

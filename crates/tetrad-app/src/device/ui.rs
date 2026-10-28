@@ -133,8 +133,8 @@ pub enum Handoff {
     Custom(tetrad_ui::CustomCommand),
     /// Settings → Appearance picked a theme → appearance bridge.
     Theme(tetrad_theme::ThemeId),
-    /// The Remote page switch → `Device::set_remote`.
-    Remote { enabled: bool },
+    /// The Remote page switches → `Device::set_remote`.
+    Remote { enabled: bool, pin_in_menu: bool },
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -820,7 +820,13 @@ impl Ui {
             C::Mapping(command) => vec![Request::Handoff(Handoff::Mappings(command))],
             C::Custom(command) => vec![Request::Handoff(Handoff::Custom(command))],
             C::SetTheme(id) => vec![Request::Handoff(Handoff::Theme(id))],
-            C::SetRemote { enabled } => vec![Request::Handoff(Handoff::Remote { enabled })],
+            C::SetRemote {
+                enabled,
+                pin_in_menu,
+            } => vec![Request::Handoff(Handoff::Remote {
+                enabled,
+                pin_in_menu,
+            })],
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
                 Err(error) => vec![notice(Subsystem::Ui, error.to_string())],

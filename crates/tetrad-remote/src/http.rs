@@ -51,13 +51,21 @@ pub fn serve_one<S: Read + Write>(
             stream,
             200,
             "text/html; charset=utf-8",
-            Some(PAGE_POLICY),
+            &[("Content-Security-Policy", PAGE_POLICY)],
             PAGE.as_bytes(),
         ),
-        Ok(Route::Device(request)) => {
-            let (status, body) = device(request).response();
-            json(stream, status, &body)
-        }
+        Ok(Route::Device(request)) => match device(request) {
+            Reply::File { name, zip } => {
+                // The device names the file from ASCII letters, digits and dashes only.
+                let disposition = format!("attachment; filename=\"{name}\"");
+                let headers = [("Content-Disposition", disposition.as_str())];
+                respond(stream, 200, "application/zip", &headers, &zip)
+            }
+            reply => {
+                let (status, body) = reply.response();
+                json(stream, status, &body)
+            }
+        },
         Err(Fail::Status(status, error)) => {
             json(stream, status, &serde_json::json!({ "error": error }))
         }
@@ -92,7 +100,12 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
                 wav: body,
             }))
         }
-        (_, "/api/status" | "/api/irs") => Err(Fail::Status(405, "method not allowed")),
+        ("GET", "/api/support") => Ok(Route::Device(Request::Support {
+            pin: device(head.pin)?,
+        })),
+        (_, "/api/status" | "/api/irs" | "/api/support") => {
+            Err(Fail::Status(405, "method not allowed"))
+        }
         (_, path) if PAGE_PATHS.contains(&path) => Err(Fail::Status(405, "method not allowed")),
         _ => Err(Fail::Status(404, "not found")),
     }
@@ -213,14 +226,14 @@ fn query_value(query: &str, key: &str) -> Result<Option<String>, Fail> {
 
 fn json(stream: &mut impl Write, status: u16, body: &serde_json::Value) -> io::Result<()> {
     let body = body.to_string();
-    respond(stream, status, "application/json", None, body.as_bytes())
+    respond(stream, status, "application/json", &[], body.as_bytes())
 }
 
 fn respond(
     stream: &mut impl Write,
     status: u16,
     content_type: &str,
-    policy: Option<&str>,
+    headers: &[(&str, &str)],
     body: &[u8],
 ) -> io::Result<()> {
     let reason = match status {
@@ -243,8 +256,8 @@ fn respond(
          Referrer-Policy: no-referrer\r\n",
         body.len()
     );
-    if let Some(policy) = policy {
-        head.push_str(&format!("Content-Security-Policy: {policy}\r\n"));
+    for (name, value) in headers {
+        head.push_str(&format!("{name}: {value}\r\n"));
     }
     head.push_str("\r\n");
     stream.write_all(head.as_bytes())?;

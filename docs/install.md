@@ -134,7 +134,7 @@ running:  Tetrad
 
 ## 5. Update Tetrad
 
-From the touchscreen: Settings → System → Tetrad Updates, then CHECK TETRAD and UPDATE TETRAD. The
+From the touchscreen: Settings → Tetrad → Tetrad Updates (Settings → System on 0.1.0-alpha.8 and earlier), then CHECK TETRAD and UPDATE TETRAD. The
 unit needs Wi-Fi. This does not change CorOS. See [updates.md](updates.md#tetrad-updates).
 
 From the computer, when you have a new release or a new build:

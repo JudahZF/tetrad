@@ -1,7 +1,8 @@
-//! Owned Extensions pages (Tetrad; stock has none): the System › Extensions page with the
-//! installed and available extensions, the detail page of one installation, and
-//! Repositories. The host decides installation, trust and state: each control sends an
-//! [`ExtensionCommand`] and the pages show the next snapshot. Positions are inside the
+//! Owned Extensions pages (Tetrad; stock has none): the Tetrad › Extensions page with the
+//! installed and available extensions, the detail page of one installation, Repositories,
+//! and the settings section that each extension with settings adds to the Tetrad group. The
+//! host decides installation, trust and state: each control sends an [`ExtensionCommand`]
+//! and the pages show the next snapshot. Positions are inside the
 //! settings content panel and follow the generic settings rows (60 px rows with a divider,
 //! 34 px section headers, black fields and buttons on the panel).
 
@@ -33,12 +34,43 @@ const HEADER_BUTTON: u32 = 40;
 const WARNING_FILL: Rgb = Rgb(0x33, 0x2d, 0x10);
 const DANGER_FILL: Rgb = Rgb(0x3a, 0x14, 0x14);
 
-/// The installation whose detail page is open.
+/// The installation whose detail page or settings section is open.
 fn open_extension(ui: &UiState) -> Option<&InstalledExtension> {
-    let ExtensionsPage::Detail(key) = &ui.extensions else {
-        return None;
+    let key = match (&ui.extensions, ui.screen()) {
+        (_, Screen::Settings(SettingsPage::ExtensionSettings)) => ui.extension_section.as_ref()?,
+        (ExtensionsPage::Detail(key), _) => key,
+        _ => return None,
     };
     (ui.snapshot.extensions.installed.iter()).find(|extension| extension.key == *key)
+}
+
+/// An enabled extension with settings has a section in the Tetrad group.
+pub(super) fn has_section(extension: &InstalledExtension) -> bool {
+    extension.enabled && !extension.settings.is_empty()
+}
+
+/// The installation whose settings section is open, while it has one.
+pub(super) fn section_extension(ui: &UiState) -> Option<&InstalledExtension> {
+    (ui.screen() == Screen::Settings(SettingsPage::ExtensionSettings))
+        .then(|| open_extension(ui))
+        .flatten()
+        .filter(|extension| has_section(extension))
+}
+
+/// Settings › Tetrad › (extension name): the extension's settings in the detail page rows.
+pub(super) fn section(ui: &UiState, l: &mut Layout, body: Rect) {
+    let Some(extension) = section_extension(ui) else {
+        return;
+    };
+    let area = Rect::new(body.x, body.y, body.width + 8, body.height);
+    let content = extension.settings.len() as u32 * ROW;
+    let offset = ui.offset(ListId::SettingsPage);
+    l.scroll(ListId::SettingsPage, area, content, offset, |l, y| {
+        for (index, setting) in extension.settings.iter().enumerate() {
+            let row = Rect::new(area.x, y + index as i32 * ROW as i32, area.width, ROW);
+            setting_row(l, row, index as u16, setting);
+        }
+    });
 }
 
 /// Updates and Repositories put their own title in the page title place.
@@ -1134,9 +1166,17 @@ impl UiState {
         self.overlay = Some(Overlay::ExtensionTrust(pending.clone()));
     }
 
-    /// A new snapshot: a detail page whose installation is gone returns to the list, and a
-    /// REMOVE or dropdown for an item that is gone closes.
+    /// A new snapshot: a detail page whose installation is gone returns to the list, a
+    /// settings section whose extension is gone, off or without settings opens the
+    /// Extensions page, and a REMOVE or dropdown for an item that is gone closes.
     pub(crate) fn follow_extensions(&mut self) {
+        if self.screen() == Screen::Settings(SettingsPage::ExtensionSettings)
+            && section_extension(self).is_none()
+        {
+            self.extension_section = None;
+            self.reset_scroll(ListId::SettingsPage);
+            self.navigate(Screen::Settings(SettingsPage::Extensions));
+        }
         let view = &self.snapshot.extensions;
         let installed = |key: &str| view.installed.iter().any(|extension| extension.key == key);
         let detail_gone =
@@ -1284,18 +1324,48 @@ pub(crate) mod tests {
         ui.set_snapshot(snapshot).expect("valid snapshot");
     }
 
-    /// System ends with Extensions: the menu scrolls to it and its row opens the page.
+    /// The Tetrad menu lists an enabled extension with settings under its name. Its section
+    /// changes that extension's settings, and closes to Extensions when it is turned off.
     #[test]
-    fn system_menu_scrolls_to_the_extensions_page() {
-        let mut ui = UiState::new();
-        ui.navigate(Screen::Settings(SettingsPage::Connection));
-        let row = Control::Setting(SettingControl::Page(SettingsPage::Extensions));
-        ui.handle_input(InputEvent::PointerDown { x: 100, y: 440 });
-        ui.handle_input(InputEvent::PointerMove { x: 100, y: 120 });
-        ui.handle_input(InputEvent::PointerUp { x: 100, y: 120 });
-        activate(&mut ui, row);
+    fn extension_settings_sections_follow_the_tetrad_menu() {
+        let mut ui = page(sample());
+        // Open from a detail page: the fallback below still opens the list.
+        activate(&mut ui, ext(ExtensionControl::Open(0)));
+        let sections: Vec<(Control, String)> = (ui.hit_regions().into_iter())
+            .filter(|r| {
+                matches!(
+                    r.control,
+                    Control::Setting(SettingControl::ExtensionSettings(_))
+                )
+            })
+            .map(|r| (r.control, r.label))
+            .collect();
+        // "clock" has no settings, so it has no section.
+        let mapper = Control::Setting(SettingControl::ExtensionSettings(0));
+        assert_eq!(sections, [(mapper, "mapper".to_owned())]);
+        activate(&mut ui, mapper);
+        assert_eq!(
+            ui.screen(),
+            Screen::Settings(SettingsPage::ExtensionSettings)
+        );
+        assert_eq!(
+            SettingsPage::ExtensionSettings.group(),
+            SettingsGroup::Tetrad
+        );
+        assert_eq!(
+            activate(&mut ui, ext(ExtensionControl::Setting(1))),
+            sent(ExtensionCommand::SetSetting {
+                key: key("mapper"),
+                setting: "thru".into(),
+                value: ExtensionSettingInput::Toggle(true),
+            })
+        );
+        let mut off = sample();
+        off.installed[0].enabled = false;
+        with_extensions(&mut ui, off);
         assert_eq!(ui.screen(), Screen::Settings(SettingsPage::Extensions));
-        assert_eq!(SettingsPage::Extensions.group(), SettingsGroup::System);
+        // The Extensions page still opens its list, not a detail page.
+        assert!(!own_title(&ui));
     }
 
     #[test]
