@@ -56,7 +56,7 @@ It uses [hidapi](https://github.com/libusb/hidapi). On Linux it needs `libudev` 
 2. Run `tetrad-usb install release`. The unit checks the signature of `tetrad-update.json`
    with the Tetrad release key first, so only a real Tetrad release is accepted. Then the files
    go to the unit. The binary takes some minutes at about 24 KiB/s.
-3. On the unit, open Settings → System → Tetrad Updates and touch UPDATE TETRAD. The unit
+3. On the unit, open Settings → Tetrad → Tetrad Updates (Settings → System on 0.1.0-alpha.8 and earlier) and touch UPDATE TETRAD. The unit
    checks the size and the SHA-256 value of each file, checks that the scripts parse and that
    the new binary supports the CorOS build, arms it and restarts. These are the same steps as
    an update from GitHub ([updates.md](updates.md#tetrad-updates)).

@@ -1,7 +1,8 @@
 # Remote
 
 Remote is a web page on your Quad Cortex. Use it to add IRs from a computer or a phone on the
-same Wi-Fi network, with no app to install.
+same Wi-Fi network, with no app to install, and to download the support file for a bug report
+([support.md](support.md)).
 
 The Quad Cortex cannot show up as a USB drive: its USB port belongs to the stock DSP firmware,
 not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.
@@ -9,7 +10,7 @@ not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.
 ## Use Remote
 
 1. Connect the unit to Wi-Fi (**Settings → System → Connection**).
-2. Open **Settings → System → Remote** and turn on **Remote**. The page shows the address, for
+2. Open **Settings → Tetrad → Remote** and turn on **Remote**. The page shows the address, for
    example `http://192.168.1.20`, and a 4-digit PIN.
 3. On a computer or phone on the same network, open the address in a browser.
 4. Enter the PIN. The browser keeps it until the PIN changes.
@@ -19,6 +20,14 @@ not to Linux, where Tetrad runs. Remote uses Wi-Fi instead.
 Each IR goes into the IR saving destination: the folder you chose with **SET AS SAVING
 DESTINATION** in the IR browser, or the IR root folder. The unit shows a short message for each
 IR it adds. Its name is the file name without the extension, at most 60 characters.
+
+To see the PIN without this page, turn on **Show PIN in menu**. While Remote runs, the first
+row of the ⋮ menu (top right of the Grid) then shows the PIN, as `Remote #1234`. A tap on it
+opens this page of Settings.
+
+Both switches stay as you set them after a restart. Remote gets a new PIN at each start. If
+the port does not open, the Remote switch stays on and the page shows why; turn it off and on
+to try again.
 
 ## Extension tabs
 
@@ -65,10 +74,6 @@ The same PIN protects these calls, and Remote has to be on, as for IRs. The call
 `GET /api/files`, `POST /api/files/chunk?id=<extension id>&name=<file>&offset=<bytes>[&last=1]`
 (the piece is the body) and `POST /api/files/delete?id=<extension id>&name=<file>`.
 
-Remote stays on after a restart if you leave it on. It gets a new PIN at each start. If the
-port does not open, the switch stays on and the page shows why; turn it off and on to try
-again.
-
 ## Files that work
 
 The page converts each file in the browser before the upload, so most IR files work:
@@ -109,5 +114,6 @@ import does.
 
 ## Settings file
 
-`/media/p4/tetrad/remote.json` holds the on/off setting only, for example
-`{"enabled":true}`. The PIN is never saved.
+`/media/p4/tetrad/remote.json` holds the two switches only, for example
+`{"enabled":true,"pin_in_menu":false}`. A file without `pin_in_menu` means off. The PIN is
+never saved.

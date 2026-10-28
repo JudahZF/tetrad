@@ -1,4 +1,5 @@
-//! Remote (docs/remote.md): the web page Tetrad serves on the LAN to upload IRs. This crate
+//! Remote (docs/remote.md): the web page Tetrad serves on the LAN to upload IRs and to download
+//! the support file (docs/support.md). This crate
 //! reads HTTP, routes requests and runs the server thread. It does no library work: each
 //! request that needs the device goes out as a [`Call`], and the device answers it with a
 //! [`Reply`].

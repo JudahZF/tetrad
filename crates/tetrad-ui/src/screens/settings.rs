@@ -48,7 +48,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         AboutContact => Icon::Pulse,
         DeviceInformation => Icon::InfoFilled,
         Diagnostics => Icon::PlusBold,
-        Extensions => Icon::Plugin,
+        Extensions | ExtensionSettings => Icon::Plugin,
         Remote => Icon::Download,
     }
 }
@@ -59,12 +59,34 @@ fn group_icon(group: SettingsGroup) -> Icon {
         SettingsGroup::System => Icon::Gear,
         SettingsGroup::Device => Icon::Device,
         SettingsGroup::Support => Icon::Envelope,
+        SettingsGroup::Tetrad => Icon::Spark,
     }
+}
+
+/// An update waits in the group: CorOS for System; owned, Tetrad or an extension for Tetrad.
+fn group_update(ui: &UiState, group: SettingsGroup) -> bool {
+    match group {
+        SettingsGroup::System => ui.snapshot.updater.available_version.is_some(),
+        SettingsGroup::Tetrad => tetrad_update(ui) || extension_update(ui),
+        _ => false,
+    }
+}
+
+fn tetrad_update(ui: &UiState) -> bool {
+    matches!(
+        ui.snapshot.tetrad_update.state,
+        TetradUpdateState::Available { .. }
+    )
+}
+
+fn extension_update(ui: &UiState) -> bool {
+    (ui.snapshot.extensions.installed.iter()).any(|e| e.update.is_some())
 }
 
 /// Stock group list (seen on the QC, 2026-10-16): the page dims, the header turns black with
 /// ▲ and runs into a black list of 60 px rows (24 px icon at x 24, label at x 69); the current
-/// group is green with a ✓, and System carries an 8 px green dot when an update is available.
+/// group is green with a ✓, and a group with an update (System, owned: Tetrad) carries an 8 px
+/// green dot.
 pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
     const ROW: u32 = 60;
     let p = l.palette;
@@ -135,8 +157,7 @@ pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
                     color: p.accent,
                 },
             );
-        } else if *entry == SettingsGroup::System && ui.snapshot.updater.available_version.is_some()
-        {
+        } else if group_update(ui, *entry) {
             l.push(
                 Rect::new(row.right() - 22, row.y + 26, 8, 8),
                 "",
@@ -146,15 +167,50 @@ pub(super) fn group_menu(ui: &UiState, l: &mut Layout, group: SettingsGroup) {
     }
 }
 
-/// The group's menu pages on this device: "Power On Mode" is a mini page (spec I); the QC
-/// System menu (shot 034) has no such row.
-fn menu_pages(ui: &UiState, group: SettingsGroup) -> Vec<SettingsPage> {
-    group
-        .pages()
-        .iter()
-        .copied()
+/// A row of the page list.
+struct MenuRow<'a> {
+    control: Control,
+    title: &'a str,
+    icon: Icon,
+    current: bool,
+    /// 8 px green dot: an update is available.
+    dot: bool,
+}
+
+/// The group's page list on this device: "Power On Mode" is a mini page (spec I); the QC
+/// System menu (shot 034) has no such row. Owned: Tetrad lists, after its pages, each enabled
+/// extension with settings under the extension's name.
+fn menu_rows(ui: &UiState, page: SettingsPage) -> Vec<MenuRow<'_>> {
+    let group = page.group();
+    let pages = (group.pages().iter().copied())
         .filter(|page| ui.snapshot.mini || *page != SettingsPage::PowerOnMode)
-        .collect()
+        .map(|entry| MenuRow {
+            control: Control::Setting(SettingControl::Page(entry)),
+            title: entry.title(),
+            icon: page_icon(entry),
+            current: entry == page,
+            // Stock marks Updates with the dot while an update is available. Owned: Tetrad
+            // Updates and Extensions carry it while a Tetrad release or an extension update
+            // is available.
+            dot: match entry {
+                SettingsPage::Updates => group_update(ui, SettingsGroup::System),
+                SettingsPage::TetradUpdates => tetrad_update(ui),
+                SettingsPage::Extensions => extension_update(ui),
+                _ => false,
+            },
+        });
+    let open = super::extensions::section_extension(ui).map(|extension| &extension.key);
+    let extensions = (ui.snapshot.extensions.installed.iter().enumerate())
+        .filter(|_| group == SettingsGroup::Tetrad)
+        .filter(|(_, extension)| super::extensions::has_section(extension))
+        .map(|(index, extension)| MenuRow {
+            control: Control::Setting(SettingControl::ExtensionSettings(index as u16)),
+            title: &extension.name,
+            icon: page_icon(SettingsPage::ExtensionSettings),
+            current: open == Some(&extension.key),
+            dot: false,
+        });
+    pages.chain(extensions).collect()
 }
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
@@ -188,8 +244,8 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         true,
         p.text,
     );
-    // An available update outside System: an 8 px green dot on the button's top-right corner.
-    if group != SettingsGroup::System && ui.snapshot.updater.available_version.is_some() {
+    // An update in another group: an 8 px green dot on the button's top-right corner.
+    if (SettingsGroup::ALL.into_iter()).any(|other| other != group && group_update(ui, other)) {
         l.push(
             Rect::new(GROUPS.right() - 8, GROUPS.y - 6, 8, 8),
             "",
@@ -207,20 +263,14 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         },
     );
     l.panel(MENU, p.panel, 8.0, None);
-    let pages = menu_pages(ui, group);
-    let update = ui.snapshot.updater.available_version.is_some();
-    let tetrad_update = matches!(
-        ui.snapshot.tetrad_update.state,
-        TetradUpdateState::Available { .. }
-    );
-    let extension_update = (ui.snapshot.extensions.installed.iter()).any(|e| e.update.is_some());
+    let menu = menu_rows(ui, page);
     l.scroll(
         ListId::SettingsMenu,
         MENU,
-        pages.len() as u32 * MENU_ROW,
+        menu.len() as u32 * MENU_ROW,
         ui.offset(ListId::SettingsMenu),
         |l, y| {
-            for (index, entry) in pages.iter().enumerate() {
+            for (index, entry) in menu.iter().enumerate() {
                 let row = Rect::new(
                     MENU.x,
                     y + index as i32 * MENU_ROW as i32,
@@ -230,20 +280,14 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
                 crate::widgets::list_row(
                     l,
                     row,
-                    Control::Setting(SettingControl::Page(*entry)),
+                    entry.control,
                     true,
-                    entry.title(),
-                    Some(page_icon(*entry)),
-                    *entry == page,
+                    entry.title,
+                    Some(entry.icon),
+                    entry.current,
                     None,
                 );
-                // Stock marks Updates with an 8 px green dot while an update is available.
-                // Owned: Tetrad Updates and Extensions carry the same dot while a Tetrad
-                // release or an extension update is available.
-                if (*entry == SettingsPage::Updates && update)
-                    || (*entry == SettingsPage::TetradUpdates && tetrad_update)
-                    || (*entry == SettingsPage::Extensions && extension_update)
-                {
+                if entry.dot {
                     l.push(
                         Rect::new(row.right() - 22, row.y + 26, 8, 8),
                         "",
@@ -270,9 +314,14 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         _ => false,
     };
     if !own_title {
+        let heading = match page {
+            SettingsPage::ExtensionSettings => super::extensions::section_extension(ui)
+                .map_or(page.heading(), |extension| extension.name.as_str()),
+            _ => page.heading(),
+        };
         l.text(
             Rect::new(pane.x, pane.y, pane.width, 32),
-            page.heading(),
+            heading,
             LARGE,
             p.text,
             Align::Left,
@@ -295,7 +344,11 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
         SettingsPage::FactoryReset => super::recovery::options(l, body, false),
         SettingsPage::AboutContact => about(l, body),
         SettingsPage::Extensions => super::extensions::layout(ui, l, pane),
-        SettingsPage::Remote => super::remote::layout(ui, l, body),
+        SettingsPage::ExtensionSettings => super::extensions::section(ui, l, body),
+        SettingsPage::Remote => super::remote::layout(ui, l, body, super::remote::HELP, true),
+        SettingsPage::SendReport => {
+            super::remote::layout(ui, l, body, super::remote::SEND_REPORT_HELP, false)
+        }
         // Stock 091 rows (dividers, dropdowns) run 8 px past the text inset, to x 784.
         _ => {
             let area = Rect::new(body.x, body.y, body.width + 8, body.height);
@@ -946,7 +999,7 @@ fn rich_lines(text: &str, font: Font, width: f32) -> Vec<Vec<&str>> {
     lines
 }
 
-fn rich_height(text: &str, font: Font, width: u32) -> u32 {
+pub(super) fn rich_height(text: &str, font: Font, width: u32) -> u32 {
     let lines = if text.chars().any(|ch| mark(ch).is_some()) {
         rich_lines(text, font, width as f32).len()
     } else {
@@ -1088,7 +1141,6 @@ mod tests {
     }
 
     /// Shot 034 / spec I: "Power On Mode" is a mini page; the QC System menu omits it.
-    /// Owned: Tetrad Updates follows CorOS Updates.
     #[test]
     fn power_on_mode_is_listed_on_the_mini_only() {
         let page = |page| Control::Setting(SettingControl::Page(page));
@@ -1102,9 +1154,6 @@ mod tests {
             ui.navigate(Screen::Settings(SettingsPage::Brightness));
             let listed: Vec<Control> = ui.hit_regions().iter().map(|r| r.control).collect();
             assert_eq!(listed.contains(&page(SettingsPage::PowerOnMode)), mini);
-            let at = |p| listed.iter().position(|c| *c == page(p));
-            let updates = at(SettingsPage::Updates).expect("CorOS Updates");
-            assert_eq!(at(SettingsPage::TetradUpdates), Some(updates + 1));
         }
     }
 

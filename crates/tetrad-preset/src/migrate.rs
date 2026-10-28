@@ -366,15 +366,18 @@ impl Preset {
         };
         for (row, chain) in self.chains.iter_mut().enumerate() {
             for (column, model) in chain.models.iter_mut().enumerate() {
-                if model.is_empty() {
+                let model_id = model.hash.unwrap_or(0);
+                if model_id == 0 {
                     continue;
                 }
-                let model_id = model.hash.unwrap_or(0);
                 if catalog.model(model_id).is_none() {
-                    report.unknown_blocks.push(UnknownBlock {
-                        slot: Slot { row, column },
-                        model_id,
-                    });
+                    // The 0xFFFFFFFF empty slot is emptied too, but is not an unknown block.
+                    if !model.is_empty() {
+                        report.unknown_blocks.push(UnknownBlock {
+                            slot: Slot { row, column },
+                            model_id,
+                        });
+                    }
                     if report.unknown_blocks_emptied {
                         // VA 0x680678 → 0x680bf4: unknown IDs become empty slots.
                         *model = Model::empty_slot();

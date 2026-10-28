@@ -1,7 +1,7 @@
 //! Remote (owned, Tetrad; docs/remote.md): the device side of the web page that uploads IRs
-//! over Wi-Fi. The platform runs the HTTP server ([`RemoteBackend`]); this bridge keeps the
-//! on/off setting (`remote.json`) and the PIN, and imports each upload as a Cortex Control IR
-//! import does.
+//! over Wi-Fi and hands out the support file (`super::support`). The platform runs the HTTP
+//! server ([`RemoteBackend`]); this bridge keeps the switches (`remote.json`) and the PIN, and
+//! imports each upload as a Cortex Control IR import does.
 
 use std::path::Path;
 
@@ -16,7 +16,7 @@ use tetrad_ui::{RemoteView, ToastView};
 use super::platform::{Platform, ServiceBackends};
 use super::{Device, Subsystem};
 
-/// The on/off setting. The PIN is never stored.
+/// The switches. The PIN is never stored.
 pub const SETTINGS_FILE: &str = "/media/p4/tetrad/remote.json";
 const MAX_SETTINGS_BYTES: u64 = 4 * 1024;
 /// Wrong PINs before the unit makes a new PIN.
@@ -40,6 +40,9 @@ pub trait RemoteBackend {
 #[derive(Serialize, Deserialize)]
 struct Stored {
     enabled: bool,
+    /// Absent in files from before the switch: off.
+    #[serde(default)]
+    pin_in_menu: bool,
 }
 
 #[derive(Debug, Default)]
@@ -49,6 +52,8 @@ pub struct Remote {
     /// The switch, as saved. It stays on when the port does not open, so the next boot (or
     /// the switch turned off and on) tries again.
     enabled: bool,
+    /// The PIN shows as the first row of the ⋮ menu while the server runs.
+    pin_in_menu: bool,
     /// `Some` while the server runs.
     pin: Option<String>,
     wrong: u8,
@@ -61,6 +66,7 @@ impl Remote {
     pub fn view(&self, address: Option<&str>) -> RemoteView {
         RemoteView {
             enabled: self.enabled,
+            pin_in_menu: self.pin_in_menu,
             address: address.map(|address| format!("http://{address}")),
             pin: self.pin.clone(),
             status: self.status.clone(),
@@ -87,41 +93,54 @@ impl<P: Platform> Device<P> {
         use tetrad_services::exec::Files;
         let path = Path::new(SETTINGS_FILE);
         let stored = (self.platform.services().files()).read_bounded(path, MAX_SETTINGS_BYTES);
-        let enabled = match stored {
-            Ok(None) => false,
+        let off = Stored {
+            enabled: false,
+            pin_in_menu: false,
+        };
+        let stored = match stored {
+            Ok(None) => off,
             Ok(Some(bytes)) => match serde_json::from_slice::<Stored>(&bytes) {
-                Ok(stored) => stored.enabled,
+                Ok(stored) => stored,
                 Err(error) => {
                     self.notice(Subsystem::Remote, format!("{SETTINGS_FILE}: {error}"));
-                    false
+                    off
                 }
             },
             Err(error) => {
                 self.notice(Subsystem::Remote, format!("{SETTINGS_FILE}: {error}"));
-                false
+                off
             }
         };
-        self.bridges.remote.enabled = enabled;
-        if enabled {
+        let remote = &mut self.bridges.remote;
+        remote.enabled = stored.enabled;
+        remote.pin_in_menu = stored.pin_in_menu;
+        if stored.enabled {
             self.start_remote();
         }
     }
 
-    /// The Remote page switch, saved in `remote.json`.
-    pub(super) fn set_remote(&mut self, enabled: bool) {
-        if enabled == self.bridges.remote.enabled {
+    /// The Remote page switches, saved in `remote.json`.
+    pub(super) fn set_remote(&mut self, enabled: bool, pin_in_menu: bool) {
+        let remote = &mut self.bridges.remote;
+        if (enabled, pin_in_menu) == (remote.enabled, remote.pin_in_menu) {
             return;
         }
-        self.bridges.remote.enabled = enabled;
-        if enabled {
-            self.start_remote();
-        } else {
-            self.stop_remote(None);
+        let toggled = enabled != remote.enabled;
+        remote.enabled = enabled;
+        remote.pin_in_menu = pin_in_menu;
+        match (toggled, enabled) {
+            (true, true) => self.start_remote(),
+            (true, false) => self.stop_remote(None),
+            (false, _) => {}
         }
         use tetrad_services::exec::Files;
         let files = self.platform.services().files();
         let path = Path::new(SETTINGS_FILE);
-        let bytes = serde_json::to_vec(&Stored { enabled }).unwrap_or_default();
+        let stored = Stored {
+            enabled,
+            pin_in_menu,
+        };
+        let bytes = serde_json::to_vec(&stored).unwrap_or_default();
         let saved = (path.parent())
             .map_or(Ok(()), |dir| files.create_dirs(dir))
             .and_then(|()| files.write_atomic(path, &bytes));
@@ -200,6 +219,10 @@ impl<P: Platform> Device<P> {
                 ..
             } => self.remote_file_chunk(&id, &name, offset, last, &bytes),
             Request::FileDelete { id, name, .. } => self.remote_file_delete(&id, &name),
+            Request::Support { .. } => {
+                let (name, zip) = self.support_file();
+                Reply::File { name, zip }
+            }
             Request::Tabs { .. } => self.remote_tabs(),
             Request::TabPage { id, .. } => self.remote_tab_page(&id),
             Request::TabCall { id, message, .. } => {

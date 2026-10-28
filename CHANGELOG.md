@@ -19,9 +19,23 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Block list: an Extensions row after the stock categories lists every block from an
   extension, with its category. The row shows when an extension block is installed. The blocks
   also stay in the list of their own category.
+- Support file: the Remote page has a Download button for a `.zip` with versions, licence
+  states, the loaded preset's blocks, extensions, recent notices and the last 5 boot logs, for
+  bug reports. It holds no passwords, tokens or presets. Settings → Support → Send Report shows
+  how to get it ([docs/support.md](docs/support.md)).
+- Notices in the boot log start with the time of day (UTC) once the clock is set.
+- Settings has a Tetrad group. An extension that is on and has settings adds a row with its
+  name there; the row opens the extension's settings.
+- Remote: a **Show PIN in menu** switch (off by default). While Remote runs and the switch is
+  on, the first row of the ⋮ menu shows the PIN as `Remote #1234`; a tap opens the Remote page.
+  The switch is saved in `remote.json`. The Remote page now scrolls.
 
 ### Changed
 
+- Tetrad Updates, Appearance, Extensions and Remote moved from Settings → System to the new
+  Settings → Tetrad group.
+- Settings → Support → Send Report shows the Remote switch, address and PIN to get the support
+  file. Before, SEND REPORT showed "Sending report..." and then was refused.
 - Neural Amp Modeler is now Neural Amp Modeler A1 (0.4.0), with blocks named "NAM A1 …". It
   reads per-layer kernel sizes and activations, LeakyReLU and convolutional heads, and points
   A2 files to Neural Amp Modeler A2.
@@ -30,6 +44,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
   and Output (-40 to +40 dB). Before, a block had only Input and Output (0 to 4). A preset
   saved with an older version loads wrong values for these knobs: set the knobs of its NAM
   blocks again (#21, thanks Rick Peters).
+- The default extension repository has Neural Amp Modeler A1 0.5.0 and A2 0.2.0 (API 5, tag
+  `extensions-2026-10-27`). A1 0.4.0 and A2 0.1.0 were not published.
 
 ## [0.1.0-alpha.8](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.8) (2026-10-25)
 
