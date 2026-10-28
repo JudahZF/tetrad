@@ -20,7 +20,7 @@ press never waits for an extension.
 
 ## Turn it on
 
-1. Install **Custom Footswitch Mode** (Settings → System → Extensions, see
+1. Install **Custom Footswitch Mode** (Settings → Tetrad → Extensions, see
    [extensions.md](extensions.md#install)).
 2. Go to the next mode until the mode button shows **CUSTOM**: tap the mode button of the Grid
    or Gig View, or press **Down** and **Tap** together. The mode comes after the stock modes in
