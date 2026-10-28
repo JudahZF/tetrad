@@ -126,11 +126,12 @@ pub fn tuner_reading(state: &mut State, reading: Option<f32>) -> Vec<Effect> {
 
 /// The tuner screen opened (`0x3f0710` → `0x3ef3e8`) or closed (`0x3ecc48`). The metronome
 /// level goes to 0 on open and back to `10^(slot 3 / 20)` on close (`0x557d00`); no flag
-/// holds it at 0 in between, so later flushes send the real level. Closing keeps the mute
-/// while the live tuner runs.
+/// holds it at 0 in between, so later flushes send the real level. Owned: the mute follows the
+/// Tuner screen alone, so closing it (a MIDI tuner off too) unmutes even with LIVE TUNER on
+/// (stock keeps the mute while the live tuner runs).
 pub fn tuner_screen(state: &mut State, shown: bool) -> Vec<Effect> {
     let tuner = &state.settings.settings().tuner;
-    state.tuner_muted = tuner.mutes_outputs && (shown || tuner.live_tuner);
+    state.tuner_muted = tuner.mutes_outputs && shown;
     let level = |gain: f32| {
         Effect::Dsp(DspCommand::Control(ControlRequest::MetronomeParameter {
             destination: 1,
@@ -143,10 +144,7 @@ pub fn tuner_screen(state: &mut State, shown: bool) -> Vec<Effect> {
         effects.extend(tuner_path(state));
         return effects;
     }
-    let mut effects = Vec::new();
-    if !state.settings.settings().tuner.live_tuner {
-        effects.push(Effect::Dsp(DspCommand::TunerMute));
-    }
+    let mut effects = vec![Effect::Dsp(DspCommand::TunerMute)];
     match state
         .metronome
         .as_ref()
@@ -173,15 +171,15 @@ fn tuner_reference(state: &State) -> Effect {
 
 /// A stored tuner setting changed. Shown: the reference sends `0x37` (`0x3efc14`); input
 /// and mute send [`tuner_path`] (`0x3ef6d4`, `0x3ef120`). Hidden: the live tuner toggle
-/// sends the path (`0x6e0330`); input and mute do too while the live tuner runs (I);
-/// otherwise the next open sends them.
+/// sends the path (`0x6e0330`); input and mute wait for the next open (owned: the live
+/// tuner no longer holds the mute).
 pub fn tuner_setting_changed(state: &mut State, id: SettingId) -> Vec<Effect> {
     let tuner = &state.settings.settings().tuner;
-    let (live, shown) = (tuner.live_tuner, state.screen == Screen::Tuner);
-    state.tuner_muted = tuner.mutes_outputs && (shown || live);
+    let shown = state.screen == Screen::Tuner;
+    state.tuner_muted = tuner.mutes_outputs && shown;
     match id {
         SettingId::TunerReference if shown => vec![tuner_reference(state)],
-        SettingId::TunerInput | SettingId::TunerMute if shown || live => tuner_path(state).to_vec(),
+        SettingId::TunerInput | SettingId::TunerMute if shown => tuner_path(state).to_vec(),
         SettingId::LiveTuner if !shown => tuner_path(state).to_vec(),
         _ => Vec::new(),
     }
