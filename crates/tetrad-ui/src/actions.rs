@@ -209,8 +209,16 @@ impl UiState {
             Control::Updater(command) => return vec![UiCommand::Updater { command }],
             Control::TetradUpdate(command) => return vec![UiCommand::TetradUpdate { command }],
             Control::RemoteToggle => {
-                let enabled = !snapshot.remote.enabled;
-                return vec![UiCommand::SetRemote { enabled }];
+                return vec![UiCommand::SetRemote {
+                    enabled: !snapshot.remote.enabled,
+                    pin_in_menu: snapshot.remote.pin_in_menu,
+                }];
+            }
+            Control::RemotePinInMenuToggle => {
+                return vec![UiCommand::SetRemote {
+                    enabled: snapshot.remote.enabled,
+                    pin_in_menu: !snapshot.remote.pin_in_menu,
+                }];
             }
             Control::ShowChangelog => {
                 let body = snapshot.updater.changelog.clone();
@@ -1161,6 +1169,10 @@ impl UiState {
                 };
                 self.reset_scroll(ListId::Mappings);
                 return self.navigate(Screen::Mappings);
+            }
+            (_, MenuAction::Remote) => {
+                self.reset_scroll(ListId::SettingsPage);
+                return self.navigate(Screen::Settings(SettingsPage::Remote));
             }
             (_, MenuAction::Settings) => {
                 return self.navigate(Screen::Settings(SettingsPage::MyAccount));

@@ -21,9 +21,13 @@ Each IR goes into the IR saving destination: the folder you chose with **SET AS 
 DESTINATION** in the IR browser, or the IR root folder. The unit shows a short message for each
 IR it adds. Its name is the file name without the extension, at most 60 characters.
 
-Remote stays on after a restart if you leave it on. It gets a new PIN at each start. If the
-port does not open, the switch stays on and the page shows why; turn it off and on to try
-again.
+To see the PIN without this page, turn on **Show PIN in menu**. While Remote runs, the first
+row of the ⋮ menu (top right of the Grid) then shows the PIN, as `Remote #1234`. A tap on it
+opens this page of Settings.
+
+Both switches stay as you set them after a restart. Remote gets a new PIN at each start. If
+the port does not open, the Remote switch stays on and the page shows why; turn it off and on
+to try again.
 
 ## Files that work
 
@@ -65,5 +69,6 @@ import does.
 
 ## Settings file
 
-`/media/p4/tetrad/remote.json` holds the on/off setting only, for example
-`{"enabled":true}`. The PIN is never saved.
+`/media/p4/tetrad/remote.json` holds the two switches only, for example
+`{"enabled":true,"pin_in_menu":false}`. A file without `pin_in_menu` means off. The PIN is
+never saved.

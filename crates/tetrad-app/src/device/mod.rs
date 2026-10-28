@@ -2201,8 +2201,11 @@ impl<P: Platform> Device<P> {
             ui::Handoff::Mappings(command) => self.mapping_command(command),
             ui::Handoff::Custom(command) => self.custom_command(command),
             ui::Handoff::Theme(id) => self.set_theme(id),
-            ui::Handoff::Remote { enabled } => {
-                self.set_remote(enabled);
+            ui::Handoff::Remote {
+                enabled,
+                pin_in_menu,
+            } => {
+                self.set_remote(enabled, pin_in_menu);
                 Vec::new()
             }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,

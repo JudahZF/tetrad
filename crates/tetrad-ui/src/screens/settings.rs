@@ -999,7 +999,7 @@ fn rich_lines(text: &str, font: Font, width: f32) -> Vec<Vec<&str>> {
     lines
 }
 
-fn rich_height(text: &str, font: Font, width: u32) -> u32 {
+pub(super) fn rich_height(text: &str, font: Font, width: u32) -> u32 {
     let lines = if text.chars().any(|ch| mark(ch).is_some()) {
         rich_lines(text, font, width as f32).len()
     } else {

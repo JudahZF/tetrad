@@ -26,6 +26,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Notices in the boot log start with the time of day (UTC) once the clock is set.
 - Settings has a Tetrad group. An extension that is on and has settings adds a row with its
   name there; the row opens the extension's settings.
+- Remote: a **Show PIN in menu** switch (off by default). While Remote runs and the switch is
+  on, the first row of the ⋮ menu shows the PIN as `Remote #1234`; a tap opens the Remote page.
+  The switch is saved in `remote.json`. The Remote page now scrolls.
 
 ### Changed
 
