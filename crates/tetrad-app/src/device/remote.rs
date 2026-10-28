@@ -94,7 +94,8 @@ impl Remote {
         self.toast.clone()
     }
 
-    fn show_toast(&mut self, text: String) {
+    /// The application toast; Bluetooth uses it too.
+    pub(super) fn show_toast(&mut self, text: String) {
         let id = self.toast.as_ref().map_or(0, |toast| toast.id) + 1;
         self.toast = Some(ToastView { id, text });
     }

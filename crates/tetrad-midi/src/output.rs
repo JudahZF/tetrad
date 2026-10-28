@@ -8,6 +8,8 @@ use crate::usb::UsbMidiEvent;
 pub enum MidiOutput {
     /// Bytes for the DIN UART (`/dev/ttySC1`, one `write` per message).
     Din(Vec<u8>),
+    /// Owned: one message for the BLE MIDI hosts that listen (docs/bluetooth.md).
+    Ble(Vec<u8>),
     /// A request for the SHARC.
     Dsp(DspCommand),
     /// Work for the application.

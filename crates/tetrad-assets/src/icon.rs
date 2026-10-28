@@ -24,6 +24,8 @@ pub enum Icon {
     Metronome,
     Looper,
     Wifi,
+    /// Owned (Tetrad): Settings › Tetrad › Bluetooth.
+    Bluetooth,
     Lock,
     Play,
     Stop,
@@ -261,6 +263,18 @@ impl Icon {
                         a(5.0, 8.6, 4.4, 225.0, 90.0),
                         a(5.0, 8.6, 2.0, 225.0, 90.0),
                         dot(5.0, 8.6),
+                    ]
+                }
+            }
+            // The Bluetooth rune: a stem, with the arrow of each half pointing right.
+            Self::Bluetooth => {
+                const {
+                    &[
+                        l(5.0, 0.8, 5.0, 9.2),
+                        l(5.0, 0.8, 7.4, 3.0),
+                        l(7.4, 3.0, 2.6, 7.0),
+                        l(5.0, 9.2, 7.4, 7.0),
+                        l(7.4, 7.0, 2.6, 3.0),
                     ]
                 }
             }
@@ -1677,6 +1691,7 @@ mod tests {
         Icon::Metronome,
         Icon::Looper,
         Icon::Wifi,
+        Icon::Bluetooth,
         Icon::Lock,
         Icon::Play,
         Icon::Stop,

@@ -61,6 +61,9 @@ pub struct Context<'a> {
     pub wifi: WifiStatus,
     pub disk: Option<FsSpace>,
     pub extensions: &'a [InstalledExtension],
+    /// Bluetooth's switches, state and paired devices (`bluetooth::Bluetooth::support_lines`):
+    /// names, never keys.
+    pub bluetooth: Vec<String>,
 }
 
 impl Context<'_> {
@@ -90,6 +93,7 @@ impl<P: Platform> Device<P> {
             wifi: services.wifi_view().status,
             disk,
             extensions: &extensions.installed,
+            bluetooth: self.bridges.bluetooth.support_lines(),
         };
         let files = self.platform.services().files();
         let entries = collect(&self.state, &context, files);
@@ -116,6 +120,7 @@ pub fn collect(state: &State, context: &Context<'_>, files: &mut impl Files) -> 
         text("catalog.txt", catalog(state)),
         text("preset.txt", preset(state)),
         text("extensions.txt", extensions(context)),
+        text("bluetooth.txt", context.bluetooth.join("\n") + "\n"),
         text("dsp.txt", dsp(state)),
         text("notices.txt", notices(state, context)),
     ];
@@ -567,6 +572,7 @@ mod tests {
             wifi: WifiStatus::InternetConnected,
             disk: None,
             extensions,
+            bluetooth: vec!["enabled=true".into()],
         }
     }
 

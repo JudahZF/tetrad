@@ -50,6 +50,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         Diagnostics => Icon::PlusBold,
         Extensions | ExtensionSettings => Icon::Plugin,
         Remote => Icon::Download,
+        Bluetooth => Icon::Bluetooth,
         BootSelector => Icon::Display,
     }
 }
@@ -351,6 +352,7 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout, page: SettingsPage) {
             super::remote::layout(ui, l, body, super::remote::SEND_REPORT_HELP, false)
         }
         SettingsPage::BootSelector => boot_selector(ui, l, body),
+        SettingsPage::Bluetooth => super::bluetooth::layout(ui, l, body),
         // Stock 091 rows (dividers, dropdowns) run 8 px past the text inset, to x 784.
         _ => {
             let area = Rect::new(body.x, body.y, body.width + 8, body.height);

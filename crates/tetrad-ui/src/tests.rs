@@ -489,6 +489,7 @@ fn menus_use_stock_labels_in_stock_order() {
             "Appearance",
             "Extensions",
             "Remote",
+            "Bluetooth",
             "Boot Selector"
         ]
     );

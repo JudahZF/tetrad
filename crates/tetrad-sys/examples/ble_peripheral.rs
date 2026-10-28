@@ -4,8 +4,8 @@
 
 use std::time::{Duration, Instant};
 
-use tetrad_ble::{Bond, Config, Event};
-use tetrad_sys::ble::{Bluetooth, Command};
+use tetrad_ble::{Bond, Command, Config, Event};
+use tetrad_sys::ble::Bluetooth;
 
 const BONDS: &str = "/tmp/ble-bonds.json";
 

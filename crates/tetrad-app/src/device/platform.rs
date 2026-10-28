@@ -183,6 +183,11 @@ pub trait Platform {
     fn remote(&mut self) -> Option<&mut dyn crate::device::remote::RemoteBackend> {
         None
     }
+
+    /// The BLE host; `None` where Bluetooth does not run.
+    fn bluetooth(&mut self) -> Option<&mut dyn crate::device::bluetooth::BluetoothBackend> {
+        None
+    }
 }
 
 /// tetrad-services backends, borrowed together by `services.rs`.
@@ -320,6 +325,8 @@ pub enum Input {
     Extension(crate::device::extensions::ExtensionInput),
     /// A request of the Remote page (`crate::device::remote`).
     Remote(tetrad_remote::Call),
+    /// An event of the BLE host (`crate::device::bluetooth`).
+    Bluetooth(tetrad_ble::Event),
     /// The user or the system asked for a power action.
     Power(crate::device::PowerAction),
 }

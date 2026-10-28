@@ -923,6 +923,7 @@ impl<P: Platform> Device<P> {
             }
         }
         self.load_remote();
+        self.load_bluetooth();
         self.load_boot_selector();
         let now = tetrad_dsp_host::session::Clock::now(&self.clock);
         let mappings = (self.bridges.mappings).on_preset_loaded(&self.state, now);

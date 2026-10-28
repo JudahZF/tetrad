@@ -64,6 +64,8 @@ pub struct MidiController {
     receive_enabled: bool,
     /// Bit `n`: channel index `n` is reserved by an extension.
     reserved: u16,
+    /// Owned: a BLE MIDI host listens and MIDI over Bluetooth is on.
+    ble_out: bool,
 }
 
 impl MidiController {
@@ -81,6 +83,7 @@ impl MidiController {
             preset_ready: false,
             receive_enabled: true,
             reserved: 0,
+            ble_out: false,
         }
     }
 
@@ -140,6 +143,11 @@ impl MidiController {
 
     pub fn reserved_channels(&self) -> u16 {
         self.reserved
+    }
+
+    /// Owned: [`Self::transmit`] also gives [`MidiOutput::Ble`] while this is on.
+    pub fn set_ble_out(&mut self, on: bool) {
+        self.ble_out = on;
     }
 
     /// The application refused the last `LoadPreset` (null or auditioned setlist).
@@ -202,6 +210,25 @@ impl MidiController {
             // Start/Continue from USB have no effect in stock.
             MidiMessage::Realtime(_) => {}
             message => self.handle(message, now, &mut out),
+        }
+        out
+    }
+
+    /// Owned: one complete message from a BLE MIDI host (docs/bluetooth.md), status first.
+    /// It takes the DIN path's gates: a ready preset (or Stop while busy) and MIDI receive on.
+    /// Clock and the other real-time messages are dropped: BLE packets come at the
+    /// connection interval, so a BLE clock jitters by several milliseconds.
+    pub fn receive_ble(&mut self, bytes: &[u8], now: Duration) -> Vec<MidiOutput> {
+        let mut out = Vec::new();
+        if !self.preset_ready || !self.receive_enabled {
+            return out;
+        }
+        let mut parser = MidiParser::new(crate::parser::DEFAULT_SYSEX_LIMIT);
+        for event in parser.feed(bytes) {
+            match event {
+                ParseEvent::Message(MidiMessage::Realtime(_)) | ParseEvent::Error(_) => {}
+                ParseEvent::Message(message) => self.handle(message, now, &mut out),
+            }
         }
         out
     }
@@ -404,14 +431,17 @@ impl MidiController {
     /// ([`UsbMidiEvent::packets`]). QC mini: CC and PC go out as one tagged
     /// 0x18 (`0x00876200`) with the MIDI over USB flag; the ARM sends no timing
     /// clock (the SHARC paces clock out). Stock never encodes other kinds, so
-    /// the mini sends nothing for them.
+    /// the mini sends nothing for them. Owned: every kind but real-time also goes to
+    /// BLE MIDI hosts ([`Self::set_ble_out`]).
     pub fn transmit(&self, message: &MidiMessage) -> Vec<MidiOutput> {
+        let ble = (self.ble_out && !matches!(message, MidiMessage::Realtime(_)))
+            .then(|| MidiOutput::Ble(message.to_bytes()));
         if self.port == MidiPort::Dsp {
             if !matches!(
                 message,
                 MidiMessage::ControlChange { .. } | MidiMessage::ProgramChange { .. }
             ) {
-                return Vec::new();
+                return ble.into_iter().collect();
             }
             return UsbMidiEvent::packets(message)
                 .into_iter()
@@ -421,9 +451,11 @@ impl MidiController {
                         usb: self.settings.over_usb,
                     })
                 })
+                .chain(ble)
                 .collect();
         }
         let mut out = vec![MidiOutput::Din(message.to_bytes())];
+        out.extend(ble);
         if self.settings.over_usb && !matches!(message, MidiMessage::Realtime(_)) {
             out.extend(
                 UsbMidiEvent::packets(message)
@@ -823,6 +855,40 @@ mod tests {
             ]
         );
         assert_eq!(midi.clock().external_tempo(), 0.0);
+    }
+
+    /// BLE MIDI takes the native map like DIN, drops clock, and gets every sent kind but
+    /// real-time while a host listens.
+    #[test]
+    fn ble_in_and_out() {
+        let mut midi = controller();
+        assert_eq!(
+            actions(&midi.receive_ble(&[0xb0, 43, 1], Duration::ZERO)),
+            [&MidiAction::SelectScene(1)]
+        );
+        assert!(midi.receive_ble(&[0xf8], Duration::ZERO).is_empty());
+        midi.set_preset_ready(false);
+        assert!(midi.receive_ble(&[0xb0, 43, 2], Duration::ZERO).is_empty());
+
+        let pc = MidiMessage::ProgramChange {
+            channel: crate::message::Channel::from_index(0).unwrap(),
+            program: crate::message::U7::new(9).unwrap(),
+        };
+        assert!(
+            !midi
+                .transmit(&pc)
+                .iter()
+                .any(|o| matches!(o, MidiOutput::Ble(_)))
+        );
+        midi.set_ble_out(true);
+        assert!(midi.transmit(&pc).contains(&MidiOutput::Ble(vec![0xc0, 9])));
+        let clock = MidiMessage::Realtime(Realtime::TimingClock);
+        assert!(
+            !midi
+                .transmit(&clock)
+                .iter()
+                .any(|o| matches!(o, MidiOutput::Ble(_)))
+        );
     }
 
     /// USB records need MIDI over USB, except clock ticks.

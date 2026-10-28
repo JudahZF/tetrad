@@ -88,6 +88,8 @@ pub struct Midi {
     din_clocks: u8,
     /// Extension channel reservations, kept across controller rebuilds.
     reserved: u16,
+    /// Owned: a BLE MIDI host listens (`bluetooth`), kept across controller rebuilds.
+    ble_out: bool,
 }
 
 impl Midi {
@@ -108,6 +110,7 @@ impl Midi {
         controller.set_preset_ready(self.preset_ready);
         controller.set_tempo_context(tempo_context(state));
         controller.set_reserved_channels(self.reserved);
+        controller.set_ble_out(self.ble_out);
         let routed = route(controller.boot(), state);
         self.controller = Some(controller);
         routed.read_only()
@@ -136,6 +139,26 @@ impl Midi {
             effects.extend(self.din_clock());
         }
         Ok(effects)
+    }
+
+    /// Owned: one message from a BLE MIDI host (docs/bluetooth.md).
+    pub fn on_ble(
+        &mut self,
+        message: &[u8],
+        state: &mut State,
+        now: Duration,
+    ) -> Result<Vec<Effect>, MidiError> {
+        self.drive(state, now, |controller| {
+            controller.receive_ble(message, now)
+        })
+    }
+
+    /// Owned: MIDI goes out to BLE MIDI hosts too.
+    pub fn set_ble_out(&mut self, on: bool) {
+        self.ble_out = on;
+        if let Some(controller) = &mut self.controller {
+            controller.set_ble_out(on);
+        }
     }
 
     /// The status request after every 24th DIN clock (r16-perform §9 gap 2).
@@ -391,6 +414,7 @@ fn route(outputs: Vec<MidiOutput>, state: &State) -> Routed {
     for output in outputs {
         match output {
             MidiOutput::Din(bytes) => routed.effects.push(Effect::MidiOut(bytes)),
+            MidiOutput::Ble(bytes) => routed.effects.push(Effect::BluetoothMidi(bytes)),
             // Tempo changes reach every driver's tempo hook before `0x16` (`0x875a48`).
             MidiOutput::Dsp(MidiDsp::TempoChange(bpm)) => {
                 routed.effects.push(Effect::Dsp(DspCommand::Tempo(bpm)));

@@ -39,6 +39,19 @@ pub struct Config {
     pub link: bool,
 }
 
+/// What the device asks of the host ([`Host::apply`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    /// Host mode: advertise while no host is connected. Off also ends a host's link.
+    SetAdvertise(bool),
+    /// New devices may pair.
+    SetPairable(bool),
+    /// One MIDI message, status first, for every host that listens.
+    SendMidi(Vec<u8>),
+    /// Drop the bond with this address, and end its link.
+    Forget(Address),
+}
+
 /// What the host tells the device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
@@ -265,6 +278,15 @@ impl Host {
     }
 
     // ---- the device's requests ----
+
+    pub fn apply(&mut self, command: Command) {
+        match command {
+            Command::SetAdvertise(on) => self.set_advertise(on),
+            Command::SetPairable(on) => self.set_pairable(on),
+            Command::SendMidi(message) => self.send_midi(&message),
+            Command::Forget(address) => self.forget(&address),
+        }
+    }
 
     /// Host mode: advertise while no host is connected. Off also ends a host's link.
     pub fn set_advertise(&mut self, advertise: bool) {

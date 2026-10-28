@@ -41,6 +41,8 @@ pub struct SettingsViews {
     pub remote: tetrad_ui::RemoteView,
     /// Boot Selector page (`boot_selector::BootSelector::view`).
     pub boot_selector: Option<bool>,
+    /// Bluetooth page (`bluetooth::Bluetooth::view`).
+    pub bluetooth: tetrad_ui::BluetoothView,
     /// The last application toast (`remote::Remote::toast`).
     pub toast: Option<tetrad_ui::ToastView>,
     /// `Control::cloud_route` is set: the cloud is usable without Wi-Fi (re-r44 §3).
@@ -108,6 +110,7 @@ pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
     snapshot.appearance = views.appearance.clone();
     snapshot.remote = views.remote.clone();
     snapshot.boot_selector = views.boot_selector;
+    snapshot.bluetooth = views.bluetooth.clone();
     snapshot.toast = views.toast.clone();
     snapshot.control_online = views.control_online;
     snapshot.control_link = views.control_link;
@@ -354,6 +357,7 @@ impl<P: Platform> Device<P> {
         let mut views = SettingsViews {
             remote: remote.view(wifi.ip_address.as_deref()),
             boot_selector: self.bridges.boot_selector.view(),
+            bluetooth: self.bridges.bluetooth.view(),
             toast: remote.toast(),
             wifi,
             extensions: Default::default(),

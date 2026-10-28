@@ -346,6 +346,9 @@ impl RunOptions {
             }
             // Bring-up never opens a listening port (`LinuxPlatform::enable_remote`).
             Handoff::Remote { .. } => Some("Remote (it runs only in `tetrad run`)"),
+            Handoff::Bluetooth { .. } | Handoff::ForgetBluetooth { .. } => {
+                Some("Bluetooth (it runs only in `tetrad run`)")
+            }
             // Setlist slot writes and cloud requests (re-r31 §5).
             Handoff::DownloadPresets { .. } if !self.services => {
                 Some("services in a bring-up run without --services")

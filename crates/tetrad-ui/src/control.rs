@@ -1023,6 +1023,12 @@ pub enum Control {
     RemotePinInMenuToggle,
     /// The switch of the Boot Selector page (`screens::settings`).
     BootSelectorToggle,
+    /// The switches of the Bluetooth page (`screens::bluetooth`).
+    BluetoothToggle,
+    BluetoothMidiToggle,
+    BluetoothHostModeToggle,
+    /// FORGET on paired device n ([`crate::BluetoothView::devices`]).
+    BluetoothForget(u8),
     Updater(UpdaterCommand),
     TetradUpdate(TetradUpdateCommand),
     ShowChangelog,
@@ -1299,6 +1305,16 @@ pub enum UiCommand {
     /// The Boot Selector page switch: the launcher shows the boot selector from the next boot.
     SetBootSelector {
         shown: bool,
+    },
+    /// The Bluetooth page switches (`crate::bluetooth`).
+    SetBluetooth {
+        enabled: bool,
+        host_mode: bool,
+        midi: bool,
+    },
+    /// Drop the pairing of the device with `address` (`AC:36:1B:FA:A0:2B`).
+    ForgetBluetooth {
+        address: String,
     },
     SelectScene {
         scene: SceneIndex,
@@ -2041,6 +2057,12 @@ impl fmt::Debug for UiCommand {
                 pin_in_menu,
             } => show!("SetRemote", enabled, pin_in_menu),
             C::SetBootSelector { shown } => show!("SetBootSelector", shown),
+            C::SetBluetooth {
+                enabled,
+                host_mode,
+                midi,
+            } => show!("SetBluetooth", enabled, host_mode, midi),
+            C::ForgetBluetooth { address } => show!("ForgetBluetooth", address),
             C::CreateBackup { name } => show!("CreateBackup", name),
             C::RenameBackup { id, name } => show!("RenameBackup", id, name),
             C::RestoreBackup { id } => show!("RestoreBackup", id),

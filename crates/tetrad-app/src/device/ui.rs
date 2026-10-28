@@ -137,6 +137,14 @@ pub enum Handoff {
     Remote { enabled: bool, pin_in_menu: bool },
     /// The Boot Selector page switch → `Device::set_boot_selector`.
     BootSelector { shown: bool },
+    /// The Bluetooth page switches → `Device::set_bluetooth`.
+    Bluetooth {
+        enabled: bool,
+        host_mode: bool,
+        midi: bool,
+    },
+    /// FORGET on the Bluetooth page → `Device::forget_bluetooth`.
+    ForgetBluetooth { address: String },
     /// Capture wizard requests and saves → capture bridge.
     Capture(ViewCommand),
     /// The capture screen opened: `tetrad_capture::v2::Nc2Input::DialogShown` (`0x3d791c`).
@@ -831,6 +839,18 @@ impl Ui {
             })],
             C::SetBootSelector { shown } => {
                 vec![Request::Handoff(Handoff::BootSelector { shown })]
+            }
+            C::SetBluetooth {
+                enabled,
+                host_mode,
+                midi,
+            } => vec![Request::Handoff(Handoff::Bluetooth {
+                enabled,
+                host_mode,
+                midi,
+            })],
+            C::ForgetBluetooth { address } => {
+                vec![Request::Handoff(Handoff::ForgetBluetooth { address })]
             }
             C::SelectScene { scene } => match EngineScene::new(scene.get()) {
                 Ok(scene) => edit(Action::SelectScene(scene)),
@@ -2364,6 +2384,7 @@ fn notice_title(subsystem: Subsystem) -> &'static str {
         Subsystem::Extensions => "Extensions",
         Subsystem::Remote => "Remote",
         Subsystem::Usb => "USB",
+        Subsystem::Bluetooth => "Bluetooth",
     }
 }
 

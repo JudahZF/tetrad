@@ -19,7 +19,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use tetrad_ble::{Address, Bond, Config, Event, Host};
+use tetrad_ble::{Bond, Command, Config, Event, Host};
 
 pub const HCI_UART: &str = "/dev/ttySC2";
 /// The control node of the `wilc-spi` driver.
@@ -210,15 +210,6 @@ pub fn bring_up(path: &Path) -> Result<HciUart, String> {
     }
 }
 
-/// What the device asks of the Bluetooth thread.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    SetAdvertise(bool),
-    SetPairable(bool),
-    SendMidi(Vec<u8>),
-    Forget(Address),
-}
-
 /// The running host: a thread with the UART. Events arrive through [`Self::events`]; a
 /// [`Event::Fault`] ends the thread.
 pub struct Bluetooth {
@@ -354,10 +345,7 @@ fn run(
         }
         loop {
             match commands.try_recv() {
-                Ok(Command::SetAdvertise(on)) => host.set_advertise(on),
-                Ok(Command::SetPairable(on)) => host.set_pairable(on),
-                Ok(Command::SendMidi(message)) => host.send_midi(&message),
-                Ok(Command::Forget(address)) => host.forget(&address),
+                Ok(command) => host.apply(command),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return,
             }

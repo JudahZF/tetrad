@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|send-report|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-app|ext-settings|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|remote-menu|boot-selector|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|send-report|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-app|ext-settings|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|remote-menu|boot-selector|bluetooth|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -628,6 +628,30 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
     if view == "boot-selector" {
         snapshot.boot_selector = Some(true);
     }
+    if view == "bluetooth" {
+        snapshot.bluetooth = BluetoothView {
+            enabled: true,
+            host_mode: true,
+            midi: true,
+            name: Some("Quad Cortex 1FEB".into()),
+            status: None,
+            host: Some("Judah's iPhone".into()),
+            devices: vec![
+                BluetoothDevice {
+                    address: "AC:36:1B:FA:A0:2B".into(),
+                    label: "Judah's iPhone".into(),
+                    kind: "Phone or computer".into(),
+                    connected: true,
+                },
+                BluetoothDevice {
+                    address: "C4:D3:6A:10:22:7E".into(),
+                    label: "MacBook Pro".into(),
+                    kind: "Phone or computer".into(),
+                    connected: false,
+                },
+            ],
+        };
+    }
     if matches!(
         view,
         "params" | "assign" | "stomp-bar" | "numeric" | "params-tabs" | "params-bypassed"
@@ -1136,6 +1160,9 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
         }
         "boot-selector" => {
             ui.show(Screen::Settings(SettingsPage::BootSelector));
+        }
+        "bluetooth" => {
+            ui.show(Screen::Settings(SettingsPage::Bluetooth));
         }
         view if view.starts_with("ext") => {
             ui.show(Screen::Settings(SettingsPage::Extensions));

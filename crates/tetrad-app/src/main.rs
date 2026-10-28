@@ -726,6 +726,7 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
     let mut platform = LinuxPlatform::open()?;
     platform.enable_extensions()?;
     platform.enable_remote();
+    platform.enable_bluetooth();
     let device = tetrad_app::device::Device::start_with(platform, RunOptions::STOCK)?;
     if let Some(started) = args.started
         && device.dsp().is_some()

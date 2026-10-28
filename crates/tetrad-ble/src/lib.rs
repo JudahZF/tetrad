@@ -20,7 +20,7 @@ pub mod smp;
 
 pub use bond::Bond;
 pub use hci::Address;
-pub use host::{Config, Event, Host, Rng};
+pub use host::{Command, Config, Event, Host, Rng};
 
 /// A Bluetooth UUID. A 16-bit UUID is the base UUID with those bits; both forms compare equal.
 #[derive(Debug, Clone, Copy, Eq)]
