@@ -10,6 +10,7 @@ use tetrad_app::device::remote::SETTINGS_FILE;
 use tetrad_app::device::{Device, Event};
 use tetrad_remote::{Call, LibraryOp, Reply, Request};
 use tetrad_services::fake::MemFiles;
+use tetrad_storage::stock::ProductType;
 
 const PIN: &str = "0001";
 
@@ -150,6 +151,18 @@ fn an_ir_joins_and_leaves_folders_but_stays_in_the_root() {
     let refused = library(&mut device, link(root, false)).unwrap_err();
     assert!(refused.contains("root"), "{refused}");
     assert!(library(&mut device, link(9999, true)).is_err());
+    // A writable folder of another type (here the captures root) takes no IR.
+    let captures = (device.state().library.as_ref())
+        .and_then(|library| library.database.as_ref())
+        .map(|db| {
+            db.view()
+                .root_folder(ProductType::Capture)
+                .unwrap()
+                .unwrap()
+        })
+        .unwrap();
+    let refused = library(&mut device, link(captures, true)).unwrap_err();
+    assert!(refused.contains("not in the library"), "{refused}");
     let unknown = LibraryOp::Link {
         id: "CIR_unknown".into(),
         folder: cabs,

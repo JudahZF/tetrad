@@ -20,6 +20,9 @@ pub struct RemoteView {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteRestore {
+    /// Which received backup this is: a new upload gets a new id, so a RESTORE confirmed for one
+    /// backup never restores another.
+    pub id: u64,
     /// The file name the page sent.
     pub name: String,
     /// As "34.2 MB".

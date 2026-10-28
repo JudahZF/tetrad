@@ -296,6 +296,24 @@ fn discard_and_restore_on_the_unit() {
     assert_eq!(view(&device).restore, None);
 }
 
+/// A RESTORE confirmed for one backup does not restore another that the page sent while the
+/// question was open: the unit asks for a new touch.
+#[test]
+fn a_restore_confirmed_for_a_replaced_backup_does_nothing() {
+    let files = MemFiles::default();
+    let mut device = boot(&files);
+    send(&mut device, "First.tar.gz", &archive(PIECE));
+    tap(&mut device, Control::RemoteRestore);
+    send(&mut device, "Second.tar.gz", &archive(2 * PIECE));
+    touch(&mut device, Control::Dialog(DialogButton::Primary));
+    assert!(device.state().library.is_some(), "no restore runs");
+    let after = state(&mut device);
+    assert_eq!(
+        (&after["state"], &after["name"]),
+        (&"received".into(), &"Second.tar.gz".into())
+    );
+}
+
 /// One backup at a time, and each result to its owner: while a Cortex Control restore runs, a
 /// Remote pack is refused, and the Control result leaves the Backup page as it was; while a
 /// Remote pack runs, a Control restore is refused, and the pack still ends on the Backup page.

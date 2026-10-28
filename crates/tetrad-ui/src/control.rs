@@ -1300,8 +1300,10 @@ pub enum UiCommand {
         enabled: bool,
         pin_in_menu: bool,
     },
-    /// Restore the backup that the Remote page sent (confirmed).
-    RemoteRestore,
+    /// Restore the backup that the Remote page sent (confirmed), if it is still backup `id`.
+    RemoteRestore {
+        id: u64,
+    },
     /// Remove the backup that the Remote page sent.
     RemoteDiscard,
     /// The Boot Selector page switch: the launcher shows the boot selector from the next boot.
@@ -2048,7 +2050,7 @@ impl fmt::Debug for UiCommand {
                 enabled,
                 pin_in_menu,
             } => show!("SetRemote", enabled, pin_in_menu),
-            C::RemoteRestore => f.write_str("RemoteRestore"),
+            C::RemoteRestore { id } => show!("RemoteRestore", id),
             C::RemoteDiscard => f.write_str("RemoteDiscard"),
             C::SetBootSelector { shown } => show!("SetBootSelector", shown),
             C::CreateBackup { name } => show!("CreateBackup", name),

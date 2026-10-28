@@ -108,10 +108,12 @@ impl<P: Platform> Device<P> {
         Ok(())
     }
 
-    /// Every user IR stays in the IR root ("My IRs"), as in the Directory.
+    /// Every user IR stays in the IR root ("My IRs"), as in the Directory. Only an IR folder
+    /// takes an IR: `StockWrite::link` checks that a folder is writable, not its product type.
     fn remote_link_ir(&mut self, id: &str, folder: i64, linked: bool) -> Result<(), String> {
         self.user_ir_name(id)?;
-        if !linked && self.ir_folder(folder)?.parent == 0 {
+        let root = self.ir_folder(folder)?.parent == 0;
+        if root && !linked {
             return Err("Every IR stays in the IR root folder".into());
         }
         let products = vec![id.to_owned()];

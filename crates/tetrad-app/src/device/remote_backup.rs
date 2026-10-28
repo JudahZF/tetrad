@@ -61,6 +61,8 @@ enum Slot {
 pub struct BackupPage {
     slot: Slot,
     error: Option<String>,
+    /// The id of the last received backup ([`RemoteRestore::id`]).
+    received: u64,
 }
 
 impl BackupPage {
@@ -68,6 +70,7 @@ impl BackupPage {
     pub(super) fn restore(&self) -> Option<RemoteRestore> {
         match &self.slot {
             Slot::Received { name, size } | Slot::Restoring { name, size } => Some(RemoteRestore {
+                id: self.received,
                 name: name.clone(),
                 size: size_text(*size),
                 restoring: matches!(self.slot, Slot::Restoring { .. }),
@@ -256,6 +259,7 @@ impl<P: Platform> Device<P> {
             name,
             size: received,
         };
+        remote.backup.received += 1;
         Ok(())
     }
 
@@ -272,11 +276,19 @@ impl<P: Platform> Device<P> {
     /// RESTORE or DISCARD on the unit's Remote page. RESTORE runs the restore job, which
     /// closes the library, replaces the backup members and reloads the device in place, as a
     /// cloud restore does.
-    pub(super) fn remote_backup_touch(&mut self, restore: bool) -> Vec<Effect> {
+    pub(super) fn remote_backup_touch(&mut self, restore: Option<u64>) -> Vec<Effect> {
         let Slot::Received { name, size } = self.bridges.remote.backup.slot.clone() else {
             return Vec::new();
         };
-        if !restore {
+        // The page replaced the backup while the question was open: the touch was for another one.
+        if restore.is_some_and(|id| id != self.bridges.remote.backup.received) {
+            let notice = format!("Remote: backup {name} came while RESTORE waited; not restored");
+            self.notice(Subsystem::Remote, notice);
+            let toast = "The backup changed: touch RESTORE again".to_owned();
+            self.bridges.remote.show_toast(toast);
+            return Vec::new();
+        }
+        if restore.is_none() {
             let _ = self.remote_backup_discard();
             self.notice(
                 Subsystem::Remote,
