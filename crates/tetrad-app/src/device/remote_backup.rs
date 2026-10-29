@@ -382,15 +382,14 @@ impl<P: Platform> Device<P> {
         page.slot = slot;
         page.error = error;
         self.notice(Subsystem::Remote, notice);
-        if !self.bridges.remote.running() {
-            self.drop_remote_backup();
-        }
+        self.drop_remote_backup();
     }
 
-    /// Remote starts or stops: the backup files of this page go, unless a job still uses them
-    /// (its end removes them when Remote is off).
+    /// Remote or Bluetooth (the Tetrad app's link) starts or stops: the backup files go when
+    /// neither runs, unless a job still uses them (its end removes them then).
     pub(super) fn drop_remote_backup(&mut self) {
-        if self.bridges.remote.backup.busy().is_ok() {
+        let in_use = self.bridges.remote.running() || self.bridges.bluetooth.running();
+        if !in_use && self.bridges.remote.backup.busy().is_ok() {
             self.remove_backup_files();
             self.bridges.remote.backup = BackupPage::default();
         }

@@ -7,10 +7,13 @@ mod common;
 use common::{Media, STOCK, Sim, boot_bluetooth, light_preset};
 use serde_json::{Value, json};
 use tetrad_app::device::bluetooth::{BONDS_FILE, SETTINGS_FILE};
+use tetrad_app::device::platform::Input;
+use tetrad_app::device::services::{BackupDone, REMOTE_ARCHIVE, ServiceNotice};
 use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Device, Event};
 use tetrad_ble::bond::{Bond, Kind};
 use tetrad_ble::{Command, Event as Ble};
+use tetrad_services::backup::Summary;
 use tetrad_services::fake::MemFiles;
 use tetrad_ui::{Control, InputEvent, Screen, SettingsPage};
 
@@ -51,6 +54,11 @@ fn push(device: &mut Device<Sim>, event: Ble) {
 
 /// Sends one app request and returns the header of the reply.
 fn ask(device: &mut Device<Sim>, header: Value) -> Value {
+    exchange(device, header).0
+}
+
+/// Sends one app request and returns the header and the body of the reply.
+fn exchange(device: &mut Device<Sim>, header: Value) -> (Value, Vec<u8>) {
     push(device, Ble::LinkMessage(tetrad_usb::encode(&header, &[])));
     let sent = &device.platform().bluetooth.as_ref().unwrap().sent;
     let Some(Command::LinkSend { message, .. }) = sent
@@ -60,7 +68,8 @@ fn ask(device: &mut Device<Sim>, header: Value) -> Value {
     else {
         panic!("no reply in {sent:?}");
     };
-    tetrad_usb::decode::<Value>(message).unwrap().0
+    let (header, body) = tetrad_usb::decode::<Value>(message).unwrap();
+    (header, body.to_vec())
 }
 
 fn pin(device: &Device<Sim>) -> String {
@@ -220,4 +229,49 @@ fn the_app_reaches_the_remote_api() {
     assert!(ask(&mut device, notices)["notices"].is_array());
     let page = json!({"id": 2, "op": "remote", "method": "GET", "path": "/"});
     assert_eq!(ask(&mut device, page)["error"], "not found (404)");
+}
+
+/// Remote is off: a backup that the app makes stays for its download while Bluetooth runs.
+#[test]
+fn the_app_downloads_a_backup_while_remote_is_off() {
+    let (mut device, files) = boot();
+    device.platform().worker.set(true);
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: true,
+        },
+    );
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: false,
+            connection: 0,
+        },
+    );
+    let remote = |id: u64, method: &str, path: &str| json!({"id": id, "op": "remote", "method": method, "path": path});
+    let created = ask(&mut device, remote(1, "POST", "/api/backup/create"));
+    assert_eq!(created["state"], "creating");
+    files.put(REMOTE_ARCHIVE, b"\x1f\x8bbackup".to_vec());
+    let done = BackupDone::Created {
+        summary: Summary {
+            files: 1,
+            dirs: 0,
+            bytes: 1,
+        },
+        notes: Vec::new(),
+    };
+    let notice = Input::Service(ServiceNotice::Backup(Ok(done)));
+    device.platform().inputs.borrow_mut().push(notice);
+    for _ in 0..5 {
+        device.step();
+    }
+    assert_eq!(
+        ask(&mut device, remote(2, "GET", "/api/backup"))["state"],
+        "ready"
+    );
+    let (_, body) = exchange(&mut device, remote(3, "GET", "/api/backup/file?offset=0"));
+    assert_eq!(body, b"\x1f\x8bbackup");
 }

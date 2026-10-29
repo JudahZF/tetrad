@@ -74,6 +74,10 @@ pub struct Bluetooth {
 }
 
 impl Bluetooth {
+    pub(super) fn running(&self) -> bool {
+        self.running
+    }
+
     pub fn view(&self) -> BluetoothView {
         let label = |address: &Address| {
             (self.bonds.iter())
@@ -245,6 +249,8 @@ impl<P: Platform> Device<P> {
     }
 
     fn start_bluetooth(&mut self) {
+        // Remote backup files of a run that ended without a stop (`drop_remote_backup`).
+        self.drop_remote_backup();
         let bluetooth = &self.bridges.bluetooth;
         let config = Config {
             name: None,
@@ -284,6 +290,8 @@ impl<P: Platform> Device<P> {
         bluetooth.status = status;
         self.sync_bluetooth_midi();
         self.sync_app_listening();
+        // A backup that the app made goes with the link, unless Remote still runs.
+        self.drop_remote_backup();
     }
 
     /// `scope.ble.notify` sends while an app that gave the PIN is connected.

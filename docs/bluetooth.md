@@ -112,6 +112,8 @@ field when it was refused. The unit answers one request at a time, in order.
 `path` is the URL path with its query, for example `{"op": "remote", "method": "GET", "path":
 "/api/backup/file?offset=0"}`. It needs no Remote PIN, and Remote need not be on. The page itself
 and the dev-build routes (updates, keys, the log) answer `not found`.
+A backup made over the link stays on the unit while Bluetooth or Remote runs, as on the Remote
+page; it goes when both are off.
 
 Every op except `hello` and `auth` needs the PIN first. An extension pushes an event with
 `scope.ble.notify(value)`; it arrives as a message with no `id`:

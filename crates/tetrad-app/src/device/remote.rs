@@ -201,10 +201,10 @@ impl<P: Platform> Device<P> {
         if let Some(backend) = self.platform.remote() {
             backend.stop();
         }
-        self.drop_remote_backup();
         let remote = &mut self.bridges.remote;
         remote.pin = None;
         remote.status = status;
+        self.drop_remote_backup();
     }
 
     /// Answers one page request.
