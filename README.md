@@ -11,6 +11,7 @@
   <a href="https://github.com/JudahZF/tetrad/releases"><img alt="Release" src="https://img.shields.io/github/v/release/JudahZF/tetrad?include_prereleases&label=release"></a>
   <img alt="CorOS 4.1.0 and 4.1.1" src="https://img.shields.io/badge/CorOS-4.1.0%20%C2%B7%204.1.1-007ec6">
   <a href="LICENSE"><img alt="Licence: GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-4c1"></a>
+  <a href="https://discord.gg/m8qP7RnuP"><img alt="Discord" src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -175,6 +176,9 @@ To build Tetrad, run the tests or find your way in the code, see
 [docs/development.md](docs/development.md). A build for the unit needs the ARM toolchain in
 `qc-dev/` ([Device (ARM) build](docs/development.md#device-arm-build)); `cargo build` alone
 builds for your computer.
+
+To ask a question, share a preset or talk about Tetrad, join the
+[Discord server](https://discord.gg/m8qP7RnuP).
 
 ## Licence
 
