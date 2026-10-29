@@ -2606,6 +2606,51 @@ fn the_boot_selector_switch_needs_a_known_state() {
 
 /// While Remote runs and its "Show PIN in menu" switch is on, the first row of the ⋮ menu is
 /// "Remote #<PIN>" and a tap opens Remote's Settings page; otherwise the menu is the stock one.
+/// The QR code on the Remote page: it shows only while Remote runs on Wi-Fi, and its dark
+/// modules on the screen are the modules of the page address with the PIN after the `#`.
+#[test]
+fn the_remote_page_draws_a_qr_code_of_the_address_and_pin() {
+    use crate::layout::Look;
+    let black = |ui: &UiState| -> Vec<Rect> {
+        (ui.layout().items.iter())
+            .filter(
+                |item| matches!(item.look, Look::Fill(fill) if fill == tetrad_assets::Rgb(0, 0, 0)),
+            )
+            .map(|item| item.bounds)
+            .collect()
+    };
+    let mut snapshot = rich();
+    snapshot.remote.enabled = true;
+    snapshot.remote.pin = Some("4821".into());
+    let mut ui = ui_with(snapshot.clone());
+    ui.show(Screen::Settings(SettingsPage::Remote));
+    assert!(black(&ui).is_empty(), "no address: no code");
+
+    snapshot.remote.address = Some("http://192.168.1.20".into());
+    let mut ui = ui_with(snapshot.clone());
+    ui.show(Screen::Settings(SettingsPage::Remote));
+    let link = crate::screens::scan_link(&snapshot.remote).unwrap();
+    assert_eq!(link, "http://192.168.1.20/#pin=4821");
+    let code = qrcodegen::QrCode::encode_text(&link, qrcodegen::QrCodeEcc::Low).unwrap();
+    let runs = black(&ui);
+    let left = runs.iter().map(|run| run.x).min().unwrap();
+    let top = runs.iter().map(|run| run.y).min().unwrap();
+    // The finder pattern puts a dark module at (0, 0), so the first run starts the grid.
+    let scale = runs.iter().map(|run| run.height).min().unwrap() as i32;
+    let mut drawn = vec![false; (code.size() * code.size()) as usize];
+    for run in runs {
+        let (x, y) = ((run.x - left) / scale, (run.y - top) / scale);
+        for column in x..x + run.width as i32 / scale {
+            drawn[(y * code.size() + column) as usize] = true;
+        }
+    }
+    let expected: Vec<bool> = (0..code.size())
+        .flat_map(|y| (0..code.size()).map(move |x| (x, y)))
+        .map(|(x, y)| code.get_module(x, y))
+        .collect();
+    assert_eq!(drawn, expected);
+}
+
 #[test]
 fn the_menu_shows_the_remote_pin_when_its_switch_is_on() {
     let first_row = |ui: &UiState| {

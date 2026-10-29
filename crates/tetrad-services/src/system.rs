@@ -233,6 +233,22 @@ impl Files for SystemFiles {
         missing_is_none(read).map_err(file_error("read", path))
     }
 
+    fn read_at(
+        &mut self,
+        path: &Path,
+        offset: u64,
+        max: u64,
+    ) -> Result<Option<Vec<u8>>, FileError> {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        let read = std::fs::File::open(path).and_then(|mut file| {
+            file.seek(SeekFrom::Start(offset))?;
+            let mut data = Vec::new();
+            file.take(max).read_to_end(&mut data)?;
+            Ok(data)
+        });
+        missing_is_none(read).map_err(file_error("read", path))
+    }
+
     fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
         std::fs::write(path, data).map_err(file_error("write", path))
     }
@@ -392,6 +408,30 @@ mod tests {
         );
         std::fs::remove_file(&path).unwrap();
         assert_eq!(files.read_tail(&path, 4).unwrap(), None);
+    }
+
+    /// The seek of `read_at` gives what the default (a whole read, here `MemFiles`) gives: the
+    /// piece, a short last piece, nothing past the end, and `None` for a missing file.
+    #[test]
+    fn read_at_matches_the_default() {
+        let path = std::env::temp_dir().join(format!("tetrad-read-at-{}", std::process::id()));
+        std::fs::write(&path, b"0123456789").unwrap();
+        let memory = crate::fake::MemFiles::default();
+        memory.put(path.to_str().unwrap(), b"0123456789".to_vec());
+        let cases = [
+            (0, 4, &b"0123"[..]),
+            (8, 4, b"89"),
+            (10, 4, b""),
+            (64, 4, b""),
+        ];
+        for (offset, max, piece) in cases {
+            let disk = SystemFiles.read_at(&path, offset, max).unwrap();
+            let held = memory.clone().read_at(&path, offset, max).unwrap();
+            assert_eq!(disk.as_deref(), Some(piece), "{offset} {max}");
+            assert_eq!(held, disk, "{offset} {max}");
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(SystemFiles.read_at(&path, 0, 4).unwrap(), None);
     }
 
     #[test]

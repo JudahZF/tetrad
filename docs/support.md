@@ -8,9 +8,10 @@ anywhere. You download it and send it with your report.
 
 1. Connect the unit to Wi-Fi (**Settings → System → Connection**).
 2. Open **Settings → Support → Send Report**. Turn on **Remote** if it is off. The page shows
-   the address, for example `http://192.168.1.20`, and a 4-digit PIN.
-3. On a computer or phone on the same network, open the address in a browser and enter the PIN.
-4. Under **Support file**, tap **Download**. The browser saves
+   the address, for example `http://192.168.1.20`, a 4-digit PIN and a QR code.
+3. On a phone, scan the code. Or open the address in a browser on a computer or phone on the
+   same network and enter the PIN.
+4. Tap **Support file** at the top of the page. The browser saves
    `tetrad-support-<date>-<time>.zip` (UTC).
 
 The file is usually smaller than 100 KB. See [remote.md](remote.md) for the Remote page and its

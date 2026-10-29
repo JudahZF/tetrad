@@ -21,9 +21,26 @@ All notable changes to Tetrad are in this file. The version numbers follow
   switches on the page; FORGET removes a pairing. The support file has a `bluetooth.txt` with
   the state and the names of the paired devices, never their keys
   ([docs/bluetooth.md](docs/bluetooth.md)).
-- Tetrad Link: a Bluetooth service for the Tetrad app (in work), with the Remote page's IR
-  upload, extension files and tabs, and the support file, behind an App PIN that the Bluetooth
-  page shows; the unit remembers each phone that gave it.
+- Remote has new pages ([docs/remote.md](docs/remote.md)), in a sidebar with the groups Library,
+  Controls, Unit and Extensions:
+  - **IRs**: the IR library under the upload box. Search, folders, rename, delete, put an IR in
+    a folder or take it out, the folder that new IRs go to, and new folders.
+  - **Mappings**: the mappings of the loaded preset and the global ones, edited as on the unit,
+    with Learn.
+  - **Footswitch**: the layouts of the Custom footswitch mode, edited as in Gig View.
+  - **Backup**: download a backup of the user data (the stock backup set), or send one to
+    restore. The restore starts only from a touch on RESTORE on the unit.
+  - **Themes**: every theme with its colours, **Use**, and an editor for theme files with a
+    preview. The unit checks a theme with the rules of a file on the card.
+  - **Notices**: the recent notices of the unit, without the serial, tokens or account names.
+  - **Manage**: the extensions as on Settings → Tetrad → Extensions: on and off, settings,
+    commands, updates, retry, remove, and installs from the trusted repositories.
+- Remote: **Support file** and **Change PIN** are at the top of every page.
+- Settings → Tetrad → Remote (and Send Report) shows a QR code. A phone that scans it opens the
+  page with the PIN.
+- Tetrad Link: a Bluetooth service for the Tetrad app (in work), with every request of the
+  Remote page's API, behind an App PIN that the Bluetooth page shows; the unit remembers each
+  phone that gave it.
 - Extension API 8: the `ble` capability. `ctx.ble.onMessage` answers the Tetrad app over
   Bluetooth, and `scope.ble.notify` pushes a value to it. Hosts before API 8 skip these packages.
 

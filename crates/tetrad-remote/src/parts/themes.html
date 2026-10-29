@@ -1,0 +1,393 @@
+<section id="themes" data-tab="Themes" data-group="Unit">
+  <h2>Themes</h2>
+  <p class="lead">The colours of the unit's screen. Use a theme, or make your own. The unit checks each theme it saves, as it checks a theme file on the card.</p>
+  <div class="th-bar">
+    <button class="small primary" id="th-new" type="button">New theme</button>
+    <label class="small th-import">Import JSON<input id="th-import" type="file" accept=".json,application/json"></label>
+  </div>
+  <p class="message" id="th-message" role="status"></p>
+  <ul id="th-list"></ul>
+
+  <div id="th-editor" hidden>
+    <h3 id="th-title">New theme</h3>
+    <div class="th-meta">
+      <label>Name<input id="th-name" type="text" maxlength="24" autocomplete="off"></label>
+      <label>ID<input id="th-id" type="text" maxlength="32" autocomplete="off" spellcheck="false"></label>
+      <label>Base<select id="th-base"></select></label>
+    </div>
+    <div class="th-work">
+      <div id="th-fields"></div>
+      <div class="th-side">
+        <div class="th-screen" id="th-preview" aria-label="Preview of the unit screen">
+          <div class="th-top">
+            <span class="th-btn">☰</span>
+            <span class="th-title">1A <b>Clean Machine</b> <i class="th-muted">Bank 1</i></span>
+            <span class="th-badge">A</span>
+            <span class="th-action">Save</span>
+          </div>
+          <div class="th-main">
+            <div class="th-grid">
+              <span class="th-cable"></span>
+              <span class="th-block" style="--block:#d9a400">Comp</span>
+              <span class="th-block th-picked" style="--block:#e2462a">Amp</span>
+              <span class="th-block" style="--block:#1fa3e0">Cab</span>
+            </div>
+            <div class="th-panel">
+              <div class="th-tabs"><span class="th-tab th-on">Amp</span><span class="th-tab">EQ</span></div>
+              <div class="th-section">PARAMETERS</div>
+              <div class="th-row"><span>Gain</span><i class="th-muted">6.5</i></div>
+              <div class="th-row th-selected"><span class="th-accent">Bass</span><i class="th-accent">5.0</i></div>
+              <div class="th-row"><span>Bright</span><span class="th-switch"></span></div>
+              <div class="th-row"><span class="th-faint">Disabled</span><span class="th-danger">MUTED</span></div>
+              <div class="th-row"><span class="th-faint">Presence</span><span class="th-pill">TUNER</span></div>
+              <span class="th-scroll"></span>
+            </div>
+          </div>
+        </div>
+        <p class="th-note">Block colours stay the same in every theme.</p>
+      </div>
+    </div>
+    <div class="th-bar">
+      <button class="small primary" id="th-save-use" type="button">Save and use</button>
+      <button class="small" id="th-save" type="button">Save</button>
+      <button class="small" id="th-export" type="button">Download JSON</button>
+      <button class="small" id="th-close" type="button">Close</button>
+    </div>
+    <p class="message" id="th-editor-message" role="status"></p>
+  </div>
+</section>
+<style>
+#themes .th-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#themes .th-import { cursor: pointer; border-radius: 12px; font-weight: 600; }
+#themes .th-import input { display: none; }
+#themes li { align-items: center; }
+#themes li .name { flex: 1; min-width: 0; }
+#themes li .failed { color: var(--bad); }
+#themes .th-buttons { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+#themes .th-swatches { display: flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); flex: none; }
+#themes .th-swatches span { width: 14px; height: 28px; }
+#themes .th-active { color: var(--good); font-weight: 600; }
+#themes h3 { margin: 32px 0 12px; font-size: 18px; text-transform: uppercase; }
+#themes .th-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
+#themes .th-meta label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+#themes .th-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
+#themes .th-side { position: sticky; top: 16px; }
+@media (max-width: 900px) { #themes .th-work { grid-template-columns: minmax(0, 1fr); } #themes .th-side { position: static; order: -1; } }
+#themes .th-field { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+#themes .th-field input { width: 44px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }
+#themes .th-field small { display: block; color: var(--muted); font-size: 12px; line-height: 1.3; }
+#themes .th-field .th-state { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+#themes .th-field .th-state.set { color: var(--fg); }
+#themes .th-field code { font-size: 12px; color: var(--muted); }
+#themes .th-field .link { font-size: 12px; margin-left: 6px; }
+#themes .th-note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+/* The mock of the unit screen (800 × 480), in the colours of the editor. */
+#themes .th-screen {
+  aspect-ratio: 5 / 3; display: flex; flex-direction: column; overflow: hidden; border-radius: 10px;
+  border: 6px solid #222; background: var(--background); color: var(--text);
+  font: 11px/1.2 var(--font); container-type: inline-size;
+}
+#themes .th-screen * { box-sizing: border-box; }
+#themes .th-screen i { font-style: normal; }
+#themes .th-top { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+#themes .th-btn { background: var(--surface); padding: 3px 7px; border-radius: 4px; }
+#themes .th-title { flex: 1; white-space: nowrap; overflow: hidden; }
+#themes .th-muted { color: var(--muted); }
+#themes .th-faint { color: var(--faint); }
+#themes .th-accent { color: var(--accent); }
+#themes .th-danger { color: var(--danger); font-weight: 700; }
+#themes .th-badge { background: var(--warning); color: var(--onAccent); font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+#themes .th-action { background: var(--action); color: var(--text); font-weight: 600; padding: 3px 10px; border-radius: 4px; }
+#themes .th-main { flex: 1; display: grid; grid-template-columns: 1.4fr 1fr; gap: 6px; padding: 0 6px 6px; min-height: 0; }
+#themes .th-grid { position: relative; background: var(--canvas); border-radius: 4px; display: flex; align-items: center; justify-content: space-around; padding: 0 6px; }
+#themes .th-cable { position: absolute; left: 4px; right: 4px; top: 50%; height: 2px; background: var(--cable); }
+#themes .th-block {
+  position: relative; width: 22%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 6px;
+  background: var(--canvas); border: 2px solid var(--block); color: var(--text); font-size: 10px;
+}
+#themes .th-block.th-picked { outline: 2px solid var(--accent); outline-offset: 2px; }
+#themes .th-panel { position: relative; background: var(--panel); border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; }
+#themes .th-tabs { display: flex; gap: 4px; padding: 4px; }
+#themes .th-tab { flex: 1; text-align: center; padding: 2px 0; border-radius: 3px; background: var(--surface); color: var(--faint); }
+#themes .th-tab.th-on { background: var(--accentFill); color: var(--text); outline: 1px solid var(--accent); outline-offset: -1px; }
+#themes .th-section { background: var(--section); color: var(--text); padding: 2px 6px; font-size: 9px; font-weight: 700; letter-spacing: .04em; }
+#themes .th-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 12px 3px 6px; border-bottom: 2px solid var(--divider); flex: 1; }
+#themes .th-row.th-selected { background: var(--rowSelected); }
+#themes .th-switch { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); }
+#themes .th-pill { background: var(--accent); color: var(--onAccent); font-weight: 700; font-size: 9px; padding: 1px 6px; border-radius: 3px; }
+#themes .th-scroll { position: absolute; right: 2px; top: 34%; width: 4px; height: 30%; border-radius: 2px; background: var(--scrollbar); }
+</style>
+<script>
+"use strict";
+// Themes (docs/remote.md, docs/themes.md): the themes of the unit, and an editor that saves
+// theme files. The unit checks every save; the preview here only shows the colours.
+{
+  $("panes").append($("themes"));
+  const SWATCHES = ["background", "canvas", "panel", "section", "text", "muted", "accent", "action", "danger", "warning"];
+  /** The last list from the unit (GET /api/themes). */
+  let list = null;
+  /** The theme in the editor: `from` is the theme file it was opened from (saving it again asks nothing). */
+  let editing = null;
+  /** The editor rows by role: their colour input, hex text, state text and reset link. */
+  const fields = new Map();
+  /** The ID follows the name until it is typed in. */
+  let idTyped = false;
+
+  const element = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const button = (text, className, action) => {
+    const node = element("button", "small " + (className || ""), text);
+    node.type = "button";
+    node.addEventListener("click", action);
+    return node;
+  };
+  const tell = (id, text, ok) => {
+    $(id).textContent = text || "";
+    $(id).className = "message" + (ok ? " ok" : "");
+  };
+  /** The theme ID from a name: lower case letters, digits and -, as the unit wants. */
+  const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32).replace(/-+$/, "");
+  const builtinPalette = (id) => (list.themes.find((t) => t.source === "builtin" && t.id === (id || "stock")) || list.themes[0]).palette;
+
+  // The colour rules of `ThemeSpec::resolve` (tetrad-theme), for the preview only: the unit's
+  // own check decides. Luminance is measured as the RGB565 screen shows the colour.
+  const rgb = (hex) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+  const hex = (channels) => "#" + channels.map((v) => v.toString(16).padStart(2, "0")).join("");
+  const mix = (a, b, amount) => hex(rgb(a).map((v, i) => Math.floor((v * (255 - amount) + rgb(b)[i] * amount + 127) / 255)));
+  const luminance = (color) => {
+    const linear = (v, bits) => {
+      const x = (v >> (8 - bits)) / ((1 << bits) - 1);
+      return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    };
+    const [r, g, b] = rgb(color);
+    return 0.2126 * linear(r, 5) + 0.7152 * linear(g, 6) + 0.0722 * linear(b, 5);
+  };
+  const contrast = (a, b) => {
+    const [x, y] = [luminance(a), luminance(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  const resolve = (theme) => {
+    const c = theme.colors;
+    const p = Object.assign({}, builtinPalette(theme.base), c);
+    if (!c.divider && c.background) p.divider = p.background;
+    if (!c.accentFill && (c.background || c.accent)) p.accentFill = mix(p.background, p.accent, 26);
+    if (!c.onAccent && c.accent) p.onAccent = contrast("#ffffff", p.accent) >= contrast("#000000", p.accent) ? "#ffffff" : "#000000";
+    return p;
+  };
+
+  /** The theme file of `theme` (docs/themes.md). */
+  const themeFile = (theme) => {
+    const file = { version: 1, id: theme.id, name: theme.name };
+    if (theme.base) file.base = theme.base;
+    file.colors = theme.colors;
+    return file;
+  };
+  const download = (theme) =>
+    save(new Blob([JSON.stringify(themeFile(theme), null, 2) + "\n"], { type: "application/json" }), (theme.id || "theme") + ".json");
+
+  /** A listed theme as the editor holds it: its own ID, base and the colours it sets. */
+  const fromListed = (t) => {
+    const own = t.source === "file" ? t.id.slice(5) : t.id.slice(t.id.lastIndexOf("/") + 1);
+    if (t.source === "builtin") return { id: t.id, name: t.name, base: t.id, colors: {} };
+    return { id: own, name: t.name, base: t.base || "stock", colors: Object.assign({}, t.colors) };
+  };
+
+  function render(next) {
+    list = next;
+    const items = list.themes.map((t) => {
+      const item = element("li");
+      const strip = element("span", "th-swatches");
+      // A theme that fails the checks: its colours as the editor would show them.
+      const palette = t.palette || (t.colors ? resolve(fromListed(t)) : null);
+      for (const key of SWATCHES) {
+        const swatch = element("span");
+        swatch.style.background = palette && palette[key] ? palette[key] : "transparent";
+        strip.append(swatch);
+      }
+      const name = element("span", "name", t.name);
+      const active = t.id === list.active;
+      const detail = element("small", t.error ? "failed" : "", t.error || (t.source === "file" ? "Theme file" : t.origin));
+      if (active) detail.prepend(element("span", "th-active", "In use · "));
+      name.append(detail);
+      const buttons = element("span", "th-buttons");
+      if (!active && !t.error) buttons.append(button("Use", "primary", () => use(t.id)));
+      if (t.colors) {
+        const copy = t.source !== "file";
+        buttons.append(button(copy ? "Edit as copy" : "Edit", "", () => edit(t, copy)));
+      }
+      if (t.colors && t.source !== "builtin") buttons.append(button("JSON", "", () => download(fromListed(t))));
+      if (t.source === "file") buttons.append(button("Delete", "danger", () => remove(t)));
+      item.append(strip, name, buttons);
+      return item;
+    });
+    $("th-list").replaceChildren(...items);
+    if (!$("th-base").options.length) {
+      const bases = list.themes.filter((t) => t.source === "builtin");
+      $("th-base").replaceChildren(...bases.map((t) => new Option(t.name, t.id)));
+    }
+  }
+
+  async function load() {
+    const { status, body } = await call("/api/themes");
+    if (status === 200) render(body);
+    else if (status !== 401) tell("th-message", body.error || "Failed");
+  }
+
+  /** Every op answers with the new list. */
+  async function apply(path, params, done) {
+    const { status, body } = await post(path, params);
+    if (status === 401) return;
+    if (status !== 200) return tell("th-message", body.error || "Failed");
+    render(body);
+    tell("th-message", done, true);
+  }
+  const use = (id) => apply("/api/themes/select", { id }, "The unit shows the theme now.");
+  const remove = (t) => {
+    if (!confirm("Delete the theme file " + t.name + " from the unit?")) return;
+    apply("/api/themes/delete", { id: t.id }, t.id === list.active ? "Deleted. The unit shows Stock now." : "Deleted.");
+  };
+
+  function buildFields() {
+    for (const field of list.fields) {
+      const row = element("div", "th-field");
+      const input = element("input");
+      input.type = "color";
+      input.setAttribute("aria-label", field.label);
+      const label = element("span", "", field.label);
+      label.append(element("small", "", field.help));
+      const state = element("span", "th-state");
+      const code = element("code");
+      const note = element("span");
+      const reset = element("button", "link", field.derived ? "Auto" : "Reset");
+      reset.type = "button";
+      reset.title = field.derived ? "Work the colour out from the others" : "Take the colour from the base";
+      state.append(code, element("br"), note, reset);
+      row.append(input, label, state);
+      $("th-fields").append(row);
+      input.addEventListener("input", () => { editing.colors[field.key] = input.value; paint(); });
+      reset.addEventListener("click", () => { delete editing.colors[field.key]; paint(); });
+      fields.set(field.key, { input, code, state, note, reset, field });
+    }
+  }
+
+  /** Shows the editor's colours in its rows and in the preview. */
+  function paint() {
+    const palette = resolve(editing);
+    for (const [key, row] of fields) {
+      const set = key in editing.colors;
+      row.input.value = palette[key];
+      row.code.textContent = palette[key];
+      row.state.className = "th-state" + (set ? " set" : "");
+      row.note.textContent = set ? "Set" : (row.field.derived ? "Auto" : "From base");
+      row.reset.hidden = !set;
+      $("th-preview").style.setProperty("--" + key, palette[key]);
+    }
+  }
+
+  function open(theme, from, title) {
+    if (!fields.size) buildFields();
+    editing = Object.assign({ from }, theme);
+    editing.colors = Object.assign({}, theme.colors);
+    $("th-title").textContent = title;
+    $("th-name").value = editing.name;
+    $("th-id").value = editing.id;
+    $("th-base").value = editing.base;
+    if (!$("th-base").value) $("th-base").value = "stock";
+    editing.base = $("th-base").value;
+    idTyped = false;
+    $("th-editor").hidden = false;
+    tell("th-editor-message", "");
+    paint();
+    $("th-editor").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function edit(t, copy) {
+    const theme = fromListed(t);
+    if (!copy) return open(theme, t.id, "Edit " + t.name);
+    theme.name = (theme.name + " copy").slice(0, 24);
+    theme.id = slug(theme.name);
+    if (t.source === "builtin") theme.colors = {};
+    open(theme, null, "Copy of " + t.name);
+  }
+
+  /** Reads a theme file into the editor. The unit checks the version and colours on save. */
+  async function importFile(file) {
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (error) {
+      return tell("th-message", file.name + " is not JSON");
+    }
+    if (!parsed || typeof parsed !== "object" || typeof parsed.colors !== "object" || parsed.colors === null) {
+      return tell("th-message", file.name + " is not a theme file");
+    }
+    if (parsed.version !== 1) return tell("th-message", "Theme file version " + parsed.version + " is not supported");
+    const colors = {};
+    const ignored = [];
+    for (const [key, value] of Object.entries(parsed.colors)) {
+      if (list.fields.some((f) => f.key === key) && /^#[0-9a-fA-F]{6}$/.test(value)) colors[key] = value.toLowerCase();
+      else ignored.push(key);
+    }
+    tell("th-message", ignored.length ? "Not read: " + ignored.join(", ") : "");
+    open({ id: String(parsed.id || ""), name: String(parsed.name || ""), base: parsed.base || "stock", colors }, null, "Imported " + file.name);
+  }
+
+  async function saveEditor(andUse) {
+    const id = "file:" + editing.id;
+    const existing = list.themes.find((t) => t.id === id);
+    if (existing && editing.from !== id && !confirm("Replace the theme file " + existing.name + " (" + editing.id + ")?")) return;
+    const { status, body } = await call("/api/themes/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(themeFile(editing), null, 2),
+    });
+    if (status === 401) return;
+    if (status !== 200) return tell("th-editor-message", body.error || "Failed");
+    editing.from = id;
+    render(body);
+    if (!andUse) return tell("th-editor-message", "Saved on the unit.", true);
+    const used = await post("/api/themes/select", { id });
+    if (used.status === 401) return;
+    if (used.status !== 200) return tell("th-editor-message", used.body.error || "Failed");
+    render(used.body);
+    tell("th-editor-message", "Saved. The unit shows the theme now.", true);
+  }
+
+  $("th-new").addEventListener("click", () => {
+    if (list) open({ id: "my-theme", name: "My theme", base: "stock", colors: {} }, null, "New theme");
+  });
+  $("th-import").addEventListener("change", (event) => {
+    const [file] = event.target.files;
+    event.target.value = "";
+    if (file && list) importFile(file);
+  });
+  $("th-name").addEventListener("input", () => {
+    editing.name = $("th-name").value;
+    if (!idTyped && !editing.from) $("th-id").value = editing.id = slug(editing.name);
+  });
+  $("th-id").addEventListener("input", () => { idTyped = true; editing.id = $("th-id").value.trim(); });
+  $("th-base").addEventListener("change", () => { editing.base = $("th-base").value; paint(); });
+  $("th-save").addEventListener("click", () => saveEditor(false));
+  $("th-save-use").addEventListener("click", () => saveEditor(true));
+  $("th-export").addEventListener("click", () => download(editing));
+  $("th-close").addEventListener("click", () => { $("th-editor").hidden = true; editing = null; });
+
+  parts.push({
+    connect: load,
+    disconnect() {
+      list = null;
+      editing = null;
+      $("th-list").replaceChildren();
+      $("th-editor").hidden = true;
+      tell("th-message", "");
+    },
+    // The theme can change on the unit too: look again while this page shows.
+    refresh() { if (!$("themes").classList.contains("tab-off")) load(); },
+  });
+}
+</script>

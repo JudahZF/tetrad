@@ -1,0 +1,72 @@
+<section id="notices" data-tab="Notices" data-group="Unit">
+  <h2>Notices</h2>
+  <p class="lead">What the unit reported recently, newest first. The serial, sign-in tokens and account names are taken out, as in the support file.</p>
+  <div class="notice-bar">
+    <select id="notice-subsystem" aria-label="Part of the unit"><option value="">All parts</option></select>
+    <input id="notice-search" type="text" placeholder="Search" aria-label="Search">
+    <button class="small" id="notice-refresh" type="button">Refresh</button>
+  </div>
+  <p class="foot" id="notice-dropped"></p>
+  <ul id="notice-list"></ul>
+</section>
+<style>
+#notices .notice-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+#notices .notice-bar input { flex: 1; min-width: 160px; }
+#notices li { display: block; }
+#notices li small { display: inline; margin-right: 8px; }
+#notices li .detail { display: block; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 14px; }
+#notices .foot:empty { display: none; }
+</style>
+<script>
+"use strict";
+// Notices (docs/remote.md): the unit's notice log, read on demand and every few seconds while the
+// page is open.
+{
+  $("panes").append($("notices"));
+  let notices = [];
+
+  const draw = () => {
+    const part = $("notice-subsystem").value;
+    const words = $("notice-search").value.trim().toLowerCase();
+    const items = notices
+      .filter((notice) => !part || notice.subsystem === part)
+      .filter((notice) => !words || (notice.subsystem + " " + notice.detail).toLowerCase().includes(words))
+      .map((notice) => {
+        const item = document.createElement("li");
+        const time = document.createElement("small");
+        time.textContent = new Date(notice.at).toLocaleTimeString();
+        const subsystem = document.createElement("small");
+        subsystem.textContent = notice.subsystem;
+        const detail = document.createElement("span");
+        detail.className = "detail";
+        detail.textContent = notice.detail;
+        item.append(time, subsystem, detail);
+        return item;
+      });
+    $("notice-list").replaceChildren(...items);
+  };
+
+  const load = async () => {
+    const { status, body } = await call("/api/notices");
+    if (status !== 200) return;
+    const now = Date.now();
+    notices = body.notices.map((notice) => Object.assign({ at: now - notice.ago * 1000 }, notice)).reverse();
+    const select = $("notice-subsystem");
+    const chosen = select.value;
+    const names = [...new Set(notices.map((notice) => notice.subsystem))].sort();
+    select.replaceChildren(select.options[0], ...names.map((name) => new Option(name, name)));
+    select.value = names.includes(chosen) ? chosen : "";
+    $("notice-dropped").textContent = body.dropped ? body.dropped + " older notices are no longer kept." : "";
+    draw();
+  };
+
+  $("notice-subsystem").addEventListener("change", draw);
+  $("notice-search").addEventListener("input", draw);
+  $("notice-refresh").addEventListener("click", load);
+  parts.push({
+    connect: load,
+    disconnect() { notices = []; draw(); },
+    refresh() { if (!$("notices").classList.contains("tab-off")) load(); },
+  });
+}
+</script>

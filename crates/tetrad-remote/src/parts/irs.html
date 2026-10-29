@@ -1,0 +1,300 @@
+<section id="irs" data-tab="IRs" data-group="Library">
+  <label class="drop" id="ir-drop">
+    <strong>Drop IR files here</strong>
+    or tap to choose. WAV or AIFF, any sample rate, mono or stereo.
+    <input id="ir-files" type="file" multiple accept=".wav,.wave,.aif,.aiff,audio/wav,audio/x-wav,audio/aiff">
+  </label>
+  <ul id="ir-uploads"></ul>
+  <p class="foot">The unit keeps the first 1,024 samples (21 ms) at 48 kHz, as stock does.</p>
+  <h2 class="ir-library">Library</h2>
+  <div class="ir-bar">
+    <input id="ir-search" type="text" placeholder="Search" aria-label="Search the IRs" autocomplete="off">
+    <select id="ir-folder" aria-label="Folder"></select>
+    <button class="small" id="ir-destination" type="button">Save new IRs here</button>
+    <button class="small" id="ir-new-folder" type="button">New folder</button>
+  </div>
+  <p class="message" id="ir-message" role="status"></p>
+  <p class="ir-count" id="ir-count"></p>
+  <ul id="ir-list"></ul>
+</section>
+<style>
+#irs .ir-library { margin: 36px 0 12px; font-size: 22px; text-transform: uppercase; }
+#irs .ir-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+#irs .ir-bar input { flex: 1 1 180px; min-width: 0; }
+#irs .ir-bar select { flex: 0 1 220px; min-width: 0; }
+#irs .message:empty { display: none; }
+#irs .ir-count { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+#irs #ir-list { margin-top: 8px; }
+#irs #ir-list li { align-items: center; }
+#irs .ir-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+#irs .ir-actions select { min-height: 0; padding: 5px 8px; font-size: 14px; }
+</style>
+<script>
+"use strict";
+// IRs (docs/remote.md): each file is converted in the browser to the stock IR format and sent.
+// The library lists the user IRs (not the factory IRs) and edits them as the Directory does.
+{
+  const RATE = 48000;
+  const SAMPLES = 1024;
+  const MAX_NAME = 60;
+  $("panes").append($("irs"));
+
+  /** The file name without its extension, as the unit shows names: at most 60 UTF-16 units. */
+  const irName = (file) => {
+    let name = file.name.replace(/\.[^.]*$/, "").replace(/\s+/g, " ").trim();
+    if (name.length > MAX_NAME) {
+      name = name.slice(0, MAX_NAME);
+      const last = name.charCodeAt(name.length - 1);
+      if (last >= 0xd800 && last <= 0xdbff) name = name.slice(0, -1);
+    }
+    return name;
+  };
+
+  /**
+   * Any file the browser decodes → 48 kHz (decodeAudioData resamples to its context rate) →
+   * one channel (the destination mixes stereo to ½ L + ½ R) → the first 1,024 samples.
+   */
+  const convert = async (file) => {
+    const decoded = await new OfflineAudioContext(1, 1, RATE).decodeAudioData(await file.arrayBuffer());
+    const frames = Math.min(SAMPLES, decoded.length);
+    const context = new OfflineAudioContext(1, frames, RATE);
+    const source = context.createBufferSource();
+    source.buffer = decoded;
+    source.connect(context.destination);
+    source.start();
+    const rendered = await context.startRendering();
+    const count = decoded.numberOfChannels;
+    const channels = count === 1 ? "mono" : (count === 2 ? "stereo" : count + " channels") + " → mono";
+    const cut = decoded.length > SAMPLES ? ", first " + SAMPLES + " samples" : "";
+    return { samples: rendered.getChannelData(0), detail: "48 kHz " + channels + cut };
+  };
+
+  /** The stock IR WAV: RIFF, an 18-byte IEEE-float fmt chunk, the data chunk at byte 38. */
+  const wav = (samples) => {
+    const view = new DataView(new ArrayBuffer(46 + samples.length * 4));
+    const tag = (at, text) => { for (let i = 0; i < 4; i++) view.setUint8(at + i, text.charCodeAt(i)); };
+    tag(0, "RIFF");
+    view.setUint32(4, 38 + samples.length * 4, true);
+    tag(8, "WAVE");
+    tag(12, "fmt ");
+    view.setUint32(16, 18, true);
+    view.setUint16(20, 3, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, RATE, true);
+    view.setUint32(28, RATE * 4, true);
+    view.setUint16(32, 4, true);
+    view.setUint16(34, 32, true);
+    view.setUint16(36, 0, true);
+    tag(38, "data");
+    view.setUint32(42, samples.length * 4, true);
+    samples.forEach((sample, i) => view.setFloat32(46 + i * 4, sample, true));
+    return view.buffer;
+  };
+
+  const send = async (file, line) => {
+    const name = irName(file);
+    if (!name) return line.set("No name", "failed");
+    line.set("Converting…", "working");
+    let converted;
+    try {
+      converted = await convert(file);
+    } catch (error) {
+      return line.set("Not an audio file", "failed");
+    }
+    line.set("Uploading…", "working", converted.detail);
+    const { status, body } = await call("/api/irs?name=" + encodeURIComponent(name), {
+      method: "POST",
+      headers: { "Content-Type": "audio/wav" },
+      body: wav(converted.samples),
+    });
+    if (status === 200) {
+      line.set("Added as " + body.name, "added");
+      return load();
+    }
+    line.set(body.error || "Failed", "failed");
+  };
+
+  dropZone($("ir-drop"), $("ir-files"), (files) => {
+    for (const file of files) {
+      const line = row(file, $("ir-uploads"));
+      line.set("Waiting", "working");
+      queue = queue.then(() => send(file, line));
+    }
+  });
+
+  /** The last listing: { destination, folders: [{ id, name, parent, root }], irs: [{ id, name, date, folders }] }. */
+  let library = null;
+  let shown = "";
+  /** The folder the list shows; the root holds every IR. */
+  let current = null;
+
+  const folderOf = (id) => library.folders.find((folder) => folder.id === id);
+  const depth = (folder) => {
+    let levels = 0;
+    for (let at = folder; at && !at.root; at = folderOf(at.parent)) levels++;
+    return levels;
+  };
+  /** The folders as a tree: each folder after its parent, children by name. */
+  const tree = () => {
+    const out = [];
+    const add = (parent) => {
+      const children = library.folders.filter((folder) => folder.parent === parent);
+      children.sort((a, b) => a.name.localeCompare(b.name));
+      for (const child of children) { out.push(child); add(child.id); }
+    };
+    for (const root of library.folders.filter((folder) => folder.root)) { out.push(root); add(root.id); }
+    return out;
+  };
+  const date = (text) => {
+    const parsed = new Date(text);
+    return isNaN(parsed) ? text : parsed.toLocaleDateString();
+  };
+  const say = (text) => { $("ir-message").textContent = text || ""; };
+
+  /** Takes a listing: the answer of every library request. */
+  const take = (listing) => {
+    library = listing;
+    shown = JSON.stringify(listing);
+    if (!folderOf(current)) current = listing.folders[0] ? listing.folders[0].id : null;
+    const destination = folderOf(listing.destination);
+    if (destination) $("sub").textContent = "Saving IRs to: " + destination.name;
+    render();
+  };
+
+  const render = () => {
+    if (!library) return;
+    const select = $("ir-folder");
+    select.replaceChildren(...tree().map((folder) => {
+      const option = document.createElement("option");
+      option.value = folder.id;
+      const mark = folder.id === library.destination ? " (new IRs)" : "";
+      option.textContent = "  ".repeat(depth(folder)) + folder.name + mark;
+      return option;
+    }));
+    select.value = current;
+    const saving = current === library.destination;
+    $("ir-destination").textContent = saving ? "New IRs go here" : "Save new IRs here";
+    $("ir-destination").disabled = saving;
+
+    const search = $("ir-search").value.trim().toLowerCase();
+    const irs = library.irs
+      .filter((ir) => ir.folders.includes(current))
+      .filter((ir) => !search || ir.name.toLowerCase().includes(search))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const total = library.irs.length;
+    $("ir-count").textContent = irs.length === total
+      ? total + (total === 1 ? " IR" : " IRs")
+      : irs.length + " of " + total + " IRs";
+    $("ir-list").replaceChildren(...irs.map(irRow));
+  };
+
+  const irRow = (ir) => {
+    const item = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = ir.name;
+    const detail = document.createElement("small");
+    const folders = ir.folders.map(folderOf).filter((folder) => folder && !folder.root);
+    detail.textContent = [date(ir.date), ...folders.map((folder) => folder.name)].join(" · ");
+    name.append(detail);
+
+    const actions = document.createElement("span");
+    actions.className = "ir-actions";
+    const button = (text, kind, run) => {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = "small" + (kind ? " " + kind : "");
+      element.textContent = text;
+      element.addEventListener("click", run);
+      return element;
+    };
+    // A folder with a ✓ holds the IR: choosing it takes the IR out, any other puts it in.
+    const others = tree().filter((folder) => !folder.root);
+    if (others.length) {
+      const pick = document.createElement("select");
+      pick.setAttribute("aria-label", "Folders of " + ir.name);
+      const first = document.createElement("option");
+      first.textContent = "Folders…";
+      first.value = "";
+      pick.append(first, ...others.map((folder) => {
+        const option = document.createElement("option");
+        option.value = folder.id;
+        const mark = ir.folders.includes(folder.id) ? "✓ " : " ";
+        option.textContent = mark + "  ".repeat(depth(folder) - 1) + folder.name;
+        return option;
+      }));
+      pick.addEventListener("change", () => {
+        const folder = Number(pick.value);
+        pick.value = "";
+        if (!folder) return;
+        const linked = ir.folders.includes(folder) ? "0" : "1";
+        edit("/api/library/link", { id: ir.id, folder, linked });
+      });
+      actions.append(pick);
+    }
+    actions.append(
+      button("Rename", "", () => {
+        const name = prompt("New name for " + ir.name + " (4 to 60 characters)", ir.name);
+        if (name !== null && name.trim() !== ir.name) edit("/api/library/rename", { id: ir.id, name });
+      }),
+      button("Delete", "danger", () => {
+        const text = "Delete " + ir.name + " from the unit?\n\nPresets that use this IR keep the block, "
+          + "but the IR is gone: the block shows the old name or DELETED IR.";
+        if (confirm(text)) edit("/api/library/delete", { id: ir.id });
+      }),
+    );
+    item.append(name, actions);
+    return item;
+  };
+
+  /** One library write; its answer is the new listing. */
+  const edit = async (path, params) => {
+    say("");
+    const { status, body } = await post(path, params);
+    if (status === 200) return take(body);
+    if (status !== 401) say(body.error || "Failed");
+  };
+
+  const load = async () => {
+    const { status, body } = await call("/api/library");
+    if (status !== 200) {
+      if (status !== 401) say(body.error || "The IR library does not load");
+      return;
+    }
+    // A refresh with no change leaves the list alone (an open menu stays open).
+    if (JSON.stringify(body) === shown) return;
+    say("");
+    take(body);
+  };
+
+  $("ir-search").addEventListener("input", render);
+  $("ir-folder").addEventListener("change", () => {
+    current = Number($("ir-folder").value);
+    render();
+  });
+  $("ir-destination").addEventListener("click", () => {
+    if (library) edit("/api/library/destination", { folder: current });
+  });
+  $("ir-new-folder").addEventListener("click", () => {
+    const parent = library && folderOf(current);
+    if (!parent) return;
+    const name = prompt("Name of the new folder in " + parent.name + " (4 to 60 characters)");
+    if (name !== null && name.trim()) edit("/api/library/folder", { name, parent: current });
+  });
+
+  parts.push({
+    connect: load,
+    refresh: load,
+    disconnect() {
+      $("ir-uploads").replaceChildren();
+      $("ir-list").replaceChildren();
+      $("ir-folder").replaceChildren();
+      $("ir-count").textContent = "";
+      say("");
+      library = null;
+      shown = "";
+      current = null;
+    },
+  });
+}
+</script>

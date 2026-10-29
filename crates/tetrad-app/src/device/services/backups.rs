@@ -9,6 +9,10 @@ use tetrad_services::backup::local::STAMP_BYTES;
 pub(super) const UPLOAD_ARCHIVE: &str = "/media/p4/tetrad_backup_upload.tar.gz";
 /// Where a Control backup is packed before it is wrapped (O; the job removes it).
 pub(super) const LOCAL_ARCHIVE: &str = "/media/p4/tetrad_local_backup.tar.gz";
+/// Where a Remote backup is packed for its download (O; `Device::remote_backup` removes it).
+pub const REMOTE_ARCHIVE: &str = "/media/p4/tetrad_remote_backup.tar.gz";
+/// Where a backup that the Remote page sent waits for RESTORE on the unit (O).
+pub const REMOTE_RESTORE: &str = "/media/p4/tetrad_remote_restore.tar.gz";
 /// The `0x43` text that asks the DSP for the creator stamp key (`0x3fc054`: nine characters,
 /// XOR `0x3a` in the binary). A request selector, not a key: the key stays in the DSP and
 /// comes back in response `0x18` for each backup.
@@ -98,8 +102,11 @@ pub enum BackupJob {
         url: String,
         via_control: Option<ControlTransport>,
     },
-    /// `0x406844` on the archive.
-    Restore { archive: PathBuf },
+    /// `0x406844` on the archive, for the members in `scope`.
+    Restore {
+        archive: PathBuf,
+        scope: backup::Scope,
+    },
 }
 
 impl fmt::Debug for BackupJob {
@@ -124,9 +131,11 @@ impl fmt::Debug for BackupJob {
                 .field("archive", archive)
                 .finish_non_exhaustive(),
             Self::Fetch { .. } => f.debug_struct("Fetch").finish_non_exhaustive(),
-            Self::Restore { archive } => {
-                f.debug_struct("Restore").field("archive", archive).finish()
-            }
+            Self::Restore { archive, scope } => f
+                .debug_struct("Restore")
+                .field("archive", archive)
+                .field("scope", scope)
+                .finish(),
         }
     }
 }
@@ -154,6 +163,28 @@ impl fmt::Debug for ControlBackup {
                 .finish(),
         }
     }
+}
+
+/// A Remote page backup (docs/remote.md, "Backup"): its result comes back as
+/// [`super::Effect::RemoteBackupDone`] for the Remote bridge, never to Cortex Control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteBackup {
+    /// Pack the user data into [`REMOTE_ARCHIVE`] for the download.
+    Create,
+    /// Restore [`REMOTE_RESTORE`], backup set members only ([`backup::Scope::BackupSet`]).
+    Restore,
+}
+
+/// The end of a [`RemoteBackup`], for the Remote bridge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteBackupDone {
+    /// The archive is in [`REMOTE_ARCHIVE`].
+    Created,
+    /// Members written; the device reloads next.
+    Restored {
+        members: usize,
+    },
+    Failed(String),
 }
 
 /// The end of a [`ControlBackup`], for the Control bridge. `Debug` leaves out the backup text.
@@ -276,6 +307,8 @@ pub(super) enum BackupFlow {
     Restoring,
     /// A Cortex Control request; its result goes back to Control.
     Control(ControlBackup),
+    /// A Remote page request; its result goes back to Remote.
+    Remote(RemoteBackup),
 }
 
 impl BackupFlow {
@@ -286,8 +319,12 @@ impl BackupFlow {
             | Self::Uploading { .. }
             | Self::Validating { .. } => "Creating backup",
             Self::Locating | Self::Fetching => "Downloading backup",
-            Self::Restoring | Self::Control(ControlBackup::Restore { .. }) => "Restoring backup",
-            Self::Control(ControlBackup::Create { .. }) => "Creating backup",
+            Self::Restoring
+            | Self::Control(ControlBackup::Restore { .. })
+            | Self::Remote(RemoteBackup::Restore) => "Restoring backup",
+            Self::Control(ControlBackup::Create { .. }) | Self::Remote(RemoteBackup::Create) => {
+                "Creating backup"
+            }
         }
     }
 }
@@ -692,6 +729,35 @@ impl Services {
         Ok(vec![effect])
     }
 
+    /// A Remote page backup: one job on the bulk worker, refused while another backup runs, as
+    /// a Control backup is. O: a restore converts no levels: the archive names no creator
+    /// hardware (the cloud and Control files do), so it is taken as this unit's.
+    pub fn remote_backup(
+        &mut self,
+        backends: &mut impl ServiceBackends,
+        request: RemoteBackup,
+    ) -> Result<Vec<Effect>, ServiceError> {
+        if self.backup.is_some() || self.restored {
+            return Err(ServiceError::NotReady("a backup is in progress"));
+        }
+        lend(backends)?;
+        let job = match request {
+            RemoteBackup::Create => BackupJob::Create {
+                dest: REMOTE_ARCHIVE.into(),
+                stage: None,
+            },
+            RemoteBackup::Restore => {
+                self.restore_source = None;
+                BackupJob::Restore {
+                    archive: REMOTE_RESTORE.into(),
+                    scope: backup::Scope::BackupSet,
+                }
+            }
+        };
+        self.backup = Some(BackupFlow::Remote(request));
+        Ok(vec![Effect::Service(ServiceJob::Backup(job))])
+    }
+
     /// A backup job ended: the next step of its flow, or the flow's end.
     pub(super) fn backup_done(
         &mut self,
@@ -744,6 +810,7 @@ impl Services {
                 self.backup = Some(BackupFlow::Restoring);
                 vec![Effect::Service(ServiceJob::Backup(BackupJob::Restore {
                     archive: backup::DOWNLOADED_BACKUP.into(),
+                    scope: backup::Scope::Any,
                 }))]
             }
             (Some(BackupFlow::Restoring), Ok(BackupDone::Restored(members))) => {
@@ -771,6 +838,35 @@ impl Services {
                 members,
                 Some(ControlBackupDone::Restored { members }),
             ),
+            (
+                Some(BackupFlow::Remote(RemoteBackup::Create)),
+                Ok(BackupDone::Created { notes, .. }),
+            ) => {
+                let mut effects: Vec<_> = notes
+                    .into_iter()
+                    .map(|note| Effect::Notice(Subsystem::Library, note))
+                    .collect();
+                effects.push(Effect::RemoteBackupDone(RemoteBackupDone::Created));
+                effects
+            }
+            (
+                Some(BackupFlow::Remote(RemoteBackup::Restore)),
+                Ok(BackupDone::Restored(members)),
+            ) => {
+                let done = RemoteBackupDone::Restored { members };
+                let mut effects = vec![Effect::RemoteBackupDone(done)];
+                effects.extend(self.restored(files, settings.hardware(), members, None));
+                effects
+            }
+            (Some(BackupFlow::Remote(request)), Err(error)) => {
+                let mut effects = self.backup_failed(&error.to_string());
+                if request == RemoteBackup::Restore {
+                    effects.push(Effect::LibraryReopen);
+                }
+                let failed = RemoteBackupDone::Failed(error.to_string());
+                effects.push(Effect::RemoteBackupDone(failed));
+                effects
+            }
             (Some(flow @ BackupFlow::Control(_)), Err(error)) => {
                 let mut effects = self.backup_failed(&error.to_string());
                 if matches!(flow, BackupFlow::Control(ControlBackup::Restore { .. })) {
@@ -1007,7 +1103,11 @@ impl Services {
     pub fn restoring(&self) -> bool {
         matches!(
             self.backup,
-            Some(BackupFlow::Restoring | BackupFlow::Control(ControlBackup::Restore { .. }))
+            Some(
+                BackupFlow::Restoring
+                    | BackupFlow::Control(ControlBackup::Restore { .. })
+                    | BackupFlow::Remote(RemoteBackup::Restore)
+            )
         )
     }
 

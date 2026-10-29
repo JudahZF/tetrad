@@ -107,7 +107,8 @@ pub use self::account::{AfterUnpair, ControlLogin, SettingsTokens};
 pub(in crate::device) use self::backups::utc_parts;
 pub use self::backups::{
     BACKUP_STAGE, BackupDone, BackupJob, CaptureKeys, CloudBackup, ControlBackup,
-    ControlBackupDone, Stage, convert_backup_gains, keep_device_values_after_restore,
+    ControlBackupDone, REMOTE_ARCHIVE, REMOTE_RESTORE, RemoteBackup, RemoteBackupDone, Stage,
+    convert_backup_gains, keep_device_values_after_restore,
 };
 pub use self::cloud_job::{CloudJob, CloudReply, CloudRequest, Nc2Download};
 pub use self::licences::{LICENSABLE_PLUGINS, Licences, PluginStatus};

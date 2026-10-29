@@ -285,7 +285,7 @@ impl Mappings {
     }
 
     /// Decodes the loaded preset's Tetrad mappings again after any change of the preset.
-    fn sync(&mut self, state: &State) {
+    pub(in crate::device) fn sync(&mut self, state: &State) {
         let revision = state.current.revision();
         if self.preset_revision == Some(revision) {
             return;
