@@ -15,6 +15,9 @@ use crate::smp::{self, Addresses, Pairing, Step};
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
 /// SMP gives a pairing 30 s (Vol 3 Part H §3.4).
 const PAIRING_TIMEOUT: Duration = Duration::from_secs(30);
+/// A host link that is not encrypted this long after it connected ends: while it stays, the unit
+/// does not advertise, so a scanner that never pairs would keep every paired host out.
+const SECURE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Soon after a host connects, Tetrad asks for its connection parameters: an interval of 15 to
 /// 30 ms for BLE MIDI, and a supervision timeout of 6 s. The WILC3000 shares its radio with
 /// Wi-Fi; with BlueZ's default timeout (420 ms) links dropped on a unit with a weak Wi-Fi signal
@@ -105,6 +108,8 @@ struct Link {
     midi: crate::midi::Decoder,
     /// When to ask for MIDI connection parameters.
     parameters_at: Option<Duration>,
+    /// A host link must be encrypted by then ([`SECURE_TIMEOUT`]).
+    secure_by: Option<Duration>,
     /// A GAP name read is out (one ATT request at a time on Tetrad's client side).
     asking_name: bool,
     listening: bool,
@@ -211,7 +216,7 @@ impl Host {
         let command = self.awaiting.map(|(_, at)| at + COMMAND_TIMEOUT);
         let links = self.links.values().flat_map(|link| {
             let pairing = link.pairing.as_ref().map(|(_, at)| *at + PAIRING_TIMEOUT);
-            [pairing, link.parameters_at]
+            [pairing, link.parameters_at, link.secure_by]
         });
         command.into_iter().chain(links.flatten()).min()
     }
@@ -242,6 +247,16 @@ impl Host {
                 });
                 self.disconnect(handle, status::AUTHENTICATION_FAILURE);
                 continue;
+            }
+            if link.secure_by.is_some_and(|at| now >= at) {
+                link.secure_by = None;
+                if !link.encrypted {
+                    self.notice(
+                        "a host that did not pair or encrypt in 30 s was disconnected".into(),
+                    );
+                    self.disconnect(handle, status::AUTHENTICATION_FAILURE);
+                    continue;
+                }
             }
             if link.parameters_at.is_some_and(|at| now >= at) {
                 link.parameters_at = None;
@@ -546,6 +561,7 @@ impl Host {
                 pairing: None,
                 midi: crate::midi::Decoder::default(),
                 parameters_at: (role == Role::Peripheral).then_some(self.now + PARAMETER_DELAY),
+                secure_by: (role == Role::Peripheral).then_some(self.now + SECURE_TIMEOUT),
                 asking_name: false,
                 listening: false,
             },
