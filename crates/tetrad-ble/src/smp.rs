@@ -169,7 +169,9 @@ impl Pairing {
             return Err(reason::ENCRYPTION_KEY_SIZE);
         }
         let secure = auth & SECURE_CONNECTIONS != 0;
-        let bond = auth & BONDING != 0;
+        // A legacy bond needs the LTK that Tetrad gives: without it the pairing only lasts the
+        // link (a bond would keep an all-zero key).
+        let bond = auth & BONDING != 0 && (secure || responder_keys & ENC_KEY != 0);
         // The central's identity key (it resolves the central's private address); in legacy
         // pairing also an LTK from Tetrad, as the STK only lasts this link.
         let wanted_from_initiator = if bond { ID_KEY } else { 0 };
@@ -342,7 +344,9 @@ impl Pairing {
         self.pres = pres;
         // Each side must set the bit; the request may be legacy (the tests make one).
         self.secure = self.preq[3] & pres[3] & SECURE_CONNECTIONS != 0;
-        self.bond = self.preq[3] & pres[3] & BONDING != 0;
+        // As in `respond`: a legacy bond needs the peripheral's LTK.
+        self.bond =
+            self.preq[3] & pres[3] & BONDING != 0 && (self.secure || pres[6] & ENC_KEY != 0);
         self.keys.secure = self.secure;
         self.keys.bond = self.bond;
         // Keys the peripheral gives: its LTK (legacy only) and its identity.
@@ -685,6 +689,18 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn a_legacy_bond_without_tetrads_ltk_is_no_bond() {
+        let (_, mut request) = Pairing::initiate(ADDRESSES);
+        // Legacy, bonding, but the central does not ask for Tetrad's LTK.
+        request[3] &= !SECURE_CONNECTIONS;
+        request[6] = ID_KEY;
+        let (responder, response) = Pairing::respond(&request, ADDRESSES).unwrap();
+        assert_eq!(response[3] & BONDING, 0);
+        assert_eq!(response[5..], [0, 0]);
+        assert!(!responder.keys.bond);
     }
 
     #[test]
