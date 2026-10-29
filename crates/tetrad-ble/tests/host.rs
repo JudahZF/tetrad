@@ -5,6 +5,7 @@
 use std::time::Duration;
 
 use tetrad_ble::att::{self, Database, Slot};
+use tetrad_ble::bond::Kind;
 use tetrad_ble::smp::{self, Addresses, Pairing, Step};
 use tetrad_ble::{Bond, Config, Event, Host, hci, l2cap};
 
@@ -392,6 +393,52 @@ fn a_new_phone_cannot_pair_while_tetrad_is_not_pairable() {
         "{:?}",
         rig.commands
     );
+}
+
+#[test]
+fn a_host_that_never_encrypts_is_disconnected() {
+    let disconnects = |rig: &Rig| {
+        (rig.commands.iter())
+            .filter(|(opcode, _)| *opcode == hci::op::DISCONNECT)
+            .count()
+    };
+    let mut rig = Rig::new(false, Vec::new());
+    rig.answer_commands();
+    rig.connect();
+    rig.now = Duration::from_secs(29);
+    rig.host.tick(rig.now);
+    rig.collect();
+    assert_eq!(disconnects(&rig), 0);
+    rig.now = Duration::from_secs(31);
+    rig.host.tick(rig.now);
+    rig.collect();
+    assert_eq!(disconnects(&rig), 1);
+
+    // An encrypted link stays.
+    let phone = Bond {
+        address: PHONE,
+        address_type: 0,
+        kind: Kind::Host,
+        irk: None,
+        ltk: [1; 16],
+        ediv: 0,
+        rand: [0; 8],
+        secure: true,
+        name: None,
+        notify: 0,
+        digest: 0,
+        app: false,
+    };
+    let mut rig = Rig::new(false, vec![phone]);
+    rig.answer_commands();
+    rig.connect();
+    rig.ltk_request(0);
+    rig.encrypted();
+    rig.now = Duration::from_secs(31);
+    rig.host.tick(rig.now);
+    rig.collect();
+    assert_eq!(disconnects(&rig), 0);
+    assert!(rig.host.deadline().is_none_or(|at| at > rig.now));
 }
 
 #[test]

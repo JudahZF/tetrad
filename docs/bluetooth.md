@@ -129,7 +129,8 @@ goes only to the connection it was made for: when that connection ends, its mess
 
 ## Limits
 
-- One phone or computer at a time. While one is connected, the unit does not advertise.
+- One phone or computer at a time. While one is connected, the unit does not advertise. A host
+  that does not pair (or use its saved pairing) within 30 s of connecting is disconnected.
 - The radio talks to the unit at 115200 baud: about 8 KB/s. This is enough for MIDI.
 - Wi-Fi and Bluetooth share one radio, on 2.4 GHz. The chip shares the air time: a large Wi-Fi
   transfer delays BLE messages, and with a weak Wi-Fi signal (many repeats) a link can drop. On
