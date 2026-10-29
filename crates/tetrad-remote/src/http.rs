@@ -3,7 +3,9 @@
 
 use std::io::{self, Read, Write};
 
-use crate::api::{PIN_HEADER, Reply, Request};
+use crate::api::{
+    BackupOp, EditorOp, ExtensionsOp, LibraryOp, PIN_HEADER, Reply, Request, ThemesOp,
+};
 
 const MAX_HEAD: usize = 8 * 1024;
 const MAX_HEADERS: usize = 32;
@@ -11,17 +13,30 @@ const MAX_HEADERS: usize = 32;
 pub const MAX_BODY: usize = 64 * 1024;
 
 const PAGE: &str = include_str!("page.html");
+/// Where the pages of the sidebar go ([`page`]). Each part adds its own section, style and
+/// script.
+const PARTS_MARK: &str = "<!--parts-->";
+const PARTS: [&str; 7] = [
+    include_str!("parts/irs.html"),
+    include_str!("parts/mappings.html"),
+    include_str!("parts/footswitch.html"),
+    include_str!("parts/backup.html"),
+    include_str!("parts/themes.html"),
+    include_str!("parts/notices.html"),
+    include_str!("parts/extensions.html"),
+];
 /// Where a dev build puts the update part of the page ([`page`]).
 const UPDATE_MARK: &str = "<!--update-->";
 #[cfg(feature = "dev")]
 const UPDATE_PART: &str = include_str!("update.html");
 
-/// The page: in a dev build with its "Update Tetrad" part.
+/// The page with its parts: in a dev build also the "Update Tetrad" part.
 fn page() -> String {
+    let page = PAGE.replace(PARTS_MARK, &PARTS.concat());
     #[cfg(feature = "dev")]
-    return PAGE.replace(UPDATE_MARK, UPDATE_PART);
+    return page.replace(UPDATE_MARK, UPDATE_PART);
     #[cfg(not(feature = "dev"))]
-    PAGE.replace(UPDATE_MARK, "")
+    page.replace(UPDATE_MARK, "")
 }
 
 /// Inline script and style only; the page talks to the unit and nothing else.
@@ -74,6 +89,7 @@ pub fn serve_one<S: Read + Write>(
                 let headers = [("Content-Disposition", disposition.as_str())];
                 respond(stream, 200, "application/zip", &headers, &zip)
             }
+            Reply::Bytes(bytes) => respond(stream, 200, "application/octet-stream", &[], &bytes),
             #[cfg(feature = "dev")]
             Reply::Log { text } => respond(
                 stream,
@@ -242,12 +258,168 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
         ("GET", "/api/support") => Ok(Route::Device(Request::Support {
             pin: device(head.pin)?,
         })),
+        ("GET", "/api/notices") => Ok(Route::Device(Request::Notices {
+            pin: device(head.pin)?,
+        })),
+        (method, path) if path == "/api/library" || path.starts_with("/api/library/") => {
+            let op = library_op(method, path, &head.query)?;
+            Ok(Route::Device(Request::Library {
+                pin: device(head.pin)?,
+                op,
+            }))
+        }
+        (method, path) if path == "/api/backup" || path.starts_with("/api/backup/") => {
+            let op = backup_op(method, path, &head.query, body)?;
+            Ok(Route::Device(Request::Backup {
+                pin: device(head.pin)?,
+                op,
+            }))
+        }
+        ("GET", "/api/extensions") => Ok(Route::Device(Request::Extensions {
+            pin: device(head.pin)?,
+            op: ExtensionsOp::List,
+        })),
+        ("POST", "/api/extensions/command") => Ok(Route::Device(Request::Extensions {
+            pin: device(head.pin)?,
+            op: ExtensionsOp::Command { json: body },
+        })),
+        ("GET", "/api/themes") => Ok(Route::Device(Request::Themes {
+            pin: device(head.pin)?,
+            op: ThemesOp::List,
+        })),
+        ("POST", "/api/themes/save") => Ok(Route::Device(Request::Themes {
+            pin: device(head.pin)?,
+            op: ThemesOp::Save { json: body },
+        })),
+        ("POST", "/api/themes/select") => Ok(Route::Device(Request::Themes {
+            pin: device(head.pin)?,
+            op: ThemesOp::Select {
+                id: file_id(&head.query)?,
+            },
+        })),
+        ("POST", "/api/themes/delete") => Ok(Route::Device(Request::Themes {
+            pin: device(head.pin)?,
+            op: ThemesOp::Delete {
+                id: file_id(&head.query)?,
+            },
+        })),
+        ("GET", "/api/mappings") => Ok(Route::Device(Request::Mappings {
+            pin: device(head.pin)?,
+            op: EditorOp::View,
+        })),
+        ("POST", "/api/mappings/command") => Ok(Route::Device(Request::Mappings {
+            pin: device(head.pin)?,
+            op: EditorOp::Command { json: body },
+        })),
+        ("GET", "/api/footswitch") => Ok(Route::Device(Request::Footswitch {
+            pin: device(head.pin)?,
+            op: EditorOp::View,
+        })),
+        ("POST", "/api/footswitch/command") => Ok(Route::Device(Request::Footswitch {
+            pin: device(head.pin)?,
+            op: EditorOp::Command { json: body },
+        })),
         (
             _,
-            "/api/status" | "/api/irs" | "/api/support" | "/api/files" | "/api/files/chunk"
-            | "/api/files/delete" | "/api/tabs" | "/api/tabs/page" | "/api/tabs/call",
+            "/api/status"
+            | "/api/irs"
+            | "/api/support"
+            | "/api/files"
+            | "/api/files/chunk"
+            | "/api/files/delete"
+            | "/api/tabs"
+            | "/api/tabs/page"
+            | "/api/tabs/call"
+            | "/api/notices"
+            | "/api/extensions"
+            | "/api/extensions/command"
+            | "/api/themes"
+            | "/api/themes/save"
+            | "/api/themes/select"
+            | "/api/themes/delete"
+            | "/api/mappings"
+            | "/api/mappings/command"
+            | "/api/footswitch"
+            | "/api/footswitch/command",
         ) => Err(Fail::Status(405, "method not allowed")),
         (_, path) if PAGE_PATHS.contains(&path) => Err(Fail::Status(405, "method not allowed")),
+        _ => Err(Fail::Status(404, "not found")),
+    }
+}
+
+fn library_op(method: &str, path: &str, query: &str) -> Result<LibraryOp, Fail> {
+    let text = |key: &'static str, missing: &'static str| {
+        query_value(query, key)?
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(Fail::Status(400, missing))
+    };
+    let folder = |key: &'static str| {
+        text(key, "folder required")?
+            .parse::<i64>()
+            .map_err(|_| Fail::Status(400, "folder required"))
+    };
+    match (method, path) {
+        ("GET", "/api/library") => Ok(LibraryOp::List),
+        ("POST", "/api/library/rename") => Ok(LibraryOp::Rename {
+            id: file_id(query)?,
+            name: file_name(query)?,
+        }),
+        ("POST", "/api/library/delete") => Ok(LibraryOp::Delete {
+            id: file_id(query)?,
+        }),
+        ("POST", "/api/library/link") => Ok(LibraryOp::Link {
+            id: file_id(query)?,
+            folder: folder("folder")?,
+            linked: query_value(query, "linked")?.as_deref() == Some("1"),
+        }),
+        ("POST", "/api/library/destination") => Ok(LibraryOp::Destination {
+            folder: folder("folder")?,
+        }),
+        ("POST", "/api/library/folder") => Ok(LibraryOp::CreateFolder {
+            name: file_name(query)?,
+            parent: match query_value(query, "parent")? {
+                Some(_) => Some(folder("parent")?),
+                None => None,
+            },
+        }),
+        (
+            _,
+            "/api/library"
+            | "/api/library/rename"
+            | "/api/library/delete"
+            | "/api/library/link"
+            | "/api/library/destination"
+            | "/api/library/folder",
+        ) => Err(Fail::Status(405, "method not allowed")),
+        _ => Err(Fail::Status(404, "not found")),
+    }
+}
+
+fn backup_op(method: &str, path: &str, query: &str, body: Vec<u8>) -> Result<BackupOp, Fail> {
+    let offset = || {
+        query_value(query, "offset")?
+            .and_then(|value| value.parse().ok())
+            .ok_or(Fail::Status(400, "offset required"))
+    };
+    match (method, path) {
+        ("GET", "/api/backup") => Ok(BackupOp::Status),
+        ("POST", "/api/backup/create") => Ok(BackupOp::Create),
+        ("GET", "/api/backup/file") => Ok(BackupOp::Read { offset: offset()? }),
+        ("POST", "/api/backup/upload") => Ok(BackupOp::Upload {
+            name: file_name(query)?,
+            offset: offset()?,
+            last: query_value(query, "last")?.as_deref() == Some("1"),
+            bytes: body,
+        }),
+        ("POST", "/api/backup/discard") => Ok(BackupOp::Discard),
+        (
+            _,
+            "/api/backup"
+            | "/api/backup/create"
+            | "/api/backup/file"
+            | "/api/backup/upload"
+            | "/api/backup/discard",
+        ) => Err(Fail::Status(405, "method not allowed")),
         _ => Err(Fail::Status(404, "not found")),
     }
 }

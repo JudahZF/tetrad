@@ -135,6 +135,9 @@ pub enum Handoff {
     Theme(tetrad_theme::ThemeId),
     /// The Remote page switches → `Device::set_remote`.
     Remote { enabled: bool, pin_in_menu: bool },
+    /// RESTORE of the received backup `id` (`Some`), or DISCARD (`None`), of the backup that the
+    /// Remote page sent → `Device::remote_backup_touch`.
+    RemoteBackup { restore: Option<u64> },
     /// The Boot Selector page switch → `Device::set_boot_selector`.
     BootSelector { shown: bool },
     /// Capture wizard requests and saves → capture bridge.
@@ -829,6 +832,12 @@ impl Ui {
                 enabled,
                 pin_in_menu,
             })],
+            C::RemoteRestore { id } => {
+                vec![Request::Handoff(Handoff::RemoteBackup {
+                    restore: Some(id),
+                })]
+            }
+            C::RemoteDiscard => vec![Request::Handoff(Handoff::RemoteBackup { restore: None })],
             C::SetBootSelector { shown } => {
                 vec![Request::Handoff(Handoff::BootSelector { shown })]
             }

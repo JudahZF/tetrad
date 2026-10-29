@@ -51,6 +51,20 @@ pub enum Request {
     },
     /// The support file (docs/support.md).
     Support { pin: String },
+    /// The recent notices of the unit, with the private values taken out as in the support file.
+    Notices { pin: String },
+    /// The user IRs and their folders.
+    Library { pin: String, op: LibraryOp },
+    /// A backup of the user data to download, or one to restore.
+    Backup { pin: String, op: BackupOp },
+    /// The installed and available extensions.
+    Extensions { pin: String, op: ExtensionsOp },
+    /// The themes of the unit and the theme files.
+    Themes { pin: String, op: ThemesOp },
+    /// The mappings of the loaded preset and the global mappings (docs/mappings.md).
+    Mappings { pin: String, op: EditorOp },
+    /// The layouts of the Custom footswitch mode (docs/footswitch-modes.md).
+    Footswitch { pin: String, op: EditorOp },
     /// Dev build: the running version, and the proof that the unit takes updates.
     #[cfg(feature = "dev")]
     UpdateStatus { pin: String },
@@ -106,7 +120,14 @@ impl Request {
             | Self::Tabs { pin }
             | Self::TabPage { pin, .. }
             | Self::TabCall { pin, .. }
-            | Self::Support { pin } => pin,
+            | Self::Support { pin }
+            | Self::Notices { pin }
+            | Self::Library { pin, .. }
+            | Self::Backup { pin, .. }
+            | Self::Extensions { pin, .. }
+            | Self::Themes { pin, .. }
+            | Self::Mappings { pin, .. }
+            | Self::Footswitch { pin, .. } => pin,
             #[cfg(feature = "dev")]
             Self::UpdateStatus { pin }
             | Self::UpdateBegin { pin, .. }
@@ -120,6 +141,87 @@ impl Request {
             Self::AuthNonce | Self::AuthPin { .. } => "",
         }
     }
+}
+
+/// The IR library: user IRs only (factory IRs are not in the library database).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LibraryOp {
+    /// The folders, the IRs and the saving destination.
+    List,
+    Rename {
+        id: String,
+        name: String,
+    },
+    /// Removes the IR from the library and every folder.
+    Delete {
+        id: String,
+    },
+    /// Puts the IR in `folder` (`linked`), or takes it out.
+    Link {
+        id: String,
+        folder: i64,
+        linked: bool,
+    },
+    /// The folder that new IRs go to.
+    Destination {
+        folder: i64,
+    },
+    /// A new folder in `parent`, or in the IR root.
+    CreateFolder {
+        name: String,
+        parent: Option<i64>,
+    },
+}
+
+/// A backup of the user data (the stock backup set) that the page downloads in pieces, or a backup
+/// that the page sends for a restore. The restore starts only from a touch on the unit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackupOp {
+    /// What runs, and the backup that waits for its download or for the touch on the unit.
+    Status,
+    /// Packs a new backup.
+    Create,
+    /// The bytes of the packed backup from `offset` on ([`Reply::Bytes`]).
+    Read { offset: u64 },
+    /// The next bytes of a backup to restore, which must start at `offset`. `last` ends it: the
+    /// unit then offers the restore on its Remote page.
+    Upload {
+        name: String,
+        offset: u64,
+        last: bool,
+        bytes: Vec<u8>,
+    },
+    /// Drops the packed backup, or the received one.
+    Discard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtensionsOp {
+    /// The installed extensions with their state and settings, and the ones the repositories
+    /// offer.
+    List,
+    /// One command as JSON text (`{"op": "enable", "key": ...}`); the device reads it.
+    Command { json: Vec<u8> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemesOp {
+    /// Every theme the unit can show, the chosen one, and the palette of each.
+    List,
+    /// A theme file (JSON text, docs/themes.md) to keep in the themes folder.
+    Save { json: Vec<u8> },
+    /// The theme to show, by its stored id (`stock`, `file:<id>`, ...).
+    Select { id: String },
+    /// Removes the theme file of `file:<id>`.
+    Delete { id: String },
+}
+
+/// An editor page of data that the device keeps: the view, and one edit as JSON text that the
+/// device reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditorOp {
+    View,
+    Command { json: Vec<u8> },
 }
 
 /// One request for the device. `id` matches the [`Reply`] to the open connection.
@@ -169,6 +271,10 @@ pub enum Reply {
         name: String,
         zip: Vec<u8>,
     },
+    /// An answer with its own JSON body (status 200).
+    Json(serde_json::Value),
+    /// A piece of a download, written as `application/octet-stream`.
+    Bytes(Vec<u8>),
     /// The running version, and the md5 that the launcher has armed (`launcher/select`), which is
     /// the md5 of the installed `bin/tetrad` when the update went well.
     #[cfg(feature = "dev")]
@@ -251,8 +357,8 @@ pub struct FileEntry {
 }
 
 impl Reply {
-    /// The status code and the JSON body. [`Reply::File`] is written as the file itself
-    /// (`http::serve_one`), never as JSON.
+    /// The status code and the JSON body. [`Reply::File`] and [`Reply::Bytes`] are written as the
+    /// bytes themselves (`http::serve_one`), never as JSON.
     pub(crate) fn response(&self) -> (u16, serde_json::Value) {
         use serde_json::json;
         match self {
@@ -321,6 +427,8 @@ impl Reply {
                 ),
             ),
             Self::File { name, .. } => (200, json!({ "name": name })),
+            Self::Json(value) => (200, value.clone()),
+            Self::Bytes(bytes) => (200, json!({ "bytes": bytes.len() })),
             Self::WrongPin => (401, json!({ "error": "Wrong PIN" })),
             Self::Off => (503, json!({ "error": "Remote is off" })),
             Self::Refused(reason) => (422, json!({ "error": reason })),

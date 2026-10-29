@@ -220,6 +220,12 @@ impl UiState {
                     pin_in_menu: !snapshot.remote.pin_in_menu,
                 }];
             }
+            Control::RemoteRestore => {
+                if let Some(backup) = (snapshot.remote.restore.as_ref()).filter(|b| !b.restoring) {
+                    self.overlay = Some(Overlay::Confirm(Confirm::RemoteRestore(backup.id)));
+                }
+            }
+            Control::RemoteDiscard => return vec![UiCommand::RemoteDiscard],
             Control::BootSelectorToggle => {
                 if let Some(shown) = snapshot.boot_selector {
                     return vec![UiCommand::SetBootSelector { shown: !shown }];
@@ -946,6 +952,7 @@ impl UiState {
             }
             Confirm::Device(action) => vec![UiCommand::Device { action }],
             Confirm::RestoreBackup(id) => vec![UiCommand::RestoreBackup { id }],
+            Confirm::RemoteRestore(id) => vec![UiCommand::RemoteRestore { id }],
             Confirm::DeleteBackup(id) => vec![UiCommand::DeleteBackup { id }],
             Confirm::UpdateBackup(id) => vec![UiCommand::UpdateBackup { id }],
             Confirm::AbortCapture => {

@@ -134,8 +134,16 @@ pub fn collect(state: &State, context: &Context<'_>, files: &mut impl Files) -> 
             Err(error) => entries.push(text(&format!("{name}.error.txt"), error.to_string())),
         }
     }
-    // Stock boot prints the serial (`SN_U:`, `SN_S:`, `SN_B:`), and a log line of an
-    // extension could hold anything the unit knows.
+    for entry in &mut entries {
+        entry.data = private_out(state, std::mem::take(&mut entry.data));
+    }
+    entries
+}
+
+/// `data` without the private values the unit knows: the serial, the sign-in tokens and the
+/// account names. Stock boot prints the serial (`SN_U:`, `SN_S:`, `SN_B:`), and a log line
+/// of an extension could hold anything the unit knows.
+pub(super) fn private_out(state: &State, mut data: Vec<u8>) -> Vec<u8> {
     let settings = state.settings.settings();
     let serial = state.info.serial.as_ref().map(|serial| serial.as_str());
     let secrets = [
@@ -145,12 +153,10 @@ pub fn collect(state: &State, context: &Context<'_>, files: &mut impl Files) -> 
         (settings.account.username.as_str(), "<account>"),
         (settings.account.ui_username.as_str(), "<account>"),
     ];
-    for entry in &mut entries {
-        for (secret, mark) in secrets {
-            entry.data = redact(std::mem::take(&mut entry.data), secret, mark);
-        }
+    for (secret, mark) in secrets {
+        data = redact(data, secret, mark);
     }
-    entries
+    data
 }
 
 /// `data` with every copy of `secret` replaced by `mark`. An empty value (signed out, no

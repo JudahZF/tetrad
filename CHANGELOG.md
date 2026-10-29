@@ -14,6 +14,23 @@ All notable changes to Tetrad are in this file. The version numbers follow
   with full access to the unit: the Available row says so before the install.
 - DOOM 0.1.0 in the default extension repository (`extensions/doom`): the original qcDOOM binary
   by Thomas Van Iseghem with the shareware WAD, played with the footswitches.
+- Remote has new pages ([docs/remote.md](docs/remote.md)), in a sidebar with the groups Library,
+  Controls, Unit and Extensions:
+  - **IRs**: the IR library under the upload box. Search, folders, rename, delete, put an IR in
+    a folder or take it out, the folder that new IRs go to, and new folders.
+  - **Mappings**: the mappings of the loaded preset and the global ones, edited as on the unit,
+    with Learn.
+  - **Footswitch**: the layouts of the Custom footswitch mode, edited as in Gig View.
+  - **Backup**: download a backup of the user data (the stock backup set), or send one to
+    restore. The restore starts only from a touch on RESTORE on the unit.
+  - **Themes**: every theme with its colours, **Use**, and an editor for theme files with a
+    preview. The unit checks a theme with the rules of a file on the card.
+  - **Notices**: the recent notices of the unit, without the serial, tokens or account names.
+  - **Manage**: the extensions as on Settings → Tetrad → Extensions: on and off, settings,
+    commands, updates, retry, remove, and installs from the trusted repositories.
+- Remote: **Support file** and **Change PIN** are at the top of every page.
+- Settings → Tetrad → Remote (and Send Report) shows a QR code. A phone that scans it opens the
+  page with the PIN.
 
 ### Changed
 

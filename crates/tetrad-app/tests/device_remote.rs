@@ -659,3 +659,40 @@ mod update {
         assert!(refused(&ready).contains("100"), "{ready:?}");
     }
 }
+
+/// The Notices page: the log of the unit as JSON, behind the PIN, newest last, with the age of
+/// each notice so the page can show its time of day.
+#[test]
+fn notices_need_the_pin_and_list_the_log() {
+    let files = MemFiles::default();
+    let (mut device, _media) = boot_remote(media(), files, FakeRemote::default());
+    tap_switch(&mut device);
+    let notices = |pin: &str| Request::Notices { pin: pin.into() };
+    assert_eq!(ask(&mut device, notices("9999")), Reply::WrongPin);
+    assert!(matches!(
+        ask(
+            &mut device,
+            Request::Upload {
+                pin: "0001".into(),
+                name: "V30 SM57".into(),
+                wav: page_wav(1024),
+            }
+        ),
+        Reply::Added { .. }
+    ));
+
+    let Reply::Json(body) = ask(&mut device, notices("0001")) else {
+        panic!("a JSON reply");
+    };
+    let list = body["notices"].as_array().unwrap();
+    let last = list.last().unwrap();
+    assert_eq!(last["subsystem"], "Remote");
+    assert!(
+        last["detail"]
+            .as_str()
+            .unwrap()
+            .contains("IR V30 SM57 added")
+    );
+    assert!(last["ago"].is_u64());
+    assert!(body["dropped"].is_u64());
+}

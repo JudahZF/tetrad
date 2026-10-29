@@ -253,6 +253,9 @@ pub(crate) enum Confirm {
     },
     Device(DeviceAction),
     RestoreBackup(u64),
+    /// Owned (Tetrad): RESTORE of the backup that the Remote page sent ([`crate::RemoteRestore::id`]):
+    /// CANCEL / RESTORE.
+    RemoteRestore(u64),
     /// "Update Cloud Backup" (`0x3f8730`): CANCEL / PROCEED.
     UpdateBackup(u64),
     DeleteBackup(u64),
