@@ -294,7 +294,7 @@ impl PresetDocument {
         let mut field = match value {
             ParamValue::Int(value) => Field {
                 number: 1,
-                tag: vec![8],
+                tag: wire::Raw::new(&[8]),
                 value: Value::Varint {
                     raw: wire::encode_varint(i64::from(value) as u64),
                     value: i64::from(value) as u64,
@@ -302,7 +302,7 @@ impl PresetDocument {
             },
             ParamValue::Float(value) => Field {
                 number: 2,
-                tag: vec![21],
+                tag: wire::Raw::new(&[21]),
                 value: Value::Fixed32(value.to_le_bytes()),
             },
             ParamValue::String(value) => wire::bytes_field(3, value.into_bytes()),

@@ -8,9 +8,10 @@
 //! new 410.1 database for the factory reset. Every write runs inside one immediate
 //! transaction ([`StockDb::transaction`]).
 
+use std::cell::RefCell;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::types::{ToSqlOutput, ValueRef};
@@ -478,6 +479,27 @@ pub struct StockDb {
     limits: DbLimits,
     read_only: bool,
     version: SchemaVersion,
+    /// [`Self::path`], read once: an open connection keeps its file.
+    path: Option<PathBuf>,
+    roots: RootCache,
+}
+
+/// The [`StockView::root_folder`] results of a [`StockDb::view`] (product type code, root),
+/// valid while the connection's change count ([`Connection::total_changes`]) stays at
+/// `changes`. Each INSERT, UPDATE or DELETE on this connection counts, also one that a
+/// rollback undoes, so any write of this handle to `folder` (a transaction, the boot
+/// maintenance) drops the cache. Reads inside a transaction do not use it: a rollback could
+/// undo what they saw.
+/// Writes of other connections do not count. On the device only the library handle writes
+/// the live `zenui.db`: the other handles open it read-only, the backup re-key writes the
+/// staged copy, and a restore or a factory reset opens a new handle.
+#[derive(Default)]
+struct RootCache(RefCell<CachedRoots>);
+
+#[derive(Default)]
+struct CachedRoots {
+    changes: u64,
+    roots: Vec<(i64, Option<i64>)>,
 }
 
 impl StockDb {
@@ -490,7 +512,7 @@ impl StockDb {
 
     /// The database file, as opened (canonical); `None` for an in-memory database.
     pub fn path(&self) -> Option<&Path> {
-        self.connection.path().map(Path::new)
+        self.path.as_deref()
     }
 
     /// Opens `/opt/neuraldsp/factory.db` read-only (factory captures and model
@@ -537,10 +559,12 @@ impl StockDb {
             return Err(Error::StockVersion(version));
         }
         let mut db = Self {
+            path: connection.path().map(PathBuf::from),
             connection,
             limits,
             read_only,
             version,
+            roots: RootCache::default(),
         };
         // Before the first use of the quarantine; a read-only handle leaves the file as it is.
         if !read_only && db.view().has_table(LEGACY_QUARANTINE_TABLE)? {
@@ -562,6 +586,7 @@ impl StockDb {
         StockView {
             connection: &self.connection,
             limits: self.limits,
+            roots: Some(&self.roots),
         }
     }
 
@@ -578,6 +603,7 @@ impl StockDb {
             view: StockView {
                 connection: &transaction,
                 limits: self.limits,
+                roots: None,
             },
         })?;
         transaction.commit()?;
@@ -984,6 +1010,8 @@ impl ToSql for TextBool {
 pub struct StockView<'c> {
     connection: &'c Connection,
     limits: DbLimits,
+    /// `None` inside a transaction.
+    roots: Option<&'c RootCache>,
 }
 
 impl StockView<'_> {
@@ -1051,6 +1079,72 @@ impl StockView<'_> {
         )
     }
 
+    /// [`Self::product`] of each of [`Self::product_ids`], in one statement and without the
+    /// rawdata (`raw_data` is `None`). A row that `product` refuses fails alone, with the
+    /// same error: the columns keep its numbers, and a rawdata that is not BLOB, TEXT or NULL
+    /// fails by its type (SQLite reads the type without the bytes).
+    pub fn product_rows(
+        &self,
+        product_type: ProductType,
+    ) -> Result<Vec<(String, Result<StockProduct>)>> {
+        self.list(
+            "SELECT id, readonly, typeof(rawdata), metadata FROM product WHERE type = ?1 AND id IS NOT NULL ORDER BY rowid",
+            [product_type.code()],
+            |row| {
+                let id = text_at(row, 0)?;
+                let product = (|| {
+                    let read_only = bool_at(row, 1)?;
+                    if !matches!(row.get_ref(2)?, ValueRef::Text(b"null" | b"blob" | b"text")) {
+                        return Err(conversion(2, "blob"));
+                    }
+                    Ok(StockProduct {
+                        id: id.clone(),
+                        product_type,
+                        read_only,
+                        raw_data: None,
+                        metadata: blob_at(row, 3)?,
+                    })
+                })();
+                Ok((id, product.map_err(Error::from)))
+            },
+        )
+    }
+
+    /// The number of [`Self::product_ids`], without reading them: the same rows, the same
+    /// [`Error::Limit`], and the same error for an id that is not TEXT or INTEGER (not for
+    /// TEXT that is not UTF-8).
+    pub fn product_count(&self, product_type: ProductType) -> Result<usize> {
+        self.count(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE typeof(id) NOT IN ('text', 'integer')) FROM product WHERE type = ?1 AND id IS NOT NULL",
+            [product_type.code()],
+        )
+    }
+
+    /// The number of [`Self::download_ids`], as [`Self::product_count`].
+    pub fn download_count(&self, kind: DownloadKind) -> Result<usize> {
+        self.count(
+            &format!(
+                "SELECT COUNT(*), COUNT(*) FILTER (WHERE typeof(id) NOT IN ('text', 'integer')) FROM {} WHERE id IS NOT NULL",
+                kind.table()
+            ),
+            [],
+        )
+    }
+
+    /// Rows and unreadable ids of a `SELECT COUNT(*), COUNT(*) FILTER (...)`.
+    fn count(&self, sql: &str, params: impl rusqlite::Params) -> Result<usize> {
+        let (rows, unreadable) = self.connection.query_row(sql, params, |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        if unreadable > 0 {
+            return Err(conversion(0, "text").into());
+        }
+        match usize::try_from(rows) {
+            Ok(rows) if rows <= self.limits.max_rows => Ok(rows),
+            _ => Err(Error::Limit),
+        }
+    }
+
     /// `0x01204380`: all folders ordered by id.
     pub fn folders(&self) -> Result<Vec<StockFolder>> {
         self.list(
@@ -1069,16 +1163,39 @@ impl StockView<'_> {
         )
     }
 
-    /// `0x01204554` (`0x00835204`): the writable user root of a product type.
+    /// `0x01204554` (`0x00835204`): the writable user root of a product type. Outside a
+    /// transaction the result stays cached until this connection writes ([`RootCache`]):
+    /// Cortex Control reads both roots on every device step.
     pub fn root_folder(&self, product_type: ProductType) -> Result<Option<i64>> {
-        Ok(self
+        let code = product_type.code();
+        let changes = self.connection.total_changes();
+        if let Some(roots) = self.roots {
+            let cached = roots.0.borrow();
+            if cached.changes == changes
+                && let Some(&(_, root)) = cached.roots.iter().find(|(kind, _)| *kind == code)
+            {
+                return Ok(root);
+            }
+        }
+        let root = self
             .connection
             .query_row(
                 "SELECT id FROM folder WHERE pdType = ?1 AND folderType = ?2 AND parent = 0 AND readonly = 0",
-                params![product_type.code(), FolderType::UserRoot.code()],
+                params![code, FolderType::UserRoot.code()],
                 |row| int_at(row, 0),
             )
-            .optional()?)
+            .optional()?;
+        if let Some(roots) = self.roots {
+            let mut cached = roots.0.borrow_mut();
+            if cached.changes != changes {
+                *cached = CachedRoots {
+                    changes,
+                    roots: Vec::new(),
+                };
+            }
+            cached.roots.push((code, root));
+        }
+        Ok(root)
     }
 
     /// `0x01204344`: product ids linked to a folder, insertion order.

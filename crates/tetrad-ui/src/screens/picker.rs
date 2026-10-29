@@ -7,6 +7,7 @@
 
 use tetrad_assets::{Icon, IconSize, Rgb};
 
+use super::directory::ListQuery;
 use crate::layout::{BODY, CAPTION, GREY_VEIL, Layout, ListId, Look};
 use crate::render::{Align, HEIGHT, WIDTH};
 use crate::state::PresetPane;
@@ -258,38 +259,49 @@ fn rail(ui: &UiState, l: &mut Layout) {
 /// lists the extension blocks of every category. Unlicensed plugin models are left out.
 fn shown_models(ui: &UiState) -> Vec<&ModelEntry> {
     let picker = &ui.picker;
+    let all = &ui.snapshot.models;
     let query = picker.query.to_lowercase();
     let unlicensed = &ui.snapshot.unlicensed_plugins;
-    let mut models: Vec<&ModelEntry> = ui
-        .snapshot
-        .models
-        .iter()
-        .filter(|model| {
-            !model
-                .plugin
-                .is_some_and(|plugin| unlicensed.contains(&plugin))
-        })
-        .filter(|model| {
-            let place = DeviceGroup::of(model.category);
-            if query.is_empty() && picker.group == Some(DeviceGroup::Extensions) {
-                model.extension && place.is_some()
-            } else if query.is_empty() {
-                place.is_some_and(|(group, instrument)| {
-                    Some(group) == picker.group
-                        && (!group.has_bass() || instrument == picker.instrument)
-                })
-            } else {
-                place.is_some() && model.name.to_lowercase().contains(&query)
-            }
-        })
-        .collect();
-    // Pinned models first, in pin order (manual "BROWSING & LOADING VIRTUAL DEVICES").
     let pinned = &ui.snapshot.pinned_models;
-    models.sort_by_cached_key(|model| {
-        let pin = pinned.iter().position(|id| *id == model.id);
-        (pin.is_none(), pin, model.name.to_lowercase())
-    });
-    models
+    let sort = || {
+        let mut models: Vec<(u16, &ModelEntry)> = (0u16..)
+            .zip(all.iter())
+            .filter(|(_, model)| {
+                !model
+                    .plugin
+                    .is_some_and(|plugin| unlicensed.contains(&plugin))
+            })
+            .filter(|(_, model)| {
+                let place = DeviceGroup::of(model.category);
+                if query.is_empty() && picker.group == Some(DeviceGroup::Extensions) {
+                    model.extension && place.is_some()
+                } else if query.is_empty() {
+                    place.is_some_and(|(group, instrument)| {
+                        Some(group) == picker.group
+                            && (!group.has_bass() || instrument == picker.instrument)
+                    })
+                } else {
+                    place.is_some() && model.name.to_lowercase().contains(&query)
+                }
+            })
+            .collect();
+        // Pinned models first, in pin order (manual "BROWSING & LOADING VIRTUAL DEVICES").
+        models.sort_by_cached_key(|(_, model)| {
+            let pin = pinned.iter().position(|id| *id == model.id);
+            (pin.is_none(), pin, model.name.to_lowercase())
+        });
+        models.into_iter().map(|(index, _)| index).collect()
+    };
+    let order = ListQuery::Models {
+        group: picker.group,
+        instrument: picker.instrument,
+        query: query.clone(),
+        pinned: pinned.clone(),
+        unlicensed: unlicensed.clone(),
+    };
+    (ui.list_cache.rows(&ui.snapshot, order, sort).iter())
+        .map(|&index| &all[usize::from(index)])
+        .collect()
 }
 
 /// Model in the block being replaced.
@@ -394,7 +406,9 @@ fn devices(ui: &UiState, l: &mut Layout) {
         models.len() as u32 * MODEL_ROW,
         ui.offset(ListId::PickerModels),
         |l, top| {
-            for (index, model) in models.iter().enumerate() {
+            let shown = l.shown_rows(top, MODEL_ROW, models.len());
+            let rows = models.iter().enumerate().take(shown.end).skip(shown.start);
+            for (index, model) in rows {
                 let row = Rect::new(
                     list.x,
                     top + index as i32 * MODEL_ROW as i32,

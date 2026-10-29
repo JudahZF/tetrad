@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -26,6 +26,9 @@ pub struct LinuxHal {
     midi: Option<MidiUart>,
     failures: Vec<(Node, io::Error)>,
     frames: Vec<Frame>,
+    /// The record and misc nodes of the last [`Driver::begin_inputs`] check, and their `pollfd`s.
+    polled: Vec<Node>,
+    pollfds: Vec<libc::pollfd>,
 }
 
 #[derive(Debug)]
@@ -100,6 +103,7 @@ impl LinuxHal {
             }
         };
         self.nodes.insert(node, binding);
+        self.polled.clear();
         Ok(())
     }
 
@@ -138,7 +142,13 @@ impl Driver for LinuxHal {
     /// Evdev nodes: one whole 16-byte frame per call (partial frames wait for the rest). zjack misc nodes: one
     /// zero-timeout `poll`, then exactly one read; stock polls 250 ms in a thread, `StockHal` polls without
     /// blocking. A `HalError::Read` code is `-errno`, or a positive unexpected byte count from a misc node.
+    /// A node that the last [`Driver::begin_inputs`] check found quiet answers `None` without a syscall.
     fn next_input(&mut self, node: Node) -> Result<Option<RawInput>, HalError> {
+        if let Some(index) = self.polled.iter().position(|&polled| polled == node)
+            && self.pollfds[index].revents == 0
+        {
+            return Ok(None);
+        }
         let read_error = |code| HalError::Read { node, code };
         match self.nodes.get_mut(&node) {
             None | Some(Binding::Control(_)) => Ok(None),
@@ -157,6 +167,39 @@ impl Driver for LinuxHal {
                 Err(JackError::Io(error)) => Err(read_error(errno(&error))),
             },
             Some(Binding::Overload(watch)) => watch.next(node),
+        }
+    }
+
+    /// Owned: one zero-timeout `poll` over every record and misc node, so a pass reads only the nodes
+    /// with input (or a hangup or error, which the read then reports) instead of a `fcntl` and a `read`
+    /// per quiet evdev node and a `poll` per misc node. A failed `poll` checks nothing: every node is read.
+    fn begin_inputs(&mut self) {
+        self.polled.clear();
+        self.pollfds.clear();
+        for (&node, binding) in &self.nodes {
+            let fd = match binding {
+                Binding::Records(records) => records.as_fd(),
+                Binding::Misc(misc) => misc.as_fd(),
+                Binding::Control(_) | Binding::Overload(_) => continue,
+            };
+            self.polled.push(node);
+            self.pollfds.push(libc::pollfd {
+                fd: fd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+        // SAFETY: `pollfds` is an exclusively borrowed array of `len` initialized pollfds. `self.nodes` owns
+        // every descriptor in it and `&mut self` keeps them open through the call. The timeout is zero.
+        let ready = unsafe {
+            libc::poll(
+                self.pollfds.as_mut_ptr(),
+                self.pollfds.len() as libc::nfds_t,
+                0,
+            )
+        };
+        if ready < 0 {
+            self.polled.clear();
         }
     }
 }
@@ -349,6 +392,23 @@ mod tests {
                 code: 16,
             })
         );
+    }
+
+    /// A node that the pass's check found quiet is not read in that pass; input that arrives after
+    /// the check is read at the next one, not lost.
+    #[test]
+    fn a_quiet_node_is_read_again_after_the_next_check() {
+        let mut driver = LinuxHal::default();
+        let (knob, mut writer) = fifo("hal-quiet");
+        let node = Node::KnobStomp(Element::try_from(0).unwrap());
+        driver.attach(node, Some(knob)).unwrap();
+        let rotate = frame(2, 8, 255);
+        driver.begin_inputs();
+        writer.write_all(&rotate).unwrap();
+        assert_eq!(driver.next_input(node), Ok(None));
+        driver.begin_inputs();
+        assert_eq!(driver.next_input(node), Ok(Some(RawInput::Record(rotate))));
+        assert_eq!(driver.next_input(node), Ok(None));
     }
 
     impl LinuxHal {

@@ -48,7 +48,8 @@ fn fixture() -> Result<UiSnapshot, UiError> {
             id,
             title: title.into(),
         })
-        .collect(),
+        .collect::<Vec<_>>()
+        .into(),
         setlists: ["My Presets", "Live Set", "Studio"]
             .into_iter()
             .enumerate()

@@ -538,7 +538,7 @@ pub(super) fn media(ui: &UiState, l: &mut Layout, category: Category) {
         cloud(ui, l);
         return;
     }
-    let details = MediaDetails::new(&ui.snapshot);
+    let details = MediaDetails::new(ui);
     let items = media_rows(ui, &details, kind);
     l.panel(CONTENT, p.panel, 8.0, None);
     if items.is_empty() {
@@ -552,7 +552,9 @@ pub(super) fn media(ui: &UiState, l: &mut Layout, category: Category) {
         items.len() as u32 * ITEM_ROW,
         ui.offset(ListId::DirectoryItems),
         |l, top| {
-            for (position, (index, entry)) in items.iter().enumerate() {
+            let shown = l.shown_rows(top, ITEM_ROW, items.len());
+            let rows = items.iter().enumerate().take(shown.end).skip(shown.start);
+            for (position, (index, entry)) in rows {
                 let y = top + (position as u32 * ITEM_ROW) as i32;
                 item_row(
                     l,

@@ -16,7 +16,7 @@ use tetrad_dsp_protocol::requests::BypassState;
 pub use drivers::catalog::CatalogParameter;
 pub use drivers::media::{MediaLibrary, MediaStock};
 pub use drivers::{Driver, DriverKind, driver_kind};
-pub use tables::{ElfTables, Segment, StockPayload, StockTables, TableError};
+pub use tables::{ElfTables, HashedZenUi, Segment, StockPayload, StockTables, TableError};
 
 use drivers::amps::AmpTables;
 use drivers::tempo_mod::NoteTables;
@@ -101,10 +101,10 @@ pub struct DriverTables {
 }
 
 impl DriverTables {
-    /// Checks the image once (SHA-256 of the running build), reads the note, amp and media tables
-    /// from it, then keeps only the driver payload ranges (about 7.3 MB of
-    /// the 22 MB image).
-    pub fn load(zenui: Vec<u8>) -> Result<Self, TableError> {
+    /// Checks the image once (SHA-256 of the running build; a [`HashedZenUi`] is not hashed
+    /// again), reads the note, amp and media tables from it, then keeps only the driver payload
+    /// ranges (about 7.3 MB of the 22 MB image).
+    pub fn load(zenui: impl Into<HashedZenUi>) -> Result<Self, TableError> {
         let image = ElfTables::new(zenui)?;
         let notes = NoteTables::read(&image)?;
         let amps = AmpTables::read(&image)?;

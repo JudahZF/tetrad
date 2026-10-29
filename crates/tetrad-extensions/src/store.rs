@@ -146,6 +146,8 @@ pub struct Installed {
 pub struct StoreState {
     pub sources: Vec<Source>,
     pub installed: Vec<Installed>,
+    /// The checked package of each installation, so a caller decodes it only once.
+    pub packages: HashMap<InstallKey, Package>,
     pub catalogs: HashMap<SourceId, Catalog>,
     /// Validated config of each installation, defaults filled in.
     pub configs: HashMap<InstallKey, Value>,
@@ -333,7 +335,10 @@ impl Store {
 
         for path in json_files(&self.root.join("installed"), &mut state.problems) {
             match self.load_installed(&path) {
-                Ok(installed) => state.installed.push(installed),
+                Ok((installed, package)) => {
+                    state.packages.insert(installed.key.clone(), package);
+                    state.installed.push(installed);
+                }
                 Err(e) => state.problems.push(format!("installation skipped: {e}")),
             }
         }
@@ -366,7 +371,7 @@ impl Store {
 
     /// Reads a record and checks its package. A missing or changed module file is
     /// rewritten from the package.
-    fn load_installed(&self, path: &Path) -> Result<Installed> {
+    fn load_installed(&self, path: &Path) -> Result<(Installed, Package)> {
         let bytes = read_bounded(path, MAX_RECORD_BYTES)?.ok_or_else(|| StoreError::Corrupt {
             path: path.to_owned(),
             reason: "vanished".into(),
@@ -382,33 +387,27 @@ impl Store {
                 reason: "record name does not match its key".into(),
             });
         }
-        self.check_release(&installed.key, &installed.current)?;
-        Ok(installed)
+        let package = self.check_release(&installed.key, &installed.current)?;
+        Ok((installed, package))
     }
 
-    fn check_release(&self, key: &InstallKey, release: &Release) -> Result<()> {
-        match self.read_package(key, release)?.module {
-            Some(module) => self.write_module(key, &release.version, &module),
-            None => Ok(()),
+    /// The package of `release` ([`Self::package`]). A missing or changed module file is
+    /// rewritten from it.
+    fn check_release(&self, key: &InstallKey, release: &Release) -> Result<Package> {
+        let package = self.package(key, release)?;
+        if let Some(module) = &package.module {
+            self.write_module(key, &release.version, module)?;
         }
+        Ok(package)
     }
 
     /// The static block IR of the current version, by block ID.
     pub fn blocks(&self, installed: &Installed) -> Result<BTreeMap<String, qcdsp::Block>> {
-        Ok(self
-            .read_package(&installed.key, &installed.current)?
-            .blocks)
-    }
-
-    /// The HTML of the Remote tab of the current version, if it has one.
-    pub fn remote_page(&self, installed: &Installed) -> Result<Option<String>> {
-        Ok(self
-            .read_package(&installed.key, &installed.current)?
-            .remote_page)
+        Ok(self.package(&installed.key, &installed.current)?.blocks)
     }
 
     /// Reads a release's package and checks it against the recorded SHA-256.
-    fn read_package(&self, key: &InstallKey, release: &Release) -> Result<Package> {
+    pub fn package(&self, key: &InstallKey, release: &Release) -> Result<Package> {
         let path = self.package_path(key, &release.version);
         let bytes = read_bounded(&path, crate::package::MAX_PACKAGE)?.ok_or_else(|| {
             StoreError::Corrupt {

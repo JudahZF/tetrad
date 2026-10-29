@@ -235,19 +235,14 @@ pub fn store_cloud_capture(
         if factory {
             return Ok(Ok(CloudCapture::Factory));
         }
-        let mut other_named = false;
-        for other in write.product_ids(ProductType::Capture)? {
-            if other == hash {
-                continue;
-            }
-            let metadata = write.product(&other)?.and_then(|row| row.metadata);
-            let named = capture_name_tags(&metadata.unwrap_or_default(), cipher)
-                .is_ok_and(|(other_name, _)| other_name == name);
-            if named {
-                other_named = true;
-                break;
-            }
-        }
+        // The metadata listing: the rawdata of the other captures stays unread.
+        let other_named = (write.product_listing(ProductType::Capture)?)
+            .into_iter()
+            .filter(|other| other.id != hash)
+            .any(|other| {
+                capture_name_tags(&other.metadata.unwrap_or_default(), cipher)
+                    .is_ok_and(|(other_name, _)| other_name == name)
+            });
         let Some(stored) = write.product(&hash)? else {
             if other_named {
                 return Ok(Ok(CloudCapture::NameTaken));

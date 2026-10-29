@@ -762,7 +762,7 @@ impl<'a> Library<'a> {
                 }
             }
             for kind in [DownloadKind::Preset, DownloadKind::Capture] {
-                count += view.download_ids(kind).map_err(refused)?.len();
+                count += view.download_count(kind).map_err(refused)?;
             }
             count += links / 3;
         }
@@ -778,7 +778,7 @@ impl<'a> Library<'a> {
             presets += slots.iter().flatten().count();
         }
         let products = |kind| match self.database {
-            Some(database) => Ok(database.view().product_ids(kind).map_err(refused)?.len()),
+            Some(database) => database.view().product_count(kind).map_err(refused),
             None => Ok(0),
         };
         Ok([

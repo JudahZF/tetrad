@@ -183,6 +183,27 @@ fn span_bytes(y: i32, x0: i32, x1: i32) -> std::ops::Range<usize> {
     (row + x0 as usize) * 3..(row + x1 as usize) * 3
 }
 
+/// Blend `color` over the pixels of `bytes`, each at its own `coverage` ([`Canvas::blend`]
+/// without the clip test: the caller clips the row).
+fn blend_row<'m>(bytes: &mut [u8], coverage: impl Iterator<Item = &'m u8>, color: Rgb) {
+    for (pixel, &alpha) in bytes.chunks_exact_mut(3).zip(coverage) {
+        blend_pixel(pixel, color, alpha);
+    }
+}
+
+/// `pixel` (3 bytes) under `color` at `alpha` ([`Rgb::mix`]).
+#[inline(always)]
+fn blend_pixel(pixel: &mut [u8], color: Rgb, alpha: u8) {
+    match alpha {
+        0 => {}
+        255 => pixel.copy_from_slice(&[color.0, color.1, color.2]),
+        _ => {
+            let mixed = Rgb(pixel[0], pixel[1], pixel[2]).mix(color, alpha);
+            pixel.copy_from_slice(&[mixed.0, mixed.1, mixed.2]);
+        }
+    }
+}
+
 /// One pixel of a precomputed ring, relative to an integer centre.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RingPixel {
@@ -213,6 +234,30 @@ pub(crate) fn ring(r: f32, width: f32) -> Vec<RingPixel> {
         }
     }
     pixels
+}
+
+/// A process-wide cache of leaked values: bounded by its users, alive as long as the program.
+type Cache<K, V> = LazyLock<Mutex<HashMap<K, &'static V>>>;
+
+/// Rings drawn so far, by the bits of radius and width. Bounded like [`SHAPES`].
+static RINGS: Cache<(u32, u32), [RingPixel]> = LazyLock::new(Mutex::default);
+const RINGS_MAX: usize = 64;
+
+/// [`ring`] from a cache, built on first use: a [`crate::layout::Look::Arc`] repaint (a dial
+/// turned) would otherwise take a square root per pixel of the ring's box again.
+pub(crate) fn cached_ring(r: f32, width: f32) -> Cow<'static, [RingPixel]> {
+    let mut rings = RINGS.lock().unwrap_or_else(|poison| poison.into_inner());
+    let key = (r.to_bits(), width.to_bits());
+    if let Some(pixels) = rings.get(&key) {
+        return Cow::Borrowed(*pixels);
+    }
+    let pixels = ring(r, width);
+    if rings.len() >= RINGS_MAX {
+        return Cow::Owned(pixels);
+    }
+    let pixels: &'static [RingPixel] = pixels.leak();
+    rings.insert(key, pixels);
+    Cow::Borrowed(pixels)
 }
 
 /// Geometry of a cached anti-aliased shape mask. Floats are kept by their bits: the mask is
@@ -252,23 +297,58 @@ fn half_grid(v: f32) -> bool {
 
 /// Shapes drawn so far. The UI uses a few dozen geometries; past [`SHAPES_MAX`] new ones are
 /// computed per draw instead, so odd sizes cannot grow it without bound.
-static SHAPES: LazyLock<Mutex<HashMap<Shape, &'static Mask>>> = LazyLock::new(Mutex::default);
+static SHAPES: Cache<Shape, Shaped> = LazyLock::new(Mutex::default);
 const SHAPES_MAX: usize = 1024;
+
+/// A cached shape mask and, per row, its longest run of full coverage (mask columns
+/// `start..end`, empty when shorter than [`Self::SOLID_MIN`]). [`Canvas::shaped`] writes that run
+/// without a coverage test per pixel: most of a disc.
+#[derive(Debug, Clone)]
+struct Shaped {
+    mask: Mask,
+    solid: Vec<(u32, u32)>,
+}
+
+impl Shaped {
+    /// Shorter runs do not pay for splitting the row.
+    const SOLID_MIN: usize = 8;
+
+    fn new(mask: Mask) -> Self {
+        let rows = mask.alpha.chunks_exact(mask.width.max(1) as usize);
+        let solid = rows
+            .map(|row| {
+                let (mut run, mut start) = ((0, 0), 0);
+                for (x, &alpha) in row.iter().enumerate() {
+                    if alpha != 255 {
+                        start = x + 1;
+                    } else if x + 1 - start > run.1 - run.0 {
+                        run = (start, x + 1);
+                    }
+                }
+                match run.1 - run.0 >= Self::SOLID_MIN {
+                    true => (run.0 as u32, run.1 as u32),
+                    false => (0, 0),
+                }
+            })
+            .collect();
+        Self { mask, solid }
+    }
+}
 
 /// The mask of `shape` from the cache, built by `build` on first use. Masks are leaked: the
 /// cache is bounded and lives as long as the program.
-fn shape_mask(shape: Shape, build: impl FnOnce() -> Mask) -> Cow<'static, Mask> {
+fn shape_mask(shape: Shape, build: impl FnOnce() -> Mask) -> Cow<'static, Shaped> {
     let mut shapes = SHAPES.lock().unwrap_or_else(|poison| poison.into_inner());
-    if let Some(mask) = shapes.get(&shape) {
-        return Cow::Borrowed(*mask);
+    if let Some(shaped) = shapes.get(&shape) {
+        return Cow::Borrowed(*shaped);
     }
-    let mask = build();
+    let shaped = Shaped::new(build());
     if shapes.len() >= SHAPES_MAX {
-        return Cow::Owned(mask);
+        return Cow::Owned(shaped);
     }
-    let mask: &'static Mask = Box::leak(Box::new(mask));
-    shapes.insert(shape, mask);
-    Cow::Borrowed(mask)
+    let shaped: &'static Shaped = Box::leak(Box::new(shaped));
+    shapes.insert(shape, shaped);
+    Cow::Borrowed(shaped)
 }
 
 /// Painter over a borrowed frame. All drawing is clipped to the frame and the
@@ -302,13 +382,23 @@ impl<'a> Canvas<'a> {
         if alpha == 0 || x < c.x0 || y < c.y0 || x >= c.x1 || y >= c.y1 {
             return;
         }
-        let offset = (y as usize * WIDTH as usize + x as usize) * 3;
-        let pixel = &mut self.frame.pixels[offset..offset + 3];
-        if alpha == 255 {
-            pixel.copy_from_slice(&[color.0, color.1, color.2]);
-        } else {
-            let mixed = Rgb(pixel[0], pixel[1], pixel[2]).mix(color, alpha);
-            pixel.copy_from_slice(&[mixed.0, mixed.1, mixed.2]);
+        blend_pixel(
+            &mut self.frame.pixels[span_bytes(y, x, x + 1)],
+            color,
+            alpha,
+        );
+    }
+
+    /// Blend `color` at `alpha` down column `x` over rows `[y0, y1)`, clipped once.
+    fn column(&mut self, x: i32, y0: i32, y1: i32, color: Rgb, alpha: u8) {
+        let c = self.clip;
+        let (y0, y1) = (y0.max(c.y0), y1.min(c.y1));
+        if alpha == 0 || x < c.x0 || x >= c.x1 || y0 >= y1 {
+            return;
+        }
+        let rows = span_bytes(y0, x, x + 1).start..span_bytes(y1 - 1, x, x + 1).end;
+        for row in self.frame.pixels[rows].chunks_mut(WIDTH as usize * 3) {
+            blend_pixel(&mut row[..3], color, alpha);
         }
     }
 
@@ -351,10 +441,17 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Paint the first row, then copy it to the others: one copy per row.
     pub fn fill(&mut self, rect: Rect, color: Rgb) {
         let c = self.clip.intersect(Clip::of(rect));
-        for y in c.y0..c.y1 {
-            self.span(y, c.x0, c.x1, color, 255);
+        if c.x0 >= c.x1 || c.y0 >= c.y1 {
+            return;
+        }
+        self.span(c.y0, c.x0, c.x1, color, 255);
+        let first = span_bytes(c.y0, c.x0, c.x1);
+        for y in c.y0 + 1..c.y1 {
+            let to = span_bytes(y, c.x0, c.x1).start;
+            self.frame.pixels.copy_within(first.clone(), to);
         }
     }
 
@@ -442,14 +539,26 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Blend the corner squares one row slice at a time. `k` is at most half the width rounded
+    /// up, so `a` runs up from the left edge in the left squares and up from the right edge in
+    /// the right ones.
     fn paint_corners(&mut self, rect: Rect, k: i32, mask: &[u8], color: Rgb) {
         let c = self.clip;
-        for (cx0, cy0, cx1, cy1) in Self::corners(rect, k) {
+        for (corner, (cx0, cy0, cx1, cy1)) in Self::corners(rect, k).into_iter().enumerate() {
+            let (x0, x1) = (cx0.max(c.x0), cx1.min(c.x1));
+            if x0 >= x1 {
+                continue;
+            }
             for y in cy0.max(c.y0)..cy1.min(c.y1) {
                 let b = (y - rect.y).min(rect.bottom() - 1 - y) as usize;
-                for x in cx0.max(c.x0)..cx1.min(c.x1) {
-                    let a = (x - rect.x).min(rect.right() - 1 - x) as usize;
-                    self.blend(x, y, color, mask[b * k as usize + a]);
+                let row = &mask[b * k as usize..][..k as usize];
+                let bytes = &mut self.frame.pixels[span_bytes(y, x0, x1)];
+                if corner % 2 == 0 {
+                    let coverage = &row[(x0 - rect.x) as usize..(x1 - rect.x) as usize];
+                    blend_row(bytes, coverage.iter(), color);
+                } else {
+                    let coverage = &row[(rect.right() - x1) as usize..(rect.right() - x0) as usize];
+                    blend_row(bytes, coverage.iter().rev(), color);
                 }
             }
         }
@@ -480,17 +589,15 @@ impl<'a> Canvas<'a> {
             .max(0.0);
         let k = r.ceil() as i32;
         let (x0, y0, x1, y1) = (rect.x, rect.y, rect.right(), rect.bottom());
-        let c = self.clip;
-        for y in (y0 + k).max(c.y0)..(y1 - k).min(c.y1) {
-            self.span(y, x0, x1, color, 255);
-        }
+        let middle = (y1 - y0 - 2 * k).max(0) as u32;
+        self.fill(Rect::new(x0, y0 + k, rect.width, middle), color);
         let yb = (y1 - k).max(y0 + k);
         for y in (y0..y0 + k).chain(yb..y1) {
             self.span(y, x0 + k, x1 - k, color, 255);
         }
         let shape = Shape::Corner { k, r: r.to_bits() };
         let mask = shape_mask(shape, || Self::corner_mask(k, r, Self::coverage));
-        self.paint_corners(rect, k, &mask.alpha, color);
+        self.paint_corners(rect, k, &mask.mask.alpha, color);
     }
 
     /// Rounded outline of `width` pixels drawn inside `rect`: straight strips
@@ -508,10 +615,8 @@ impl<'a> Canvas<'a> {
             let alpha = ring(-(t as f32 + 0.5));
             self.span(y0 + t, x0 + k, x1 - k, color, alpha);
             self.span(y1 - 1 - t, x0 + k, x1 - k, color, alpha);
-            for y in y0 + k..y1 - k {
-                self.blend(x0 + t, y, color, alpha);
-                self.blend(x1 - 1 - t, y, color, alpha);
-            }
+            self.column(x0 + t, y0 + k, y1 - k, color, alpha);
+            self.column(x1 - 1 - t, y0 + k, y1 - k, color, alpha);
         }
         let r = radius
             .min(rect.width as f32 / 2.0)
@@ -522,7 +627,7 @@ impl<'a> Canvas<'a> {
             width: width.to_bits(),
         };
         let mask = shape_mask(shape, || Self::corner_mask(k, r, ring));
-        self.paint_corners(rect, k, &mask.alpha, color);
+        self.paint_corners(rect, k, &mask.mask.alpha, color);
     }
 
     /// Anti-aliased disc. Centres and radii on the half-pixel grid (every UI disc) draw a
@@ -538,7 +643,7 @@ impl<'a> Canvas<'a> {
                 r: r.to_bits(),
             };
             let mask = shape_mask(shape, || Self::circle_mask(fx, fy, r));
-            self.mask(&mask, x as i32, y as i32, color);
+            self.shaped(&mask, x as i32, y as i32, color);
             return;
         }
         let c = self.clip;
@@ -645,7 +750,7 @@ impl<'a> Canvas<'a> {
             };
             let (x1, y1) = (x1 - x, y1 - y);
             let mask = shape_mask(shape, || Self::line_mask(fx, fy, x1, y1, half));
-            self.mask(&mask, x as i32, y as i32, color);
+            self.shaped(&mask, x as i32, y as i32, color);
             return;
         }
         let (left, top, right, bottom) = Self::line_box(x0, y0, x1, y1, half);
@@ -695,9 +800,44 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Blend a coverage mask whose origin sits at `(x, y)`. Only the part
-    /// inside the clip is visited, one row slice at a time.
+    /// Blend a coverage mask whose origin sits at `(x, y)`.
     fn mask(&mut self, mask: &Mask, x: i32, y: i32, color: Rgb) {
+        self.mask_rows(mask, x, y, |bytes, coverage, _, _| {
+            blend_row(bytes, coverage.iter(), color);
+        });
+    }
+
+    /// Blend a cached shape whose origin sits at `(x, y)`. The run of full coverage of each
+    /// row ([`Shaped`]) is written without a coverage test per pixel (a plain store loop: no
+    /// call overhead on the short runs).
+    fn shaped(&mut self, shaped: &Shaped, x: i32, y: i32, color: Rgb) {
+        self.mask_rows(&shaped.mask, x, y, |bytes, coverage, row, left| {
+            let (start, end) = shaped.solid[row];
+            let at = |column: u32| (column as usize).clamp(left, left + coverage.len()) - left;
+            let run = at(start)..at(end);
+            if run.is_empty() {
+                blend_row(bytes, coverage.iter(), color);
+                return;
+            }
+            let (head, rest) = bytes.split_at_mut(run.start * 3);
+            let (body, tail) = rest.split_at_mut(run.len() * 3);
+            blend_row(head, coverage[..run.start].iter(), color);
+            for pixel in body.chunks_exact_mut(3) {
+                pixel.copy_from_slice(&[color.0, color.1, color.2]);
+            }
+            blend_row(tail, coverage[run.end..].iter(), color);
+        });
+    }
+
+    /// Calls `row(frame bytes, coverage, mask row, first mask column)` for each row of `mask`
+    /// placed at `(x, y)`, with both slices cut to the clip.
+    fn mask_rows(
+        &mut self,
+        mask: &Mask,
+        x: i32,
+        y: i32,
+        mut row: impl FnMut(&mut [u8], &[u8], usize, usize),
+    ) {
         let c = self.clip;
         let x0 = i64::from(x) + i64::from(mask.left);
         let y0 = i64::from(y) + i64::from(mask.top);
@@ -708,21 +848,16 @@ impl<'a> Canvas<'a> {
         if left >= right || top >= bottom {
             return;
         }
-        let ink = [color.0, color.1, color.2];
         for my in top..bottom {
             let start = (my * i64::from(mask.width)) as usize;
             let coverage = &mask.alpha[start + left as usize..start + right as usize];
             let bytes = span_bytes((y0 + my) as i32, (x0 + left) as i32, (x0 + right) as i32);
-            for (pixel, &alpha) in self.frame.pixels[bytes].chunks_exact_mut(3).zip(coverage) {
-                match alpha {
-                    0 => {}
-                    255 => pixel.copy_from_slice(&ink),
-                    _ => {
-                        let mixed = Rgb(pixel[0], pixel[1], pixel[2]).mix(color, alpha);
-                        pixel.copy_from_slice(&[mixed.0, mixed.1, mixed.2]);
-                    }
-                }
-            }
+            row(
+                &mut self.frame.pixels[bytes],
+                coverage,
+                my as usize,
+                left as usize,
+            );
         }
     }
 
@@ -755,7 +890,7 @@ impl<'a> Canvas<'a> {
                     alpha,
                 }
             });
-            self.mask(&mask, rect.x, rect.y, color);
+            self.shaped(&mask, rect.x, rect.y, color);
             return;
         }
         let c = self.clip;
@@ -807,7 +942,7 @@ impl<'a> Canvas<'a> {
                     weight: font.weight,
                 };
                 let mask = shape_mask(shape, || oblique(&glyph.mask));
-                self.mask(&mask, pen.round() as i32, baseline, color);
+                self.shaped(&mask, pen.round() as i32, baseline, color);
             } else {
                 self.mask(&glyph.mask, pen.round() as i32, baseline, color);
             }
@@ -820,8 +955,15 @@ impl<'a> Canvas<'a> {
     /// horizontally and shortened with an ellipsis when too long. Stored text
     /// is never changed.
     pub fn text(&mut self, rect: Rect, text: &str, font: Font, color: Rgb, align: Align) {
-        let fitted = fit(text, font, rect.width as f32);
-        let width = font.width(&fitted);
+        // Text that fits (the usual case) is measured once and not copied.
+        let width = font.width(text);
+        let (fitted, width) = if width <= rect.width as f32 {
+            (Cow::Borrowed(text), width)
+        } else {
+            let fitted = fit(text, font, rect.width as f32);
+            let width = font.width(&fitted);
+            (Cow::Owned(fitted), width)
+        };
         let x = match align {
             Align::Left => rect.x as f32,
             Align::Center => rect.x as f32 + (rect.width as f32 - width) / 2.0,
@@ -1133,6 +1275,41 @@ mod tests {
             }
         }
         assert!(cached == direct);
+    }
+
+    /// Corner squares painted by row slices (the right ones mirrored) equal the per-pixel blend
+    /// at the nearer edge, for odd and even sizes, every `k` up to half the width rounded up,
+    /// and clips that cut through the corners.
+    #[test]
+    fn corner_rows_equal_the_per_pixel_corners() {
+        let (mut rows, mut direct) = (Frame::new(), Frame::new());
+        let mask: Vec<u8> = (0..400).map(|i| (i * 37 % 256) as u8).collect();
+        for n in 0..120 {
+            let (width, height) = (1 + n as u32 % 13, 1 + n as u32 % 7 * 3);
+            let rect = Rect::new(n * 53 % 780 - 6, n * 29 % 460 - 6, width, height);
+            let k = (n % 3 + width.min(height).div_ceil(2) as i32 - 2).max(0);
+            let clip = match n % 3 {
+                0 => FULL,
+                1 => Rect::new(rect.x + 1, rect.y, width / 2 + 1, height),
+                _ => Rect::new(rect.x + width as i32 / 2, rect.y + 1, width, height / 2 + 1),
+            };
+            let color = Rgb(n as u8, 0x60, 255 - n as u8);
+            let mask = &mask[..(k * k) as usize];
+            Canvas::new(&mut rows, Palette::STOCK)
+                .clipped(clip, |canvas| canvas.paint_corners(rect, k, mask, color));
+            Canvas::new(&mut direct, Palette::STOCK).clipped(clip, |canvas| {
+                for (x0, y0, x1, y1) in Canvas::corners(rect, k) {
+                    for y in y0..y1 {
+                        let b = (y - rect.y).min(rect.bottom() - 1 - y);
+                        for x in x0..x1 {
+                            let a = (x - rect.x).min(rect.right() - 1 - x);
+                            canvas.blend(x, y, color, mask[(b * k + a) as usize]);
+                        }
+                    }
+                }
+            });
+        }
+        assert!(rows == direct);
     }
 
     #[test]

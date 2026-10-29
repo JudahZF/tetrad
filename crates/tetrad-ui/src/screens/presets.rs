@@ -1156,7 +1156,7 @@ fn filter_menu(ui: &UiState, l: &mut Layout) {
 fn confirm_media_delete(ui: &UiState, l: &mut Layout, kind: MediaKind) {
     let p = l.palette;
     let checked = ui.directory.multi.clone().unwrap_or_default();
-    let items = super::directory::checked_media(&ui.snapshot, &checked);
+    let items = super::directory::checked_media(ui, &checked);
     let count = items.len();
     let noun = match kind {
         MediaKind::Capture => "Neural Capture",

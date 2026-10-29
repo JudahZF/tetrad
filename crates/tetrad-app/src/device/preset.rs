@@ -29,7 +29,7 @@ use tetrad_library::stock::{
     ItemList, ReadOnlyFolder, Setlist, StaleSearchIndex, StockLibrary, StockSave,
 };
 use tetrad_preset::{
-    CatalogModel, CatalogParam, ColBypass, MigrationReport, Model, ModelCatalog, ParamValue,
+    CatalogModel, CatalogParam, ColBypass, MigrationReport, Model, ModelCatalog, Param, ParamValue,
     Preset, PresetDocument, SaveStamp, SceneValue, SplitterType, StompRole, TEMPO_MODEL_ID,
     community,
 };
@@ -397,8 +397,9 @@ pub fn set_parameter(
         (Site::Slot(slot), Some(block)) if block.params.len() == index as usize => Some(slot),
         _ => None,
     };
-    let mut preset = current.preset.clone();
-    let param = stored_model(&mut preset, site)?.param_mut(index as usize)?;
+    // Only the edited parameter is copied: it is stored after both sides took the edit.
+    let stored = stored_model(&mut current.preset, site)?.param_mut(index as usize)?;
+    let mut param = stored.clone();
     let update = match mute {
         Some(slot) => {
             let muted = value > 0.5;
@@ -415,7 +416,7 @@ pub fn set_parameter(
                 .set_parameter(specs, site, index, value)?
         }
     };
-    current.preset = preset;
+    *stored = param;
     Ok(update)
 }
 
@@ -533,14 +534,14 @@ pub fn set_input_gate(
     value: f32,
 ) -> Result<GateUpdate, PresetError> {
     let scene = current.deployment.scene().index();
-    let mut preset = current.preset.clone();
-    stored_model(&mut preset, Site::InputControl(row))?
-        .param_mut(index as usize)?
-        .set_value(scene, ParamValue::Float(value))?;
+    let stored =
+        stored_model(&mut current.preset, Site::InputControl(row))?.param_mut(index as usize)?;
+    let mut param = stored.clone();
+    param.set_value(scene, ParamValue::Float(value))?;
     let update = current
         .deployment
         .set_input_gate(specs, row, index, value)?;
-    current.preset = preset;
+    *stored = param;
     Ok(update)
 }
 
@@ -1264,38 +1265,43 @@ pub fn set_bypass(
     bypassed: bool,
 ) -> Result<Update, PresetError> {
     let scene = current.deployment.scene().index();
-    let mut preset = current.preset.clone();
+    // Only the edited bypass record is copied: it is stored after the deployment took the edit.
     match site {
-        Site::Slot(slot) => preset
-            .block_bypass_mut(stored_slot(slot))?
-            .set_bypassed(scene, bypassed)?,
+        Site::Slot(slot) => {
+            let stored = current.preset.block_bypass_mut(stored_slot(slot))?;
+            let mut record = stored.clone();
+            record.set_bypassed(scene, bypassed)?;
+            let update = current.deployment.set_bypass(specs, site, bypassed)?;
+            *stored = record;
+            Ok(update)
+        }
         Site::Mixer(pair) => {
             let scene_mode = current
                 .deployment
                 .layout()
                 .instance(site)
                 .is_some_and(|mixer| mixer.bypass_scene_mode);
-            let stored = &mut preset
+            let stored = &mut current
+                .preset
                 .chains
                 .get_mut(pair.master().index())
                 .ok_or(PresetError::Unsupported("a pair without its master chain"))?
                 .mix_bypass;
-            stored.resize(tetrad_preset::SCENES, tetrad_preset::SceneBypass::default());
-            for (index, entry) in stored.iter_mut().enumerate() {
+            let mut record = stored.clone();
+            record.resize(tetrad_preset::SCENES, tetrad_preset::SceneBypass::default());
+            for (index, entry) in record.iter_mut().enumerate() {
                 if !scene_mode || index == scene {
                     entry.bypass = bypassed;
                 }
             }
+            let update = current.deployment.set_bypass(specs, site, bypassed)?;
+            *stored = record;
+            Ok(update)
         }
-        _ => {
-            return Err(PresetError::Unsupported(
-                "bypass of lane controls and splitters",
-            ));
-        }
+        _ => Err(PresetError::Unsupported(
+            "bypass of lane controls and splitters",
+        )),
     }
-    let update = current.deployment.set_bypass(specs, site, bypassed)?;
-    current.preset = preset;
-    Ok(update)
 }
 
 /// The committed bypass records (`0x2e8160` copies `+0x40`/`+0x60`) of grid blocks whose
@@ -2594,9 +2600,13 @@ fn same_preset(a: &Preset, b: &Preset) -> bool {
         return true;
     }
     let differ_only_in_value = |x: &SceneValue, y: &SceneValue| x != y && stock_equal(x, y);
-    if !param_values(a)
-        .zip(param_values(b))
-        .any(|(x, y)| differ_only_in_value(x, y))
+    // The pairs of `param_values`, model by model: where the shapes differ, so do the presets.
+    let pairs = |x: &Param, y: &Param| {
+        (x.values.iter().zip(&y.values)).any(|(x, y)| differ_only_in_value(x, y))
+    };
+    if !models(a)
+        .zip(models(b))
+        .any(|(x, y)| x.params.iter().zip(&y.params).any(|(x, y)| pairs(x, y)))
     {
         return false;
     }
@@ -2614,6 +2624,13 @@ fn same_preset(a: &Preset, b: &Preset) -> bool {
 /// mixers, lane controls, then the tempo models. A shape difference anywhere makes the
 /// presets unequal, so two walks stay aligned wherever it matters.
 pub(super) fn param_values(preset: &Preset) -> impl Iterator<Item = &SceneValue> {
+    models(preset)
+        .flat_map(|model| &model.params)
+        .flat_map(|param| &param.values)
+}
+
+/// The models of [`param_values`], in its order.
+fn models(preset: &Preset) -> impl Iterator<Item = &Model> {
     preset
         .chains
         .iter()
@@ -2629,8 +2646,6 @@ pub(super) fn param_values(preset: &Preset) -> impl Iterator<Item = &SceneValue>
         })
         .flatten()
         .chain(&preset.tempo_program_data)
-        .flat_map(|model| &model.params)
-        .flat_map(|param| &param.values)
 }
 
 fn param_values_mut(preset: &mut Preset) -> impl Iterator<Item = &mut SceneValue> {

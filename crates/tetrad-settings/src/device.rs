@@ -406,7 +406,7 @@ impl DeviceSettings {
                         op: "write",
                         source,
                     })?;
-                file.save();
+                file.saved();
             }
         }
         Ok(())

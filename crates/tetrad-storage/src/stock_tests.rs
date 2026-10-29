@@ -130,6 +130,72 @@ fn failed_transaction_rolls_back_every_write() {
     assert!(view.default_param_models().unwrap().is_empty());
 }
 
+/// `root_folder` caches its result: each write of the handle, also one rolled back after it
+/// read the root inside, must reach the next read.
+#[test]
+fn root_folder_sees_every_write_of_the_handle() {
+    let dir = Dir::new();
+    let mut db = open(&dir.database(410, 1));
+    let root = |db: &StockDb| db.view().root_folder(ProductType::Ir).unwrap();
+    assert_eq!(root(&db), None);
+    let created = db.transaction(|tx| tx.boot_maintenance()).unwrap().1;
+    assert_eq!(root(&db), Some(created));
+    let failed = db.transaction(|tx| {
+        tx.delete_folder(created)?;
+        assert_eq!(tx.root_folder(ProductType::Ir)?, None);
+        Err::<(), _>(Error::Limit)
+    });
+    assert!(matches!(failed, Err(Error::Limit)));
+    assert_eq!(root(&db), Some(created));
+    db.transaction(|tx| tx.delete_folder(created)).unwrap();
+    assert_eq!(root(&db), None);
+}
+
+/// `product_rows` and `product_count` stand in for `product_ids` with `product` of each id:
+/// the same rows, and the same error, also for rows that do not read.
+#[test]
+fn product_rows_and_count_read_as_product_ids_and_product() {
+    let dir = Dir::new();
+    let path = dir.database(410, 1);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO product VALUES ('a', 1, 0, x'01', '{}');
+             INSERT INTO product VALUES ('b', 1, 'true', 7, x'02');
+             INSERT INTO product VALUES ('c', 1, x'00', NULL, NULL);
+             INSERT INTO product VALUES ('d', 1, 1, 'text', 2.5);
+             INSERT INTO product VALUES (NULL, 1, 0, NULL, NULL);
+             INSERT INTO product VALUES ('e', 2, 0, NULL, NULL);",
+        )
+        .unwrap();
+    let db = open(&path);
+    let view = db.view();
+    let ids = view.product_ids(ProductType::Ir).unwrap();
+    let rows = view.product_rows(ProductType::Ir).unwrap();
+    assert_eq!(view.product_count(ProductType::Ir).unwrap(), ids.len());
+    assert_eq!(
+        rows.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+        ids.iter().collect::<Vec<_>>()
+    );
+    for (id, row) in rows {
+        let product = view.product(&id).map(|product| {
+            let product = product.unwrap();
+            StockProduct {
+                raw_data: None,
+                ..product
+            }
+        });
+        assert_eq!(format!("{row:?}"), format!("{product:?}"), "{id}");
+    }
+    Connection::open(&path)
+        .unwrap()
+        .execute("INSERT INTO product VALUES (x'ff', 1, 0, NULL, NULL)", [])
+        .unwrap();
+    let ids = view.product_ids(ProductType::Ir).map(|ids| ids.len());
+    let count = view.product_count(ProductType::Ir);
+    assert_eq!(format!("{count:?}"), format!("{ids:?}"));
+}
+
 #[test]
 fn model_presets_use_stock_text_booleans_unique_names_and_clean_deletes() {
     let dir = Dir::new();
@@ -298,6 +364,35 @@ fn search_index_matches_substrings_case_insensitively_once_per_entry() {
     assert_eq!(names, ["brit plexi", "plexi plexi", "plexi|lead"]);
     assert!(decoded.search("i|p").is_empty());
     assert!(decoded.search("").is_empty());
+}
+
+/// Decode checks the stored arrays in place of a second sort: arrays that `build` would not
+/// make are refused, also when every position keeps its owner.
+#[test]
+fn search_index_decode_refuses_arrays_that_build_would_not_make() {
+    let entry = SearchEntry {
+        name: "abc".into(),
+        folder_key: 7,
+        path: "/media/p4/Presets/A/a.pb".into(),
+    };
+    let bytes = SearchIndex::build(vec![entry]).unwrap().encode();
+    // Text `abc|` at 2..6, then the suffix array (one byte per position) at 8..12.
+    assert_eq!(
+        (&bytes[2..6], bytes[6], &bytes[8..12]),
+        (&b"abc|"[..], 0x12, &[0, 1, 2, 3][..])
+    );
+    assert!(SearchIndex::decode(&bytes, 16).is_ok());
+    let tampered = |change: fn(&mut Vec<u8>)| {
+        let mut bytes = bytes.clone();
+        change(&mut bytes);
+        SearchIndex::decode(&bytes, 16)
+    };
+    assert!(tampered(|bytes| bytes.swap(8, 9)).is_err(), "out of order");
+    assert!(tampered(|bytes| bytes[9] = 0).is_err(), "a position twice");
+    assert!(
+        tampered(|bytes| bytes[2] = b'A').is_err(),
+        "a name not in lowercase"
+    );
 }
 
 #[test]
