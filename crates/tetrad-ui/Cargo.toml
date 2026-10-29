@@ -13,6 +13,7 @@ dev = []
 
 [dependencies]
 flate2.workspace = true
+qrcodegen.workspace = true
 tetrad-assets.workspace = true
 tetrad-theme.workspace = true
 thiserror.workspace = true

@@ -1,0 +1,333 @@
+<section id="mappings" data-tab="Mappings" data-group="Controls">
+  <h2>Mappings</h2>
+  <p class="lead">What a footswitch, a pedal, a MIDI message or an extension does. These are the lists of Mappings on the unit (Grid ⋮ → Mappings): an edit here shows there at once.</p>
+  <div class="map-bar">
+    <div class="map-tabs" role="tablist">
+      <button type="button" class="small" role="tab" data-scope="preset">This preset</button>
+      <button type="button" class="small" role="tab" data-scope="global">Global</button>
+    </div>
+    <button type="button" class="small primary" id="map-add">+ Add mapping</button>
+  </div>
+  <p class="map-caption" id="map-caption"></p>
+  <p class="message" id="map-message" role="status"></p>
+  <div class="map-list" id="map-list"></div>
+</section>
+<style>
+#mappings .map-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+#mappings .map-tabs { display: flex; gap: 6px; }
+#mappings .map-tabs button[aria-selected=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+#mappings .map-caption { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+#mappings .message { margin-top: 4px; }
+#mappings .message:empty { display: none; }
+#mappings .map-list { margin-top: 8px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+#mappings .map-head, #mappings .map-row { display: grid; grid-template-columns: 1.1fr 1.4fr .8fr 1fr; gap: 12px; padding: 10px 16px; }
+#mappings .map-head { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+#mappings .map-row { width: 100%; min-height: 0; border-radius: 0; border-top: 1px solid var(--line); background: none; color: var(--fg); font: 15px/1.35 var(--font); text-align: left; }
+#mappings .map-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+#mappings .map-row.open { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+#mappings .map-row span { overflow-wrap: anywhere; }
+#mappings .map-row small { display: block; color: var(--muted); font-size: 13px; }
+#mappings .map-row .none { color: var(--accent); }
+#mappings .map-empty { padding: 20px 16px; color: var(--muted); border-top: 1px solid var(--line); }
+#mappings .map-editor { padding: 8px 16px 16px; border-top: 1px solid var(--line); background: var(--bg); }
+#mappings .map-field { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+#mappings .map-field > span:first-child { color: var(--muted); font-size: 14px; }
+#mappings .map-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#mappings .map-controls small { color: var(--muted); font-size: 13px; }
+#mappings select { min-height: 38px; padding: 6px 10px; max-width: 100%; }
+#mappings input[type=number] { min-height: 38px; padding: 6px 10px; width: 8ch; }
+#mappings .map-step { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+#mappings .map-step button { min-height: 36px; width: 40px; padding: 0; border-radius: 0; background: var(--panel); color: var(--fg); font-size: 18px; }
+#mappings .map-step output { min-width: 12ch; padding: 0 10px; text-align: center; }
+#mappings .map-values { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+#mappings .map-value { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+#mappings .listening { color: var(--accent); font-weight: 600; }
+#mappings svg { width: 260px; height: 130px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+#mappings .map-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+#mappings .map-foot small { color: var(--muted); font-size: 13px; }
+@media (max-width: 720px) {
+  #mappings .map-head { display: none; }
+  #mappings .map-row { grid-template-columns: 1fr 1fr; }
+  #mappings .map-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+</style>
+<script>
+"use strict";
+// Mappings (docs/remote.md, docs/mappings.md): what the unit's Mappings page does, on a big
+// screen. Every command answers with the new view; the page follows the row that the unit
+// focuses, as an edit can give a row a new id. While a row waits for LEARN, the page looks
+// again every second.
+{
+  $("panes").append($("mappings"));
+  const STOMPS = ["Stomp A", "Stomp B", "Stomp C", "Stomp D", "Stomp E", "Stomp F", "Stomp G", "Stomp H"];
+  const NOTES = {
+    preset: "Saved in this preset: save the preset on the unit to keep it. Block actions are always per preset.",
+    global: "Saved on the unit for all presets. A preset mapping with the same trigger wins.",
+  };
+  /** The last view. */
+  let data = null;
+  let scope = "preset";
+  /** The id of the row whose editor is open, in `scope`. */
+  let open = null;
+  /** The unit's focus in the last view; `undefined` before the first view. */
+  let focus;
+  let sending = false;
+  let listen = 0;
+
+  const el = (tag, props, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children.filter((child) => child !== null && child !== undefined && child !== ""));
+    return node;
+  };
+  const say = (text, kind) => {
+    $("map-message").textContent = text || "";
+    $("map-message").className = "message " + (kind || "");
+  };
+  const visible = () => pin && !$("shell").hidden && !$("mappings").classList.contains("tab-off");
+
+  async function load() {
+    const { status, body } = await call("/api/mappings");
+    if (status === 401) return;
+    if (status !== 200) return say(body.error || "Failed");
+    show(body, false);
+  }
+
+  async function send(command) {
+    // An edit can renumber the rows, so the next one waits for the reply and its new ids.
+    if (sending) return say("Wait for the last change to reach the unit", "working");
+    sending = true;
+    // The value in a list or a box is sent; the reply may redraw it.
+    if (document.activeElement && $("mappings").contains(document.activeElement)) document.activeElement.blur();
+    const { status, body } = await call("/api/mappings/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(command),
+    });
+    sending = false;
+    if (status === 401) return;
+    if (status === 200) return show(body, true);
+    const error = body.error || "Failed";
+    await load();
+    say(error);
+  }
+
+  function show(view, replied) {
+    data = view;
+    const key = view.focus ? view.focus.scope + " " + view.focus.id : "";
+    if (focus !== undefined && key !== focus && view.focus) {
+      scope = view.focus.scope;
+      open = view.focus.id;
+    }
+    focus = key;
+    if (!view.rows[scope].some((row) => row.id === open)) open = null;
+    clearTimeout(listen);
+    if (view.learning) listen = setTimeout(() => { if (visible()) load(); }, 1000);
+    if (!sending) say(view.notice, "working");
+    // A list or a box in use keeps what the user picks or types until it is sent.
+    const active = document.activeElement;
+    if (!replied && active && $("mappings").contains(active) && active.matches("select, input")) return;
+    render();
+  }
+
+  function render() {
+    for (const tab of document.querySelectorAll("#mappings .map-tabs button")) {
+      tab.setAttribute("aria-selected", String(tab.dataset.scope === scope));
+      if (tab.dataset.scope === "preset") tab.textContent = data.preset ? "This preset · " + data.preset : "This preset";
+    }
+    const rows = data.rows[scope];
+    const owner = scope === "global" ? "All presets" : data.preset || "This preset";
+    $("map-caption").textContent = owner + " · " + rows.length + (rows.length === 1 ? " mapping" : " mappings");
+    const items = [el("div", { className: "map-head" },
+      el("span", { textContent: "Trigger" }), el("span", { textContent: "Action" }),
+      el("span", { textContent: "Mode" }), el("span", { textContent: "Values" }))];
+    if (!rows.length) items.push(el("p", { className: "map-empty", textContent: "No mappings yet. Add one with + Add mapping." }));
+    for (const row of rows) {
+      items.push(line(row));
+      if (row.id === open) items.push(editor(row));
+    }
+    $("map-list").replaceChildren(...items);
+  }
+
+  function line(row) {
+    const action = row.action
+      ? el("span", { textContent: row.actionLabel }, el("small", { textContent: row.actionDetail }))
+      : el("span", { className: "none", textContent: "Choose an action" });
+    const button = el("button", { type: "button", className: "map-row" + (row.id === open ? " open" : "") },
+      el("span", { textContent: row.triggerLabel }, el("small", { textContent: row.triggerDetail })),
+      action,
+      el("span", { textContent: row.mode ? row.mode.label : "" }),
+      el("span", { textContent: row.summary }));
+    button.setAttribute("aria-expanded", String(row.id === open));
+    button.addEventListener("click", () => { open = row.id === open ? null : row.id; render(); });
+    return button;
+  }
+
+  const field = (label, ...controls) => el("div", { className: "map-field" },
+    el("span", { textContent: label }), el("div", { className: "map-controls" }, ...controls));
+
+  function select(options, value, change) {
+    const node = el("select", {}, ...options.map((option) =>
+      option.group
+        ? el("optgroup", { label: option.group }, ...option.items.map((item) =>
+          el("option", { value: item.value, textContent: item.label, selected: item.value === value })))
+        : el("option", { value: option.value, textContent: option.label, selected: option.value === value, disabled: !!option.disabled })));
+    node.addEventListener("change", () => change(node.value));
+    return node;
+  }
+
+  function editor(row) {
+    const command = (op, extra) => send(Object.assign({ op, scope, id: row.id }, extra));
+    const trigger = (next) => command("trigger", { trigger: next });
+    const learning = !!data.learning && data.learning.scope === scope && data.learning.id === row.id;
+
+    // Type: a new type starts as on the unit: footswitch A, EXP 1, CC 20, or an extension
+    // trigger that waits for LEARN.
+    const kinds = data.triggers[scope];
+    const t = row.trigger;
+    const kind = t.kind === "cc" || t.kind === "note" ? "midi" : t.kind;
+    const at = kinds.findIndex((k) => k.kind === kind && (kind !== "extension" || (k.key === t.key && k.trigger === t.trigger)));
+    const types = kinds.map((k, i) => ({ value: String(i), label: k.label }));
+    if (at < 0) types.unshift({ value: "", label: "Extension", disabled: true });
+    const type = select(types, at < 0 ? "" : String(at), (value) => {
+      const k = kinds[Number(value)];
+      const first = {
+        presetLoaded: { kind: "presetLoaded" },
+        stomp: { kind: "stomp", stomp: 0 },
+        expression: { kind: "expression", pedal: 1 },
+        midi: { kind: "cc", number: 20 },
+        extension: { kind: "extension", key: k.key, trigger: k.trigger },
+      }[k.kind];
+      trigger(first);
+    });
+
+    let source = [];
+    if (t.kind === "presetLoaded") source = ["When", el("small", { textContent: "Each time this preset loads" })];
+    if (t.kind === "stomp") {
+      source = ["Footswitch", select(STOMPS.map((label, i) => ({ value: String(i), label })), String(t.stomp),
+        (value) => trigger({ kind: "stomp", stomp: Number(value) }))];
+    }
+    if (t.kind === "expression") {
+      source = ["Pedal", select([{ value: "1", label: "EXP 1" }, { value: "2", label: "EXP 2" }], String(t.pedal),
+        (value) => trigger({ kind: "expression", pedal: Number(value) }))];
+    }
+    if (t.kind === "cc" || t.kind === "note") {
+      const kindList = select([{ value: "cc", label: "CC" }, { value: "note", label: "Note" }], t.kind,
+        (value) => trigger({ kind: value, number: t.number }));
+      const number = el("input", { type: "number", min: 0, max: 127, step: 1, value: t.number, ariaLabel: "Number" });
+      number.addEventListener("change", () => {
+        // NaN for an empty field: it is refused, not sent as 0.
+        const value = number.valueAsNumber;
+        if (Number.isInteger(value) && value >= 0 && value <= 127) trigger({ kind: t.kind, number: value });
+        else say("MIDI numbers go from 0 to 127");
+      });
+      source = ["Message", kindList, number];
+    }
+    if (t.kind === "extension") {
+      source = ["Source", el("span", { textContent: t.source ? row.triggerLabel : "Not learned yet" })];
+    }
+    if (row.learns) {
+      const learn = el("button", { type: "button", className: "small" + (learning ? " primary" : ""), textContent: learning ? "Cancel" : "Learn" });
+      learn.addEventListener("click", () => command("learn", { on: !learning }));
+      source.push(learn);
+      if (learning) source.push(el("span", { className: "listening", textContent: "Listening… send the message to the unit" }));
+    }
+
+    // Action: the unit's action menu; a row's block that left the preset stays as it reads.
+    const groups = data.actions[scope].map((group) => ({
+      group: group.label,
+      items: group.actions.map((action) => ({ value: action.key, label: action.label })),
+    }));
+    const known = groups.some((group) => group.items.some((item) => item.value === row.action));
+    if (!row.action) groups.unshift({ value: "", label: "Choose an action", disabled: true });
+    else if (!known) groups.unshift({ value: row.action, label: row.actionLabel + " · " + row.actionDetail, disabled: true });
+    const action = [select(groups, row.action || "", (value) => command("action", { action: value }))];
+    if (row.sendMidi) action.push(el("small", { textContent: "Set the messages on the unit: open this mapping and tap Edit messages." }));
+
+    let mode = [el("small", { textContent: "Choose an action first" })];
+    if (row.mode && row.modes.length) {
+      const modes = row.modes.map((m) => ({ value: m.kind, label: m.label }));
+      mode = [select(modes, row.mode.kind, (value) => command("mode", { mode: value })), el("small", { textContent: row.mode.detail })];
+    } else if (row.mode) {
+      mode = [el("span", { textContent: row.mode.label }), el("small", { textContent: row.mode.detail })];
+    }
+
+    const items = [
+      field("Type", type),
+      source.length ? field(source[0], ...source.slice(1)) : null,
+      field("Action", ...action),
+      field("Mode", ...mode),
+    ];
+    if (row.fields.length) {
+      const values = el("div", { className: "map-values" }, ...row.fields.map((value) => stepper(value, command)));
+      items.push(field("Values", values, row.response ? graph(row.response) : null));
+    }
+    const remove = el("button", { type: "button", className: "small danger", textContent: "Remove" });
+    remove.addEventListener("click", () => {
+      if (confirm("Remove the mapping of " + row.triggerLabel + "?")) { open = null; command("remove"); }
+    });
+    const close = el("button", { type: "button", className: "small", textContent: "Close" });
+    close.addEventListener("click", () => { open = null; render(); });
+    items.push(el("div", { className: "map-foot" },
+      el("small", { textContent: NOTES[scope] }),
+      el("div", { className: "map-controls" }, remove, close)));
+    return el("div", { className: "map-editor" }, ...items);
+  }
+
+  /** − and + as on the unit: one step of the value's own size; Shift steps 10. */
+  function stepper(value, command) {
+    const button = (text, sign) => {
+      const node = el("button", { type: "button", textContent: text, title: "Shift: 10 steps" });
+      node.addEventListener("click", (event) => command("step", { field: value.id, ticks: sign * (event.shiftKey ? 10 : 1) }));
+      return node;
+    };
+    return el("span", { className: "map-value" }, value.label,
+      el("span", { className: "map-step" }, button("−", -1), el("output", { textContent: value.text }), button("+", 1)));
+  }
+
+  /** The CC response of the unit's Values page: CC 0–127 across, the target up; the window
+      shaded, the Follow map as a line, the last CC dashed and the target's value now in amber. */
+  function graph(response) {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 127 100");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    const add = (tag, attributes) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+      node.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.append(node);
+    };
+    const y = (value) => 100 - value / 10;
+    add("rect", { x: response.low, y: 0, width: Math.max(1, response.high - response.low), height: 100, fill: "var(--accent)", "fill-opacity": 0.2 });
+    if (response.line) {
+      const [a, b] = response.line.map(y);
+      add("polyline", { points: `0,${a} ${response.low},${a} ${response.high},${b} 127,${b}`, fill: "none", stroke: "var(--accent)", "stroke-width": 2 });
+    }
+    if (response.current !== null) add("line", { x1: 0, x2: 127, y1: y(response.current), y2: y(response.current), stroke: "var(--busy)", "stroke-dasharray": "4 3" });
+    if (response.level !== null) add("line", { x1: response.level, x2: response.level, y1: 0, y2: 100, stroke: "var(--muted)", "stroke-dasharray": "4 3" });
+    const title = "CC " + response.low + "–" + response.high + (response.line ? " maps to the value" : ": presses in the window") +
+      (response.waiting ? " · waiting for pickup" : "");
+    svg.setAttribute("aria-label", title);
+    return el("span", { className: "map-controls" }, svg, el("small", { textContent: title }));
+  }
+
+  for (const tab of document.querySelectorAll("#mappings .map-tabs button")) {
+    tab.addEventListener("click", () => { scope = tab.dataset.scope; open = null; if (data) render(); });
+  }
+  $("map-add").addEventListener("click", () => send({ op: "add", scope }));
+  parts.push({
+    connect: load,
+    disconnect() {
+      clearTimeout(listen);
+      data = null;
+      open = null;
+      focus = undefined;
+      $("map-list").replaceChildren();
+      $("map-caption").textContent = "";
+      say("");
+    },
+    refresh() { if (!sending && !$("mappings").classList.contains("tab-off")) load(); },
+  });
+}
+</script>

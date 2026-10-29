@@ -211,6 +211,23 @@ pub trait Files {
         }
         Ok(data)
     }
+    /// At most `max` bytes of `path` from byte `offset` on (none past the end), for a large
+    /// file that goes out in pieces. The default reads the whole file.
+    fn read_at(
+        &mut self,
+        path: &Path,
+        offset: u64,
+        max: u64,
+    ) -> Result<Option<Vec<u8>>, FileError> {
+        let data = self.read(path)?;
+        Ok(data.map(|data| {
+            let start = usize::try_from(offset)
+                .unwrap_or(usize::MAX)
+                .min(data.len());
+            let end = start.saturating_add(usize::try_from(max).unwrap_or(usize::MAX));
+            data[start..end.min(data.len())].to_vec()
+        }))
+    }
     /// Create or truncate.
     fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError>;
     /// Replace `path` in one step, so a power cut leaves the old or the new content, never a mix.
@@ -252,6 +269,14 @@ impl<T: Files + ?Sized> Files for &std::cell::RefCell<&mut T> {
     }
     fn read_tail(&mut self, path: &Path, max: u64) -> Result<Option<Vec<u8>>, FileError> {
         self.borrow_mut().read_tail(path, max)
+    }
+    fn read_at(
+        &mut self,
+        path: &Path,
+        offset: u64,
+        max: u64,
+    ) -> Result<Option<Vec<u8>>, FileError> {
+        self.borrow_mut().read_at(path, offset, max)
     }
     fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
         self.borrow_mut().write(path, data)

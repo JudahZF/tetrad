@@ -92,13 +92,13 @@ pub struct ThemeSpec {
 }
 
 /// A theme file: a [`ThemeSpec`] with a format version.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ThemeFile {
     version: u32,
     id: String,
     name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     base: Option<String>,
     colors: Colors,
 }
@@ -119,6 +119,19 @@ impl ThemeSpec {
             base: file.base,
             colors: file.colors,
         })
+    }
+
+    /// The theme file of this theme, as [`Self::from_file`] reads it: pretty JSON, version
+    /// first, only the colours the theme sets.
+    pub fn to_file(&self) -> Vec<u8> {
+        let file = ThemeFile {
+            version: Self::FILE_VERSION,
+            id: self.id.clone(),
+            name: self.name.clone(),
+            base: self.base.clone(),
+            colors: self.colors.clone(),
+        };
+        serde_json::to_vec_pretty(&file).expect("a theme file encodes")
     }
 
     /// The checked palette. Roles `colors` leaves out come from the base, except three that
@@ -396,6 +409,21 @@ mod tests {
         assert_eq!(ThemeSpec::from_file(file).unwrap().id, "m");
         let file = br##"{"version":2,"id":"m","name":"M","colors":{}}"##;
         assert_eq!(ThemeSpec::from_file(file), Err(ThemeError::Version(2)));
+    }
+
+    /// The Remote page saves theme files through `to_file`: the unit must read them back.
+    #[test]
+    fn files_round_trip() {
+        let midnight = spec(json!({
+            "id": "midnight", "name": "Midnight", "base": "slate",
+            "colors": { "background": "#0d1020", "onAccent": "#ffffff" }
+        }))
+        .unwrap();
+        let bytes = midnight.to_file();
+        assert!(bytes.starts_with(b"{\n  \"version\": 1,"));
+        assert_eq!(ThemeSpec::from_file(&bytes), Ok(midnight));
+        let stock = spec(json!({ "id": "s", "name": "S", "colors": {} })).unwrap();
+        assert_eq!(ThemeSpec::from_file(&stock.to_file()), Ok(stock));
     }
 
     #[test]

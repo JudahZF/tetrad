@@ -623,6 +623,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             address: Some("http://192.168.1.20".into()),
             pin: Some("4821".into()),
             status: Some("Added V30 SM57".into()),
+            ..RemoteView::default()
         };
     }
     if view == "boot-selector" {

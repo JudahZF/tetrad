@@ -61,6 +61,44 @@ const MEMBERS: [Member; 9] = [
 /// Removed before an extract (`0x406844`: `0x66872c` on four trees, `QFile::remove` on three).
 const RESTORE_CLEARS_TREES: [&str; 4] = ["Presets", "Captures", "CustomIRs", "Plugins"];
 const RESTORE_CLEARS_FILES: [&str; 3] = ["favorites", "favorites-nc", "favorites-ir"];
+/// The top-level files a [`Scope::BackupSet`] restore takes: the [`MEMBERS`] files and the two
+/// unstaged folder files of the stock list (`0x4774d8`).
+const BACKUP_SET_FILES: [&str; 8] = [
+    "ZenjackConfig.ini",
+    "zenui.db",
+    "user_preset_folders",
+    "user_ir_folders",
+    "user_nc_folders",
+    "favorites",
+    "favorites-nc",
+    "favorites-ir",
+];
+
+/// Which members a [`restore`] takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Every safe member under the data root, as stock (cloud and Cortex Control backups).
+    Any,
+    /// Only the backup set: the four trees that the restore clears and the top-level files of
+    /// a stock backup (`zenui.db`, `ZenjackConfig.ini`, the folder and favourites files) (O). For an archive from the Remote page, which nothing signs: any other member (the
+    /// Tetrad folder with its launcher, the account files) fails the check before anything is
+    /// removed.
+    BackupSet,
+}
+
+impl Scope {
+    fn takes(self, path: &Path) -> bool {
+        let mut parts = path.iter().filter_map(|part| part.to_str());
+        match (self, parts.next()) {
+            (Self::Any, _) => true,
+            (Self::BackupSet, Some(first)) if RESTORE_CLEARS_TREES.contains(&first) => true,
+            (Self::BackupSet, Some(first)) => {
+                parts.next().is_none() && BACKUP_SET_FILES.contains(&first)
+            }
+            (Self::BackupSet, None) => false,
+        }
+    }
+}
 
 const BLOCK: usize = 512;
 /// libarchive's default record: the archive is padded to whole records.
@@ -238,7 +276,7 @@ pub fn decode_download(body: &[u8]) -> Option<Vec<u8>> {
 
 /// Restores the backup at `archive` under `root` (`0x406844`): header check, the four trees
 /// and three favourites files removed, the Wi-Fi config saved, extract, the Wi-Fi config put
-/// back. Returns the number of members written.
+/// back. Returns the number of members written. A member outside `scope` fails the check.
 ///
 /// The caller closes the media library first (`0x69daac` closes the default database before
 /// the extract) and reloads after it (`0x3fcf64`; tetrad-app restarts instead after a good
@@ -247,12 +285,23 @@ pub fn decode_download(body: &[u8]) -> Option<Vec<u8>> {
 /// Stock extracts with options `0x66` (no `SECURE_NODOTDOT`, no `SECURE_SYMLINKS`). Tetrad
 /// refuses absolute paths, `..`, links and special files during the check, before anything
 /// is removed (O).
-pub fn restore(files: &mut impl Files, root: &Path, archive: &Path) -> Result<usize, BackupError> {
+pub fn restore(
+    files: &mut impl Files,
+    root: &Path,
+    archive: &Path,
+    scope: Scope,
+) -> Result<usize, BackupError> {
     let data = files
         .read(archive)?
         .filter(|data| !data.is_empty())
         .ok_or(BackupError::Empty)?;
-    read_members(&data, |_| Ok(()))?;
+    read_members(&data, |member| match scope.takes(&member.path) {
+        true => Ok(()),
+        false => Err(corrupt(format!(
+            "{} is not in a Quad Cortex backup",
+            member.path.display()
+        ))),
+    })?;
 
     for name in RESTORE_CLEARS_TREES {
         files.remove_tree(&root.join(name))?;
@@ -701,7 +750,7 @@ mod tests {
         files.put("/media/p4/favorites-nc", "x");
         files.put("/media/p4/wpa_supplicant.conf", "network={}");
         assert_eq!(
-            restore(&mut files, root(), Path::new(DOWNLOADED_BACKUP)),
+            restore(&mut files, root(), Path::new(DOWNLOADED_BACKUP), Scope::Any),
             Ok(7)
         );
         assert_eq!(files.get("/media/p4/Presets/User/a.pb").unwrap(), [1, 2, 3]);
@@ -731,14 +780,17 @@ mod tests {
     fn restore_refuses_bad_archives_before_clearing() {
         let mut files = device_data();
         let path = Path::new(DOWNLOADED_BACKUP);
-        assert_eq!(restore(&mut files, root(), path), Err(BackupError::Empty));
+        assert_eq!(
+            restore(&mut files, root(), path, Scope::Any),
+            Err(BackupError::Empty)
+        );
 
         let mut tar = TarWriter::new(GzEncoder::new(Vec::new(), Compression::default()));
         tar.file("./Presets/../../etc/passwd", b"x").unwrap();
         let hostile = tar.finish().unwrap().finish().unwrap();
         files.put(DOWNLOADED_BACKUP, hostile.clone());
         assert!(matches!(
-            restore(&mut files, root(), path),
+            restore(&mut files, root(), path, Scope::Any),
             Err(BackupError::Corrupt(_))
         ));
 
@@ -746,10 +798,39 @@ mod tests {
         cut.truncate(cut.len() / 2);
         files.put(DOWNLOADED_BACKUP, cut);
         assert!(matches!(
-            restore(&mut files, root(), path),
+            restore(&mut files, root(), path, Scope::Any),
             Err(BackupError::Corrupt(_))
         ));
         assert!(files.get("/media/p4/Presets/User/a.pb").is_some());
+    }
+
+    /// A [`Scope::BackupSet`] restore takes what [`create`] packs, and refuses a member outside
+    /// the backup set (here a launcher script) before anything is removed; [`Scope::Any`]
+    /// takes it, as stock does.
+    #[test]
+    fn a_backup_set_restore_takes_only_the_backup_members() {
+        let mut files = device_data();
+        let path = Path::new(DOWNLOADED_BACKUP);
+        create(&mut files, root(), &root().join("zenui.db"), path).unwrap();
+        assert_eq!(restore(&mut files, root(), path, Scope::BackupSet), Ok(7));
+
+        let script = "./tetrad/launcher/tetrad-launch.sh";
+        let archive = pack(&[
+            ("./Presets/setlists", b"<setlists/>"),
+            (script, b"#!/bin/sh"),
+        ]);
+        files.put(DOWNLOADED_BACKUP, archive.unwrap());
+        assert!(matches!(
+            restore(&mut files, root(), path, Scope::BackupSet),
+            Err(BackupError::Corrupt(_))
+        ));
+        assert!(files.get("/media/p4/Presets/User/a.pb").is_some());
+        assert_eq!(restore(&mut files, root(), path, Scope::Any), Ok(2));
+        assert!(
+            files
+                .get("/media/p4/tetrad/launcher/tetrad-launch.sh")
+                .is_some()
+        );
     }
 
     /// Review r26 S3: a product unpack reads only the members it uses, and the total that

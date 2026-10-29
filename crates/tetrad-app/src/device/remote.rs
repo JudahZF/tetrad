@@ -76,6 +76,8 @@ pub struct Remote {
     /// Challenges that were given out, each with the time it was given (a challenge works once).
     #[cfg(feature = "dev")]
     nonces: Vec<(String, std::time::Duration)>,
+    /// The Backup page (`super::remote_backup`).
+    pub(super) backup: super::remote_backup::BackupPage,
 }
 
 impl Remote {
@@ -87,7 +89,12 @@ impl Remote {
             address: address.map(|address| format!("http://{address}")),
             pin: self.pin.clone(),
             status: self.status.clone(),
+            restore: self.backup.restore(),
         }
+    }
+
+    pub(super) fn running(&self) -> bool {
+        self.pin.is_some()
     }
 
     pub fn toast(&self) -> Option<ToastView> {
@@ -168,6 +175,8 @@ impl<P: Platform> Device<P> {
     }
 
     fn start_remote(&mut self) {
+        // Files of a run that ended without a stop.
+        self.drop_remote_backup();
         let started = match self.platform.remote() {
             Some(backend) => backend
                 .start()
@@ -192,6 +201,7 @@ impl<P: Platform> Device<P> {
         if let Some(backend) = self.platform.remote() {
             backend.stop();
         }
+        self.drop_remote_backup();
         let remote = &mut self.bridges.remote;
         remote.pin = None;
         remote.status = status;
@@ -252,6 +262,13 @@ impl<P: Platform> Device<P> {
                 let (name, zip) = self.support_file();
                 Reply::File { name, zip }
             }
+            Request::Notices { .. } => self.remote_notices(),
+            Request::Library { op, .. } => self.remote_library(op),
+            Request::Backup { op, .. } => self.remote_backup(op),
+            Request::Extensions { op, .. } => self.remote_extensions(op),
+            Request::Themes { op, .. } => self.remote_themes(op),
+            Request::Mappings { op, .. } => self.remote_mappings(op),
+            Request::Footswitch { op, .. } => self.remote_footswitch(op),
             #[cfg(feature = "dev")]
             Request::UpdateStatus { .. } => Reply::UpdateStatus {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -452,6 +469,29 @@ impl<P: Platform> Device<P> {
             }
             Err(error) => self.remote_update_refused(error.to_string()),
         }
+    }
+
+    /// The recent notices, newest last, without the private values (as in the support file).
+    /// `ago` is in seconds, so the page can show the time of day from its own clock.
+    fn remote_notices(&self) -> Reply {
+        use tetrad_dsp_host::session::Clock;
+        let now = self.clock.now();
+        let notices = &self.state.notices;
+        let list: Vec<_> = (notices.iter())
+            .map(|notice| {
+                let detail = super::support::private_out(&self.state, notice.detail.clone().into());
+                serde_json::json!({
+                    "ago": now.saturating_sub(notice.at).as_secs(),
+                    "subsystem": format!("{:?}", notice.subsystem),
+                    "detail": String::from_utf8_lossy(&detail),
+                })
+            })
+            .collect();
+        Reply::Json(serde_json::json!({
+            "notices": list,
+            "dropped": notices.dropped,
+            "repeats": notices.repeats,
+        }))
     }
 
     /// The recent notices as `usb.rs` lists them: the time, the subsystem and the text.

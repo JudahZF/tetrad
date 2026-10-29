@@ -1,0 +1,475 @@
+<section id="footswitch" data-tab="Footswitch" data-group="Controls">
+  <h2>Footswitch</h2>
+  <p class="lead">Choose what each footswitch does in the Custom footswitch mode, as EDIT in Gig View does on the unit. Each change is saved at once.</p>
+  <div id="fs-none" hidden>
+    <p>No extension adds a Custom footswitch mode. Install <b>Custom Footswitch Mode</b> under Extensions → Manage, then come back to this page.</p>
+    <button type="button" class="small primary" id="fs-manage">Open Manage</button>
+  </div>
+  <div id="fs-main" hidden>
+    <p class="fs-meta" id="fs-meta"></p>
+    <div class="fs-bar" id="fs-scopes" role="tablist" aria-label="Layout"></div>
+    <div class="fs-bar" id="fs-pages" role="tablist" aria-label="Page"></div>
+    <div class="fs-own" id="fs-own" hidden></div>
+    <div class="fs-grid" id="fs-grid"></div>
+    <div class="fs-edit" id="fs-edit" hidden></div>
+  </div>
+  <p class="message" id="fs-status" role="status"></p>
+</section>
+<style>
+#footswitch .fs-meta { margin: 0 0 16px; color: var(--muted); }
+#footswitch .fs-meta b { color: var(--fg); }
+#footswitch .fs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+#footswitch .fs-bar button[aria-selected=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+#footswitch .fs-bar select { min-height: 0; padding: 5px 10px; font-size: 14px; margin-left: auto; }
+#footswitch .fs-playing { font-size: 11px; color: var(--good); margin-left: 4px; }
+#footswitch .fs-own { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+#footswitch .fs-own p { margin: 0 0 12px; }
+#footswitch .fs-own p:last-child { margin-bottom: 0; }
+#footswitch .fs-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+#footswitch .fs-tile {
+  --c: #888; position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
+  min-height: 112px; padding: 30px 10px 10px; text-align: left; border-radius: 12px; font-weight: 400;
+  color: var(--fg); background: color-mix(in srgb, var(--c) 16%, var(--bg)); border: 2px solid color-mix(in srgb, var(--c) 45%, transparent);
+}
+#footswitch .fs-tile:hover { border-color: var(--c); }
+#footswitch .fs-tile.on { background: color-mix(in srgb, var(--c) 34%, var(--bg)); }
+#footswitch .fs-tile.empty { background: var(--bg); border: 2px dashed var(--line); color: var(--muted); }
+#footswitch .fs-tile.sel { outline: 3px solid var(--accent); outline-offset: 2px; }
+#footswitch .fs-tile .name { position: absolute; top: 8px; left: 10px; font-size: 13px; font-weight: 700; color: var(--muted); }
+#footswitch .fs-tile .led { position: absolute; top: 10px; right: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--c); opacity: .35; }
+#footswitch .fs-tile.on .led { opacity: 1; box-shadow: 0 0 10px var(--c); }
+#footswitch .fs-tile.empty .led { display: none; }
+#footswitch .fs-tile strong { font-size: 16px; line-height: 1.2; overflow-wrap: anywhere; }
+#footswitch .fs-tile small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#footswitch .fs-tile.gone strong { text-decoration: line-through; color: var(--muted); }
+#footswitch .fs-edit { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+#footswitch .fs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+#footswitch .fs-head strong { font-size: 18px; }
+#footswitch .fs-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+#footswitch .fs-row > span { color: var(--muted); font-size: 14px; }
+#footswitch .fs-row > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+#footswitch .fs-row select { max-width: 100%; }
+#footswitch .fs-row small { color: var(--muted); }
+#footswitch .fs-swatch { width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 50%; border: 2px solid var(--line); font-size: 13px; color: var(--fg); background: var(--bg); }
+#footswitch .fs-swatch[aria-pressed=true] { outline: 3px solid var(--accent); outline-offset: 2px; }
+#footswitch input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+#footswitch input[type=range] { width: min(320px, 100%); accent-color: var(--accent); }
+#footswitch .fs-messages { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+#footswitch .fs-message { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+#footswitch .fs-message label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); }
+#footswitch .fs-message input[type=number] { width: 8ch; min-height: 36px; padding: 4px 8px; }
+#footswitch .fs-message select { min-height: 36px; padding: 4px 8px; }
+@media (max-width: 720px) {
+  #footswitch .fs-grid { gap: 6px; padding: 8px; }
+  #footswitch .fs-tile { min-height: 84px; padding: 26px 6px 6px; }
+  #footswitch .fs-tile strong { font-size: 13px; }
+  #footswitch .fs-tile small { display: none; }
+  #footswitch .fs-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+}
+</style>
+<script>
+"use strict";
+// The Custom footswitch mode (docs/remote.md, docs/footswitch-modes.md): the editor of the unit
+// (EDIT in Gig View) on a big screen. Every command answers with the new view. Pages are
+// 0-based; slots 0..=7 are A–H, 8 Down and 9 Tap.
+{
+  $("panes").append($("footswitch"));
+  const NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"];
+  /** The slots in the order of the unit: A–D and Down on top, E–H and Tap below. */
+  const ORDER = [0, 1, 2, 3, 8, 4, 5, 6, 7, 9];
+  const KINDS = [["", "No action"], ["system", "System"], ["block", "Block"], ["preset", "Load a preset"],
+    ["sendMidi", "Send MIDI"], ["command", "Extension command"]];
+  const MIDI = {
+    cc: ["CC", ["CC#", "Value"]],
+    ccToggle: ["CC Toggle", ["CC#", "Min", "Max"]],
+    pc: ["PC", ["Bank CC#0", "Bank CC#32", "Program"]],
+  };
+  const MAX_MESSAGES = 12;
+
+  let view = null;
+  let scope = "global";
+  let page = 0;
+  let selected = null;
+  /** A kind chosen in the Action list before its target, and the setlist chosen for a preset:
+      kept until another slot, layout or action is chosen. */
+  let pendingKind = null;
+  let setlist = null;
+  let sending = false;
+  /** Setlist name → its presets ([{slot, label}]), read once per visit of the page. */
+  const presets = new Map();
+
+  const el = (tag, props, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children.filter((child) => child !== null && child !== ""));
+    return node;
+  };
+  const say = (text, kind) => {
+    $("fs-status").textContent = text || "";
+    $("fs-status").className = "message " + (kind || "");
+  };
+  const button = (text, className, click) => {
+    const node = el("button", { type: "button", className: "small " + className, textContent: text });
+    node.addEventListener("click", click);
+    return node;
+  };
+  const select = (options, value, change) => {
+    const node = el("select", {}, ...options);
+    if (value !== undefined) node.value = value;
+    node.addEventListener("change", () => change(node.value));
+    return node;
+  };
+  const option = (value, text, disabled) => el("option", { value, textContent: text, disabled: !!disabled });
+  const row = (label, ...children) => el("div", { className: "fs-row" },
+    el("span", { textContent: label }), el("div", {}, ...children));
+  const layout = () => view && view.layouts[scope];
+
+  async function load() {
+    const { status, body } = await call("/api/footswitch");
+    if (status === 401) return;
+    if (status !== 200) return say(body.error || "Failed", "failed");
+    render(body, false);
+  }
+
+  /** Sends one command; the answer is the new view, or the reason of a refusal. */
+  async function send(command) {
+    // Each edit starts from the last reply (a MIDI list is sent whole), so the next one waits.
+    if (sending) {
+      say("Wait for the last change to reach the unit", "working");
+      return null;
+    }
+    sending = true;
+    say("");
+    const { status, body } = await call("/api/footswitch/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(command),
+    });
+    sending = false;
+    if (status === 401) return null;
+    if (status === 200) {
+      render(body, true);
+      return body;
+    }
+    const error = body.error || "Failed";
+    await load();
+    say(error, "failed");
+    return null;
+  }
+
+  const edit = (edit) => send({ op: "slot", scope, page, slot: selected, edit });
+  const setAction = (action) => { pendingKind = setlist = null; return edit({ kind: "action", action }); };
+  const unpick = () => { pendingKind = setlist = null; };
+
+  /** Draws the view. `force` draws the editor too while one of its controls has the focus. */
+  function render(next, force) {
+    view = next;
+    // A list or a field in use keeps what the user picks or types: the next refresh draws.
+    const active = document.activeElement;
+    if (!force && active && $("footswitch").contains(active) && active.matches("input, select")) return;
+    const none = view.mode === null;
+    $("fs-none").hidden = !none;
+    $("fs-main").hidden = none;
+    if (none) return;
+    const mode = view.mode;
+    page = Math.min(page, mode.pages - 1);
+    const playing = view.layouts.preset ? "preset" : "global";
+    $("fs-meta").replaceChildren(
+      el("b", { textContent: mode.name }), " from " + mode.extension + " · ",
+      mode.active ? "on, page " + (mode.page + 1) + " plays" : "off (choose it with the mode button on the unit)",
+      view.preset ? " · Preset: " + view.preset : "");
+    const scopes = [["global", "ALL PRESETS"], ["preset", "THIS PRESET"]].map(([id, text]) => {
+      const tab = button(text, "", () => { scope = id; unpick(); render(view, true); });
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(scope === id));
+      if (playing === id) tab.append(el("span", { className: "fs-playing", textContent: "● plays" }));
+      return tab;
+    });
+    $("fs-scopes").replaceChildren(...scopes);
+    drawOwn();
+    const pages = layout();
+    $("fs-pages").hidden = !pages;
+    $("fs-grid").hidden = !pages;
+    if (!pages) {
+      $("fs-edit").hidden = true;
+      return;
+    }
+    const tabs = pages.map((_, index) => {
+      const tab = button("PAGE " + (index + 1), "", () => { page = index; render(view, true); });
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(index === page));
+      return tab;
+    });
+    if (mode.pages > 1) {
+      tabs.push(select([option("", "Copy page " + (page + 1) + " to…"),
+        ...pages.map((_, index) => option(String(index), "Page " + (index + 1), index === page))], "", (to) => {
+        if (to === "" || !confirm("Page " + (Number(to) + 1) + " gets a copy of page " + (page + 1) + ". Its switches are replaced.")) {
+          return render(view, true);
+        }
+        send({ op: "copyPage", scope, from: page, to: Number(to) });
+      }));
+    }
+    $("fs-pages").replaceChildren(...tabs);
+    $("fs-grid").replaceChildren(...ORDER.map((index) => tile(pages[page][index], index)));
+    drawEditor();
+  }
+
+  /** THIS PRESET: give the loaded preset its own layout, or remove it. */
+  function drawOwn() {
+    const box = $("fs-own");
+    box.hidden = scope !== "preset";
+    if (box.hidden) return;
+    if (!view.presetLoaded) return box.replaceChildren(el("p", { textContent: "No preset is loaded." }));
+    if (!view.layouts.preset) {
+      return box.replaceChildren(
+        el("p", { textContent: (view.preset || "This preset") + " plays the ALL PRESETS layout. Its own layout starts as a copy of it, and plays while the preset is loaded." }),
+        button("Give this preset its own layout", "primary", () => send({ op: "presetLayout", own: true })));
+    }
+    box.replaceChildren(
+      el("p", { textContent: "Changes here are changes of " + (view.preset || "the preset") + ": save the preset on the unit to keep them." }),
+      button("Remove it", "danger", () => {
+        if (confirm("Remove the own layout of " + (view.preset || "this preset") + "? It plays the ALL PRESETS layout again.")) {
+          send({ op: "presetLayout", own: false });
+        }
+      }));
+  }
+
+  function tile(slot, index) {
+    const assigned = slot.action !== null;
+    const node = el("button", {
+      type: "button",
+      className: "fs-tile" + (assigned ? "" : " empty") + (assigned && slot.engaged && slot.available ? " on" : "") +
+        (slot.available ? "" : " gone") + (index === selected ? " sel" : ""),
+      title: NAMES[index] + (assigned ? ": " + slot.label + " · " + slot.detail : ": empty"),
+    },
+    el("span", { className: "name", textContent: NAMES[index] }),
+    el("span", { className: "led" }),
+    el("strong", { textContent: assigned ? slot.label : "—" }),
+    assigned ? el("small", { textContent: slot.detail }) : null);
+    node.style.setProperty("--c", slot.colour);
+    node.addEventListener("click", () => {
+      selected = selected === index ? null : index;
+      unpick();
+      render(view, true);
+    });
+    return node;
+  }
+
+  function kindOf(action) {
+    if (!action) return "";
+    return action.kind === "loadPreset" ? "preset" : action.kind;
+  }
+
+  /** The panel of the selected slot. */
+  function drawEditor() {
+    const panel = $("fs-edit");
+    panel.hidden = selected === null;
+    if (panel.hidden) return panel.replaceChildren();
+    const slot = layout()[page][selected];
+    const kind = pendingKind !== null ? pendingKind : kindOf(slot.action);
+    const parts = [
+      el("div", { className: "fs-head" },
+        el("strong", { textContent: "Switch " + NAMES[selected] + " · Page " + (page + 1) + " · " + (scope === "global" ? "ALL PRESETS" : "THIS PRESET") }),
+        slot.action ? button("Clear", "danger", () => { unpick(); edit({ kind: "clear" }); }) : null),
+      slot.action && !slot.available ? el("p", { className: "failed", textContent: slot.detail }) : null,
+      row("Action",
+        select(KINDS.map(([value, text]) => option(value, text, value === "command" && !view.commands.length)), kind, (value) => {
+          if (value === "sendMidi") return setAction({ kind: "sendMidi" });
+          if (value === "") { unpick(); return slot.action ? edit({ kind: "clear" }) : drawEditor(); }
+          pendingKind = value;
+          setlist = null;
+          drawEditor();
+        }),
+        ...target(kind, slot)),
+    ];
+    if (slot.action) {
+      const label = el("input", { type: "text", maxLength: 16, value: slot.customLabel || "", placeholder: slot.customLabel ? "" : slot.label });
+      label.addEventListener("change", () => edit({ kind: "label", label: label.value }));
+      parts.push(row("Label", label, el("small", { textContent: "Empty: the name of the action" })));
+      parts.push(row("Colour", ...swatches(slot)));
+    }
+    if (slot.value !== null) {
+      const shown = el("output", { textContent: slot.value + " %" });
+      const range = el("input", { type: "range", min: 0, max: 100, step: 5, value: slot.value });
+      range.addEventListener("input", () => { shown.textContent = range.value + " %"; });
+      range.addEventListener("change", () => edit({ kind: "value", value: Number(range.value) }));
+      parts.push(row("Value", range, shown));
+    }
+    if (slot.momentary !== null) {
+      const box = el("input", { type: "checkbox", checked: slot.momentary });
+      box.addEventListener("change", () => edit({ kind: "momentary", momentary: box.checked }));
+      parts.push(row("Momentary", box, el("small", { textContent: "The block changes only while the switch is down" })));
+    }
+    if (slot.action && slot.action.kind === "sendMidi") parts.push(row("Messages", messages(slot.messages)));
+    if (slot.action) parts.push(row("Copy or swap", ...copyMove()));
+    panel.replaceChildren(...parts);
+  }
+
+  /** The lists that choose the action of `kind`. A choice sends the action at once. */
+  function target(kind, slot) {
+    const action = slot.action || {};
+    const choose = (text) => option("", text, true);
+    if (kind === "system") {
+      const groups = new Map();
+      for (const choice of view.systems) {
+        if (!groups.has(choice.group)) groups.set(choice.group, el("optgroup", { label: choice.group }));
+        groups.get(choice.group).append(option(JSON.stringify(choice.action), choice.label));
+      }
+      const current = action.kind === "system" ? JSON.stringify(action.action) : "";
+      return [select([choose("Choose…"), ...groups.values()], current,
+        (value) => setAction({ kind: "system", action: JSON.parse(value) }))];
+    }
+    if (kind === "block") {
+      if (!view.blocks.length) return [el("small", { textContent: "The loaded preset has no blocks." })];
+      const here = action.kind === "block" ? action.row + "," + action.column : "";
+      const block = view.blocks.find((b) => b.row + "," + b.column === here);
+      const blocks = select([choose("Choose a block…"), ...view.blocks.map((b) =>
+        option(b.row + "," + b.column, b.name + " · " + b.location))], here, (value) => {
+        const [row, column] = value.split(",").map(Number);
+        setAction({ kind: "block", row, column, parameter: null });
+      });
+      if (!block) return [blocks];
+      const targets = select([option("bypass", "Bypass"), ...block.parameters.map((p) => option(String(p.index), p.name))],
+        action.parameter === null || action.parameter === undefined ? "bypass" : String(action.parameter),
+        (value) => setAction({ kind: "block", row: block.row, column: block.column, parameter: value === "bypass" ? null : Number(value) }));
+      return [blocks, targets];
+    }
+    if (kind === "preset") {
+      const parts = [];
+      if (action.kind === "loadPreset") parts.push(el("small", { textContent: "Loads " + slot.label + "." }));
+      parts.push(select([choose("Choose…"),
+        option("\n", view.preset ? "The loaded preset (" + view.preset + ")" : "The loaded preset", !view.preset),
+        ...view.setlists.map((name) => option(name, name))], setlist === null ? "" : setlist, async (name) => {
+        if (name === "\n") return setAction({ kind: "loadPreset" });
+        pendingKind = "preset";
+        setlist = name;
+        if (!presets.has(name)) {
+          const { status, body } = await call("/api/footswitch/command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ op: "presets", setlist: name }),
+          });
+          if (status === 401) return;
+          if (status !== 200) return say(body.error || "Failed", "failed");
+          presets.set(name, body.presets.slots);
+        }
+        drawEditor();
+      }));
+      const list = setlist !== null && presets.get(setlist);
+      if (list && !list.length) parts.push(el("small", { textContent: "No presets in " + setlist + "." }));
+      if (list && list.length) {
+        const name = setlist;
+        parts.push(select([choose("Choose a preset…"), ...list.map((p) => option(String(p.slot), p.label))], "",
+          (value) => setAction({ kind: "preset", setlist: name, slot: Number(value) })));
+      }
+      return parts;
+    }
+    if (kind === "command") {
+      const current = action.kind === "command" ? action.key + "\n" + action.command : "";
+      return [select([choose("Choose…"), ...view.commands.map((c) => option(c.key + "\n" + c.command, c.label))], current, (value) => {
+        const [key, command] = value.split("\n");
+        setAction({ kind: "command", key, command });
+      })];
+    }
+    return [];
+  }
+
+  function swatches(slot) {
+    const swatch = (index) => {
+      const auto = index === null;
+      const node = el("button", {
+        type: "button",
+        className: "fs-swatch",
+        textContent: auto ? "A" : "",
+        title: auto ? "Auto: the colour of the action" : "Colour " + (index + 1),
+      });
+      if (!auto) node.style.background = view.colours[index];
+      node.setAttribute("aria-pressed", String(slot.swatch === index));
+      node.addEventListener("click", () => edit({ kind: "colour", colour: index }));
+      return node;
+    };
+    return [swatch(null), ...view.colours.map((_, index) => swatch(index))];
+  }
+
+  /** The Send MIDI list: each change sends the whole list, as the MIDI Out editor does. */
+  function messages(list) {
+    const save = (next) => edit({ kind: "messages", messages: next });
+    const copy = () => list.map((m) => ({ kind: m.kind, channel: m.channel, values: m.values.slice() }));
+    const number = (label, value, min, max, empty, change) => {
+      const input = el("input", { type: "number", min, max, step: 1, value: value === null ? "" : value, placeholder: empty ? "Off" : "" });
+      input.addEventListener("change", () => {
+        const text = input.value.trim();
+        // An empty field is off where off is allowed, and refused elsewhere (not sent as 0).
+        const next = text === "" ? (empty ? null : NaN) : Number(text);
+        if (next !== null && !(Number.isInteger(next) && next >= min && next <= max)) {
+          return say(label + " is a whole number from " + min + " to " + max + (empty ? ", or empty for off" : ""), "failed");
+        }
+        change(next);
+      });
+      return el("label", {}, label, input);
+    };
+    const rows = list.map((message, index) => {
+      const [, labels] = MIDI[message.kind];
+      const set = (change) => { const next = copy(); change(next[index]); save(next); };
+      const kind = select(Object.entries(MIDI).map(([value, [text]]) => option(value, text)), message.kind, (value) => set((m) => {
+        m.kind = value;
+        // As the unit: the values the new kind uses keep their number or become 0.
+        m.values = m.values.map((v, i) => (i < MIDI[value][1].length ? (v === null ? 0 : v) : null));
+      }));
+      const values = labels.map((label, part) => number(label, message.values[part], 0, 127,
+        message.kind === "pc" && part < 2, (value) => set((m) => { m.values[part] = value; })));
+      return el("div", { className: "fs-message" },
+        el("label", {}, "Type", kind),
+        number("Channel", message.channel, 1, 16, false, (value) => set((m) => { m.channel = value; })),
+        ...values,
+        button("Remove", "danger", () => save(copy().filter((_, i) => i !== index))));
+    });
+    const add = button("Add a message", "", () => save([...copy(), { kind: "cc", channel: 1, values: [0, 0, null] }]));
+    add.disabled = list.length >= MAX_MESSAGES;
+    return el("div", { className: "fs-messages" }, ...rows, el("div", {}, add));
+  }
+
+  /** Copy to, or swap with, another switch of this layout. */
+  function copyMove() {
+    const options = [option("", "Choose a switch…", true)];
+    for (let p = 0; p < view.mode.pages; p++) {
+      const group = el("optgroup", { label: "Page " + (p + 1) });
+      for (const index of ORDER) {
+        if (p === page && index === selected) continue;
+        const other = layout()[p][index];
+        group.append(option(p + "," + index, NAMES[index] + (other.action ? " · " + other.label : " · empty")));
+      }
+      options.push(group);
+    }
+    const to = select(options, "", () => { copy.disabled = move.disabled = false; });
+    const go = (kind) => {
+      const [toPage, toSlot] = to.value.split(",").map(Number);
+      edit({ kind, page: toPage, slot: toSlot });
+    };
+    const copy = button("Copy to it", "", () => go("copyTo"));
+    const move = button("Swap with it", "", () => go("moveTo"));
+    copy.disabled = move.disabled = true;
+    return [to, copy, move];
+  }
+
+  $("fs-manage").addEventListener("click", () => {
+    // `currentTab` and `syncTabs` belong to page.html.
+    currentTab = "Manage";
+    syncTabs();
+  });
+  parts.push({
+    connect: load,
+    disconnect() {
+      view = null;
+      selected = null;
+      unpick();
+      presets.clear();
+      $("fs-none").hidden = true;
+      $("fs-main").hidden = true;
+      say("");
+    },
+    refresh() {
+      if (!sending && !$("footswitch").classList.contains("tab-off")) load();
+    },
+  });
+}
+</script>

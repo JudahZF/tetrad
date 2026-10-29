@@ -1,0 +1,178 @@
+<style>
+#backup h3 { margin: 28px 0 6px; font-size: 18px; }
+#backup h3:first-of-type { margin-top: 8px; }
+#backup p { margin: 0 0 12px; }
+#backup .muted { color: var(--muted); }
+#backup progress { display: block; width: 100%; height: 10px; margin-top: 14px; accent-color: var(--accent); }
+#backup .waiting { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+</style>
+<section id="backup" data-tab="Backup" data-group="Unit">
+  <h2>Backup</h2>
+  <p class="lead">A backup holds the presets, setlists, IRs, captures, plugins and settings of the unit, as a cloud backup does. Tetrad's own settings (themes, mappings, footswitch modes) are not in it.</p>
+
+  <h3>Download</h3>
+  <p class="muted">The unit packs a backup, then your browser saves it as one <code>.tar.gz</code> file.</p>
+  <button type="button" id="backup-create">Download backup</button>
+  <progress id="backup-down" max="1" hidden></progress>
+  <p class="message" id="backup-down-message" role="status"></p>
+
+  <h3>Restore</h3>
+  <p class="muted">Send a backup file to the unit. Nothing changes before you touch <b>RESTORE</b> on the unit. The restore replaces the presets, IRs, captures and settings, then the unit reloads.</p>
+  <label class="drop" id="backup-drop">
+    <strong>Drop a backup here</strong>
+    or tap to choose a <code>.tar.gz</code> file.
+    <input id="backup-file" type="file" accept=".gz,.tgz,application/gzip">
+  </label>
+  <progress id="backup-up" max="1" hidden></progress>
+  <div class="waiting" id="backup-waiting" hidden>
+    <span id="backup-waiting-text"></span>
+    <button type="button" class="small danger" id="backup-discard">Discard</button>
+  </div>
+  <p class="message" id="backup-up-message" role="status"></p>
+</section>
+<script>
+"use strict";
+// Backup (docs/remote.md): a backup is packed on the unit and read in pieces, and a backup to
+// restore goes in pieces of 48 KB. The restore starts only from a touch on the unit.
+{
+  const CHUNK = 48 * 1024;
+  const MAX_UPLOAD = 512 * 1048576;
+  const WAIT = 1000;
+  $("panes").append($("backup"));
+
+  const say = (id, text, ok) => {
+    $(id).textContent = text || "";
+    $(id).className = "message" + (ok ? " ok" : "");
+  };
+  const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+  let working = false;
+
+  /** The state of the unit's backup: what waits for RESTORE, and the outcome of a restore. */
+  const show = (body) => {
+    const waiting = body.state === "received" || body.state === "restoring";
+    $("backup-waiting").hidden = !waiting;
+    $("backup-discard").hidden = body.state !== "received";
+    if (body.state === "received") {
+      $("backup-waiting-text").textContent = body.name + " (" + bytes(body.size) + ") is on the unit. Touch RESTORE in Settings → Tetrad → Remote on the unit.";
+    } else if (body.state === "restoring") {
+      $("backup-waiting-text").textContent = "The unit restores " + body.name + "…";
+    }
+    if (working) return;
+    if (body.state === "restored") say("backup-up-message", "The unit restored the backup and reloaded.", true);
+    else if (body.error) say("backup-up-message", body.error);
+  };
+
+  const refresh = async () => {
+    const { status, body } = await call("/api/backup");
+    if (status === 200) show(body);
+  };
+
+  /** One piece of the packed backup, or the reason it did not come. */
+  const piece = async (offset) => {
+    let response;
+    try {
+      response = await fetch("/api/backup/file?offset=" + offset, { headers: { "X-Tetrad-Pin": pin } });
+    } catch (error) {
+      return { error: "The unit is not reachable" };
+    }
+    if (response.ok) {
+      try {
+        return { data: await response.arrayBuffer() };
+      } catch (error) {
+        return { error: "The download stopped" };
+      }
+    }
+    if (response.status === 401) forget(AGAIN);
+    const body = await response.json().catch(() => ({}));
+    return { error: body.error || "Failed" };
+  };
+
+  const download = async () => {
+    const bar = $("backup-down");
+    say("backup-down-message", "Packing the backup on the unit…", true);
+    let { status, body } = await post("/api/backup/create");
+    while (status === 200 && body.state === "creating") {
+      await sleep(WAIT);
+      ({ status, body } = await call("/api/backup"));
+    }
+    if (status !== 200) return say("backup-down-message", body.error || "Failed");
+    if (body.state !== "ready") return say("backup-down-message", body.error || "The unit did not pack the backup");
+    const { name, size } = body;
+    const pieces = [];
+    bar.hidden = false;
+    for (let offset = 0; offset < size;) {
+      say("backup-down-message", "Downloading " + bytes(offset) + " of " + bytes(size) + "…", true);
+      const got = await piece(offset);
+      if (got.error) return say("backup-down-message", got.error);
+      if (!got.data.byteLength) return say("backup-down-message", "The backup ended early");
+      pieces.push(got.data);
+      offset += got.data.byteLength;
+      bar.value = offset / size;
+    }
+    save(new Blob(pieces, { type: "application/gzip" }), name);
+    // The unit keeps no copy: pack a new backup for the next download.
+    await post("/api/backup/discard");
+    say("backup-down-message", "Saved " + name + " (" + bytes(size) + ")", true);
+  };
+
+  const send = async (file) => {
+    const bar = $("backup-up");
+    if (!/\.(tar\.gz|tgz)$/i.test(file.name)) return say("backup-up-message", "Choose a .tar.gz backup file");
+    if (file.size > MAX_UPLOAD) return say("backup-up-message", "A backup is at most " + bytes(MAX_UPLOAD));
+    bar.hidden = false;
+    bar.value = 0;
+    for (let offset = 0; offset === 0 || offset < file.size; offset += CHUNK) {
+      const end = Math.min(offset + CHUNK, file.size);
+      say("backup-up-message", "Sending " + bytes(end) + " of " + bytes(file.size) + "…", true);
+      const last = end >= file.size ? "&last=1" : "";
+      const { status, body } = await call(
+        "/api/backup/upload?name=" + encodeURIComponent(file.name) + "&offset=" + offset + last,
+        { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file.slice(offset, end) },
+      );
+      if (status !== 200) return say("backup-up-message", body.error || "Failed");
+      bar.value = end / Math.max(1, file.size);
+      if (last) show(body);
+    }
+    say("backup-up-message", "Touch RESTORE on the unit.", true);
+  };
+
+  /** One backup action at a time; the 8 s refresh pauses meanwhile. */
+  const run = (action) => {
+    if (working) return;
+    working = true;
+    uploading++;
+    $("backup-create").disabled = true;
+    // A failure here must not leave the shared queue rejected: every later upload would skip.
+    queue = queue.then(action).catch((error) => say("backup-down-message", error.message)).finally(() => {
+      working = false;
+      uploading--;
+      $("backup-create").disabled = false;
+      $("backup-down").hidden = true;
+      $("backup-up").hidden = true;
+      refresh();
+    });
+  };
+
+  $("backup-create").addEventListener("click", () => run(download));
+  dropZone($("backup-drop"), $("backup-file"), (files) => {
+    if (files.length) run(() => send(files[0]));
+  });
+  $("backup-discard").addEventListener("click", async () => {
+    if (!confirm("Discard the backup on the unit?")) return;
+    const { status, body } = await post("/api/backup/discard");
+    if (status === 200) { show(body); say("backup-up-message", ""); }
+    else if (status !== 401) say("backup-up-message", body.error || "Failed");
+  });
+
+  parts.push({
+    connect: refresh,
+    disconnect() {
+      say("backup-down-message", "");
+      say("backup-up-message", "");
+      $("backup-waiting").hidden = true;
+    },
+    refresh,
+  });
+}
+</script>

@@ -537,6 +537,12 @@ fn confirm(l: &mut Layout, confirm: Confirm) {
         Confirm::Device(_) => ("Are you sure?", "", "PROCEED", false),
         Confirm::RestoreBackup(_) => ("Backup ready to install", "Are you sure?", "PROCEED", false),
         Confirm::DeleteBackup(_) => ("Delete Cloud Backup", "Are you sure?", "DELETE", true),
+        Confirm::RemoteRestore(_) => (
+            "Restore backup",
+            "The backup from Remote replaces the presets, IRs, captures and settings on this unit.",
+            "RESTORE",
+            true,
+        ),
         Confirm::AbortCapture => unreachable!("abort confirm has its own layout"),
         // `0x3cea8c`: title `0xa36bac`, text `0xa36b58`, button "OK".
         Confirm::DiscardCapture => (

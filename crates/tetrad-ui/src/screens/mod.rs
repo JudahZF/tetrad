@@ -54,6 +54,8 @@ use grid::header as main_bar;
 
 pub(crate) use capture::{CaptureEdit, CaptureUi};
 pub(crate) use numeric::{NumericEntry, NumericPurpose};
+#[cfg(test)]
+pub(crate) use remote::scan_link;
 pub(crate) use support::{default_device_name, licence_file, product_name};
 pub(crate) use tools::{PanelKnob, panel_knob};
 

@@ -65,6 +65,7 @@ semver = "1.0.28"
 httparse = "1.10.1"
 cmac = "0.8"
 p256 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh"] }
+qrcodegen = "1.8.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
