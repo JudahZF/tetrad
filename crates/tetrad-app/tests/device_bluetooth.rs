@@ -197,3 +197,27 @@ fn a_bond_update_on_its_way_cannot_undo_forget() {
     let saved: Vec<Bond> = serde_json::from_slice(&files.get(BONDS_FILE).unwrap()).unwrap();
     assert_eq!(saved.len(), 1);
 }
+
+#[test]
+fn the_app_reaches_the_remote_api() {
+    let (mut device, _files) = boot();
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: true,
+        },
+    );
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: false,
+            connection: 0,
+        },
+    );
+    let notices = json!({"id": 1, "op": "remote", "method": "GET", "path": "/api/notices"});
+    assert!(ask(&mut device, notices)["notices"].is_array());
+    let page = json!({"id": 2, "op": "remote", "method": "GET", "path": "/"});
+    assert_eq!(ask(&mut device, page)["error"], "not found (404)");
+}

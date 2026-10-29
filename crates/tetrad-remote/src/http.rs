@@ -115,6 +115,53 @@ enum Route {
     Device(Request),
 }
 
+/// One request of the Remote API without HTTP, for the Tetrad app over Bluetooth
+/// (docs/bluetooth.md). `target` is the path with its query, as the page asks it. The answer is
+/// the request, or the status and error that the page would get. The page itself and the routes
+/// of a dev build (updates, keys, the log) are not offered.
+pub fn api_request(
+    method: &str,
+    target: &str,
+    body: Vec<u8>,
+) -> Result<Request, (u16, &'static str)> {
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let head = Head {
+        method: method.to_owned(),
+        path: path.to_owned(),
+        query: query.to_owned(),
+        // No browser asks: the caller checked the access, so the request carries no PIN.
+        host: Some("127.0.0.1".into()),
+        pin: Some(String::new()),
+        length: None,
+        chunked: false,
+    };
+    let not_found = (404, "not found");
+    match route(head, body) {
+        Ok(Route::Device(request)) => {
+            #[cfg(feature = "dev")]
+            if matches!(
+                request,
+                Request::UpdateStatus { .. }
+                    | Request::UpdateBegin { .. }
+                    | Request::UpdateChunk { .. }
+                    | Request::UpdateReady { .. }
+                    | Request::UpdateInstall { .. }
+                    | Request::Log { .. }
+                    | Request::AuthNonce
+                    | Request::AuthPin { .. }
+                    | Request::AddKey { .. }
+            ) {
+                return Err(not_found);
+            }
+            Ok(request)
+        }
+        Ok(Route::Page) => Err(not_found),
+        Err(Fail::Status(status, error)) => Err((status, error)),
+        // `route` reads nothing.
+        Err(Fail::Io(_)) => Err(not_found),
+    }
+}
+
 fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
     const PAGE_PATHS: [&str; 2] = ["/", "/index.html"];
     if !head.host.as_deref().is_some_and(ip_host) {

@@ -70,7 +70,8 @@ on the phone or computer too, or that device cannot connect until it pairs again
 
 The unit has a GATT service for the Tetrad app: the **Tetrad Link**. Over it the app does what the
 Remote page does: add IRs, send and delete extension files (NAM models), use the tabs of
-extensions, and download the support file. It also sends messages to extensions with the `ble`
+extensions, download the support file, and every other page of the Remote API (the IR library,
+mappings, footswitch layouts, backups, themes, notices and extensions). It also sends messages to extensions with the `ble`
 capability and gets the events they push ([extensions.md](extensions.md#answer-the-tetrad-app)).
 
 **The PIN.** While Bluetooth is on, the Host mode line of the Bluetooth page shows the **App
@@ -105,6 +106,12 @@ field when it was refused. The unit answers one request at a time, in order.
 | `tab-call` | `extension`, `message` (JSON) | | `result`: the extension's answer |
 | `support` | | | `name`; the body is the support file (zip) |
 | `extension` | `extension`, `message` (JSON) | | `value`: the answer of the extension's `ctx.ble.onMessage` |
+| `remote` | `method`, `path` | what the page sends | the JSON of the Remote API, or its file or bytes as the body |
+
+`remote` reaches every request of the Remote API ([remote.md](remote.md)) with the same handlers:
+`path` is the URL path with its query, for example `{"op": "remote", "method": "GET", "path":
+"/api/backup/file?offset=0"}`. It needs no Remote PIN, and Remote need not be on. The page itself
+and the dev-build routes (updates, keys, the log) answer `not found`.
 
 Every op except `hello` and `auth` needs the PIN first. An extension pushes an event with
 `scope.ble.notify(value)`; it arrives as a message with no `id`:

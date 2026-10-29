@@ -70,6 +70,12 @@ enum Op {
         extension: String,
         message: Json,
     },
+    /// Any request of the Remote page's API: `path` with its query, the body as the page sends
+    /// it (`tetrad_remote::api_request`).
+    Remote {
+        method: String,
+        path: String,
+    },
 }
 
 /// The link state of the connected app.
@@ -134,6 +140,7 @@ fn remote_reply(id: u64, answer: &Reply) -> Vec<u8> {
     let (status, value) = answer.response();
     let body: &[u8] = match answer {
         Reply::File { zip, .. } => zip,
+        Reply::Bytes(bytes) => bytes,
         _ => &[],
     };
     let mut header = value;
@@ -271,6 +278,12 @@ impl<P: Platform> Device<P> {
                 message: message.to_string().into_bytes(),
             },
             Op::Support => Request::Support { pin: String::new() },
+            Op::Remote { method, path } => {
+                match tetrad_remote::api_request(&method, &path, body.to_vec()) {
+                    Ok(request) => request,
+                    Err((status, text)) => return Some(error(id, format!("{text} ({status})"))),
+                }
+            }
         };
         self.remote_answer(call, request)
             .map(|answer| remote_reply(id, &answer))

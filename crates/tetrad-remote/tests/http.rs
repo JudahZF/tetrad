@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use tetrad_remote::{
     BackupOp, Call, EditorOp, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, MAX_BODY, Reply,
-    Request, Server, TabInfo, ThemesOp, serve_one,
+    Request, Server, TabInfo, ThemesOp, api_request, serve_one,
 };
 
 /// A connection: the request bytes in, the response bytes out.
@@ -932,4 +932,40 @@ fn the_page_has_every_part() {
         assert!(page.contains(&format!("<section id=\"{id}\"")), "{id}");
     }
     assert!(!page.contains("<!--parts-->"));
+}
+
+/// The Tetrad Link asks the same routes without HTTP (docs/bluetooth.md).
+#[test]
+fn api_requests_take_the_page_routes_without_http() {
+    assert_eq!(
+        api_request("POST", "/api/library/rename?id=7&name=V30+Hi", Vec::new()),
+        Ok(Request::Library {
+            pin: String::new(),
+            op: LibraryOp::Rename {
+                id: "7".into(),
+                name: "V30 Hi".into(),
+            },
+        })
+    );
+    assert_eq!(
+        api_request("POST", "/api/themes/save", b"{}".to_vec()),
+        Ok(Request::Themes {
+            pin: String::new(),
+            op: ThemesOp::Save {
+                json: b"{}".to_vec(),
+            },
+        })
+    );
+    assert_eq!(api_request("GET", "/", Vec::new()), Err((404, "not found")));
+    assert_eq!(
+        api_request("POST", "/api/notices", Vec::new()),
+        Err((405, "method not allowed"))
+    );
+    // Dev-build routes stay on the page.
+    for path in ["/api/log", "/api/update", "/api/auth/nonce"] {
+        assert_eq!(
+            api_request("GET", path, Vec::new()),
+            Err((404, "not found"))
+        );
+    }
 }
