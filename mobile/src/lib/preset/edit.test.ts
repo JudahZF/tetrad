@@ -62,6 +62,9 @@ describe("preset edits", () => {
     const gain = blockAt(p, at)?.params.find((x) => x.id === "gain");
     expect(gain && liveValue(gain, 1)).toBe(7.4);
     expect(gain && liveValue(gain, 0)).toBe(6.2);
+    // Off keeps the current scene's value, as the unit does.
+    const off = blockAt(edit(p, { kind: "param-scenes", at, param: "gain", on: false }), at)?.params.find((x) => x.id === "gain");
+    expect(off?.value).toBe(7.4);
   });
 
   it("bypass per scene follows the scene", () => {
@@ -71,6 +74,7 @@ describe("preset edits", () => {
     const block = blockAt(p, at);
     expect(block && liveBypass(block, 2)).toBe(true);
     expect(block && liveBypass(block, 0)).toBe(false);
+    expect(blockAt(edit(p, { kind: "bypass-scenes", at, on: false }), at)?.bypass).toBe(true);
   });
 
   it("a scene change keeps the preset saved", () => {

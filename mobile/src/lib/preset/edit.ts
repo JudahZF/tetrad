@@ -108,7 +108,8 @@ export function applyEdit(preset: Preset, edit: Edit, catalog: readonly BlockMod
       );
     case "bypass-scenes":
       return withBlock(preset, edit.at, ({ sceneBypass, ...block }) =>
-        edit.on ? { ...block, sceneBypass: sceneBypass ?? Array(SCENES).fill(block.bypass) } : block,
+        // Off keeps the current scene's bypass, as the unit does (tetrad-preset set_scene_mode).
+        edit.on ? { ...block, sceneBypass: sceneBypass ?? Array(SCENES).fill(block.bypass) } : { ...block, bypass: sceneBypass?.[preset.scene] ?? block.bypass },
       );
     case "param":
       return withBlock(preset, edit.at, (block) =>
@@ -122,7 +123,7 @@ export function applyEdit(preset: Preset, edit: Edit, catalog: readonly BlockMod
     case "param-scenes":
       return withBlock(preset, edit.at, (block) =>
         withParam(block, edit.param, ({ scenes, ...param }) =>
-          edit.on ? { ...param, scenes: scenes ?? Array(SCENES).fill(param.value) } : param,
+          edit.on ? { ...param, scenes: scenes ?? Array(SCENES).fill(param.value) } : { ...param, value: scenes?.[preset.scene] ?? param.value },
         ),
       );
     case "scene":

@@ -39,7 +39,7 @@ A screen that needs a feature the connection does not have says so instead of fa
 
 ```sh
 pnpm install
-pnpm web             # the browser, with Wi-Fi and the demo unit (no Bluetooth)
+pnpm web             # the browser: the demo unit (Wi-Fi needs a same-origin proxy to the unit's /api; no Bluetooth)
 pnpm android         # a development build on a phone or emulator (Bluetooth needs a phone)
 pnpm ios
 ```

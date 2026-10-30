@@ -214,10 +214,19 @@ export class DemoClient extends BaseClient implements UnitClient {
           this.ext.available = this.ext.available.filter((a) => a !== offer);
           this.ext.installed.push({
             key: `${offer.source}:${offer.id}`, name: offer.name, version: offer.version, description: offer.description,
-            source: offer.source, enabled: true, state: "running", fault: null, update: null, duplicates: [], commands: [],
+            source: offer.source, enabled: true, state: "starting", fault: null, update: null, duplicates: [], commands: [],
             settings: [], status: [], blocks: [], log: [], themes: [], mode: null, app: offer.app ? `Play ${offer.name}` : null,
           });
-          this.ext.status = `${offer.name} ${offer.version} installed`;
+          // As on the unit, the install is a job: the list is busy, then the extension starts.
+          this.ext.busy = true;
+          this.ext.status = `Installing ${offer.name} ${offer.version}…`;
+          const key = `${offer.source}:${offer.id}`;
+          this.later(1500, () => {
+            this.ext.busy = false;
+            this.ext.status = `${offer.name} ${offer.version} installed`;
+            const installed = this.ext.installed.find((e) => e.key === key);
+            if (installed) installed.state = "running";
+          });
           break;
         }
         case "update": {

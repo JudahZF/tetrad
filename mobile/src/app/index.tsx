@@ -3,7 +3,7 @@
 import { fetch as expoFetch } from "expo/fetch";
 import { Redirect, router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { TextInput, View } from "react-native";
+import { Platform, TextInput, View } from "react-native";
 import { type FoundUnit, bluetoothAvailable, openLink, scanUnits } from "@/lib/link/ble";
 import { UnitError } from "@/lib/unit/client";
 import { DemoClient } from "@/lib/unit/demo";
@@ -197,6 +197,8 @@ export default function Connect() {
       <Card style={{ padding: 14, gap: 10 }}>
         <T size={12.5} tone="muted">
           Turn on Remote in Settings › Tetrad › Remote. Type the address it shows, or paste the link of its QR code.
+          {Platform.OS === "web" &&
+            " In a browser this works only when the app and the unit's /api share one origin (a proxy): the unit takes no requests from other web pages."}
         </T>
         <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
           <IconBox name="wifi" />

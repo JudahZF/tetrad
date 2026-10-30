@@ -3,7 +3,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
-import type { MappingCommand, MappingRow, MappingScope, MappingTriggerInput, MappingsView } from "@/lib/unit/types";
+import type { MappingCommand, MappingRow, MappingScope, MappingTriggerInput } from "@/lib/unit/types";
 import { useToast } from "@/state/toast";
 import { useClient } from "@/state/unit";
 import { useLoad } from "@/state/useLoad";
@@ -64,6 +64,16 @@ export default function MappingEditor() {
   const learning = view.data?.learning?.id === id;
   const { reload } = view;
 
+  // An edit or a LEARN can move the row (and change its id): the unit names it in `focus`.
+  // Follow it when it changes from one view to the next, as the Remote page does.
+  const focus = view.data?.focus;
+  const focusKey = focus ? `${focus.scope} ${focus.id}` : "";
+  const [seenFocus, setSeenFocus] = useState<string | null>(null);
+  if (view.data && focusKey !== seenFocus) {
+    setSeenFocus(focusKey);
+    if (seenFocus !== null && focus?.scope === scope) setId(focus.id);
+  }
+
   // While LEARN waits, ask once a second, as the Remote page does.
   useEffect(() => {
     if (!learning) return;
@@ -73,10 +83,7 @@ export default function MappingEditor() {
 
   const send = async (command: MappingCommand) => {
     try {
-      const next: MappingsView = await client.mappingCommand(command);
-      view.set(next);
-      // An edit can move the row (and change its id): the unit names it in `focus`.
-      if (next.focus?.scope === scope) setId(next.focus.id);
+      view.set(await client.mappingCommand(command));
     } catch (error) {
       toast.error(error);
     }

@@ -1,7 +1,7 @@
 /** Extensions: what is installed (on, off, faulted, updates, settings, commands) and what the catalog offers. */
 
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Platform, View } from "react-native";
 import type { ExtensionCommand, InstalledExtension } from "@/lib/unit/types";
 import { useToast } from "@/state/toast";
@@ -32,6 +32,14 @@ export default function Extensions() {
   const toast = useToast();
   const list = useLoad(() => client.extensions(), client);
   const [open, setOpen] = useState<string | null>(null);
+  // A repository job or a starting extension: ask again until it settles, as the Remote page does.
+  const working = list.data?.busy === true || list.data?.installed.some((e) => e.state === "starting") === true;
+  const { reload } = list;
+  useEffect(() => {
+    if (!working) return;
+    const timer = setInterval(() => void reload(), 1500);
+    return () => clearInterval(timer);
+  }, [working, reload]);
 
   const send = async (command: ExtensionCommand) => {
     try {
