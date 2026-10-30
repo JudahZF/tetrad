@@ -128,7 +128,7 @@ impl<P: super::platform::Platform> super::Device<P> {
         let source = match db {
             None => downloads::Source::None,
             Some(db) => match db.path() {
-                Some(path) => downloads::Source::File(path.to_owned()),
+                Some(path) => downloads::Source::File(path),
                 None => downloads::Source::Open(db),
             },
         };

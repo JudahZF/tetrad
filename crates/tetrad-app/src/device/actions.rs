@@ -163,6 +163,15 @@ pub enum Action {
         pressed: bool,
         origin: super::custom::Origin,
     },
+    /// (O) One action that a Custom mode press or release fired: the press of `gesture`, or
+    /// (`None`) the release of what the switch holds. Each runs after the effects of the one
+    /// before. `epoch` is the gestures' epoch when it fired (`custom::fired`).
+    CustomFire {
+        slot: u8,
+        gesture: Option<tetrad_ui::Gesture>,
+        epoch: u32,
+        origin: super::custom::Origin,
+    },
     /// Scoped tempo in BPM, clamped to 40..=240, then `0x16` TempoChange (`0x875a48`).
     SetTempo(f32),
     /// A normalized metronome/tempo slot (`0x513410`): UI settings, tap tempo, Cortex.
@@ -852,6 +861,12 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
             pressed,
             origin,
         } => effects.extend(super::custom::slot(state, slot, pressed, origin)),
+        Action::CustomFire {
+            slot,
+            gesture,
+            epoch,
+            origin,
+        } => effects.extend(super::custom::fired(state, slot, gesture, epoch, origin)),
         Action::SetConnector { id, value } => {
             effects.extend(super::jacks::set(state, id, value)?);
         }
@@ -1488,6 +1503,9 @@ fn change_setting(
 ) -> Result<Vec<Effect>, ActionError> {
     let mut effects = Vec::new();
     let polled = super::features::tuner_polls(state);
+    if let Some(changed) = super::custom::change_setting(state, id, &value) {
+        return changed;
+    }
     if let Some(changed) = super::global_eq::change(state, id, &value) {
         effects.extend(changed?);
         return Ok(effects);

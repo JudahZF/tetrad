@@ -9,18 +9,54 @@ pub(crate) struct Message {
 #[derive(Debug, Clone)]
 pub(crate) struct Field {
     pub number: u32,
-    pub tag: Vec<u8>,
+    pub tag: Raw,
     pub value: Value,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum Value {
-    Varint { raw: Vec<u8>, value: u64 },
+    Varint { raw: Raw, value: u64 },
     Fixed64([u8; 8]),
-    Bytes { length: Vec<u8>, data: Vec<u8> },
-    Message { length: Vec<u8>, body: Message },
-    Group { body: Message, end: Vec<u8> },
+    Bytes { length: Raw, data: Vec<u8> },
+    Message { length: Raw, body: Message },
+    Group { body: Message, end: Raw },
     Fixed32([u8; 4]),
+}
+
+/// The bytes of one varint as stored, overlong forms included. [`read_varint`] reads at most
+/// ten bytes, so they stay inline: a preset has thousands of tags, values and length prefixes.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Raw {
+    len: u8,
+    bytes: [u8; MAX_VARINT],
+}
+
+const MAX_VARINT: usize = 10;
+
+impl Raw {
+    /// Panics on more than ten bytes, which no varint has.
+    pub fn new(bytes: &[u8]) -> Self {
+        let mut raw = Self {
+            len: bytes.len() as u8,
+            bytes: [0; MAX_VARINT],
+        };
+        raw.bytes[..bytes.len()].copy_from_slice(bytes);
+        raw
+    }
+}
+
+impl std::ops::Deref for Raw {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.len)]
+    }
+}
+
+impl std::fmt::Debug for Raw {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (**self).fmt(f)
+    }
 }
 
 impl Value {
@@ -109,14 +145,16 @@ impl Message {
     }
 }
 
-pub(crate) fn encode_varint(mut value: u64) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(10);
+pub(crate) fn encode_varint(mut value: u64) -> Raw {
+    let mut raw = Raw::default();
     while value > 127 {
-        bytes.push((value as u8 & 127) | 128);
+        raw.bytes[usize::from(raw.len)] = (value as u8 & 127) | 128;
+        raw.len += 1;
         value >>= 7;
     }
-    bytes.push(value as u8);
-    bytes
+    raw.bytes[usize::from(raw.len)] = value as u8;
+    raw.len += 1;
+    raw
 }
 
 pub(crate) fn read_varint(data: &[u8], pos: &mut usize, base: usize) -> Result<u64> {
@@ -192,7 +230,7 @@ fn parse_message(
     descriptor: Option<&'static schema::MessageSchema>,
     end_group: Option<u32>,
     budget: &mut Budget,
-) -> Result<(Message, Vec<u8>)> {
+) -> Result<(Message, Raw)> {
     if depth > budget.limits.max_depth {
         return Err(Error::Limit {
             kind: "depth",
@@ -200,7 +238,14 @@ fn parse_message(
         });
     }
     let mut message = Message {
-        fields: Vec::new(),
+        fields: Vec::with_capacity(match end_group {
+            // At most the fields the budget still allows: more fail the parse.
+            None => count_fields(
+                &data[*pos..],
+                budget.limits.max_fields.saturating_sub(budget.fields),
+            ),
+            Some(_) => 0,
+        }),
         schema: descriptor,
     };
     while *pos < data.len() {
@@ -216,7 +261,7 @@ fn parse_message(
         let number = number as u32;
         if wire == 4 {
             if end_group == Some(number) {
-                return Ok((message, data[start..*pos].to_vec()));
+                return Ok((message, Raw::new(&data[start..*pos])));
             }
             return Err(Error::InvalidGroup {
                 offset: base + start,
@@ -229,13 +274,13 @@ fn parse_message(
                 limit: budget.limits.max_fields,
             });
         }
-        let tag_bytes = data[start..*pos].to_vec();
+        let tag_bytes = Raw::new(&data[start..*pos]);
         let value = match wire {
             0 => {
                 let start = *pos;
                 let value = read_varint(data, pos, base)?;
                 Value::Varint {
-                    raw: data[start..*pos].to_vec(),
+                    raw: Raw::new(&data[start..*pos]),
                     value,
                 }
             }
@@ -246,7 +291,7 @@ fn parse_message(
                 let size = usize::try_from(size).map_err(|_| Error::LengthOverflow {
                     offset: base + start,
                 })?;
-                let length = data[start..*pos].to_vec();
+                let length = Raw::new(&data[start..*pos]);
                 let payload_base = base + *pos;
                 let payload = take(data, pos, size, base)?;
                 if let Some(schema::FieldSchema {
@@ -302,7 +347,34 @@ fn parse_message(
             offset: base + *pos,
         });
     }
-    Ok((message, Vec::new()))
+    Ok((message, Raw::default()))
+}
+
+/// The fields that `data` starts with, up to the first group or malformed field and at most
+/// `limit`: the capacity of a message's field list, so the list does not grow field by field.
+fn count_fields(data: &[u8], limit: usize) -> usize {
+    let mut pos = 0;
+    let mut count = 0;
+    while pos < data.len() && count < limit {
+        let Ok(tag) = read_varint(data, &mut pos, 0) else {
+            break;
+        };
+        let skipped = match tag & 7 {
+            0 => read_varint(data, &mut pos, 0).is_ok(),
+            1 => take(data, &mut pos, 8, 0).is_ok(),
+            2 => read_varint(data, &mut pos, 0)
+                .ok()
+                .and_then(|size| usize::try_from(size).ok())
+                .is_some_and(|size| take(data, &mut pos, size, 0).is_ok()),
+            5 => take(data, &mut pos, 4, 0).is_ok(),
+            _ => false,
+        };
+        if !skipped {
+            break;
+        }
+        count += 1;
+    }
+    count
 }
 
 // Account for packed elements before typed summaries allocate scalar lists.

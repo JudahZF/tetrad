@@ -5,6 +5,11 @@ radio. Stock CorOS does not use it. Tetrad uses it for BLE MIDI: a phone, a tabl
 can send MIDI to the unit and get the unit's MIDI, with no cable. The Tetrad app (in work) uses
 the same link to do what the Remote page does.
 
+> [!WARNING]
+> Bluetooth is experimental. Only one Linux computer has paired with a unit so far. Phones, Macs
+> and tablets are not tested on a unit yet. If pairing or BLE MIDI fails, send a support file
+> with the report.
+
 - [Turn on Bluetooth](#turn-on-bluetooth)
 - [Pair a phone or computer](#pair-a-phone-or-computer)
 - [BLE MIDI](#ble-midi)

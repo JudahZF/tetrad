@@ -110,6 +110,9 @@ that adds the mode, such as Custom Footswitch Mode; without one, the page links 
   - **Value** for a parameter, **Momentary** for a bypass, and **Messages** (up to 12) for Send
     MIDI.
   - **Copy to** or **Swap with** another switch on any page, and **Clear**.
+  - **Runs on**: **Press**, **Double press**, or **Combo with** an adjacent switch. The rows
+    above then edit that action. A tile shows **2×** for a double press and **+C** for a combo
+    with C.
 - **Copy page … to** replaces another page with this one.
 - **ALL PRESETS** and **THIS PRESET**: **Give this preset its own layout** and **Remove it** work
   as on the unit. A change of THIS PRESET is a change of the preset: save the preset on the unit

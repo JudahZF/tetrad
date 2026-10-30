@@ -77,7 +77,8 @@ pub(crate) fn rich() -> UiSnapshot {
                 id,
                 title: format!("PRESET {id}"),
             })
-            .collect(),
+            .collect::<Vec<_>>()
+            .into(),
         models: vec![
             ModelEntry {
                 id: 1001,
@@ -671,7 +672,8 @@ fn preset_and_bank_commands_do_not_conflate_request_preview_and_loaded_state() {
         presets: vec![PresetItem {
             id: 42,
             title: "OWNED".into(),
-        }],
+        }]
+        .into(),
         ..UiSnapshot::default()
     };
     let mut ui = ui_with(snapshot.clone());
@@ -713,7 +715,8 @@ fn preset_banks_use_opaque_ids_clamp_after_shrink_and_search_filters_locally() {
                 id: 100 + index * 19,
                 title: format!("PRESET {index}"),
             })
-            .collect(),
+            .collect::<Vec<_>>()
+            .into(),
         ..UiSnapshot::default()
     };
     let mut ui = ui_with(snapshot.clone());
@@ -733,7 +736,7 @@ fn preset_banks_use_opaque_ids_clamp_after_shrink_and_search_filters_locally() {
     let shown: Vec<Control> = ui.hit_regions().into_iter().map(|r| r.control).collect();
     assert!(shown.contains(&Control::SelectPreset(404)));
     assert!(!shown.contains(&Control::SelectPreset(100)));
-    snapshot.presets.truncate(1);
+    std::sync::Arc::make_mut(&mut snapshot.presets).truncate(1);
     ui.set_snapshot(snapshot).unwrap();
     activate(&mut ui, Control::Library(LibraryControl::ClearSearch));
     assert_eq!(
@@ -1096,9 +1099,9 @@ fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
         "the touch that caught the list presses nothing"
     );
     assert_eq!(ui.offset(list), at);
-    // The next touch is an ordinary one again.
+    // The next touch is an ordinary one again: on the last row, which the drags scrolled to.
     assert!(!ui.hit_regions().is_empty());
-    let page = Control::Setting(SettingControl::Page(SettingsPage::SceneBypass));
+    let page = Control::Setting(SettingControl::Page(SettingsPage::Midi));
     let (px, py) = center(&ui, page);
     ui.handle_input(InputEvent::PointerDown { x: px, y: py });
     assert_eq!(
@@ -1824,7 +1827,8 @@ fn snapshot_limits_preserve_last_valid_state() {
                         title: "ONE".into()
                     };
                     2
-                ],
+                ]
+                .into(),
                 ..original.clone()
             },
             UiError::DuplicatePreset,
@@ -1836,7 +1840,8 @@ fn snapshot_limits_preserve_last_valid_state() {
                         id,
                         title: String::new(),
                     })
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into(),
                 ..original.clone()
             },
             UiError::TooManyPresets,
@@ -3497,7 +3502,8 @@ fn directory_keeps_a_named_empty_preset_and_uses_real_occupancy_for_list_and_sea
             id: 1,
             title: "Empty".into(),
         },
-    ];
+    ]
+    .into();
     std::sync::Arc::make_mut(&mut snapshot.directory).slots = vec![
         DirectorySlot {
             title: "Empty".into(),
@@ -3556,7 +3562,8 @@ fn directory_sorts_follow_the_stock_natural_order_and_role_fallbacks() {
             id,
             title: (*title).into(),
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .into();
     std::sync::Arc::make_mut(&mut snapshot.directory).slots = rows
         .iter()
         .zip(0..)
@@ -5186,7 +5193,9 @@ fn row_confirms_keep_their_item_when_the_list_changes() {
 
     activate(&mut ui, Control::PresetMenu(2));
     activate(&mut ui, delete);
-    refresh(&mut ui, &|s| s.presets[2].title = "SWAPPED IN".into());
+    refresh(&mut ui, &|s| {
+        std::sync::Arc::make_mut(&mut s.presets)[2].title = "SWAPPED IN".into()
+    });
     assert!(activate(&mut ui, Control::Dialog(DialogButton::Primary)).is_empty());
 }
 
@@ -7380,7 +7389,7 @@ fn checked_preset_slots_follow_their_rows_before_delete_or_move() {
     ui.set_snapshot(snapshot.clone()).unwrap();
     activate(&mut ui, library(LibraryControl::MultiSelect));
     check(&mut ui);
-    snapshot.presets[3].title = "OTHER".into();
+    std::sync::Arc::make_mut(&mut snapshot.presets)[3].title = "OTHER".into();
     ui.set_snapshot(snapshot).unwrap();
     activate(&mut ui, library(LibraryControl::Bulk(BulkAction::Move)));
     assert_eq!(

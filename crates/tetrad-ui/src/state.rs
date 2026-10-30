@@ -69,7 +69,7 @@ pub(crate) enum TextTarget {
     CaptureName,
     StompLabel(Footswitch),
     /// (O) A Custom footswitch mode slot label: layout, page, slot.
-    SlotLabel(crate::LayoutScope, u8, u8),
+    SlotLabel(crate::LayoutScope, u8, u8, crate::Gesture),
     LoginEmail,
     LoginPassword(String),
     /// Virtual Device Preset "Edit Name".
@@ -444,13 +444,14 @@ pub(crate) enum ActionMenu {
     Extensions,
 }
 
-/// The layout, page and slot that the Custom mode editor shows, and a copy or move that waits
-/// for its target.
+/// The layout, page, slot and action that the Custom mode editor shows, and a copy or move
+/// that waits for its target.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CustomEdit {
     pub scope: crate::LayoutScope,
     pub page: u8,
     pub slot: u8,
+    pub gesture: crate::Gesture,
     pub pending: Option<CustomPending>,
 }
 
@@ -704,6 +705,8 @@ pub struct UiState {
     pub(crate) scene_source: Option<SceneIndex>,
     /// Directory category, view, pop-up, Multi Select and search state.
     pub(crate) directory: crate::screens::Directory,
+    /// What the long lists derive from the snapshot, kept between layouts.
+    pub(crate) list_cache: crate::screens::ListCache,
     /// The Grid scene dropdown is open (scene badge, manual "SCENES DROPDOWN").
     pub(crate) scene_menu: bool,
     /// Pedal tab of the expression assignment screen.
@@ -803,6 +806,7 @@ impl Default for UiState {
             save_as: None,
             scene_source: None,
             directory: crate::screens::Directory::default(),
+            list_cache: crate::screens::ListCache::default(),
             scene_menu: false,
             expression_pedal: ExpressionPedal::Exp1,
             expression_param: None,

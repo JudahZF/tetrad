@@ -7,6 +7,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Added
 
+- Custom footswitch mode: a switch can have a double press (two presses within 300 ms by
+  default), and two adjacent switches a combo (both pressed within 80 ms by default). **PRESS**,
+  **DOUBLE** and **COMBO** in the editor, and **Runs on** on the Remote Footswitch page, choose
+  which action you edit. Only a switch with a double press or a combo waits before its press
+  runs. Settings → Device → **Double Press & Combo** chooses both times
+  ([docs/footswitch-modes.md](docs/footswitch-modes.md)).
 - Extension API 7: a package can bring a native program (`app` in the manifest), such as a game.
   Its page has a button that starts it. While it runs, the program has the screen and the
   footswitches, and Tetrad keeps the sound. Hold the screen for 2 seconds to quit. The program
@@ -14,7 +20,7 @@ All notable changes to Tetrad are in this file. The version numbers follow
   with full access to the unit: the Available row says so before the install.
 - DOOM 0.1.0 in the default extension repository (`extensions/doom`): the original qcDOOM binary
   by Thomas Van Iseghem with the shareware WAD, played with the footswitches.
-- Bluetooth: Settings → Tetrad → Bluetooth turns on the Bluetooth radio of the unit's Wi-Fi chip,
+- Bluetooth (experimental): Settings → Tetrad → Bluetooth turns on the Bluetooth radio of the unit's Wi-Fi chip,
   which stock CorOS does not use. A Mac, phone or tablet pairs with the unit (new devices only
   while the page is open) and uses it as a BLE MIDI device: notes, CCs, program changes and
   SysEx in, and the unit's MIDI out, but no MIDI clock. Host mode and MIDI over Bluetooth are

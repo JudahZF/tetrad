@@ -12,7 +12,9 @@
 
 use tetrad_assets::{Icon, IconSize};
 
-use super::directory::{Roles, natural_cmp, stock_date};
+use std::sync::Arc;
+
+use super::directory::{ListQuery, Roles, natural_cmp, stock_date};
 use super::directory_glyph::Glyph;
 use super::directory_lists::{Mark, SIDE_ROW, SideRow, index_strip, sidebar_row, tree};
 use super::presets;
@@ -272,56 +274,69 @@ fn head_row(l: &mut Layout, b: Rect, library: &CaptureLibrary, entered: u16, sel
 /// indices into [`CaptureLibrary::captures`]. Favorites is the Directory capture list
 /// ([`crate::DirectoryView`]); Recent its raw capture Recents keys, so a factory capture
 /// shows too. Both keep the listed captures only.
-pub(crate) fn rows(ui: &UiState) -> Vec<u16> {
+pub(crate) fn rows(ui: &UiState) -> Arc<[u16]> {
     let library = &*ui.snapshot.capture_library;
     let dir = &ui.directory;
-    let captures = (0u16..).zip(&library.captures);
-    let mut rows: Vec<(u16, &LibraryCapture)> = match ui.picker.captures.folder {
-        CaptureFolder::Favorites => (ui.snapshot.directory.favorites.iter())
-            .filter(|item| item.kind == ItemKind::Capture)
-            .filter_map(|item| (captures.clone()).find(|(_, capture)| capture.value == item.value))
-            .collect(),
-        CaptureFolder::Recent => (ui.snapshot.directory.capture_recents.iter())
-            .filter_map(|key| (captures.clone()).find(|(_, capture)| capture.value == *key))
-            .collect(),
-        CaptureFolder::Downloads => captures
-            .filter(|(_, capture)| capture.origin == CaptureOrigin::Download)
-            .collect(),
-        CaptureFolder::Library => captures
-            .filter(|(_, capture)| capture.origin != CaptureOrigin::Download)
-            .collect(),
-        CaptureFolder::Folder(folder) => captures
-            .filter(|(_, capture)| capture.folders.contains(&folder))
-            .collect(),
-    };
     let query = (dir.search.is_some()).then(|| ui.library_query.to_lowercase());
-    let version = dir.version.stock().map(|version| version == "2");
-    rows.retain(|(_, capture)| {
-        let device = capture.device.map(|device| device as u8);
-        (!dir.made_by_me || capture.origin == CaptureOrigin::User)
-            && (dir.device_types.is_empty()
-                || device.is_some_and(|code| dir.device_types.contains(&code)))
-            && version.is_none_or(|nc2| capture.nc2 == nc2)
-            && (query.as_ref()).is_none_or(|query| capture.name.to_lowercase().contains(query))
-    });
-    let mut keyed: Vec<(u16, Roles)> = rows
-        .into_iter()
-        .map(|(index, capture)| {
-            let roles = Roles {
-                name: &capture.name,
-                author: "",
-                date: stock_date(&capture.date),
-                instrument: PreferredInstrument::NotSet,
-                device: capture.device.map(|device| device as u8),
-                gain: None,
-                id: &capture.value,
-                pinned: false,
-            };
-            (index, roles)
-        })
-        .collect();
-    keyed.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
-    keyed.into_iter().map(|(index, _)| index).collect()
+    let sort = || {
+        let captures = (0u16..).zip(&library.captures);
+        let mut rows: Vec<(u16, &LibraryCapture)> = match ui.picker.captures.folder {
+            CaptureFolder::Favorites => (ui.snapshot.directory.favorites.iter())
+                .filter(|item| item.kind == ItemKind::Capture)
+                .filter_map(|item| {
+                    (captures.clone()).find(|(_, capture)| capture.value == item.value)
+                })
+                .collect(),
+            CaptureFolder::Recent => (ui.snapshot.directory.capture_recents.iter())
+                .filter_map(|key| (captures.clone()).find(|(_, capture)| capture.value == *key))
+                .collect(),
+            CaptureFolder::Downloads => captures
+                .filter(|(_, capture)| capture.origin == CaptureOrigin::Download)
+                .collect(),
+            CaptureFolder::Library => captures
+                .filter(|(_, capture)| capture.origin != CaptureOrigin::Download)
+                .collect(),
+            CaptureFolder::Folder(folder) => captures
+                .filter(|(_, capture)| capture.folders.contains(&folder))
+                .collect(),
+        };
+        let version = dir.version.stock().map(|version| version == "2");
+        rows.retain(|(_, capture)| {
+            let device = capture.device.map(|device| device as u8);
+            (!dir.made_by_me || capture.origin == CaptureOrigin::User)
+                && (dir.device_types.is_empty()
+                    || device.is_some_and(|code| dir.device_types.contains(&code)))
+                && version.is_none_or(|nc2| capture.nc2 == nc2)
+                && (query.as_ref()).is_none_or(|query| capture.name.to_lowercase().contains(query))
+        });
+        let mut keyed: Vec<(u16, Roles)> = rows
+            .into_iter()
+            .map(|(index, capture)| {
+                let roles = Roles {
+                    name: &capture.name,
+                    author: "",
+                    date: stock_date(&capture.date),
+                    instrument: PreferredInstrument::NotSet,
+                    device: capture.device.map(|device| device as u8),
+                    gain: None,
+                    id: &capture.value,
+                    pinned: false,
+                };
+                (index, roles)
+            })
+            .collect();
+        keyed.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
+        keyed.into_iter().map(|(index, _)| index).collect()
+    };
+    let order = ListQuery::Browser {
+        folder: ui.picker.captures.folder,
+        made_by_me: dir.made_by_me,
+        device_types: dir.device_types.clone(),
+        version: dir.version,
+        query: query.clone(),
+        sort: dir.media_sort,
+    };
+    ui.list_cache.rows(&ui.snapshot, order, sort)
 }
 
 /// The strip key of a name: its upper-case initial, `#` for anything but A–Z.

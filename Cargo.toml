@@ -67,6 +67,14 @@ cmac = "0.8"
 p256 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh"] }
 qrcodegen = "1.8.0"
 
+# The device build (`qc-dev/build-arm.sh`) is a release build. Fat LTO in one codegen unit makes
+# the ARM binary about 14% smaller and runs 4–7% fewer instructions (the timing tests under
+# qemu-arm); a clean release build takes about twice as long. Panics stay `unwind`: the device
+# start-up and loop run under `catch_unwind`.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

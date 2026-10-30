@@ -171,10 +171,10 @@ impl<P: Platform> Device<P> {
         // are muted at deploy.
         let tables = self
             .platform
-            .dsp_file(DspFile::ZenUi)
+            .zenui_image()
             .map_err(DeviceError::platform)
             .and_then(|zenui| {
-                self.keep_capture_seed(&zenui);
+                self.keep_capture_seed(zenui.bytes());
                 let dsp = self
                     .dsp
                     .as_mut()

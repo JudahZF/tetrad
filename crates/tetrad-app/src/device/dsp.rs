@@ -655,7 +655,10 @@ impl<P: Platform> Dsp<P> {
     /// Every driver table from the device's own `/opt/neuraldsp/ZenUI`, pinned by SHA-256
     /// and checked once (`DriverTables::load`). Without them, table drivers are muted at
     /// deploy.
-    pub fn load_tables(&mut self, zenui: Vec<u8>) -> Result<(), DspError> {
+    pub fn load_tables(
+        &mut self,
+        zenui: tetrad_dsp_host::setup::HashedZenUi,
+    ) -> Result<(), DspError> {
         let tables = DriverTables::load(zenui)?;
         self.looper_tables = Some(LooperTables::read(&tables)?);
         self.tables = Some(tables);

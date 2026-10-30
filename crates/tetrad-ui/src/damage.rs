@@ -7,7 +7,7 @@
 use crate::draw::{extent, is_pressed, paint_item, paint_region};
 use crate::layout::{Item, Look};
 use crate::render::{Canvas, FULL};
-use crate::{Frame, Rect, UiState};
+use crate::{Control, Frame, Rect, UiState};
 use tetrad_assets::{Palette, Rgb};
 
 /// More damaged rectangles than this are merged into their bounding box.
@@ -17,10 +17,44 @@ const MERGE_LIMIT: usize = 32;
 /// Recent frames kept besides the shown one (1.1 MB each).
 const KEPT: usize = 3;
 
-#[derive(Debug, Clone, PartialEq)]
+/// A display list as painted: the layout's items as they are (no per-frame copy) and the
+/// control shown pressed.
+#[derive(Debug, Clone)]
 struct Painted {
-    item: Item,
-    pressed: bool,
+    items: Vec<Item>,
+    pressed: Option<Control>,
+}
+
+impl Painted {
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Each item with whether it draws pressed. Two entries that compare equal paint the same.
+    fn entries(&self) -> impl DoubleEndedIterator<Item = (&Item, bool)> + ExactSizeIterator {
+        self.items
+            .iter()
+            .map(|item| (item, is_pressed(item, self.pressed)))
+    }
+
+    /// The first `len` items, pressed as here.
+    fn prefix(&self, len: usize) -> Self {
+        Self {
+            items: self.items[..len].to_vec(),
+            pressed: self.pressed,
+        }
+    }
+
+    /// Whether `item` (one of these items) draws pressed.
+    fn draws_pressed(&self, item: &Item) -> bool {
+        is_pressed(item, self.pressed)
+    }
+}
+
+impl PartialEq for Painted {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.entries().eq(other.entries())
+    }
 }
 
 /// Keeps one frame and the display list it shows. [`Renderer::render`]
@@ -30,10 +64,10 @@ struct Painted {
 pub struct Renderer {
     frame: Frame,
     /// `None` until the first frame, and after [`Renderer::invalidate`].
-    shown: Option<Vec<Painted>>,
+    shown: Option<Painted>,
     /// Earlier frames with the lists they show (each equal to a full render of its list),
     /// oldest first.
-    kept: Vec<(Vec<Painted>, Frame)>,
+    kept: Vec<(Painted, Frame)>,
     /// The palette `shown` and `kept` are painted in. Items do not hold every colour they
     /// paint (button styles resolve in `draw`), so a new palette repaints everything.
     palette: Palette,
@@ -64,14 +98,10 @@ impl Renderer {
             self.shown = None;
             self.kept.clear();
         }
-        let next: Vec<Painted> = layout
-            .items
-            .into_iter()
-            .map(|item| Painted {
-                pressed: is_pressed(&item, ui.pressed),
-                item,
-            })
-            .collect();
+        let next = Painted {
+            items: layout.items,
+            pressed: ui.pressed,
+        };
         // A kept frame of exactly this list (the ⋮ menu opened again) comes back as it is: a
         // veil over the whole frame costs ~15 ms on the QC.
         if let Some(index) = self.kept.iter().position(|(list, _)| *list == next)
@@ -91,27 +121,27 @@ impl Renderer {
         let changed = (self.shown.as_ref())
             .filter(|shown| shown.len() < next.len())
             .map(|shown| -> Vec<Rect> {
-                (shown.iter().zip(&next))
+                (shown.entries().zip(next.entries()))
                     .filter(|(old, new)| old != new)
-                    .flat_map(|(old, new)| [extent(&old.item), extent(&new.item)])
+                    .flat_map(|((old, _), (new, _))| [extent(old), extent(new)])
                     .flatten()
                     .collect()
             })
             .filter(|changed| !large(changed));
         if let Some(changed) = changed {
-            let base = self.shown.as_ref().map_or(0, Vec::len);
+            let base = self.shown.as_ref().map_or(0, Painted::len);
             let fixed = merge(changed);
             let mut canvas = Canvas::new(&mut self.frame, self.palette);
             for &rect in &fixed {
-                paint_region(&mut canvas, &next[..base], rect, |painted| {
-                    (&painted.item, painted.pressed)
+                paint_region(&mut canvas, &next.items[..base], rect, |item| {
+                    (item, next.draws_pressed(item))
                 });
             }
             if !fixed.is_empty() {
-                self.shown = Some(next[..base].to_vec());
+                self.shown = Some(next.prefix(base));
             }
-            let mut added = &next[base..];
-            let rects = merge(added.iter().filter_map(|p| extent(&p.item)).collect());
+            let mut added = &next.items[base..];
+            let rects = merge(added.iter().filter_map(extent).collect());
             // A large overlay (the ⋮ menu's veil): keep the frame under it for the close. A
             // leading full-frame veil is written straight into the spare frame (one pass instead
             // of a copy and a tint; each full-frame pass is ~7.5 ms on the QC).
@@ -119,7 +149,7 @@ impl Renderer {
                 && let Some(shown) = self.shown.take()
             {
                 match added.split_first() {
-                    Some((first, rest)) if let Some((color, alpha)) = full_veil(&first.item) => {
+                    Some((first, rest)) if let Some((color, alpha)) = full_veil(first) => {
                         let mut spare = self.spare();
                         spare.tinted_from(&self.frame, color, alpha);
                         let under = std::mem::replace(&mut self.frame, spare);
@@ -130,8 +160,8 @@ impl Renderer {
                 }
             }
             let mut canvas = Canvas::new(&mut self.frame, self.palette);
-            for painted in added {
-                paint_item(&mut canvas, &painted.item, painted.pressed);
+            for item in added {
+                paint_item(&mut canvas, item, next.draws_pressed(item));
             }
             self.shown = Some(next);
             return if fixed.is_empty() {
@@ -151,8 +181,8 @@ impl Renderer {
         };
         let mut canvas = Canvas::new(&mut self.frame, self.palette);
         for &rect in &paint {
-            paint_region(&mut canvas, &next, rect, |painted| {
-                (&painted.item, painted.pressed)
+            paint_region(&mut canvas, &next.items, rect, |item| {
+                (item, next.draws_pressed(item))
             });
         }
         self.shown = Some(next);
@@ -163,7 +193,7 @@ impl Renderer {
     /// frame closest to `next` when it needs at most half the paint, and keep the shown frame
     /// in its place; otherwise keep the shown frame and paint all of a spare one. Returns the
     /// rectangles to paint over the frame now held.
-    fn restore_or_keep(&mut self, next: &[Painted], rects: &[Rect]) -> Vec<Rect> {
+    fn restore_or_keep(&mut self, next: &Painted, rects: &[Rect]) -> Vec<Rect> {
         let closest = (self.kept.iter().enumerate())
             .map(|(index, (list, _))| (index, merge(damage(list, next))))
             .min_by_key(|(_, paint)| total_area(paint));
@@ -191,7 +221,7 @@ impl Renderer {
     /// Keep the frame and `shown`, its list, before most of it is painted over. `whole`:
     /// every pixel will be painted, so the frame itself is kept and the paint goes to a spare
     /// frame; otherwise a copy is kept.
-    fn keep(&mut self, shown: Vec<Painted>, whole: bool) {
+    fn keep(&mut self, shown: Painted, whole: bool) {
         let mut spare = self.spare();
         let kept = if whole {
             std::mem::replace(&mut self.frame, spare)
@@ -236,26 +266,26 @@ fn total_area(rects: &[Rect]) -> u64 {
 /// Extents of items that differ. Equal-length lists compare pairwise (the
 /// usual live update); otherwise everything between the common prefix and
 /// suffix is damaged.
-fn damage(old: &[Painted], new: &[Painted]) -> Vec<Rect> {
-    let extents = |items: &[Painted]| items.iter().filter_map(|p| extent(&p.item)).collect();
+fn damage(old: &Painted, new: &Painted) -> Vec<Rect> {
+    let extents = |items: &[Item]| items.iter().filter_map(extent).collect();
     if old.len() == new.len() {
         return old
-            .iter()
-            .zip(new)
+            .entries()
+            .zip(new.entries())
             .filter(|(a, b)| a != b)
-            .flat_map(|(a, b)| [extent(&a.item), extent(&b.item)])
+            .flat_map(|((a, _), (b, _))| [extent(a), extent(b)])
             .flatten()
             .collect();
     }
-    let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(new[prefix..].iter().rev())
+    let prefix = (old.entries().zip(new.entries()))
         .take_while(|(a, b)| a == b)
         .count();
-    let mut rects: Vec<Rect> = extents(&old[prefix..old.len() - suffix]);
-    rects.extend(extents(&new[prefix..new.len() - suffix]));
+    let suffix = (old.entries().skip(prefix).rev())
+        .zip(new.entries().skip(prefix).rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut rects: Vec<Rect> = extents(&old.items[prefix..old.len() - suffix]);
+    rects.extend(extents(&new.items[prefix..new.len() - suffix]));
     rects
 }
 

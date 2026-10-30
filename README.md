@@ -78,7 +78,7 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Support file.** For a bug report, download a `.zip` with versions, licence states, the
   loaded preset's blocks and recent logs from the Remote page. It holds no passwords, tokens or
   presets. See [docs/support.md](docs/support.md).
-- **Bluetooth MIDI.** The unit's own Bluetooth radio, which stock CorOS does not use, works as a
+- **Bluetooth MIDI (experimental).** The unit's own Bluetooth radio, which stock CorOS does not use, works as a
   BLE MIDI device for a Mac, a phone or a tablet (Settings → Tetrad → Bluetooth). See
   [docs/bluetooth.md](docs/bluetooth.md).
 - **Tetrad over USB.** The `tetrad-usb` tool takes screenshots and sends a Tetrad release

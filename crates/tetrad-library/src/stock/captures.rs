@@ -192,29 +192,18 @@ pub fn quarantine_corrupt_captures(
     let mut result = CorruptionCheck::default();
     let mut sound = 0;
     {
-        let view = db.view();
-        let mut rows = Vec::new();
-        for id in view.download_ids(DownloadKind::Capture)? {
-            if let Some(row) = view.download(DownloadKind::Capture, &id)? {
-                rows.push((CaptureStore::Downloads, id, row.raw_data, row.metadata));
-            }
-        }
-        for id in view.product_ids(ProductType::Capture)? {
-            if let Some(row) = view.product(&id)?.filter(|row| !row.read_only) {
-                rows.push((CaptureStore::User, id, row.raw_data, row.metadata));
-            }
-        }
-        for (store, id, raw, metadata) in rows {
+        // One row in memory at a time: the rawdata of every capture together is tens of MB.
+        let mut judge = |store, id: String, raw: Option<Vec<u8>>, metadata: Option<Vec<u8>>| {
             let raw = raw.unwrap_or_default();
             let metadata = metadata.unwrap_or_default();
             let (name, reason) = match check(&raw, &metadata) {
                 CaptureCheck::Sound => {
                     sound += 1;
-                    continue;
+                    return;
                 }
                 CaptureCheck::Unchecked(reason) => {
                     result.unchecked.push(format!("{id}: {reason}"));
-                    continue;
+                    return;
                 }
                 CaptureCheck::BadMetadata(reason) => (id.clone(), reason),
                 CaptureCheck::BadRawdata { name, reason } => {
@@ -227,6 +216,17 @@ pub fn quarantine_corrupt_captures(
                 name,
                 reason,
             });
+        };
+        let view = db.view();
+        for id in view.download_ids(DownloadKind::Capture)? {
+            if let Some(row) = view.download(DownloadKind::Capture, &id)? {
+                judge(CaptureStore::Downloads, id, row.raw_data, row.metadata);
+            }
+        }
+        for id in view.product_ids(ProductType::Capture)? {
+            if let Some(row) = view.product(&id)?.filter(|row| !row.read_only) {
+                judge(CaptureStore::User, id, row.raw_data, row.metadata);
+            }
         }
     }
     let failed = result.removed.len();

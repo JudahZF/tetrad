@@ -38,6 +38,11 @@ pub trait Driver {
 
     /// The next ready input on an event node without blocking, or `None`.
     fn next_input(&mut self, node: Node) -> Result<Option<RawInput>, HalError>;
+
+    /// The start of one [`Hal::poll_events`] pass. A backend may check all its event nodes at
+    /// once here; until the next call, [`Self::next_input`] may then answer `None` without I/O
+    /// for a node that had nothing to read at that check.
+    fn begin_inputs(&mut self) {}
 }
 
 /// Display panel, LEDs and other one-shot outputs.
@@ -549,6 +554,7 @@ impl<D: Driver> Hal for StockHal<D> {
                 }
             }
         }
+        self.driver.begin_inputs();
         for node in event_nodes() {
             while let Some(input) = self.driver.next_input(node)? {
                 out.extend(Event::decode(node, input));
