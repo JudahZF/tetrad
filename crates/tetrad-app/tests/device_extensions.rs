@@ -1361,7 +1361,7 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
         let current = d.state().current.as_ref().unwrap();
         current.deployment.scene().index()
     };
-    // Edges pushed together reach the device at one time.
+    // Edges by hardware switch (A–D are 0–3), pushed together, reach the device at one time.
     let edges = |d: &mut Device<Sim>, edges: &[(u8, i32)]| {
         for &(index, value) in edges {
             let element = Element::all().nth(usize::from(index)).unwrap();
@@ -1417,12 +1417,13 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     assert_eq!(bypassed(&device), before);
     // C and G (one block, both momentary) held together past the wait: their presses run one
     // after the other, and their releases bring the block back.
-    edges(&mut device, &[(2, 1), (6, 1)]);
+    // G is hardware switch 7 (hardware 4 is Down).
+    edges(&mut device, &[(2, 1), (7, 1)]);
     pump(&mut device, "the held presses", |d| {
         d.state().custom.deadline().is_none()
     });
     edges(&mut device, &[(2, 0)]);
-    edges(&mut device, &[(6, 0)]);
+    edges(&mut device, &[(7, 0)]);
     assert_eq!(bypassed(&device), before);
 }
 
