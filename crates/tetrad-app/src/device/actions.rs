@@ -1503,6 +1503,9 @@ fn change_setting(
 ) -> Result<Vec<Effect>, ActionError> {
     let mut effects = Vec::new();
     let polled = super::features::tuner_polls(state);
+    if let Some(changed) = super::custom::change_setting(state, id, &value) {
+        return changed;
+    }
     if let Some(changed) = super::global_eq::change(state, id, &value) {
         effects.extend(changed?);
         return Ok(effects);

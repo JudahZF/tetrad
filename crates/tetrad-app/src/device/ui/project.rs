@@ -211,6 +211,7 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
             // Power Functions "Lock Touchscreen and Master Volume" (`0x11ff6f8`).
             let locked = state.master_volume.locked;
             map.insert(SettingId::LockScreen, SettingValue::Bool(locked));
+            map.extend(crate::device::custom::settings(&state.custom));
             map
         },
         tempo: TempoView {

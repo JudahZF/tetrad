@@ -3,8 +3,9 @@
 //! E–H, Tap (bottom row) are slots, each with one [`SlotAction`]. Bank Up is the mode switch.
 //!
 //! A switch can also have a double press, and two [`adjacent`] switches a combo
-//! ([`Gesture`]). Only a switch that has one waits before its press runs: up to
-//! [`DOUBLE_PRESS`] for a second press, up to [`COMBO_PRESS`] for its partner.
+//! ([`Gesture`]). Only a switch that has one waits before its press runs: up to the double
+//! press time for a second press, up to the combo time for its partner. Settings › Double Press
+//! & Combo chooses both ([`DOUBLE_PRESS_CHOICES`], [`COMBO_PRESS_CHOICES`]).
 //!
 //! The layout of ALL PRESETS plays unless the loaded preset has its own layout (THIS PRESET),
 //! which the preset stores. The application fills [`CustomModeView`] and applies
@@ -23,10 +24,14 @@ pub const CUSTOM_PAGES: u8 = 4;
 pub const SLOT_NAMES: [&str; CUSTOM_SLOTS] =
     ["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"];
 
-/// The second press of a double press comes within this time of the first.
+/// The default double press time: the second press comes within it of the first.
 pub const DOUBLE_PRESS: Duration = Duration::from_millis(300);
-/// The two presses of a combo come within this time of each other.
+/// The default combo time: the two presses come within it of each other.
 pub const COMBO_PRESS: Duration = Duration::from_millis(80);
+/// The double press times to choose from, in ms ([`crate::SettingId::DoublePressTime`]).
+pub const DOUBLE_PRESS_CHOICES: [u16; 5] = [200, 250, 300, 400, 500];
+/// The combo times to choose from, in ms ([`crate::SettingId::ComboTime`]).
+pub const COMBO_PRESS_CHOICES: [u16; 4] = [50, 80, 120, 160];
 
 /// Which action of a switch: its press, its double press, or its combo with switch `0..=9`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -208,6 +213,9 @@ pub struct CustomModeView {
     pub colours: [[u8; 3]; 8],
     /// The last refusal, such as "A slot cannot press another slot".
     pub notice: Option<String>,
+    /// The chosen double press and combo times.
+    pub double_press: Duration,
+    pub combo_press: Duration,
 }
 
 impl CustomModeView {

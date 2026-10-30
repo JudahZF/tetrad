@@ -1,7 +1,7 @@
 //! Double presses and combos of the Custom mode (owned, Tetrad): which action a footswitch
 //! press runs. A switch with neither runs its press at once. A switch in a combo waits up to
-//! [`COMBO_PRESS`] for a partner; a switch with a double press waits up to [`DOUBLE_PRESS`]
-//! from its first press for a second one. A press that waited runs when the wait ends: held
+//! the combo time for a partner; a switch with a double press waits up to the double press
+//! time from its first press for a second one ([`Gestures::set_times`]). A press that waited runs when the wait ends: held
 //! if the switch is still down (its release ends it), else as a tap.
 //!
 //! Time comes in with each edge. [`Gestures::deadline`] says when to call
@@ -38,23 +38,44 @@ struct Pending {
     combo: bool,
 }
 
-impl Pending {
-    fn until(self) -> Duration {
-        self.at
-            + if self.combo {
-                COMBO_PRESS
+/// The double press and combo times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Times {
+    double: Duration,
+    combo: Duration,
+}
+
+impl Times {
+    fn until(self, pending: Pending) -> Duration {
+        pending.at
+            + if pending.combo {
+                self.combo
             } else {
-                DOUBLE_PRESS
+                self.double
             }
     }
 }
 
 /// The presses that wait, one per switch of the current page.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Gestures {
     pending: [Option<Pending>; CUSTOM_SLOTS],
     /// Counts [`Self::clear`]: a fired press from before a clear does not run.
     epoch: u32,
+    times: Times,
+}
+
+impl Default for Gestures {
+    fn default() -> Self {
+        Self {
+            pending: Default::default(),
+            epoch: 0,
+            times: Times {
+                double: DOUBLE_PRESS,
+                combo: COMBO_PRESS,
+            },
+        }
+    }
 }
 
 impl Gestures {
@@ -62,11 +83,19 @@ impl Gestures {
         self.epoch
     }
 
+    /// The double press and combo times. A press that waits keeps waiting, by the new times.
+    pub fn set_times(&mut self, double: Duration, combo: Duration) {
+        self.times = Times { double, combo };
+    }
+
+    pub fn times(&self) -> (Duration, Duration) {
+        (self.times.double, self.times.combo)
+    }
+
     pub fn deadline(&self) -> Option<Duration> {
-        self.pending
-            .iter()
-            .flatten()
-            .map(|pending| pending.until())
+        let times = self.times;
+        (self.pending.iter().flatten())
+            .map(|&pending| times.until(pending))
             .min()
     }
 
@@ -149,14 +178,14 @@ impl Gestures {
             let Some(mut pending) = *entry else {
                 continue;
             };
-            if pending.until() > now {
+            if self.times.until(pending) > now {
                 continue;
             }
             // No partner came: a switch with a double press waits on for a second press.
             if pending.combo && shapes[usize::from(slot)].double {
                 pending.combo = false;
                 *entry = Some(pending);
-                if pending.until() > now {
+                if self.times.until(pending) > now {
                     continue;
                 }
             }

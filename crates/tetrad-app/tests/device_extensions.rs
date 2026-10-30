@@ -1308,8 +1308,8 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     use tetrad_hal::hal::Event as HalEvent;
     use tetrad_hal::node::Element;
     use tetrad_ui::{
-        BlockTarget, COMBO_PRESS, CustomCommand, DOUBLE_PRESS, Gesture, LayoutScope, SlotAction,
-        SlotEdit, SystemAction,
+        BlockTarget, COMBO_PRESS, CustomCommand, DOUBLE_PRESS, Gesture, LayoutScope, SettingId,
+        SettingValue, SlotAction, SlotEdit, SystemAction,
     };
 
     let web = repository_of(
@@ -1321,7 +1321,8 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
         None,
     );
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
-    let (mut device, _media) = boot_over(media, web, MemFiles::default());
+    let files = MemFiles::default();
+    let (mut device, media) = boot_over(media, web, files.clone());
     install(&mut device);
     pump(&mut device, "the provider", |d| {
         d.state().custom.provider().is_some()
@@ -1425,6 +1426,23 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     edges(&mut device, &[(2, 0)]);
     edges(&mut device, &[(7, 0)]);
     assert_eq!(bypassed(&device), before);
+
+    // Settings › Double Press & Combo: 500 ms. A's press waits that long, and the time is
+    // saved and read again after a restart.
+    let longest = SettingValue::Choice(4);
+    device.push(Event::Action(Action::ChangeSetting {
+        id: SettingId::DoublePressTime,
+        value: longest.clone(),
+    }));
+    assert!(device.step().is_none());
+    let tapped = clock(&device);
+    edges(&mut device, &[(0, 1), (0, 0)]);
+    pump(&mut device, "the press after 500 ms", |d| scene(d) == 1);
+    assert!(clock(&device) >= tapped + Duration::from_millis(500));
+    drop(device);
+    let (device, _media) = boot_over(media, Web::default(), files);
+    let settings = tetrad_app::device::custom::settings(&device.state().custom);
+    assert_eq!(settings[0], (SettingId::DoublePressTime, longest));
 }
 
 /// A program installs with its files and starts from its page with `{app}` resolved. While it

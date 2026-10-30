@@ -80,6 +80,12 @@ pub enum SettingId {
     SceneBypassBehavior,
     StompModeAutoAssign,
     HoldTiming,
+    /// Owned: the double press time of the Custom footswitch mode; index into
+    /// [`crate::DOUBLE_PRESS_CHOICES`].
+    DoublePressTime,
+    /// Owned: the combo time of the Custom footswitch mode; index into
+    /// [`crate::COMBO_PRESS_CHOICES`].
+    ComboTime,
     SwapTempoTuner,
     GigViewAccess,
     LatencyCompensation,
@@ -211,6 +217,8 @@ impl SettingId {
             Self::SceneBypassBehavior => "Scene Bypass State Behavior",
             Self::StompModeAutoAssign => "AUTO-ASSIGN",
             Self::HoldTiming => "Hold Timing",
+            Self::DoublePressTime => "Double Press",
+            Self::ComboTime => "Combo",
             Self::SwapTempoTuner => "SWAP TEMPO AND TUNER",
             Self::GigViewAccess => "Gig View Footswitch Access",
             Self::LatencyCompensation => "Dynamic Latency Compensation",
@@ -339,6 +347,11 @@ impl SettingId {
             Self::HoldTiming => {
                 SettingKind::Choice(&["500ms", "600ms", "700ms", "800ms", "900ms", "1000ms"])
             }
+            // Owned lists, as `DOUBLE_PRESS_CHOICES` and `COMBO_PRESS_CHOICES`.
+            Self::DoublePressTime => {
+                SettingKind::Choice(&["200ms", "250ms", "300ms", "400ms", "500ms"])
+            }
+            Self::ComboTime => SettingKind::Choice(&["50ms", "80ms", "120ms", "160ms"]),
             // `0x00416674`: 1..16, then OMNI. Index = stored `Channel` − 1
             // (17 = OMNI).
             Self::MidiChannel => SettingKind::Choice(&[
@@ -593,6 +606,8 @@ pub enum SettingsPage {
     SceneBypass,
     StompModeBypass,
     HoldTiming,
+    /// Owned (Tetrad): the double press and combo times of the Custom footswitch mode.
+    DoublePressCombo,
     SwapTempoTuner,
     GigViewAccess,
     LatencyCompensation,
@@ -655,6 +670,7 @@ impl SettingsGroup {
                 SceneBypass,
                 StompModeBypass,
                 HoldTiming,
+                DoublePressCombo,
                 SwapTempoTuner,
                 GigViewAccess,
                 LatencyCompensation,
@@ -737,6 +753,7 @@ impl SettingsPage {
             Self::SceneBypass => "Scene Bypass Behavior",
             Self::StompModeBypass => "Stomp Mode Bypass",
             Self::HoldTiming => "Hold Timing",
+            Self::DoublePressCombo => "Double Press & Combo",
             Self::SwapTempoTuner => "Swap Tempo and Tuner",
             Self::GigViewAccess => "Gig View Access",
             Self::LatencyCompensation => "Latency Compensation",
@@ -814,6 +831,13 @@ impl SettingsPage {
                     "Sets how long a footswitch must be held down to trigger its\nassigned HOLD action.",
                 ),
                 Setting(S::HoldTiming),
+            ],
+            Self::DoublePressCombo => &[
+                Text(
+                    "Custom footswitch mode: how soon the second press of a double press must come, and how close together the two switches of a combo must be pressed. A switch with a double press or a combo waits this long before its press runs.",
+                ),
+                Setting(S::DoublePressTime),
+                Setting(S::ComboTime),
             ],
             // QC text `0xa3d5d0`; the bottom-right footswitch is TEMPO.
             Self::SwapTempoTuner => &[
@@ -1092,6 +1116,21 @@ mod tests {
         assert_eq!(pan(0), "C");
         assert_eq!(pan(-100), "50 L");
         assert_eq!(pan(51), "26 R");
+    }
+
+    /// The Double Press & Combo labels name the times the device applies, in order.
+    #[test]
+    fn gesture_time_labels_match_their_times() {
+        for (id, times) in [
+            (SettingId::DoublePressTime, &crate::DOUBLE_PRESS_CHOICES[..]),
+            (SettingId::ComboTime, &crate::COMBO_PRESS_CHOICES[..]),
+        ] {
+            let SettingKind::Choice(labels) = id.kind() else {
+                panic!("{id:?} is a choice");
+            };
+            let wanted: Vec<_> = times.iter().map(|ms| format!("{ms}ms")).collect();
+            assert_eq!(labels, wanted);
+        }
     }
 
     #[test]

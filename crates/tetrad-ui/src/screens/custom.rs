@@ -560,7 +560,12 @@ fn detail(
 }
 
 /// Why the press of `switch` waits, if it does.
-fn wait_note(edit: CustomEdit, page: &CustomPageView, switch: &CustomSlotView) -> Option<String> {
+fn wait_note(
+    custom: &CustomModeView,
+    edit: CustomEdit,
+    page: &CustomPageView,
+    switch: &CustomSlotView,
+) -> Option<String> {
     let name = SLOT_NAMES[usize::from(edit.slot)];
     let ms = |window: std::time::Duration| window.as_millis();
     if edit.gesture != Gesture::Press {
@@ -569,12 +574,12 @@ fn wait_note(edit: CustomEdit, page: &CustomPageView, switch: &CustomSlotView) -
     if switch.double.is_some() {
         Some(format!(
             "{name} also has a double press: this press waits {} ms",
-            ms(DOUBLE_PRESS)
+            ms(custom.double_press)
         ))
     } else if (page.combos.iter()).any(|combo| combo.switches.contains(&edit.slot)) {
         Some(format!(
             "{name} is in a combo: this press waits {} ms",
-            ms(COMBO_PRESS)
+            ms(custom.combo_press)
         ))
     } else {
         None
@@ -620,7 +625,7 @@ fn setting(
     slot: &CustomSlotView,
 ) {
     let p = l.palette;
-    let wait = wait_note(edit, page, switch);
+    let wait = wait_note(custom, edit, page, switch);
     let note = |l: &mut Layout, text: &str| {
         l.text(
             Rect::new(row.x + 180, row.y, 360, row.height),
@@ -723,7 +728,7 @@ fn setting(
             },
             Gesture::Double => format!(
                 "Runs when {name} is pressed twice within {} ms.",
-                DOUBLE_PRESS.as_millis()
+                custom.double_press.as_millis()
             ),
             Gesture::Combo(partner) => {
                 let [first, second] = [edit.slot.min(partner), edit.slot.max(partner)];
@@ -1021,6 +1026,8 @@ mod tests {
             commands: Vec::new(),
             colours: [[255; 3]; 8],
             notice: None,
+            double_press: DOUBLE_PRESS,
+            combo_press: COMBO_PRESS,
         }
     }
 

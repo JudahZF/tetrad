@@ -2143,6 +2143,17 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 activate(&mut ui, Control::Mode(ModeControl::Add));
             }
         }
+        "double-press" => {
+            let mut snapshot = ui.snapshot().clone();
+            snapshot
+                .settings
+                .insert(SettingId::DoublePressTime, SettingValue::Choice(2));
+            snapshot
+                .settings
+                .insert(SettingId::ComboTime, SettingValue::Choice(1));
+            ui.set_snapshot(snapshot)?;
+            ui.show(Screen::Settings(SettingsPage::DoublePressCombo));
+        }
         "brightness" | "bypass" | "scene-bypass" | "factory" | "about" | "appearance" => {
             let page = match view {
                 "brightness" => SettingsPage::Brightness,
@@ -3210,5 +3221,7 @@ fn custom_fixture() -> Result<CustomModeView, UiError> {
             [0xff, 0x27, 0x27],
         ],
         notice: None,
+        double_press: DOUBLE_PRESS,
+        combo_press: COMBO_PRESS,
     })
 }

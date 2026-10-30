@@ -32,18 +32,21 @@ use tetrad_core::performance::leds::{CustomLed, LedBlock, PALETTE, block_colour}
 use tetrad_engine::Site;
 use tetrad_preset::model::TETRAD_FOOTSWITCH_FIELD;
 use tetrad_ui::{
-    BlockTarget, CUSTOM_SLOTS, CommandChoice, CustomComboView, CustomCommand, CustomModeView,
-    CustomPageView, CustomSlotView, Gesture, LayoutScope, MidiMessageKind, MidiOutMessage,
-    PageStep, SLOT_NAMES, Screen, SlotAction, SlotEdit, SystemAction, adjacent,
+    BlockTarget, COMBO_PRESS, COMBO_PRESS_CHOICES, CUSTOM_SLOTS, CommandChoice, CustomComboView,
+    CustomCommand, CustomModeView, CustomPageView, CustomSlotView, DOUBLE_PRESS,
+    DOUBLE_PRESS_CHOICES, Gesture, LayoutScope, MidiMessageKind, MidiOutMessage, PageStep,
+    SLOT_NAMES, Screen, SettingId, SettingValue, SlotAction, SlotEdit, SystemAction, adjacent,
 };
 
 use self::gesture::{Fire, Gestures, Shape};
 
+use super::actions::ActionError;
 use super::mappings::{self, StoredTarget, SystemDef};
 use super::preset::PresetEdit;
 use super::{Action, Effect, State};
 
-/// The installation whose mode was on at the last change.
+/// The installation whose mode was on at the last change, and the double press and combo
+/// times.
 pub const ACTIVE_FILE: &str = "/media/p4/tetrad/footswitch-mode.json";
 /// One layout per installation: `<install key file stem>.json`.
 pub const LAYOUT_DIR: &str = "/media/p4/tetrad/footswitch-modes";
@@ -305,6 +308,17 @@ struct StoredLayout {
 struct StoredActive {
     format: u32,
     active: Option<String>,
+    /// Settings › Double Press & Combo, in ms; without them, the defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    double_press_ms: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    combo_press_ms: Option<u16>,
+}
+
+/// A stored time when it is one of `choices`, else `default`.
+fn stored_time(ms: Option<u16>, choices: &[u16], default: Duration) -> Duration {
+    ms.filter(|ms| choices.contains(ms))
+        .map_or(default, |ms| Duration::from_millis(ms.into()))
 }
 
 /// A press that is down: what its release does.
@@ -367,6 +381,10 @@ impl CustomMode {
         match serde_json::from_slice::<StoredActive>(bytes) {
             Ok(stored) if stored.format == FORMAT => {
                 self.restore = stored.active;
+                self.gestures.set_times(
+                    stored_time(stored.double_press_ms, &DOUBLE_PRESS_CHOICES, DOUBLE_PRESS),
+                    stored_time(stored.combo_press_ms, &COMBO_PRESS_CHOICES, COMBO_PRESS),
+                );
                 None
             }
             Ok(stored) => Some(format!(
@@ -377,13 +395,19 @@ impl CustomMode {
         }
     }
 
-    /// The contents of [`ACTIVE_FILE`] for the mode's state now.
+    /// The contents of [`ACTIVE_FILE`] for the mode's state now. While the mode is off, the
+    /// installation that it comes back with (its extension is off) stays.
     pub fn active_file(&self, active: bool) -> Vec<u8> {
+        let (double, combo) = self.gestures.times();
+        let ms = |time: Duration| u16::try_from(time.as_millis()).ok();
         let stored = StoredActive {
             format: FORMAT,
             active: (self.provider.as_ref())
                 .filter(|_| active)
-                .map(|provider| provider.key.clone()),
+                .map(|provider| provider.key.clone())
+                .or_else(|| self.restore.clone()),
+            double_press_ms: ms(double),
+            combo_press_ms: ms(combo),
         };
         serde_json::to_vec_pretty(&stored).expect("the active file encodes")
     }
@@ -1349,7 +1373,56 @@ pub fn view(state: &State) -> Option<CustomModeView> {
         commands: custom.commands.clone(),
         colours: PALETTE,
         notice: custom.notice.clone(),
+        double_press: custom.gestures.times().0,
+        combo_press: custom.gestures.times().1,
     })
+}
+
+/// Settings › Double Press & Combo, as the settings view shows them.
+pub fn settings(custom: &CustomMode) -> [(SettingId, SettingValue); 2] {
+    let (double, combo) = custom.gestures.times();
+    let index = |time: Duration, choices: &[u16]| {
+        let at = choices
+            .iter()
+            .position(|&ms| u128::from(ms) == time.as_millis());
+        SettingValue::Choice(at.unwrap_or_default() as u16)
+    };
+    [
+        (
+            SettingId::DoublePressTime,
+            index(double, &DOUBLE_PRESS_CHOICES),
+        ),
+        (SettingId::ComboTime, index(combo, &COMBO_PRESS_CHOICES)),
+    ]
+}
+
+/// A change of Settings › Double Press & Combo: the new time applies at once and is saved in
+/// [`ACTIVE_FILE`]. `None` for any other setting.
+pub fn change_setting(
+    state: &mut State,
+    id: SettingId,
+    value: &SettingValue,
+) -> Option<Result<Vec<Effect>, ActionError>> {
+    let choices: &[u16] = match id {
+        SettingId::DoublePressTime => &DOUBLE_PRESS_CHOICES,
+        SettingId::ComboTime => &COMBO_PRESS_CHOICES,
+        _ => return None,
+    };
+    let ms = match value {
+        SettingValue::Choice(index) => choices.get(usize::from(*index)),
+        _ => None,
+    };
+    let Some(&ms) = ms else {
+        return Some(Err(ActionError::Unsupported("that time is not a choice")));
+    };
+    let time = Duration::from_millis(ms.into());
+    let (double, combo) = state.custom.gestures.times();
+    let (double, combo) = match id {
+        SettingId::DoublePressTime => (time, combo),
+        _ => (double, time),
+    };
+    state.custom.gestures.set_times(double, combo);
+    Some(Ok(vec![Effect::CustomModeChanged]))
 }
 
 /// The LEDs of the current page: the press of each switch.

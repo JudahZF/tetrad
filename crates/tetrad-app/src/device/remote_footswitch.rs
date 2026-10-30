@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 use tetrad_library::stock::SlotSummary;
 use tetrad_remote::{EditorOp, Reply};
 use tetrad_ui::{
-    BlockTarget, COMBO_PRESS, CUSTOM_SLOTS, CustomCommand, CustomModeView, CustomPageView,
-    CustomSlotView, DOUBLE_PRESS, Gesture, GridPosition, LayoutScope, LooperButton, MappingBlock,
-    MidiMessageKind, MidiOutMessage, ModeChoice, PageStep, SlotAction, SlotEdit, SystemAction,
+    BlockTarget, CUSTOM_SLOTS, CustomCommand, CustomModeView, CustomPageView, CustomSlotView,
+    Gesture, GridPosition, LayoutScope, LooperButton, MappingBlock, MidiMessageKind,
+    MidiOutMessage, ModeChoice, PageStep, SlotAction, SlotEdit, SystemAction,
 };
 
 use super::mappings::{self, SystemDef};
@@ -299,8 +299,8 @@ impl<P: Platform> Device<P> {
             "presetLoaded": self.state.current.is_some(),
             "colours": view.colours.iter().map(|&rgb| hex(rgb)).collect::<Vec<_>>(),
             "timing": {
-                "double": DOUBLE_PRESS.as_millis() as u64,
-                "combo": COMBO_PRESS.as_millis() as u64,
+                "double": view.double_press.as_millis() as u64,
+                "combo": view.combo_press.as_millis() as u64,
             },
             "layouts": {
                 "global": layout(&view.slots),
