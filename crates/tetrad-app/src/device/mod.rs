@@ -11,6 +11,7 @@ pub mod actions;
 pub mod app;
 pub mod appearance;
 pub mod bluetooth;
+mod bluetooth_link;
 mod boot;
 pub mod boot_selector;
 pub mod bringup;
@@ -3231,6 +3232,12 @@ impl<P: Platform> Device<P> {
         }
         for reply in outcome.remote_replies {
             self.answer_tab(reply);
+        }
+        for reply in outcome.ble_replies {
+            self.answer_link_extension(reply);
+        }
+        for (extension, value) in outcome.ble_events {
+            self.link_event(extension, value);
         }
         let mut effects = outcome.effects;
         for fired in &outcome.triggers {

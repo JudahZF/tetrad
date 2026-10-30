@@ -13,6 +13,8 @@ pub struct BluetoothView {
     pub name: Option<String>,
     /// Why Bluetooth does not run, or a step of its start, such as "Starting".
     pub status: Option<String>,
+    /// The PIN that the Tetrad app asks for, while Bluetooth runs.
+    pub pin: Option<String>,
     /// The phone or computer that is connected now: its name or address.
     pub host: Option<String>,
     /// The paired devices.

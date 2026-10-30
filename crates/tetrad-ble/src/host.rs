@@ -29,8 +29,11 @@ const MIDI_PARAMETERS: l2cap::Parameters = l2cap::Parameters {
     latency: 0,
     timeout: 600,
 };
-/// Fragments that may wait for controller buffers; past this, MIDI notifications drop.
-const MAX_QUEUED_FRAGMENTS: usize = 256;
+/// L2CAP packets that may wait for controller buffers; past this, MIDI notifications drop.
+const MAX_QUEUED_PACKETS: usize = 64;
+/// Tetrad Link bytes that may wait; past this, a Link message drops. A message to an empty
+/// queue always goes, however large (a support file, a tab page).
+const MAX_QUEUED_LINK_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -55,6 +58,9 @@ pub enum Command {
     SendMidi(Vec<u8>),
     /// Drop the bond with this address, and end its link.
     Forget(Address),
+    /// One Tetrad Link message for the host's app ([`crate::link`]) on the connection of a
+    /// [`Event::HostSecured`]. It waits behind MIDI, and drops when that connection ended.
+    LinkSend { connection: u32, message: Vec<u8> },
 }
 
 /// What the host tells the device.
@@ -90,12 +96,26 @@ pub enum Event {
     Midi(Vec<u8>),
     /// Whether a host listens for MIDI notifications on an encrypted link.
     MidiListening(bool),
+    /// The host's link is encrypted. `paired`: by a pairing on this link (new keys); else by
+    /// the saved bond's key. `address` is the host's identity when Tetrad knows it.
+    /// `connection` names this link for [`Command::LinkSend`]; never reused.
+    HostSecured {
+        address: Address,
+        paired: bool,
+        connection: u32,
+    },
+    /// Whether the host's Tetrad app listens for Link replies on an encrypted link.
+    LinkListening(bool),
+    /// One Tetrad Link message from the host's app ([`crate::link`]).
+    LinkMessage(Vec<u8>),
     /// Something for the log.
     Notice(String),
 }
 
 struct Link {
     role: Role,
+    /// Never reused, unlike the handle ([`Event::HostSecured`]).
+    connection: u32,
     peer: (u8, Address),
     /// The bonded identity of the peer, when Tetrad knows it.
     identity: Option<Address>,
@@ -106,6 +126,7 @@ struct Link {
     notify: u8,
     pairing: Option<(Pairing, Duration)>,
     midi: crate::midi::Decoder,
+    link: crate::link::Reassembler,
     /// When to ask for MIDI connection parameters.
     parameters_at: Option<Duration>,
     /// A host link must be encrypted by then ([`SECURE_TIMEOUT`]).
@@ -113,6 +134,7 @@ struct Link {
     /// A GAP name read is out (one ATT request at a time on Tetrad's client side).
     asking_name: bool,
     listening: bool,
+    link_listening: bool,
 }
 
 impl Link {
@@ -145,13 +167,25 @@ pub struct Host {
     acl_free: u16,
     acl_total: u16,
     in_flight: BTreeMap<u16, u16>,
-    acl: VecDeque<(u16, Vec<u8>)>,
+    /// L2CAP packets to send, each as its ACL fragments.
+    acl: VecDeque<Outgoing>,
+    /// Tetrad Link replies: they go when [`Self::acl`] is empty, so MIDI never waits behind a
+    /// file.
+    bulk: VecDeque<Outgoing>,
+    /// The packet that is going out. Its fragments must follow each other on the link, so the
+    /// queues are only read between packets.
+    sending: Option<Outgoing>,
     links: BTreeMap<u16, Link>,
     bonds: Vec<Bond>,
     now: Duration,
     signal_id: u8,
     dropped_midi: u64,
+    /// The connection number of the next link.
+    next_connection: u32,
 }
+
+/// One L2CAP packet: its link handle and its ACL fragments, in order.
+type Outgoing = (u16, VecDeque<Vec<u8>>);
 
 fn put_u16(out: &mut Vec<u8>, value: u16) {
     out.extend_from_slice(&value.to_le_bytes());
@@ -183,11 +217,14 @@ impl Host {
             acl_total: 0,
             in_flight: BTreeMap::new(),
             acl: VecDeque::new(),
+            bulk: VecDeque::new(),
+            sending: None,
             links: BTreeMap::new(),
             bonds,
             now: Duration::ZERO,
             signal_id: 0,
             dropped_midi: 0,
+            next_connection: 0,
         };
         // Disconnection, encryption change, hardware error, data buffer overflow, key refresh
         // and LE meta events.
@@ -302,6 +339,10 @@ impl Host {
             Command::SetPairable(on) => self.set_pairable(on),
             Command::SendMidi(message) => self.send_midi(&message),
             Command::Forget(address) => self.forget(&address),
+            Command::LinkSend {
+                connection,
+                message,
+            } => self.send_link(connection, &message),
         }
     }
 
@@ -347,7 +388,7 @@ impl Host {
             .map(|(h, link)| (*h, link.bearer.clone()))
             .collect();
         for (link, bearer) in targets {
-            if self.acl.len() > MAX_QUEUED_FRAGMENTS {
+            if self.acl.len() > MAX_QUEUED_PACKETS {
                 self.dropped_midi += 1;
                 if self.dropped_midi.is_power_of_two() {
                     let dropped = self.dropped_midi;
@@ -362,6 +403,35 @@ impl Host {
                 self.send(link, l2cap::ATT, &pdu);
             }
         }
+    }
+
+    /// Sends a Tetrad Link message on one connection, when its app listens on the Reply
+    /// characteristic. A message for an ended connection never reaches the next host.
+    fn send_link(&mut self, connection: u32, message: &[u8]) {
+        let Some(handle) = self.db.handle(Slot::LinkReply) else {
+            return;
+        };
+        let Some((link, bearer)) = (self.links.iter())
+            .find(|(_, link)| link.connection == connection && link.listens(Notify::Link))
+            .map(|(h, link)| (*h, link.bearer.clone()))
+        else {
+            self.notice("a Tetrad Link reply with no app listening".into());
+            return;
+        };
+        let queued: usize = (self.bulk.iter())
+            .flat_map(|(_, fragments)| fragments)
+            .map(Vec::len)
+            .sum();
+        if queued > 0 && queued + message.len() > MAX_QUEUED_LINK_BYTES {
+            self.notice("the Tetrad Link is behind: a message dropped".into());
+            return;
+        }
+        for frame in crate::link::frames(message, usize::from(bearer.mtu) - 3) {
+            let pdu = att::notification(&bearer, handle, &frame);
+            let packet = self.fragments(link, l2cap::ATT, &pdu);
+            self.bulk.push_back(packet);
+        }
+        self.pump();
     }
 
     // ---- HCI ----
@@ -548,10 +618,13 @@ impl Host {
         let notify = identity
             .and_then(|address| self.bonds.iter().find(|bond| bond.address == address))
             .map_or(0, |bond| bond.notify);
+        let connection = self.next_connection;
+        self.next_connection = self.next_connection.wrapping_add(1);
         self.links.insert(
             handle,
             Link {
                 role,
+                connection,
                 peer: (peer_type, peer),
                 identity,
                 encrypted: false,
@@ -560,10 +633,12 @@ impl Host {
                 notify,
                 pairing: None,
                 midi: crate::midi::Decoder::default(),
+                link: crate::link::Reassembler::default(),
                 parameters_at: (role == Role::Peripheral).then_some(self.now + PARAMETER_DELAY),
                 secure_by: (role == Role::Peripheral).then_some(self.now + SECURE_TIMEOUT),
                 asking_name: false,
                 listening: false,
+                link_listening: false,
             },
         );
         self.in_flight.insert(handle, 0);
@@ -580,6 +655,10 @@ impl Host {
         let sent = self.in_flight.remove(&handle).unwrap_or(0);
         self.acl_free = (self.acl_free + sent).min(self.acl_total);
         self.acl.retain(|(h, _)| *h != handle);
+        self.bulk.retain(|(h, _)| *h != handle);
+        if self.sending.as_ref().is_some_and(|(h, _)| *h == handle) {
+            self.sending = None;
+        }
         if let Some(link) = self.links.remove(&handle) {
             if link.pairing.is_some() {
                 self.events.push_back(Event::PairingFailed {
@@ -589,6 +668,9 @@ impl Host {
             }
             if link.listening {
                 self.events.push_back(Event::MidiListening(false));
+            }
+            if link.link_listening {
+                self.events.push_back(Event::LinkListening(false));
             }
             if link.role == Role::Peripheral {
                 self.events.push_back(Event::HostDisconnected {
@@ -675,7 +757,26 @@ impl Host {
             self.update_bond(identity, |bond, digest| bond.digest = digest);
         }
         self.refresh_listening(handle);
+        self.secured(handle, false);
         self.ask_name(handle);
+    }
+
+    /// Tells the device that a host's link is encrypted, and by what.
+    fn secured(&mut self, handle: u16, paired: bool) {
+        let Some(link) = self
+            .links
+            .get(&handle)
+            .filter(|l| l.role == Role::Peripheral)
+        else {
+            return;
+        };
+        let address = link.identity.unwrap_or(link.peer.1);
+        let connection = link.connection;
+        self.events.push_back(Event::HostSecured {
+            address,
+            paired,
+            connection,
+        });
     }
 
     fn update_bond(&mut self, identity: Option<Address>, change: impl FnOnce(&mut Bond, u32)) {
@@ -698,6 +799,11 @@ impl Host {
         if listening != link.listening {
             link.listening = listening;
             self.events.push_back(Event::MidiListening(listening));
+        }
+        let link_listening = link.listens(Notify::Link);
+        if link_listening != link.link_listening {
+            link.link_listening = link_listening;
+            self.events.push_back(Event::LinkListening(link_listening));
         }
     }
 
@@ -724,23 +830,39 @@ impl Host {
 
     // ---- ACL, L2CAP ----
 
-    fn send(&mut self, handle: u16, channel: u16, payload: &[u8]) {
+    fn fragments(&self, handle: u16, channel: u16, payload: &[u8]) -> Outgoing {
         let frame = l2cap::frame(channel, payload);
-        for (i, fragment) in frame.chunks(self.acl_size).enumerate() {
-            self.acl
-                .push_back((handle, hci::acl(handle, i == 0, fragment)));
-        }
+        let fragments = (frame.chunks(self.acl_size).enumerate())
+            .map(|(i, fragment)| hci::acl(handle, i == 0, fragment))
+            .collect();
+        (handle, fragments)
+    }
+
+    fn send(&mut self, handle: u16, channel: u16, payload: &[u8]) {
+        let packet = self.fragments(handle, channel, payload);
+        self.acl.push_back(packet);
         self.pump();
     }
 
     fn pump(&mut self) {
         while self.acl_free > 0 {
-            let Some((handle, packet)) = self.acl.pop_front() else {
+            if self
+                .sending
+                .as_ref()
+                .is_none_or(|(_, rest)| rest.is_empty())
+            {
+                self.sending = self.acl.pop_front().or_else(|| self.bulk.pop_front());
+            }
+            let Some((handle, rest)) = self.sending.as_mut() else {
                 break;
             };
+            let Some(fragment) = rest.pop_front() else {
+                break;
+            };
+            let handle = *handle;
             self.acl_free -= 1;
             *self.in_flight.entry(handle).or_default() += 1;
-            self.output.extend_from_slice(&packet);
+            self.output.extend_from_slice(&fragment);
         }
     }
 
@@ -960,6 +1082,7 @@ impl Host {
         if !keys.bond {
             self.notice("a host paired without a bond".into());
             self.refresh_listening(handle);
+            self.secured(handle, true);
             return;
         }
         let (address_type, address) = keys.peer_identity.unwrap_or(link.peer);
@@ -980,11 +1103,13 @@ impl Host {
             name: None,
             notify: link.notify,
             digest: self.digest,
+            app: false,
         };
         self.bonds.retain(|known| known.address != address);
         self.bonds.push(bond.clone());
         self.events.push_back(Event::Bonded(bond));
         self.refresh_listening(handle);
+        self.secured(handle, true);
         self.ask_name(handle);
     }
 }
@@ -1028,6 +1153,14 @@ impl att::Store for LinkStore<'_> {
             Slot::Midi => {
                 for message in self.link.midi.packet(value) {
                     self.events.push_back(Event::Midi(message));
+                }
+                Ok(())
+            }
+            Slot::LinkRequest => {
+                match self.link.link.push(value) {
+                    Ok(Some(message)) => self.events.push_back(Event::LinkMessage(message)),
+                    Ok(None) => {}
+                    Err(error) => self.events.push_back(Event::Notice(error.to_string())),
                 }
                 Ok(())
             }

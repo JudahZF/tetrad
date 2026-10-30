@@ -8,7 +8,8 @@
 //! `footswitchMode`; a manifest of an older API cannot use it. API 5 adds the leaky ReLU network
 //! activation; a host before API 5 refuses it, so it skips API 5 packages. API 6 adds the `remote`
 //! capability: a tab on the Remote page. API 7 adds `app`: a native program that the package
-//! brings and that takes the screen and the footswitches while it runs.
+//! brings and that takes the screen and the footswitches while it runs. API 8 adds the `ble`
+//! capability: messages from the Tetrad app over Bluetooth, and events pushed to it.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ use serde_json::{Map, Value};
 use tetrad_theme::ThemeSpec;
 
 /// The newest extension API level this host runs.
-pub const API_VERSION: u32 = 7;
+pub const API_VERSION: u32 = 8;
 /// The oldest extension API level this host still runs.
 pub const MIN_API_VERSION: u32 = 1;
 
@@ -138,6 +139,9 @@ pub enum Capability {
     /// A tab on the Remote page (API 6): a page that the package holds, and a handler for its
     /// messages (docs/remote.md, "Extension tabs").
     Remote,
+    /// Messages from the Tetrad app over Bluetooth, and events pushed to it (API 8,
+    /// docs/bluetooth.md).
+    Ble,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -296,6 +300,9 @@ impl Manifest {
         }
         if self.api < 6 && (self.remote.is_some() || self.has(Capability::Remote)) {
             return Err(ManifestError::NeedsApi(6, "remote"));
+        }
+        if self.api < 8 && self.has(Capability::Ble) {
+            return Err(ManifestError::NeedsApi(8, "ble"));
         }
         match &self.remote {
             Some(tab) if self.has(Capability::Remote) && label_ok(&tab.title, MAX_TAB_TITLE) => {}

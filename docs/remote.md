@@ -142,7 +142,9 @@ using.
   takes the backup as its own.
 - One backup at a time: a new upload replaces the one that waits, and a download is refused
   while a received backup waits (discard it first) or while another backup runs (cloud, Cortex
-  Control or Remote). Turning Remote off or on removes the backup files of this page.
+  Control or Remote). Turning Remote off or on removes the backup files of this page, unless
+  Bluetooth runs: the Tetrad app uses the same backup
+  ([bluetooth.md](bluetooth.md#the-tetrad-app-link)).
 
 
 ## Themes

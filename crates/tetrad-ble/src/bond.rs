@@ -47,6 +47,9 @@ pub struct Bond {
     /// The attribute table digest that the host saw ([`crate::att::Database::digest`]).
     #[serde(default)]
     pub digest: u32,
+    /// A host whose Tetrad app gave the Bluetooth PIN. The device sets it; the host keeps it.
+    #[serde(default)]
+    pub app: bool,
 }
 
 impl Bond {
@@ -160,6 +163,7 @@ mod tests {
             name: Some("zevlor".into()),
             notify: 2,
             digest: 9,
+            app: true,
         };
         let json = serde_json::to_string(&bond).unwrap();
         assert!(json.contains("\"AC:36:1B:FA:A0:2B\""), "{json}");

@@ -15,6 +15,7 @@
     blocks: new Map(),
     usb: undefined,
     remote: undefined,
+    ble: undefined,
   };
   const registrations = {
     midiChannels: [],
@@ -24,6 +25,7 @@
     blocks: [],
     usb: false,
     remote: false,
+    ble: false,
   };
   let activating = true;
   let disposer;
@@ -63,6 +65,7 @@
       }),
       ui: Object.freeze({ setStatus: (lines) => c("ui.setStatus", { lines }) }),
       triggers: Object.freeze({ fire: (firing) => c("triggers.fire", firing) }),
+      ble: Object.freeze({ notify: (value) => c("ble.notify", { value }) }),
     });
   };
 
@@ -407,6 +410,14 @@
           registrations.remote = true;
         },
       }),
+      ble: Object.freeze({
+        onMessage(handler) {
+          duringActivation("ble.onMessage");
+          if (handlers.ble) throw new Error("ble.onMessage is already registered");
+          handlers.ble = fn("handler", handler);
+          registrations.ble = true;
+        },
+      }),
       // The host checks the same rules again (`TriggerSpec::is_valid`).
       triggers: Object.freeze({
         declare(trigger) {
@@ -457,7 +468,7 @@
   globalThis.__tetrad_dispatch = (scopeId, eventJson) => {
     const event = JSON.parse(eventJson);
     const scope = makeScope(scopeId);
-    // The JSON text of a USB or Remote handler's return value: the reply to the computer.
+    // The JSON text of a USB, Remote or Bluetooth handler's return value: the reply.
     let result = null;
     let run;
     switch (event.kind) {
@@ -493,8 +504,9 @@
           : [];
         break;
       }
-      case "remote": {
-        const h = handlers.remote;
+      case "remote":
+      case "ble": {
+        const h = handlers[event.kind];
         run = h
           ? [
               async () => {
