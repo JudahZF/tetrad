@@ -153,6 +153,11 @@ fn remote_reply(id: u64, answer: &Reply) -> Vec<u8> {
 impl<P: Platform> Device<P> {
     /// One message of the app.
     pub(super) fn on_link_message(&mut self, message: &[u8], now: Duration) {
+        // Before the device saw the link secured (a pairing still sends its keys), no reply can
+        // go out: the request does nothing, and the app sends it again.
+        if self.bridges.bluetooth.link.connection.is_none() {
+            return;
+        }
         let (request, body) = match tetrad_usb::decode::<LinkRequest>(message) {
             Ok(decoded) => decoded,
             Err(problem) => {

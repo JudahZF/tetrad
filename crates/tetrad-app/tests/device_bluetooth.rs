@@ -144,6 +144,39 @@ fn a_new_pairing_with_a_known_address_must_give_the_pin_again() {
 }
 
 #[test]
+fn a_request_during_pairing_is_not_run() {
+    let (mut device, _files) = boot();
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: false,
+        },
+    );
+    // Encryption is on but the keys are still on their way: no reply could go out, so the
+    // PIN must not count either.
+    let pin = pin(&device);
+    let auth = json!({"id": 1, "op": "auth", "pin": pin});
+    push(
+        &mut device,
+        Ble::LinkMessage(tetrad_usb::encode(&auth, &[])),
+    );
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: true,
+            connection: 0,
+        },
+    );
+    let files = json!({"id": 2, "op": "files"});
+    assert_eq!(
+        ask(&mut device, files)["error"],
+        "Give the PIN first (auth)"
+    );
+}
+
+#[test]
 fn pairing_again_after_a_remembered_pin_must_give_the_pin_again() {
     let (mut device, files) = boot();
     push(

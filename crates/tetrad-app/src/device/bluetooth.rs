@@ -286,7 +286,7 @@ impl<P: Platform> Device<P> {
         bluetooth.name = None;
         bluetooth.host = None;
         bluetooth.listening = false;
-        bluetooth.link.authorized = false;
+        bluetooth.link.reset();
         bluetooth.status = status;
         self.sync_bluetooth_midi();
         self.sync_app_listening();

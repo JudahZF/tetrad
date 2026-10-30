@@ -95,7 +95,8 @@ wrong PIN makes the next try wait 1 second; after 10 wrong PINs the unit makes a
 | Message | The format of the USB link ([usb.md](usb.md#messages)): the length of a JSON header (u32, little-endian), the JSON header, then a binary body. At most 64 KiB from the app. |
 
 Each request has an `id` (a number) and an `op`; its reply has the same `id`, and an `error`
-field when it was refused. The unit answers one request at a time, in order.
+field when it was refused. The unit answers one request at a time, in order. A request sent
+while a pairing still runs gets no reply and does nothing: send it again when the pairing is done.
 
 | `op` | Fields | Body | Reply |
 | --- | --- | --- | --- |
