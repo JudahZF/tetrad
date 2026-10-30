@@ -36,7 +36,7 @@ Open the editor with **EDIT** in Gig View, or with **EDIT** under "Footswitch mo
 extension's page.
 
 <p align="center">
-  <img src="images/custom-edit.png" width="600" alt="The editor of the Custom mode: four page tabs, the ten switches of page 1 and the settings of switch D">
+  <img src="images/custom-edit.png" width="600" alt="The editor of the Custom mode: four page tabs, PRESS, DOUBLE and COMBO, the ten switches of page 1 and the settings of switch D">
 </p>
 
 1. Tap a page tab (**PAGE 1** to **PAGE 4**).
@@ -63,6 +63,40 @@ extension's page.
 5. **Colour**: the colour of the switch LED and its Gig View tile. **A** (Auto) takes a colour
    from the action, such as the scene colour or the block colour.
 6. The trash button clears the switch.
+
+### Double press and combos
+
+A switch can do a second action when you press it two times, and two switches next to each
+other can do a third action when you press them together. **PRESS**, **DOUBLE** and **COMBO**
+(right of the page tabs) choose which action of the selected switch the editor shows. Set it
+as you set the press: Action, Label and the action's setting. The colour belongs to the switch.
+
+- **DOUBLE**: runs when you press the switch two times within the double press time (300 ms
+  unless you change it). Its press does not run. The tile shows **2×**.
+- **COMBO**: runs when you press two adjacent switches within the combo time of each other
+  (80 ms unless you change it): side by side
+  in a row (such as C and D, or D and Down) or one above the other (such as D and H). Their
+  presses do not run. In COMBO, tap a bright tile to choose the other switch. A **+** between two
+  tiles shows a combo.
+
+A switch with a double press waits up to the double press time before its press runs, so that
+a second press can come. A switch in a combo waits up to the combo time. A switch with neither
+runs at once, as before.
+
+To change the times, open Settings → Device → **Double Press & Combo**. Double Press is 200,
+250, 300, 400 or 500 ms; Combo is 50, 80, 120 or 160 ms. A longer time is easier to hit, and a
+shorter one makes the press of the switch come sooner.
+When you hold a switch that waits, its press runs at the end of the wait and stays on until you
+release the switch, so Momentary still works.
+
+Only the footswitches do double presses and combos. MIDI CC#35 to 42 press the switches too: two
+messages for one switch within the double press time are a double press. They cannot make a
+combo, because each message presses and releases its switch at once. A Gig View tap and the
+**Press** actions of Mappings run the press at once. A page change drops a press that waits.
+
+The trash button clears the action that shows. In PRESS, it clears the whole switch, its double
+press too. COPY and MOVE take the whole switch (its press, double press and colour); combos
+stay where they are. COPY PAGE copies the combos of the page too.
 
 ### Copy and move switches
 
@@ -131,7 +165,8 @@ These actions do nothing while the Custom mode is off.
 - The ALL PRESETS switches: `/media/p4/tetrad/footswitch-modes/<repository>~<extension>.json`.
   When you remove the extension, the file stays, so a new install keeps your switches.
 - The layout of one preset: in the preset (a Tetrad field that stock CorOS keeps).
-- Whether the mode is on: `/media/p4/tetrad/footswitch-mode.json`.
+- Whether the mode is on, and the double press and combo times:
+  `/media/p4/tetrad/footswitch-mode.json`.
 
 Stock CorOS does not read these files. Cortex Control and MIDI CC#47 see the stock mode under
 the Custom mode.

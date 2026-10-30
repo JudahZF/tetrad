@@ -205,6 +205,9 @@ pub enum Timer {
     Services,
     /// The pending TEMPO or UP/DOWN hold (`input::Input::hold_deadline`).
     FootswitchHold,
+    /// (O) A Custom mode press that waits for a double press or a combo
+    /// (`custom::CustomMode::deadline`).
+    CustomGesture,
     /// tetrad-ui clock ([`UI_TICK`]).
     UiTick,
     /// Neural Capture meter poll (`capture::Capture::meter_interval`).
@@ -1514,6 +1517,10 @@ impl<P: Platform> Device<P> {
             }
         }
         self.sync_driver_timer();
+        match self.state.custom.deadline() {
+            Some(at) => self.timers.insert(Timer::CustomGesture, at),
+            None => self.timers.remove(&Timer::CustomGesture),
+        };
         // Like the stock zero-interval sender timer, queued Control reports keep the loop awake.
         let control = &self.bridges.control;
         if !busy && !handled && !control.spreading() && !control.transmitting() {
@@ -2065,6 +2072,12 @@ impl<P: Platform> Device<P> {
                     now,
                 )?
             }
+            // A running program has the footswitches: a press that waited does not run in it.
+            Timer::CustomGesture if self.app.is_some() => {
+                self.state.custom.drop_waiting();
+                Vec::new()
+            }
+            Timer::CustomGesture => custom::expire(&mut self.state),
             Timer::FootswitchHold => {
                 let effects = self.bridges.input.on_hold_expired(&mut self.state, now);
                 self.sync_hold_timer();

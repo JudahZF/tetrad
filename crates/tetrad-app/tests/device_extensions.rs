@@ -1128,6 +1128,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         scope,
         page,
         slot,
+        gesture: tetrad_ui::Gesture::Press,
         edit,
     };
     let all = LayoutScope::Global;
@@ -1292,10 +1293,226 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         edit(all, 0, 9, SlotEdit::SetAction(SlotAction::PresetSlot(0))),
     );
     let view = custom::view(device.state()).unwrap();
-    let tap = &view.slots[0][9];
+    let tap = &view.slots[0].slots[9];
     assert_eq!(
         (tap.action.clone(), tap.label.as_str(), tap.detail.as_str()),
         (Some(SlotAction::LoadPreset), "Light", "Load preset")
+    );
+}
+
+/// Footswitch presses of a switch with a double press wait for a second press, and two
+/// adjacent switches pressed together run their combo instead of their presses.
+#[test]
+fn custom_mode_footswitches_run_double_presses_and_combos() {
+    use tetrad_app::device::Action;
+    use tetrad_hal::hal::Event as HalEvent;
+    use tetrad_hal::node::Element;
+    use tetrad_ui::{
+        BlockTarget, COMBO_PRESS, CustomCommand, DOUBLE_PRESS, Gesture, LayoutScope, SettingId,
+        SettingValue, SlotAction, SlotEdit, SystemAction,
+    };
+
+    let web = repository_of(
+        json!({
+            "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0",
+            "description": "Maps CC to gain.", "api": 4,
+            "footswitchMode": { "name": "Custom", "pages": 1 }
+        }),
+        None,
+    );
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let files = MemFiles::default();
+    let (mut device, media) = boot_over(media, web, files.clone());
+    install(&mut device);
+    pump(&mut device, "the provider", |d| {
+        d.state().custom.provider().is_some()
+    });
+    let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
+    let bypass = SlotEdit::SetAction(SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    });
+    for (slot, gesture, edit) in [
+        (0, Gesture::Press, scene(1)),
+        (0, Gesture::Double, scene(2)),
+        (0, Gesture::Combo(1), scene(3)),
+        (1, Gesture::Press, scene(0)),
+        (2, Gesture::Press, bypass.clone()),
+        (2, Gesture::Press, SlotEdit::SetMomentary(true)),
+        (2, Gesture::Double, scene(2)),
+        (6, Gesture::Press, bypass),
+        (6, Gesture::Press, SlotEdit::SetMomentary(true)),
+        (6, Gesture::Double, scene(2)),
+    ] {
+        device.push(Event::Custom(CustomCommand::Slot {
+            scope: LayoutScope::Global,
+            page: 0,
+            slot,
+            gesture,
+            edit,
+        }));
+        assert!(device.step().is_none());
+    }
+    for _ in 0..3 {
+        device.push(Event::Action(Action::CycleMode));
+        assert!(device.step().is_none());
+    }
+    assert!(device.state().performance.footswitch.custom);
+    let scene = |d: &Device<Sim>| {
+        let current = d.state().current.as_ref().unwrap();
+        current.deployment.scene().index()
+    };
+    // Edges by hardware switch (A–D are 0–3), pushed together, reach the device at one time.
+    let edges = |d: &mut Device<Sim>, edges: &[(u8, i32)]| {
+        for &(index, value) in edges {
+            let element = Element::all().nth(usize::from(index)).unwrap();
+            d.push(Event::Hal(HalEvent::Stomp { element, value }));
+        }
+        assert!(d.step().is_none());
+    };
+    let clock = |d: &Device<Sim>| {
+        use tetrad_dsp_host::session::Clock;
+        d.platform().clock.now()
+    };
+
+    // One tap of A: its press waits for a second press, then runs.
+    let tapped = clock(&device);
+    edges(&mut device, &[(0, 1), (0, 0)]);
+    assert_eq!(scene(&device), 0, "the press waits");
+    pump(&mut device, "the press after the wait", |d| scene(d) == 1);
+    assert!(clock(&device) >= tapped + DOUBLE_PRESS);
+    // Two taps of A: the double press; the press never runs.
+    edges(&mut device, &[(0, 1), (0, 0), (0, 1), (0, 0)]);
+    assert_eq!(scene(&device), 2);
+    // A and B together: the combo.
+    edges(&mut device, &[(0, 1), (1, 1)]);
+    assert_eq!(scene(&device), 3);
+    edges(&mut device, &[(1, 0), (0, 0)]);
+    // B alone: its press after the combo window.
+    let pressed = clock(&device);
+    edges(&mut device, &[(1, 1)]);
+    pump(&mut device, "B's press", |d| scene(d) == 0);
+    assert!(clock(&device) >= pressed + COMBO_PRESS);
+    edges(&mut device, &[(1, 0)]);
+    assert_eq!(device.state().custom.deadline(), None);
+
+    // A tap of C's momentary bypass that waited: the press and its release run together at the
+    // end of the wait, and the block ends where it started.
+    let bypassed = |d: &Device<Sim>| {
+        let current = d.state().current.as_ref().unwrap();
+        let site = Site::Slot(Slot {
+            row: Row::new(0).unwrap(),
+            column: Column::new(2).unwrap(),
+        });
+        let block = current.deployment.layout().instance(site).unwrap();
+        block.bypass.at(current.deployment.scene())
+    };
+    let before = bypassed(&device);
+    edges(&mut device, &[(2, 1), (2, 0)]);
+    pump(&mut device, "the tap after the wait", |d| {
+        d.state().custom.deadline().is_none()
+    });
+    for _ in 0..4 {
+        assert!(device.step().is_none());
+    }
+    assert_eq!(bypassed(&device), before);
+    // C and G (one block, both momentary) held together past the wait: their presses run one
+    // after the other, and their releases bring the block back.
+    // G is hardware switch 7 (hardware 4 is Down).
+    edges(&mut device, &[(2, 1), (7, 1)]);
+    pump(&mut device, "the held presses", |d| {
+        d.state().custom.deadline().is_none()
+    });
+    edges(&mut device, &[(2, 0)]);
+    edges(&mut device, &[(7, 0)]);
+    assert_eq!(bypassed(&device), before);
+
+    // Settings › Double Press & Combo: 500 ms. A's press waits that long, and the time is
+    // saved and read again after a restart.
+    let longest = SettingValue::Choice(4);
+    device.push(Event::Action(Action::ChangeSetting {
+        id: SettingId::DoublePressTime,
+        value: longest.clone(),
+    }));
+    assert!(device.step().is_none());
+    let tapped = clock(&device);
+    edges(&mut device, &[(0, 1), (0, 0)]);
+    pump(&mut device, "the press after 500 ms", |d| scene(d) == 1);
+    assert!(clock(&device) >= tapped + Duration::from_millis(500));
+    drop(device);
+    let (device, _media) = boot_over(media, Web::default(), files);
+    let settings = tetrad_app::device::custom::settings(&device.state().custom);
+    assert_eq!(settings[0], (SettingId::DoublePressTime, longest));
+}
+
+/// A Custom mode press that waits does not run once a program has the footswitches.
+#[test]
+fn a_waiting_custom_press_does_not_run_in_a_program() {
+    use tetrad_app::device::Action;
+    use tetrad_hal::hal::Event as HalEvent;
+    use tetrad_hal::node::Element;
+    use tetrad_ui::{
+        CustomCommand, Gesture, LayoutScope, SettingId, SettingValue, SlotAction, SlotEdit,
+        SystemAction,
+    };
+
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let manifest = json!({
+        "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0", "api": 7,
+        "footswitchMode": { "name": "Custom", "pages": 1 },
+        "app": {"label": "Play", "exec": "game", "args": []}
+    });
+    let files: [(&str, &[u8]); 1] = [("game", b"\x7fELF")];
+    let web = repository_of_files(manifest, None, None, &files);
+    let (mut device, _media) = boot(media, web);
+    install(&mut device);
+    pump(&mut device, "the provider", |d| {
+        d.state().custom.provider().is_some()
+    });
+    let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
+    for (gesture, edit) in [(Gesture::Press, scene(1)), (Gesture::Double, scene(2))] {
+        device.push(Event::Custom(CustomCommand::Slot {
+            scope: LayoutScope::Global,
+            page: 0,
+            slot: 0,
+            gesture,
+            edit,
+        }));
+        assert!(device.step().is_none());
+    }
+    device.push(Event::Action(Action::ChangeSetting {
+        id: SettingId::DoublePressTime,
+        value: SettingValue::Choice(4),
+    }));
+    device.push(Event::Action(Action::SetCustomMode(true)));
+    assert!(device.step().is_none());
+
+    // A tap of A waits 500 ms; the program starts before that.
+    let switch_a = Element::all().next().unwrap();
+    for value in [1, 0] {
+        device.push(Event::Hal(HalEvent::Stomp {
+            element: switch_a,
+            value,
+        }));
+    }
+    assert!(device.step().is_none());
+    assert!(
+        device.state().custom.deadline().is_some(),
+        "A's press waits"
+    );
+    let apps = device.platform().apps.clone();
+    device.push(Event::Extensions(ExtensionCommand::Launch {
+        key: KEY.into(),
+    }));
+    pump(&mut device, "the start", |_| apps.borrow().running);
+    pump(&mut device, "the end of the wait", |d| {
+        d.state().custom.deadline().is_none()
+    });
+    let current = device.state().current.as_ref().unwrap();
+    assert_eq!(
+        current.deployment.scene().index(),
+        0,
+        "A's press did not run"
     );
 }
 

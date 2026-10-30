@@ -36,6 +36,8 @@
 #footswitch .fs-tile.empty { background: var(--bg); border: 2px dashed var(--line); color: var(--muted); }
 #footswitch .fs-tile.sel { outline: 3px solid var(--accent); outline-offset: 2px; }
 #footswitch .fs-tile .name { position: absolute; top: 8px; left: 10px; font-size: 13px; font-weight: 700; color: var(--muted); }
+#footswitch .fs-tile .marks { position: absolute; top: 8px; right: 30px; font-size: 12px; font-weight: 700; color: var(--accent); }
+#footswitch .fs-runs button[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
 #footswitch .fs-tile .led { position: absolute; top: 10px; right: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--c); opacity: .35; }
 #footswitch .fs-tile.on .led { opacity: 1; box-shadow: 0 0 10px var(--c); }
 #footswitch .fs-tile.empty .led { display: none; }
@@ -71,7 +73,8 @@
 "use strict";
 // The Custom footswitch mode (docs/remote.md, docs/footswitch-modes.md): the editor of the unit
 // (EDIT in Gig View) on a big screen. Every command answers with the new view. Pages are
-// 0-based; slots 0..=7 are A–H, 8 Down and 9 Tap.
+// 0-based; slots 0..=7 are A–H, 8 Down and 9 Tap. A switch has a press, can have a double press,
+// and two adjacent switches can have a combo.
 {
   $("panes").append($("footswitch"));
   const NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"];
@@ -85,11 +88,23 @@
     pc: ["PC", ["Bank CC#0", "Bank CC#32", "Program"]],
   };
   const MAX_MESSAGES = 12;
+  /** Row and column of each slot on the unit. */
+  const PLACE = [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 1], [1, 2], [1, 3], [0, 4], [1, 4]];
+  /** Side by side in a row, or one directly above the other: the pairs that make a combo. */
+  const adjacent = (a, b) => {
+    const [[ra, ca], [rb, cb]] = [PLACE[a], PLACE[b]];
+    return (ra === rb && Math.abs(ca - cb) === 1) || (ca === cb && ra !== rb);
+  };
+  const neighbours = (slot) => ORDER.filter((other) => adjacent(slot, other));
+  const EMPTY = { action: null, label: "", customLabel: null, detail: "", swatch: null, engaged: false,
+    available: true, value: null, momentary: null, messages: [], double: null };
 
   let view = null;
   let scope = "global";
   let page = 0;
   let selected = null;
+  /** Which action of the selected switch shows: "press", "double", or the combo partner (0..=9). */
+  let gesture = "press";
   /** A kind chosen in the Action list before its target, and the setlist chosen for a preset:
       kept until another slot, layout or action is chosen. */
   let pendingKind = null;
@@ -156,7 +171,17 @@
     return null;
   }
 
-  const edit = (edit) => send({ op: "slot", scope, page, slot: selected, edit });
+  const gestureJson = () => (typeof gesture === "number" ? { combo: gesture } : gesture);
+  const edit = (edit) => send({ op: "slot", scope, page, slot: selected, gesture: gestureJson(), edit });
+  const comboOf = (data, a, b) => data.combos.find((c) => c.switches.includes(a) && c.switches.includes(b));
+  /** The action of the selected switch that shows, or an empty one. */
+  const binding = () => {
+    const data = layout()[page];
+    const slot = data.slots[selected];
+    if (gesture === "press") return slot;
+    if (gesture === "double") return slot.double || EMPTY;
+    return comboOf(data, selected, gesture) || EMPTY;
+  };
   const setAction = (action) => { pendingKind = setlist = null; return edit({ kind: "action", action }); };
   const unpick = () => { pendingKind = setlist = null; };
 
@@ -209,7 +234,7 @@
       }));
     }
     $("fs-pages").replaceChildren(...tabs);
-    $("fs-grid").replaceChildren(...ORDER.map((index) => tile(pages[page][index], index)));
+    $("fs-grid").replaceChildren(...ORDER.map((index) => tile(pages[page], index)));
     drawEditor();
   }
 
@@ -233,8 +258,12 @@
       }));
   }
 
-  function tile(slot, index) {
+  function tile(data, index) {
+    const slot = data.slots[index];
     const assigned = slot.action !== null;
+    const partners = data.combos.filter((c) => c.switches.includes(index))
+      .map((c) => (c.switches[0] === index ? c.switches[1] : c.switches[0]));
+    const marks = (slot.double ? "2×" : "") + partners.map((p) => " +" + NAMES[p]).join("");
     const node = el("button", {
       type: "button",
       className: "fs-tile" + (assigned ? "" : " empty") + (assigned && slot.engaged && slot.available ? " on" : "") +
@@ -242,12 +271,14 @@
       title: NAMES[index] + (assigned ? ": " + slot.label + " · " + slot.detail : ": empty"),
     },
     el("span", { className: "name", textContent: NAMES[index] }),
+    marks ? el("span", { className: "marks", textContent: marks.trim(), title: "Double press and combos" }) : null,
     el("span", { className: "led" }),
     el("strong", { textContent: assigned ? slot.label : "—" }),
     assigned ? el("small", { textContent: slot.detail }) : null);
     node.style.setProperty("--c", slot.colour);
     node.addEventListener("click", () => {
       selected = selected === index ? null : index;
+      gesture = "press";
       unpick();
       render(view, true);
     });
@@ -264,12 +295,31 @@
     const panel = $("fs-edit");
     panel.hidden = selected === null;
     if (panel.hidden) return panel.replaceChildren();
-    const slot = layout()[page][selected];
+    const data = layout()[page];
+    const slot = binding();
+    const press = gesture === "press";
     const kind = pendingKind !== null ? pendingKind : kindOf(slot.action);
+    const name = NAMES[selected];
+    const title = press ? "Switch " + name : gesture === "double" ? "Double " + name
+      : NAMES[Math.min(selected, gesture)] + " + " + NAMES[Math.max(selected, gesture)];
+    const runs = (value, text) => {
+      const node = button(text, "", () => { gesture = value; unpick(); drawEditor(); });
+      node.setAttribute("aria-pressed", String(gesture === value));
+      return node;
+    };
+    const wait = data.slots[selected].double ? "The press waits " + view.timing.double + " ms for a second press."
+      : data.combos.some((c) => c.switches.includes(selected)) ? "The press waits " + view.timing.combo + " ms for its combo partner." : "";
+    const hint = press ? wait : gesture === "double" ? "Runs when " + name + " is pressed twice within " + view.timing.double + " ms."
+      : "Runs when both switches are pressed within " + view.timing.combo + " ms of each other.";
     const parts = [
       el("div", { className: "fs-head" },
-        el("strong", { textContent: "Switch " + NAMES[selected] + " · Page " + (page + 1) + " · " + (scope === "global" ? "ALL PRESETS" : "THIS PRESET") }),
-        slot.action ? button("Clear", "danger", () => { unpick(); edit({ kind: "clear" }); }) : null),
+        el("strong", { textContent: title + " · Page " + (page + 1) + " · " + (scope === "global" ? "ALL PRESETS" : "THIS PRESET") }),
+        slot.action || (press && slot.double) ? button("Clear", "danger", () => { unpick(); edit({ kind: "clear" }); }) : null),
+      el("div", { className: "fs-row fs-runs" }, el("span", { textContent: "Runs on" }), el("div", {},
+        runs("press", "Press"), runs("double", "Double press" + (data.slots[selected].double ? " ●" : "")),
+        ...neighbours(selected).map((other) =>
+          runs(other, "Combo with " + NAMES[other] + (comboOf(data, selected, other) ? " ●" : ""))),
+        hint ? el("small", { textContent: hint }) : null)),
       slot.action && !slot.available ? el("p", { className: "failed", textContent: slot.detail }) : null,
       row("Action",
         select(KINDS.map(([value, text]) => option(value, text, value === "command" && !view.commands.length)), kind, (value) => {
@@ -285,7 +335,7 @@
       const label = el("input", { type: "text", maxLength: 16, value: slot.customLabel || "", placeholder: slot.customLabel ? "" : slot.label });
       label.addEventListener("change", () => edit({ kind: "label", label: label.value }));
       parts.push(row("Label", label, el("small", { textContent: "Empty: the name of the action" })));
-      parts.push(row("Colour", ...swatches(slot)));
+      if (press) parts.push(row("Colour", ...swatches(slot)));
     }
     if (slot.value !== null) {
       const shown = el("output", { textContent: slot.value + " %" });
@@ -300,7 +350,7 @@
       parts.push(row("Momentary", box, el("small", { textContent: "The block changes only while the switch is down" })));
     }
     if (slot.action && slot.action.kind === "sendMidi") parts.push(row("Messages", messages(slot.messages)));
-    if (slot.action) parts.push(row("Copy or swap", ...copyMove()));
+    if (press && (slot.action || slot.double)) parts.push(row("Copy or swap", ...copyMove()));
     panel.replaceChildren(...parts);
   }
 
@@ -435,7 +485,7 @@
       const group = el("optgroup", { label: "Page " + (p + 1) });
       for (const index of ORDER) {
         if (p === page && index === selected) continue;
-        const other = layout()[p][index];
+        const other = layout()[p].slots[index];
         group.append(option(p + "," + index, NAMES[index] + (other.action ? " · " + other.label : " · empty")));
       }
       options.push(group);
@@ -461,6 +511,7 @@
     disconnect() {
       view = null;
       selected = null;
+      gesture = "press";
       unpick();
       presets.clear();
       $("fs-none").hidden = true;

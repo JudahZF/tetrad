@@ -1098,9 +1098,9 @@ fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
         "the touch that caught the list presses nothing"
     );
     assert_eq!(ui.offset(list), at);
-    // The next touch is an ordinary one again.
+    // The next touch is an ordinary one again: on the last row, which the drags scrolled to.
     assert!(!ui.hit_regions().is_empty());
-    let page = Control::Setting(SettingControl::Page(SettingsPage::SceneBypass));
+    let page = Control::Setting(SettingControl::Page(SettingsPage::Midi));
     let (px, py) = center(&ui, page);
     ui.handle_input(InputEvent::PointerDown { x: px, y: py });
     assert_eq!(
