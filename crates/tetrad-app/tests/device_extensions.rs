@@ -1128,6 +1128,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         scope,
         page,
         slot,
+        gesture: tetrad_ui::Gesture::Press,
         edit,
     };
     let all = LayoutScope::Global;
@@ -1292,11 +1293,97 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         edit(all, 0, 9, SlotEdit::SetAction(SlotAction::PresetSlot(0))),
     );
     let view = custom::view(device.state()).unwrap();
-    let tap = &view.slots[0][9];
+    let tap = &view.slots[0].slots[9];
     assert_eq!(
         (tap.action.clone(), tap.label.as_str(), tap.detail.as_str()),
         (Some(SlotAction::LoadPreset), "Light", "Load preset")
     );
+}
+
+/// Footswitch presses of a switch with a double press wait for a second press, and two
+/// adjacent switches pressed together run their combo instead of their presses.
+#[test]
+fn custom_mode_footswitches_run_double_presses_and_combos() {
+    use tetrad_app::device::Action;
+    use tetrad_hal::hal::Event as HalEvent;
+    use tetrad_hal::node::Element;
+    use tetrad_ui::{
+        COMBO_PRESS, CustomCommand, DOUBLE_PRESS, Gesture, LayoutScope, SlotAction, SlotEdit,
+        SystemAction,
+    };
+
+    let web = repository_of(
+        json!({
+            "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0",
+            "description": "Maps CC to gain.", "api": 4,
+            "footswitchMode": { "name": "Custom", "pages": 1 }
+        }),
+        None,
+    );
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _media) = boot_over(media, web, MemFiles::default());
+    install(&mut device);
+    pump(&mut device, "the provider", |d| {
+        d.state().custom.provider().is_some()
+    });
+    let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
+    for (slot, gesture, edit) in [
+        (0, Gesture::Press, scene(1)),
+        (0, Gesture::Double, scene(2)),
+        (0, Gesture::Combo(1), scene(3)),
+        (1, Gesture::Press, scene(0)),
+    ] {
+        device.push(Event::Custom(CustomCommand::Slot {
+            scope: LayoutScope::Global,
+            page: 0,
+            slot,
+            gesture,
+            edit,
+        }));
+        assert!(device.step().is_none());
+    }
+    for _ in 0..3 {
+        device.push(Event::Action(Action::CycleMode));
+        assert!(device.step().is_none());
+    }
+    assert!(device.state().performance.footswitch.custom);
+    let scene = |d: &Device<Sim>| {
+        let current = d.state().current.as_ref().unwrap();
+        current.deployment.scene().index()
+    };
+    // Edges pushed together reach the device at one time.
+    let edges = |d: &mut Device<Sim>, edges: &[(u8, i32)]| {
+        for &(index, value) in edges {
+            let element = Element::all().nth(usize::from(index)).unwrap();
+            d.push(Event::Hal(HalEvent::Stomp { element, value }));
+        }
+        assert!(d.step().is_none());
+    };
+    let clock = |d: &Device<Sim>| {
+        use tetrad_dsp_host::session::Clock;
+        d.platform().clock.now()
+    };
+
+    // One tap of A: its press waits for a second press, then runs.
+    let tapped = clock(&device);
+    edges(&mut device, &[(0, 1), (0, 0)]);
+    assert_eq!(scene(&device), 0, "the press waits");
+    pump(&mut device, "the press after the wait", |d| scene(d) == 1);
+    assert!(clock(&device) >= tapped + DOUBLE_PRESS);
+    // Two taps of A: the double press; the press never runs.
+    edges(&mut device, &[(0, 1), (0, 0), (0, 1), (0, 0)]);
+    assert_eq!(scene(&device), 2);
+    // A and B together: the combo.
+    edges(&mut device, &[(0, 1), (1, 1)]);
+    assert_eq!(scene(&device), 3);
+    edges(&mut device, &[(1, 0), (0, 0)]);
+    // B alone: its press after the combo window.
+    let pressed = clock(&device);
+    edges(&mut device, &[(1, 1)]);
+    pump(&mut device, "B's press", |d| scene(d) == 0);
+    assert!(clock(&device) >= pressed + COMBO_PRESS);
+    edges(&mut device, &[(1, 0)]);
+    assert_eq!(device.state().custom.deadline(), None);
 }
 
 /// A program installs with its files and starts from its page with `{app}` resolved. While it

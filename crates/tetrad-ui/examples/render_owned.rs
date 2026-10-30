@@ -1078,6 +1078,10 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 "custom-copy" => {
                     activate(&mut ui, Control::Custom(CustomControl::Copy));
                 }
+                "custom-combo" => {
+                    let combo = Control::Custom(CustomControl::Gesture(Gesture::Combo(2)));
+                    activate(&mut ui, combo);
+                }
                 "custom-preset" => {
                     activate(
                         &mut ui,
@@ -3092,7 +3096,8 @@ fn extensions_fixture() -> ExtensionsView {
     }
 }
 
-/// A Custom footswitch mode with four pages; page 1 holds one action of each kind.
+/// A Custom footswitch mode with four pages; page 1 holds one action of each kind, a double
+/// press on D (the tuner) and the combo C + D (a preset).
 fn custom_fixture() -> Result<CustomModeView, UiError> {
     let slot = |label: &str, detail: &str, colour, engaged, action| CustomSlotView {
         action: Some(action),
@@ -3162,6 +3167,19 @@ fn custom_fixture() -> Result<CustomModeView, UiError> {
     first[3].momentary = Some(true);
     first[3].custom_label = Some("Delay".into());
     first[3].swatch = Some(4);
+    let tuner = SlotAction::System(SystemAction::Tuner);
+    let double = slot("Tuner", "Open and close", [0x87, 0xda, 0xff], false, tuner);
+    first[3].double = Some(Box::new(double));
+    let lead = CustomComboView {
+        switches: [2, 3],
+        binding: slot("Lead 4C", "Load preset", [0xff, 0x70, 0x00], false, {
+            SlotAction::LoadPreset
+        }),
+    };
+    let first = CustomPageView {
+        slots: first,
+        combos: vec![lead],
+    };
     Ok(CustomModeView {
         name: "Custom".into(),
         extension: "Custom Footswitch Mode".into(),

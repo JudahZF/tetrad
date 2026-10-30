@@ -208,9 +208,14 @@ fn title(target: MidiOutTarget) -> String {
         ),
         MidiOutTarget::Expression1 => "Expression pedal 1".into(),
         MidiOutTarget::Expression2 => "Expression pedal 2".into(),
-        MidiOutTarget::Slot { page, slot, .. } => format!(
-            "Switch {} · page {}",
-            SLOT_NAMES.get(usize::from(slot)).copied().unwrap_or("?"),
+        MidiOutTarget::Slot {
+            page,
+            slot,
+            gesture,
+            ..
+        } => format!(
+            "{} · page {}",
+            crate::gesture_name(slot, gesture),
             u16::from(page) + 1
         ),
     }
@@ -219,8 +224,13 @@ fn title(target: MidiOutTarget) -> String {
 /// The messages behind an editor target: a preset list, or a Custom mode slot's own.
 fn messages(ui: &UiState, target: MidiOutTarget) -> &[MidiOutMessage] {
     match target {
-        MidiOutTarget::Slot { scope, page, slot } => (ui.snapshot.custom.as_ref())
-            .and_then(|custom| custom.slot(scope, page, usize::from(slot)))
+        MidiOutTarget::Slot {
+            scope,
+            page,
+            slot,
+            gesture,
+        } => (ui.snapshot.custom.as_ref())
+            .and_then(|custom| custom.binding(scope, page, slot, gesture))
             .map_or(&[][..], |slot| &slot.messages),
         target => ui.snapshot.preset_midi.messages(target),
     }
@@ -486,11 +496,17 @@ impl UiState {
             _ => return Vec::new(),
         }
         match target {
-            MidiOutTarget::Slot { scope, page, slot } => {
+            MidiOutTarget::Slot {
+                scope,
+                page,
+                slot,
+                gesture,
+            } => {
                 vec![UiCommand::Custom(crate::CustomCommand::Slot {
                     scope,
                     page,
                     slot,
+                    gesture,
                     edit: crate::SlotEdit::SetMessages(messages),
                 })]
             }

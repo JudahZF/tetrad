@@ -11,12 +11,20 @@
 //! slot and a new provider release every held slot; a preset load drops the held momentary
 //! bypasses, which belong to the old preset's blocks.
 //!
+//! A switch can also have a double press, and two adjacent switches a combo. Footswitch presses
+//! (and MIDI CC#35..=42, which are footswitch edges) go through `gesture::Gestures`, which
+//! decides which of them runs; Gig View taps and Mappings presses run the press at once. A page change, leaving the mode, a preset load and a
+//! layout edit drop a press that still waits.
+//!
 //! The ALL PRESETS layout is one per extension installation, in [`LAYOUT_DIR`]; removing the
 //! extension keeps it. A preset can have its own layout (THIS PRESET) in the preset field
 //! [`TETRAD_FOOTSWITCH_FIELD`]; it plays instead while that preset is loaded, and its edits are
 //! preset edits that the preset saves. [`ACTIVE_FILE`] names the installation whose mode was on,
 //! so the mode comes back after a restart once the extension store is read.
 
+mod gesture;
+
+use std::collections::HashSet;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -24,10 +32,12 @@ use tetrad_core::performance::leds::{CustomLed, LedBlock, PALETTE, block_colour}
 use tetrad_engine::Site;
 use tetrad_preset::model::TETRAD_FOOTSWITCH_FIELD;
 use tetrad_ui::{
-    BlockTarget, CUSTOM_SLOTS, CommandChoice, CustomCommand, CustomModeView, CustomSlotView,
-    LayoutScope, MidiMessageKind, MidiOutMessage, PageStep, SLOT_NAMES, Screen, SlotAction,
-    SlotEdit, SystemAction,
+    BlockTarget, CUSTOM_SLOTS, CommandChoice, CustomComboView, CustomCommand, CustomModeView,
+    CustomPageView, CustomSlotView, Gesture, LayoutScope, MidiMessageKind, MidiOutMessage,
+    PageStep, SLOT_NAMES, Screen, SlotAction, SlotEdit, SystemAction, adjacent,
 };
+
+use self::gesture::{Fire, Gestures, Shape};
 
 use super::mappings::{self, StoredTarget, SystemDef};
 use super::preset::PresetEdit;
@@ -123,16 +133,14 @@ struct StoredMessage {
     values: [Option<u8>; 3],
 }
 
+/// One action with its settings: the press of a switch, its double press or a combo.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Slot {
+struct Binding {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     action: Option<StoredAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     label: Option<String>,
-    /// Index into the eight LED colours.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    colour: Option<u8>,
     /// The value of a parameter action, in percent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     value: Option<u8>,
@@ -142,7 +150,7 @@ struct Slot {
     messages: Vec<StoredMessage>,
 }
 
-impl Slot {
+impl Binding {
     fn valid(&self) -> bool {
         let label = (self.label.as_ref())
             .is_none_or(|label| (1..=MAX_LABEL).contains(&label.chars().count()));
@@ -155,15 +163,109 @@ impl Slot {
         };
         label
             && action
-            && self
-                .colour
-                .is_none_or(|colour| usize::from(colour) < PALETTE.len())
             && self.value.is_none_or(|value| value <= 100)
             && self.messages.len() <= MAX_MESSAGES
             && self.messages.iter().all(|message| {
                 (1..=16).contains(&message.channel)
                     && message.values.iter().flatten().all(|v| *v < 128)
             })
+    }
+}
+
+/// One switch: its press (stored flat, as before double presses), its colour and its double
+/// press.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Slot {
+    #[serde(flatten)]
+    press: Binding,
+    /// Index into the eight LED colours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    colour: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    double: Option<Binding>,
+}
+
+impl Slot {
+    fn valid(&self) -> bool {
+        self.press.valid()
+            && self
+                .colour
+                .is_none_or(|colour| usize::from(colour) < PALETTE.len())
+            && self.double.as_ref().is_none_or(Binding::valid)
+    }
+}
+
+/// Two adjacent switches pressed together.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Combo {
+    /// Lower first.
+    switches: [u8; 2],
+    #[serde(flatten)]
+    binding: Binding,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Page {
+    slots: [Slot; CUSTOM_SLOTS],
+    /// At most one per pair, each with an action.
+    combos: Vec<Combo>,
+}
+
+impl Page {
+    fn combo(&self, a: u8, b: u8) -> Option<&Combo> {
+        let pair = [a.min(b), a.max(b)];
+        self.combos.iter().find(|combo| combo.switches == pair)
+    }
+
+    /// The action `gesture` of `slot` runs; `None` without one (or with no such switch).
+    fn binding(&self, slot: u8, gesture: Gesture) -> Option<&Binding> {
+        let switch = self.slots.get(usize::from(slot))?;
+        match gesture {
+            Gesture::Press => Some(&switch.press),
+            Gesture::Double => switch.double.as_ref(),
+            Gesture::Combo(partner) => self.combo(slot, partner).map(|combo| &combo.binding),
+        }
+    }
+
+    /// The binding to edit; `create` makes a missing double press or combo.
+    fn binding_mut(&mut self, slot: usize, gesture: Gesture, create: bool) -> Option<&mut Binding> {
+        match gesture {
+            Gesture::Press => Some(&mut self.slots[slot].press),
+            Gesture::Double if create => Some(self.slots[slot].double.get_or_insert_default()),
+            Gesture::Double => self.slots[slot].double.as_mut(),
+            Gesture::Combo(partner) => {
+                let pair = [(slot as u8).min(partner), (slot as u8).max(partner)];
+                let at = self.combos.iter().position(|combo| combo.switches == pair);
+                let at = match at {
+                    Some(at) => at,
+                    None if create => {
+                        self.combos.push(Combo {
+                            switches: pair,
+                            binding: Binding::default(),
+                        });
+                        self.combos.len() - 1
+                    }
+                    None => return None,
+                };
+                Some(&mut self.combos[at].binding)
+            }
+        }
+    }
+
+    /// What each switch has beyond its press, for [`Gestures`].
+    fn shapes(&self) -> [Shape; CUSTOM_SLOTS] {
+        let mut shapes = std::array::from_fn(|index| Shape {
+            double: (self.slots[index].double.as_ref()).is_some_and(|d| d.action.is_some()),
+            partners: 0,
+        });
+        for combo in &self.combos {
+            let [a, b] = combo.switches.map(usize::from);
+            shapes[a].partners |= 1 << b;
+            shapes[b].partners |= 1 << a;
+        }
+        shapes
     }
 }
 
@@ -176,12 +278,23 @@ struct StoredEntry {
     slot_data: Slot,
 }
 
-/// [`Provider::layout_path`]: the assigned slots.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredCombo {
+    page: u8,
+    #[serde(flatten)]
+    combo: Combo,
+}
+
+/// [`Provider::layout_path`]: the assigned slots and the combos. A Tetrad without combos and
+/// double presses ignores those fields.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredLayout {
     format: u32,
     slots: Vec<StoredEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    combos: Vec<StoredCombo>,
 }
 
 /// [`ACTIVE_FILE`].
@@ -192,14 +305,14 @@ struct StoredActive {
     active: Option<String>,
 }
 
-type Page = [Slot; CUSTOM_SLOTS];
-
 /// A press that is down: what its release does.
 #[derive(Debug, Clone, PartialEq)]
 struct Held {
     origin: Origin,
     /// The page of the press: an edit of that page's slot ends it.
     page: u8,
+    /// A combo is held on its lower switch; the first release of its two switches ends it.
+    gesture: Gesture,
     release: Vec<Effect>,
     /// A momentary bypass: the release inverts this block's bypass as it is then, as a stock
     /// momentary release does, so overlapping presses of one block end where they started.
@@ -224,8 +337,11 @@ pub struct CustomMode {
     preset_revision: Option<u64>,
     page: u8,
     held: [Option<Held>; CUSTOM_SLOTS],
-    /// CC Toggle state of each slot's messages: the next send is the low value.
-    toggled: [[bool; CUSTOM_SLOTS]; PAGES],
+    /// Footswitch presses that wait for a second press or a combo partner.
+    gestures: Gestures,
+    /// (page, slot, gesture) whose CC Toggle messages send the low value next. A combo is
+    /// keyed on its lower switch.
+    toggled: HashSet<(u8, u8, Gesture)>,
     last_tap: Option<Duration>,
     /// Commands of the running extensions, for the Command action.
     commands: Vec<CommandChoice>,
@@ -288,7 +404,12 @@ impl CustomMode {
 
     /// A slot of the playing layout.
     fn slot(&self, page: u8, slot: usize) -> Option<&Slot> {
-        self.playing().get(usize::from(page))?.get(slot)
+        self.playing().get(usize::from(page))?.slots.get(slot)
+    }
+
+    /// When a waiting footswitch press is due: call [`expire`] then.
+    pub fn deadline(&self) -> Option<Duration> {
+        self.gestures.deadline()
     }
 }
 
@@ -296,9 +417,9 @@ impl CustomMode {
 fn encode(layout: &[Page]) -> Vec<u8> {
     let slots = (0..)
         .zip(layout)
-        .flat_map(|(page, slots)| {
+        .flat_map(|(page, data)| {
             (0..)
-                .zip(slots)
+                .zip(&data.slots)
                 .filter(|(_, data)| **data != Slot::default())
                 .map(move |(slot, data)| StoredEntry {
                     page,
@@ -307,9 +428,19 @@ fn encode(layout: &[Page]) -> Vec<u8> {
                 })
         })
         .collect();
+    let combos = (0..)
+        .zip(layout)
+        .flat_map(|(page, data)| {
+            (data.combos.iter()).map(move |combo| StoredCombo {
+                page,
+                combo: combo.clone(),
+            })
+        })
+        .collect();
     serde_json::to_vec_pretty(&StoredLayout {
         format: FORMAT,
         slots,
+        combos,
     })
     .expect("a layout encodes")
 }
@@ -328,9 +459,18 @@ fn decode(bytes: &[u8]) -> Result<(Vec<Page>, usize), String> {
     let mut dropped = 0;
     for entry in stored.slots {
         let target = (layout.get_mut(usize::from(entry.page)))
-            .and_then(|page| page.get_mut(usize::from(entry.slot)));
+            .and_then(|page| page.slots.get_mut(usize::from(entry.slot)));
         match target {
             Some(slot) if entry.slot_data.valid() => *slot = entry.slot_data,
+            _ => dropped += 1,
+        }
+    }
+    for StoredCombo { page, mut combo } in stored.combos {
+        combo.switches.sort_unstable();
+        let [a, b] = combo.switches;
+        let valid = adjacent(a, b) && combo.binding.action.is_some() && combo.binding.valid();
+        match layout.get_mut(usize::from(page)) {
+            Some(page) if valid && page.combo(a, b).is_none() => page.combos.push(combo),
             _ => dropped += 1,
         }
     }
@@ -474,8 +614,9 @@ fn enter(state: &mut State) -> Vec<Effect> {
     vec![Effect::Present]
 }
 
-/// The releases owed by every held slot. `run` false drops them.
+/// The releases owed by every held slot. `run` false drops them. Waiting presses go.
 fn release_all(state: &mut State, run: bool) -> Vec<Effect> {
+    state.custom.gestures.clear();
     let held: Vec<Held> = (state.custom.held.iter_mut())
         .filter_map(Option::take)
         .collect();
@@ -536,6 +677,7 @@ pub fn preset_loaded(state: &mut State) {
         held.invert = None;
     }
     state.custom.toggled = Default::default();
+    state.custom.gestures.clear();
 }
 
 pub fn turn(state: &mut State, step: PageStep) -> Vec<Effect> {
@@ -546,6 +688,7 @@ pub fn turn(state: &mut State, step: PageStep) -> Vec<Effect> {
         return Vec::new();
     }
     let page = state.custom.page;
+    state.custom.gestures.clear();
     state.custom.page = match step {
         PageStep::Next => (page + 1) % pages,
         PageStep::Previous => (page + pages - 1) % pages,
@@ -557,51 +700,108 @@ pub fn turn(state: &mut State, step: PageStep) -> Vec<Effect> {
 
 // ---- presses --------------------------------------------------------------------------------
 
-/// A press or release of slot 0..=9 of the current page.
+/// A press or release of slot 0..=9 of the current page. Footswitch presses can wait for a
+/// double press or a combo; the others run the press.
 pub fn slot(state: &mut State, slot: u8, pressed: bool, origin: Origin) -> Vec<Effect> {
     sync(state);
-    let index = usize::from(slot);
-    if index >= CUSTOM_SLOTS || !state.performance.footswitch.custom {
+    if usize::from(slot) >= CUSTOM_SLOTS || !state.performance.footswitch.custom {
         return Vec::new();
     }
-    if !pressed {
-        return match state.custom.held[index].take_if(|held| held.origin == origin) {
-            Some(held) => {
-                let mut effects = finish(state, vec![held]);
-                effects.push(Effect::Present);
-                effects
-            }
-            None => Vec::new(),
+    let fired = match (origin, pressed) {
+        (Origin::Footswitch, _) => {
+            let shapes = shapes(state);
+            (state.custom.gestures).edge(slot, pressed, state.now, &shapes)
+        }
+        (_, true) => vec![Fire::Down {
+            slot,
+            gesture: Gesture::Press,
+        }],
+        (_, false) => vec![Fire::Up(slot)],
+    };
+    fire(state, fired, origin)
+}
+
+/// The footswitch presses whose wait ended ([`CustomMode::deadline`]).
+pub fn expire(state: &mut State) -> Vec<Effect> {
+    sync(state);
+    if !state.performance.footswitch.custom {
+        state.custom.gestures.clear();
+        return Vec::new();
+    }
+    let shapes = shapes(state);
+    let fired = state.custom.gestures.expire(state.now, &shapes);
+    fire(state, fired, Origin::Footswitch)
+}
+
+/// What the switches of the current page of the playing layout have beyond their press.
+fn shapes(state: &State) -> [Shape; CUSTOM_SLOTS] {
+    let custom = &state.custom;
+    (custom.playing().get(usize::from(custom.page))).map_or_else(Default::default, Page::shapes)
+}
+
+fn fire(state: &mut State, fired: Vec<Fire>, origin: Origin) -> Vec<Effect> {
+    let mut effects = Vec::new();
+    let mut changed = false;
+    for fire in fired {
+        let ran = match fire {
+            Fire::Down { slot, gesture } => start(state, slot, gesture, origin),
+            Fire::Up(slot) => end(state, slot, origin),
         };
+        if let Some(ran) = ran {
+            effects.extend(ran);
+            changed = true;
+        }
     }
+    if changed {
+        effects.push(Effect::Present);
+    }
+    effects
+}
+
+/// Starts the `gesture` action of `slot` on the current page; `None` while the switch is held
+/// or the action is gone.
+fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Option<Vec<Effect>> {
+    let index = usize::from(slot);
     if state.custom.held[index].is_some() {
-        return Vec::new();
+        return None;
     }
     let page = state.custom.page;
-    let Some(data) = state.custom.slot(page, index).cloned() else {
-        return Vec::new();
-    };
-    let (mut effects, release, invert) = match &data.action {
+    let binding = (state.custom.playing().get(usize::from(page)))
+        .and_then(|data| data.binding(slot, gesture))?
+        .clone();
+    let (effects, release, invert) = match &binding.action {
         None => (Vec::new(), Vec::new(), None),
-        Some(action) => run(state, page, index, &data, action),
+        Some(action) => run(state, (page, slot, gesture), &binding, action),
     };
     state.custom.held[index] = Some(Held {
         origin,
         page,
+        gesture,
         release,
         invert,
     });
-    effects.push(Effect::Present);
-    effects
+    Some(effects)
 }
 
-/// The press effects of one slot action, its release effects and the block a momentary
-/// release inverts.
+/// Ends what `slot` holds: its own press, or a combo held on its partner.
+fn end(state: &mut State, slot: u8, origin: Origin) -> Option<Vec<Effect>> {
+    let held = &mut state.custom.held;
+    let at = (0..CUSTOM_SLOTS).find(|&index| {
+        held[index].as_ref().is_some_and(|held| {
+            held.origin == origin
+                && (index == usize::from(slot) || held.gesture == Gesture::Combo(slot))
+        })
+    })?;
+    let held = held[at].take()?;
+    Some(finish(state, vec![held]))
+}
+
+/// The press effects of one action, its release effects and the block a momentary release
+/// inverts. `key` is the (page, slot, gesture) of the action.
 fn run(
     state: &mut State,
-    page: u8,
-    index: usize,
-    data: &Slot,
+    key: (u8, u8, Gesture),
+    data: &Binding,
     action: &StoredAction,
 ) -> (Vec<Effect>, Vec<Effect>, Option<Site>) {
     let act = |actions: Vec<Action>| actions.into_iter().map(Effect::Action).collect::<Vec<_>>();
@@ -668,8 +868,7 @@ fn run(
             (vec![effect], Vec::new(), None)
         }
         StoredAction::SendMidi => {
-            let toggled = &mut state.custom.toggled[usize::from(page)][index];
-            let low = *toggled;
+            let low = state.custom.toggled.contains(&key);
             let mut has_toggle = false;
             let effects = (data.messages.iter())
                 .flat_map(|stored| {
@@ -679,8 +878,8 @@ fn run(
                 })
                 .map(Effect::ExtensionMidiOut)
                 .collect();
-            if has_toggle {
-                *toggled = !low;
+            if has_toggle && !state.custom.toggled.remove(&key) {
+                state.custom.toggled.insert(key);
             }
             (effects, Vec::new(), None)
         }
@@ -784,8 +983,9 @@ pub fn command(state: &mut State, command: CustomCommand, presets: PresetSlots) 
             scope,
             page,
             slot,
+            gesture,
             edit,
-        } => edit_slot(state, scope, page, slot, edit, presets),
+        } => edit_slot(state, scope, (page, slot, gesture), edit, presets),
     };
     step.unwrap_or_else(|reason| {
         state.custom.notice = Some(reason);
@@ -796,23 +996,48 @@ pub fn command(state: &mut State, command: CustomCommand, presets: PresetSlots) 
 /// An edit of a copy of one layout.
 type LayoutEdit = Box<dyn FnOnce(&mut Vec<Page>)>;
 
-/// One slot edit (or a copy or swap with another slot of the same layout).
+/// One edit of the `gesture` action of a switch (or a copy or swap of the switch with another
+/// of the same layout). An edit other than a new action does nothing to an action that is not
+/// there yet.
 fn edit_slot(
     state: &mut State,
     scope: LayoutScope,
-    page: u8,
-    slot: u8,
+    (page, slot, gesture): (u8, u8, Gesture),
     edit: SlotEdit,
     presets: PresetSlots,
 ) -> Result<Step, String> {
     let at = |page: u8, slot: u8| (usize::from(page), usize::from(slot));
     let (p, s) = at(page, slot);
+    if s >= CUSTOM_SLOTS {
+        return Ok(Step::default());
+    }
     let mut touched = vec![(page, slot)];
+    if let Gesture::Combo(partner) = gesture {
+        if !adjacent(slot, partner) {
+            return Err("A combo is two switches side by side or one above the other".into());
+        }
+        touched.push((page, partner));
+    }
+    if gesture != Gesture::Press
+        && matches!(
+            edit,
+            SlotEdit::SetColour(_) | SlotEdit::CopyTo { .. } | SlotEdit::MoveTo { .. }
+        )
+    {
+        return Err("The colour, COPY and MOVE belong to the switch: choose PRESS".into());
+    }
+    // An edit of the binding: the double press or combo is made by a new action only.
+    let binding = move |edit: Box<dyn FnOnce(&mut Binding)>, create| -> LayoutEdit {
+        Box::new(move |layout| {
+            if let Some(binding) = layout[p].binding_mut(s, gesture, create) {
+                edit(binding);
+            }
+        })
+    };
     let apply: LayoutEdit = match edit {
         SlotEdit::SetAction(action) => {
             let action = stored_action(state, action, presets)?;
-            Box::new(move |layout| {
-                let data = &mut layout[p][s];
+            let set = move |data: &mut Binding| {
                 let parameter = matches!(
                     action,
                     StoredAction::Block {
@@ -826,37 +1051,48 @@ fn edit_slot(
                     data.messages.clear();
                 }
                 data.action = Some(action);
-            })
+            };
+            binding(Box::new(set), true)
         }
-        SlotEdit::Clear => Box::new(move |layout| layout[p][s] = Slot::default()),
+        SlotEdit::Clear => Box::new(move |layout| match gesture {
+            Gesture::Press => layout[p].slots[s] = Slot::default(),
+            Gesture::Double => layout[p].slots[s].double = None,
+            Gesture::Combo(partner) => {
+                let pair = [slot.min(partner), slot.max(partner)];
+                layout[p].combos.retain(|combo| combo.switches != pair);
+            }
+        }),
         SlotEdit::SetLabel(label) => {
             let label = label.trim().to_owned();
             if label.chars().count() > MAX_LABEL || label.chars().any(char::is_control) {
                 return Err(format!("A label has at most {MAX_LABEL} characters"));
             }
-            Box::new(move |layout| layout[p][s].label = (!label.is_empty()).then_some(label))
+            let set = move |data: &mut Binding| data.label = (!label.is_empty()).then_some(label);
+            binding(Box::new(set), false)
         }
         SlotEdit::SetColour(swatch) => {
             if swatch.is_some_and(|swatch| usize::from(swatch) >= PALETTE.len()) {
                 return Err("There are eight colours".into());
             }
-            Box::new(move |layout| layout[p][s].colour = swatch)
+            Box::new(move |layout| layout[p].slots[s].colour = swatch)
         }
-        SlotEdit::SetValue(value) => Box::new(move |layout| {
-            let data = &mut layout[p][s];
-            if data.value.is_some() {
-                data.value = Some(value.min(100));
-            }
-        }),
-        SlotEdit::SetMomentary(momentary) => Box::new(move |layout| {
-            layout[p][s].momentary = momentary;
-        }),
+        SlotEdit::SetValue(value) => binding(
+            Box::new(move |data| {
+                if data.value.is_some() {
+                    data.value = Some(value.min(100));
+                }
+            }),
+            false,
+        ),
+        SlotEdit::SetMomentary(momentary) => {
+            binding(Box::new(move |data| data.momentary = momentary), false)
+        }
         SlotEdit::SetMessages(messages) => {
             if messages.len() > MAX_MESSAGES {
                 return Err(format!("A slot sends at most {MAX_MESSAGES} messages"));
             }
-            let messages = messages.iter().map(stored_message).collect();
-            Box::new(move |layout| layout[p][s].messages = messages)
+            let messages: Vec<_> = messages.iter().map(stored_message).collect();
+            binding(Box::new(move |data| data.messages = messages), false)
         }
         SlotEdit::CopyTo { slot, .. } | SlotEdit::MoveTo { slot, .. }
             if usize::from(slot) >= CUSTOM_SLOTS =>
@@ -868,7 +1104,7 @@ fn edit_slot(
             let (tp, ts) = at(page, slot);
             Box::new(move |layout| {
                 if tp < layout.len() {
-                    layout[tp][ts] = layout[p][s].clone();
+                    layout[tp].slots[ts] = layout[p].slots[s].clone();
                 }
             })
         }
@@ -877,15 +1113,12 @@ fn edit_slot(
             let (tp, ts) = at(page, slot);
             Box::new(move |layout| {
                 if tp < layout.len() && (tp, ts) != (p, s) {
-                    let moved = std::mem::take(&mut layout[p][s]);
-                    layout[p][s] = std::mem::replace(&mut layout[tp][ts], moved);
+                    let moved = std::mem::take(&mut layout[p].slots[s]);
+                    layout[p].slots[s] = std::mem::replace(&mut layout[tp].slots[ts], moved);
                 }
             })
         }
     };
-    if usize::from(slot) >= CUSTOM_SLOTS {
-        return Ok(Step::default());
-    }
     change(state, scope, touched, |layout| {
         apply(layout);
         Ok(())
@@ -918,14 +1151,15 @@ fn change(
     if layout == before {
         return Ok(Step::default());
     }
-    // Only the playing layout has held presses and CC Toggle states to end.
+    // Only the playing layout has held and waiting presses and CC Toggle states to end.
     let mut effects = Vec::new();
     if scope == state.custom.playing_scope() {
+        state.custom.gestures.clear();
         let mut ended = Vec::new();
         for (page, slot) in &touched {
             let index = usize::from(*slot);
             ended.extend(state.custom.held[index].take_if(|held| held.page == *page));
-            state.custom.toggled[usize::from(*page)][index] = false;
+            (state.custom.toggled).retain(|(p, s, _)| (p, s) != (page, slot));
         }
         // One pass, so two held bypasses of one block end where they started.
         effects.extend(finish(state, ended));
@@ -1053,11 +1287,9 @@ pub fn view(state: &State) -> Option<CustomModeView> {
     let playing = custom.playing_scope();
     let views = |layout: &[Page], scope| {
         (0..provider.pages)
-            .map(|page| {
-                std::array::from_fn(|index| {
-                    let data = layout.get(usize::from(page)).map(|page| &page[index]);
-                    slot_view(state, data, page, index, scope == playing)
-                })
+            .map(|page| match layout.get(usize::from(page)) {
+                Some(data) => page_view(state, data, page, scope == playing),
+                None => CustomPageView::default(),
             })
             .collect::<Vec<_>>()
     };
@@ -1081,13 +1313,14 @@ pub fn view(state: &State) -> Option<CustomModeView> {
     })
 }
 
-/// The LEDs of the current page.
+/// The LEDs of the current page: the press of each switch.
 pub fn leds(state: &State) -> [Option<CustomLed>; CUSTOM_SLOTS] {
     let page = state.custom.page;
     std::array::from_fn(|index| {
         let data = state.custom.slot(page, index)?;
-        data.action.as_ref()?;
-        let (_, _, colour, engaged, _) = describe(state, page, index, data, true);
+        data.press.action.as_ref()?;
+        let at = (page, index as u8, Gesture::Press);
+        let (_, _, colour, engaged, _) = describe(state, at, &data.press, data.colour, true);
         Some(CustomLed {
             rgb: colour,
             engaged,
@@ -1095,34 +1328,63 @@ pub fn leds(state: &State) -> [Option<CustomLed>; CUSTOM_SLOTS] {
     })
 }
 
-/// One slot of a layout; `playing` is true for the layout the switches play.
-fn slot_view(
+/// One page of a layout; `playing` is true for the layout the switches play.
+fn page_view(state: &State, data: &Page, page: u8, playing: bool) -> CustomPageView {
+    let slots = std::array::from_fn(|index| {
+        let slot = &data.slots[index];
+        let at = |gesture| (page, index as u8, gesture);
+        let double = (slot.double.as_ref()).map(|double| {
+            Box::new(binding_view(
+                state,
+                at(Gesture::Double),
+                double,
+                None,
+                playing,
+            ))
+        });
+        CustomSlotView {
+            double,
+            ..binding_view(state, at(Gesture::Press), &slot.press, slot.colour, playing)
+        }
+    });
+    let combos = (data.combos.iter())
+        .map(|combo| {
+            let [first, second] = combo.switches;
+            let at = (page, first, Gesture::Combo(second));
+            CustomComboView {
+                switches: combo.switches,
+                binding: binding_view(state, at, &combo.binding, None, playing),
+            }
+        })
+        .collect();
+    CustomPageView { slots, combos }
+}
+
+/// One action of a switch, with the switch's colour choice for its press.
+fn binding_view(
     state: &State,
-    data: Option<&Slot>,
-    page: u8,
-    index: usize,
+    at: (u8, u8, Gesture),
+    data: &Binding,
+    swatch: Option<u8>,
     playing: bool,
 ) -> CustomSlotView {
-    let Some(data) = data else {
-        return CustomSlotView::default();
-    };
     let Some(stored) = &data.action else {
         return CustomSlotView {
             label: String::new(),
-            detail: format!("{} · empty", SLOT_NAMES[index]),
+            detail: format!("{} · empty", SLOT_NAMES[usize::from(at.1)]),
             colour: [0; 3],
             available: true,
             ..CustomSlotView::default()
         };
     };
-    let (label, detail, colour, engaged, available) = describe(state, page, index, data, playing);
+    let (label, detail, colour, engaged, available) = describe(state, at, data, swatch, playing);
     CustomSlotView {
         action: ui_action(stored),
         label: data.label.clone().unwrap_or(label),
         custom_label: data.label.clone(),
         detail,
         colour,
-        swatch: data.colour,
+        swatch,
         engaged,
         available,
         value: data.value,
@@ -1135,6 +1397,7 @@ fn slot_view(
         )
         .then_some(data.momentary),
         messages: data.messages.iter().map(ui_message).collect(),
+        double: None,
     }
 }
 
@@ -1159,22 +1422,20 @@ fn ui_action(stored: &StoredAction) -> Option<SlotAction> {
     })
 }
 
-/// Label, detail, colour, engaged and available of an assigned slot. Only a slot of the
-/// playing layout shows its held press.
+/// Label, detail, colour, engaged and available of an assigned action at (page, slot,
+/// gesture). Only an action of the playing layout shows its held press.
 fn describe(
     state: &State,
-    page: u8,
-    index: usize,
-    data: &Slot,
+    (page, slot, gesture): (u8, u8, Gesture),
+    data: &Binding,
+    swatch: Option<u8>,
     playing: bool,
 ) -> (String, String, [u8; 3], bool, bool) {
     let held = playing
-        && state.custom.held[index]
+        && state.custom.held[usize::from(slot)]
             .as_ref()
-            .is_some_and(|held| held.page == page);
-    let swatch = data
-        .colour
-        .map(|colour| PALETTE[usize::from(colour) % PALETTE.len()]);
+            .is_some_and(|held| held.page == page && held.gesture == gesture);
+    let swatch = swatch.map(|colour| PALETTE[usize::from(colour) % PALETTE.len()]);
     let current = state.current.as_ref();
     let Some(action) = &data.action else {
         return (String::new(), String::new(), [0; 3], false, true);
@@ -1321,49 +1582,71 @@ fn system_label(action: SystemAction) -> (String, String) {
 mod tests {
     use super::*;
 
-    /// The stored layout keeps every field of an assigned slot and drops entries it cannot use.
+    /// The stored layout keeps every field of an assigned slot, its double press and the
+    /// combos, reads a file from before double presses as before, and drops entries it cannot
+    /// use.
     #[test]
     fn layouts_round_trip_and_drop_bad_entries() {
-        let mut custom = CustomMode {
-            layout: empty_layout(),
-            ..CustomMode::default()
-        };
-        custom.layout[1][9] = Slot {
-            action: Some(StoredAction::Block {
-                row: 0,
-                column: 2,
-                model: Some(4004),
-                target: StoredTarget::Parameter { index: 3 },
+        let mut layout = empty_layout();
+        let tuner = Binding {
+            action: Some(StoredAction::System {
+                action: SystemAction::Tuner,
             }),
-            label: Some("Lead boost".into()),
-            colour: Some(2),
-            value: Some(80),
-            momentary: false,
-            messages: Vec::new(),
+            ..Binding::default()
         };
-        custom.layout[3][0] = Slot {
+        layout[1].slots[9] = Slot {
+            press: Binding {
+                action: Some(StoredAction::Block {
+                    row: 0,
+                    column: 2,
+                    model: Some(4004),
+                    target: StoredTarget::Parameter { index: 3 },
+                }),
+                label: Some("Lead boost".into()),
+                value: Some(80),
+                momentary: false,
+                messages: Vec::new(),
+            },
+            colour: Some(2),
+            double: Some(tuner.clone()),
+        };
+        layout[3].slots[0].press = Binding {
             action: Some(StoredAction::SendMidi),
             messages: vec![StoredMessage {
                 kind: StoredKind::CcToggle,
                 channel: 3,
                 values: [Some(20), Some(0), Some(127)],
             }],
-            ..Slot::default()
+            ..Binding::default()
         };
-        let bytes = encode(&custom.layout);
-        let (layout, dropped) = decode(&bytes).unwrap();
-        assert_eq!((layout, dropped), (custom.layout.clone(), 0));
+        layout[0].combos.push(Combo {
+            switches: [2, 3],
+            binding: Binding {
+                label: Some("Lead".into()),
+                ..tuner
+            },
+        });
+        let bytes = encode(&layout);
+        assert_eq!(decode(&bytes).unwrap(), (layout, 0));
 
         let bad = br#"{"format":1,"slots":[
             {"page":4,"slot":0,"action":{"kind":"sendMidi"}},
             {"page":0,"slot":10,"action":{"kind":"sendMidi"}},
             {"page":0,"slot":1,"action":{"kind":"system","action":{"customSlot":3}}},
             {"page":0,"slot":2,"colour":9},
+            {"page":0,"slot":4,"double":{"action":{"kind":"system","action":{"customSlot":1}}}},
             {"page":0,"slot":3,"action":{"kind":"system","action":"tuner"},"label":"Tune"}
+        ],"combos":[
+            {"page":0,"switches":[0,5],"action":{"kind":"sendMidi"}},
+            {"page":0,"switches":[3,2]},
+            {"page":0,"switches":[9,8],"action":{"kind":"sendMidi"}},
+            {"page":0,"switches":[8,9],"action":{"kind":"sendMidi"}}
         ]}"#;
         let (layout, dropped) = decode(bad).unwrap();
-        assert_eq!(dropped, 4);
-        assert_eq!(layout[0][3].label.as_deref(), Some("Tune"));
+        assert_eq!(dropped, 8);
+        assert_eq!(layout[0].slots[3].press.label.as_deref(), Some("Tune"));
+        assert_eq!(layout[0].combos.len(), 1);
+        assert_eq!(layout[0].combos[0].switches, [8, 9]);
         assert!(decode(br#"{"format":2,"slots":[]}"#).is_err());
     }
 }

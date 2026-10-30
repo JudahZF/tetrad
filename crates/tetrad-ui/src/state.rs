@@ -69,7 +69,7 @@ pub(crate) enum TextTarget {
     CaptureName,
     StompLabel(Footswitch),
     /// (O) A Custom footswitch mode slot label: layout, page, slot.
-    SlotLabel(crate::LayoutScope, u8, u8),
+    SlotLabel(crate::LayoutScope, u8, u8, crate::Gesture),
     LoginEmail,
     LoginPassword(String),
     /// Virtual Device Preset "Edit Name".
@@ -444,13 +444,14 @@ pub(crate) enum ActionMenu {
     Extensions,
 }
 
-/// The layout, page and slot that the Custom mode editor shows, and a copy or move that waits
-/// for its target.
+/// The layout, page, slot and action that the Custom mode editor shows, and a copy or move
+/// that waits for its target.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CustomEdit {
     pub scope: crate::LayoutScope,
     pub page: u8,
     pub slot: u8,
+    pub gesture: crate::Gesture,
     pub pending: Option<CustomPending>,
 }
 
