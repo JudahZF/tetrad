@@ -41,6 +41,8 @@ pub struct SettingsViews {
     pub remote: tetrad_ui::RemoteView,
     /// Boot Selector page (`boot_selector::BootSelector::view`).
     pub boot_selector: Option<bool>,
+    /// Bluetooth page (`bluetooth::Bluetooth::view`).
+    pub bluetooth: tetrad_ui::BluetoothView,
     /// The last application toast (`remote::Remote::toast`).
     pub toast: Option<tetrad_ui::ToastView>,
     /// `Control::cloud_route` is set: the cloud is usable without Wi-Fi (re-r44 §3).
@@ -115,6 +117,7 @@ pub fn apply(views: &SettingsViews, mut snapshot: UiSnapshot) -> UiSnapshot {
     snapshot.appearance = views.appearance.clone();
     snapshot.remote = views.remote.clone();
     snapshot.boot_selector = views.boot_selector;
+    snapshot.bluetooth = views.bluetooth.clone();
     snapshot.toast = views.toast.clone();
     snapshot.control_online = views.control_online;
     snapshot.control_link = views.control_link;
@@ -375,6 +378,7 @@ impl<P: Platform> Device<P> {
             appearance: _,
             remote: _,
             boot_selector: _,
+            bluetooth: _,
             toast: _,
             control_online: _,
             control_link: _,
@@ -402,6 +406,7 @@ impl<P: Platform> Device<P> {
         let mut changed = false;
         changed |= replace_changed(&mut old.remote, remote.view(wifi.ip_address.as_deref()));
         changed |= replace_changed(&mut old.boot_selector, self.bridges.boot_selector.view());
+        changed |= replace_changed(&mut old.bluetooth, self.bridges.bluetooth.view());
         changed |= replace_changed(&mut old.toast, remote.toast());
         changed |= replace_changed(&mut old.wifi, wifi);
         changed |= replace_changed(&mut old.control_online, control.cloud_route().is_some());

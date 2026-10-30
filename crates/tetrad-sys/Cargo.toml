@@ -10,12 +10,16 @@ repository.workspace = true
 [dependencies]
 libc.workspace = true
 thiserror.workspace = true
+tetrad-ble.workspace = true
 tetrad-dsp-host.workspace = true
 tetrad-dsp-protocol.workspace = true
 tetrad-hal.workspace = true
 tetrad-loader.workspace = true
 tetrad-runtime.workspace = true
 tetrad-watchdog.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints.rust]
 unsafe_code = "allow"

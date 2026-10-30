@@ -226,6 +226,25 @@ impl UiState {
                 }
             }
             Control::RemoteDiscard => return vec![UiCommand::RemoteDiscard],
+            Control::BluetoothToggle
+            | Control::BluetoothMidiToggle
+            | Control::BluetoothHostModeToggle => {
+                let view = &snapshot.bluetooth;
+                let flip = |on: bool, mine: bool| on != mine;
+                return vec![UiCommand::SetBluetooth {
+                    enabled: flip(view.enabled, control == Control::BluetoothToggle),
+                    host_mode: flip(view.host_mode, control == Control::BluetoothHostModeToggle),
+                    midi: flip(view.midi, control == Control::BluetoothMidiToggle),
+                }];
+            }
+            Control::BluetoothForget(index) => {
+                return (snapshot.bluetooth.devices.get(usize::from(index)))
+                    .map(|device| UiCommand::ForgetBluetooth {
+                        address: device.address.clone(),
+                    })
+                    .into_iter()
+                    .collect();
+            }
             Control::BootSelectorToggle => {
                 if let Some(shown) = snapshot.boot_selector {
                     return vec![UiCommand::SetBootSelector { shown: !shown }];

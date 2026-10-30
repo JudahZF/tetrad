@@ -1,6 +1,7 @@
 //! Per-screen layout builders and the shared chrome (top bars, toasts).
 
 mod appearance;
+mod bluetooth;
 mod capture;
 mod capture_browser;
 mod custom;

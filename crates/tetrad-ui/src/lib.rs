@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 mod actions;
+mod bluetooth;
 mod boot_select;
 mod control;
 mod custom_mode;
@@ -23,6 +24,7 @@ mod types;
 mod view;
 mod widgets;
 
+pub use bluetooth::{BluetoothDevice, BluetoothView};
 pub use boot_select::{BootChoice, BootMenu};
 pub use control::*;
 pub use custom_mode::*;

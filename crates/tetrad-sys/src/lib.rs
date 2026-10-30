@@ -4,6 +4,7 @@
 //! Nothing here touches a device on its own. A caller must name a node and call an explicit `open`, or pass
 //! in a descriptor it already owns.
 
+pub mod ble;
 pub mod corectrl;
 pub mod display;
 pub mod fs;

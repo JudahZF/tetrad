@@ -597,6 +597,8 @@ pub enum SettingsPage {
     Extensions,
     /// Owned (Tetrad): the web page that uploads IRs over Wi-Fi.
     Remote,
+    /// Owned (Tetrad): Bluetooth: BLE MIDI, Host mode and the paired devices.
+    Bluetooth,
     /// Owned (Tetrad): turns the boot selector of the launcher on or off (docs/launcher.md).
     BootSelector,
     /// Owned (Tetrad): the settings of one extension, listed under its name in the Tetrad
@@ -683,7 +685,14 @@ impl SettingsGroup {
                 Diagnostics,
                 Licenses,
             ],
-            Self::Tetrad => &[TetradUpdates, Appearance, Extensions, Remote, BootSelector],
+            Self::Tetrad => &[
+                TetradUpdates,
+                Appearance,
+                Extensions,
+                Remote,
+                Bluetooth,
+                BootSelector,
+            ],
         }
     }
 }
@@ -724,6 +733,7 @@ impl SettingsPage {
             Self::Midi => "MIDI Settings",
             Self::AboutContact => "About Us",
             Self::Licenses => "3rd party Licenses",
+            Self::Bluetooth => "Bluetooth (Experimental)",
             page => page.title(),
         }
     }
@@ -746,6 +756,7 @@ impl SettingsPage {
             Self::FactoryReset => "Factory Reset",
             Self::Extensions => "Extensions",
             Self::Remote => "Remote",
+            Self::Bluetooth => "Bluetooth",
             Self::BootSelector => "Boot Selector",
             // The menu row and the page title show the extension's name.
             Self::ExtensionSettings => "Extension Settings",
@@ -887,6 +898,7 @@ impl SettingsPage {
             | Self::FactoryReset
             | Self::Extensions
             | Self::Remote
+            | Self::Bluetooth
             | Self::BootSelector
             | Self::ExtensionSettings
             | Self::SendReport
