@@ -11,8 +11,7 @@ use crate::*;
 
 const ROW: u32 = 60;
 const HEADER: u32 = 34;
-pub(super) const HELP: &str = "Bluetooth is experimental. New phones and computers can pair \
-    while this page is open. \
+pub(super) const HELP: &str = "New phones and computers can pair while this page is open. \
     For BLE MIDI on a Mac, open Audio MIDI Setup, then MIDI Studio, then Bluetooth \
     Configuration. Pair at home: a pairing has no code.";
 

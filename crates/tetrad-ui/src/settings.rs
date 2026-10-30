@@ -733,6 +733,7 @@ impl SettingsPage {
             Self::Midi => "MIDI Settings",
             Self::AboutContact => "About Us",
             Self::Licenses => "3rd party Licenses",
+            Self::Bluetooth => "Bluetooth (Experimental)",
             page => page.title(),
         }
     }
