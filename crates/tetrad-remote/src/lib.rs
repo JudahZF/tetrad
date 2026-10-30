@@ -15,7 +15,7 @@ pub use api::{
     BackupOp, Call, EditorOp, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, PIN_HEADER,
     Reply, Request, TabInfo, ThemesOp,
 };
-pub use http::{MAX_BODY, serve_one};
+pub use http::{MAX_BODY, api_request, serve_one};
 pub use server::Server;
 
 /// The port of the page, so that the address alone opens it.

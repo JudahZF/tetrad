@@ -358,8 +358,8 @@ pub struct FileEntry {
 
 impl Reply {
     /// The status code and the JSON body. [`Reply::File`] and [`Reply::Bytes`] are written as the
-    /// bytes themselves (`http::serve_one`), never as JSON.
-    pub(crate) fn response(&self) -> (u16, serde_json::Value) {
+    /// bytes themselves (`http::serve_one`), never as JSON; the Tetrad Link sends them as the body.
+    pub fn response(&self) -> (u16, serde_json::Value) {
         use serde_json::json;
         match self {
             Self::Status { folder } => (200, json!({ "folder": folder })),

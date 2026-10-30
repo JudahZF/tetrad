@@ -101,6 +101,9 @@ pub struct Registrations {
     /// The extension answers [`Event::Remote`] (`ctx.remote.onMessage`).
     #[serde(default)]
     pub remote: bool,
+    /// The extension answers [`Event::Ble`] (`ctx.ble.onMessage`).
+    #[serde(default)]
+    pub ble: bool,
 }
 
 /// Most triggers one extension may declare.
@@ -164,6 +167,11 @@ pub enum Event {
     /// A message from the extension's tab on the Remote page. The handler's return value, in
     /// [`RunnerMessage::Done`], is the reply to the tab.
     Remote {
+        message: Value,
+    },
+    /// A message from the Tetrad app over Bluetooth. The handler's return value, in
+    /// [`RunnerMessage::Done`], is the reply to the app.
+    Ble {
         message: Value,
     },
     /// Build the IR of a generated block from an asset. The handler ends with one

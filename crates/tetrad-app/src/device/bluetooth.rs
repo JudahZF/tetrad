@@ -69,9 +69,15 @@ pub struct Bluetooth {
     /// The keys of bonds that FORGET removed: a bond update that was already on its way must
     /// not bring one back. A new pairing has new keys.
     forgotten: Vec<[u8; 16]>,
+    /// The Tetrad app's link (`bluetooth_link`).
+    pub(super) link: super::bluetooth_link::LinkState,
 }
 
 impl Bluetooth {
+    pub(super) fn running(&self) -> bool {
+        self.running
+    }
+
     pub fn view(&self) -> BluetoothView {
         let label = |address: &Address| {
             (self.bonds.iter())
@@ -84,6 +90,7 @@ impl Bluetooth {
             midi: self.midi,
             name: self.name.clone(),
             status: self.status.clone(),
+            pin: self.running.then(|| self.link.pin.clone()).flatten(),
             host: self.host.as_ref().map(label),
             devices: (self.bonds.iter())
                 .map(|bond| BluetoothDevice {
@@ -242,12 +249,14 @@ impl<P: Platform> Device<P> {
     }
 
     fn start_bluetooth(&mut self) {
+        // Remote backup files of a run that ended without a stop (`drop_remote_backup`).
+        self.drop_remote_backup();
         let bluetooth = &self.bridges.bluetooth;
         let config = Config {
             name: None,
             advertise: bluetooth.host_mode,
             pairable: bluetooth.pairable,
-            link: false,
+            link: true,
         };
         let bonds = bluetooth.bonds.clone();
         let started = match self.platform.bluetooth() {
@@ -259,6 +268,7 @@ impl<P: Platform> Device<P> {
             Ok(()) => {
                 bluetooth.running = true;
                 bluetooth.status = Some("Starting".to_owned());
+                self.new_link_pin();
             }
             Err(reason) => {
                 bluetooth.status = Some(reason.clone());
@@ -276,8 +286,36 @@ impl<P: Platform> Device<P> {
         bluetooth.name = None;
         bluetooth.host = None;
         bluetooth.listening = false;
+        bluetooth.link.reset();
         bluetooth.status = status;
         self.sync_bluetooth_midi();
+        self.sync_app_listening();
+        // A backup that the app made goes with the link, unless Remote still runs.
+        self.drop_remote_backup();
+    }
+
+    /// `scope.ble.notify` sends while an app that gave the PIN is connected.
+    fn sync_app_listening(&mut self) {
+        let bluetooth = &self.bridges.bluetooth;
+        let link = &bluetooth.link;
+        let on = bluetooth.running && bluetooth.host.is_some() && link.authorized && link.listening;
+        self.bridges.extensions.app_listening = on;
+    }
+
+    /// The app gave the right PIN: its bond keeps that, so it does not ask again.
+    pub(super) fn authorize_host(&mut self) {
+        let bluetooth = &mut self.bridges.bluetooth;
+        bluetooth.link.authorized = true;
+        let host = bluetooth.host;
+        let known = (bluetooth.bonds.iter_mut()).find(|bond| Some(bond.address) == host);
+        if let Some(bond) = known
+            && !bond.app
+        {
+            bond.app = true;
+            self.save_bonds();
+        }
+        self.notice(Subsystem::Bluetooth, "the app gave the PIN".to_owned());
+        self.sync_app_listening();
     }
 
     /// MIDI out follows the listening host and the MIDI switch.
@@ -343,21 +381,33 @@ impl<P: Platform> Device<P> {
                 }
             }
             Event::HostConnected { address, bonded } => {
-                self.bridges.bluetooth.host = Some(address);
+                let bluetooth = &mut self.bridges.bluetooth;
+                bluetooth.host = Some(address);
+                // The PIN permission waits for the saved key (`HostSecured`).
+                bluetooth.link.reset();
+                self.sync_app_listening();
                 let known = if bonded { "paired" } else { "new" };
                 let text = format!("a {known} host connected");
                 self.notice(Subsystem::Bluetooth, text);
             }
             Event::HostDisconnected { reason, .. } => {
-                self.bridges.bluetooth.host = None;
+                let bluetooth = &mut self.bridges.bluetooth;
+                bluetooth.host = None;
+                bluetooth.link.reset();
+                self.sync_app_listening();
                 let text = format!("the host left (0x{reason:02x})");
                 self.notice(Subsystem::Bluetooth, text);
             }
             Event::Bonded(bond) if self.bridges.bluetooth.forgotten.contains(&bond.ltk) => {}
-            Event::Bonded(bond) => {
+            Event::Bonded(mut bond) => {
                 let bonds = &mut self.bridges.bluetooth.bonds;
                 match bonds.iter().position(|known| known.address == bond.address) {
-                    Some(index) => bonds[index] = bond,
+                    Some(index) => {
+                        // The host does not know that the app gave the PIN; the device does. A
+                        // new pairing (new keys) must give it again.
+                        bond.app |= bonds[index].app && bonds[index].ltk == bond.ltk;
+                        bonds[index] = bond;
+                    }
                     None => {
                         let text = format!("paired with {}", bond.label());
                         bonds.push(bond);
@@ -389,6 +439,34 @@ impl<P: Platform> Device<P> {
                 self.bridges.bluetooth.listening = on;
                 self.sync_bluetooth_midi();
             }
+            Event::HostSecured {
+                address,
+                paired,
+                connection,
+            } => {
+                let bluetooth = &mut self.bridges.bluetooth;
+                // After a pairing the host knows the identity behind a private address.
+                bluetooth.host = Some(address);
+                bluetooth.link.connection = Some(connection);
+                if paired {
+                    // New keys: only a PIN given on this connection counts for them, not one
+                    // remembered by the old bond.
+                    if bluetooth.link.pin_given {
+                        self.authorize_host();
+                    } else {
+                        bluetooth.link.authorized = false;
+                    }
+                } else {
+                    let known = (bluetooth.bonds.iter()).any(|b| b.address == address && b.app);
+                    bluetooth.link.authorized = known;
+                }
+                self.sync_app_listening();
+            }
+            Event::LinkListening(on) => {
+                self.bridges.bluetooth.link.listening = on;
+                self.sync_app_listening();
+            }
+            Event::LinkMessage(message) => self.on_link_message(&message, now),
             Event::Notice(text) => self.notice(Subsystem::Bluetooth, text),
         }
         Vec::new()

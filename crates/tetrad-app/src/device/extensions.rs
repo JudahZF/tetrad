@@ -251,6 +251,7 @@ pub struct Capabilities {
     pub blocks: bool,
     pub usb: bool,
     pub remote: bool,
+    pub ble: bool,
 }
 
 /// One installed extension as the bridge runs it.
@@ -331,6 +332,10 @@ struct Session {
     remote_waiting: VecDeque<u64>,
     /// The Remote request ID of each open [`Event::Remote`] scope.
     remote_scopes: HashMap<u64, u64>,
+    /// Tetrad app request IDs of [`Event::Ble`] events in the backlog, in order.
+    ble_waiting: VecDeque<u64>,
+    /// The Tetrad app request ID of each open [`Event::Ble`] scope.
+    ble_scopes: HashMap<u64, u64>,
 }
 
 impl Session {
@@ -348,6 +353,11 @@ impl Session {
         {
             self.remote_scopes.insert(scope, request);
         }
+        if matches!(event, Event::Ble { .. })
+            && let Some(request) = self.ble_waiting.pop_front()
+        {
+            self.ble_scopes.insert(scope, request);
+        }
     }
 
     /// Error replies for every USB request the session can no longer answer.
@@ -364,6 +374,18 @@ impl Session {
         let waiting = std::mem::take(&mut self.remote_waiting);
         (scopes.into_values().chain(waiting))
             .map(|request| RemoteReply {
+                request,
+                result: Err(format!("the extension stopped: {reason}")),
+            })
+            .collect()
+    }
+
+    /// Error replies for every Tetrad app request the session can no longer answer.
+    fn ble_orphans(&mut self, reason: &str) -> Vec<BleReply> {
+        let scopes = std::mem::take(&mut self.ble_scopes);
+        let waiting = std::mem::take(&mut self.ble_waiting);
+        (scopes.into_values().chain(waiting))
+            .map(|request| BleReply {
                 request,
                 result: Err(format!("the extension stopped: {reason}")),
             })
@@ -454,6 +476,17 @@ pub struct Outcome {
     pub usb_replies: Vec<UsbReply>,
     /// Answers to the messages of Remote tabs ([`Extensions::remote_message`]).
     pub remote_replies: Vec<RemoteReply>,
+    /// Answers to the Tetrad app's messages ([`Extensions::ble_message`]).
+    pub ble_replies: Vec<BleReply>,
+    /// Values that extensions push to the Tetrad app (`scope.ble.notify`): extension ID, value.
+    pub ble_events: Vec<(String, Json)>,
+}
+
+/// The answer of an extension to one message of the Tetrad app over Bluetooth.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BleReply {
+    pub request: u64,
+    pub result: Result<Json, String>,
 }
 
 /// The answer of an extension to one message of its Remote tab.
@@ -499,6 +532,8 @@ pub struct Extensions {
     /// Set by every device step that reaches this bridge; [`Self::view`] is built again only
     /// then, not on every pass.
     pub(in crate::device) view_stale: bool,
+    /// A Tetrad app that gave the PIN is connected over Bluetooth: `scope.ble.notify` sends.
+    pub(in crate::device) app_listening: bool,
 }
 
 /// The store and repository model behind the Extensions pages.
@@ -749,6 +784,8 @@ impl Extensions {
                     usb_scopes: HashMap::new(),
                     remote_waiting: VecDeque::new(),
                     remote_scopes: HashMap::new(),
+                    ble_waiting: VecDeque::new(),
+                    ble_scopes: HashMap::new(),
                 });
             }
             Err(error) => {
@@ -774,6 +811,7 @@ impl Extensions {
             outcome
                 .remote_replies
                 .extend(session.remote_orphans("disabled"));
+            outcome.ble_replies.extend(session.ble_orphans("disabled"));
             outcome.usb_replies.extend(session.orphans("disabled"));
         }
         slot.end_session(None);
@@ -952,6 +990,42 @@ impl Extensions {
         Ok(outcome)
     }
 
+    /// A message from the Tetrad app over Bluetooth for the extension with manifest ID `id`.
+    /// Its handler's answer comes back in [`Outcome::ble_replies`] under `request`.
+    pub fn ble_message(
+        &mut self,
+        id: &str,
+        request: u64,
+        message: Json,
+        backend: &mut dyn ExtensionBackend,
+    ) -> Result<Outcome, String> {
+        let (key, slot) = (self.slots.iter_mut())
+            .find(|(_, slot)| slot.installation.id == id)
+            .ok_or_else(|| format!("no extension {id} is installed"))?;
+        if !slot.installation.capabilities.ble {
+            return Err(format!("{id} does not have the ble capability"));
+        }
+        let session = (slot.session.as_mut())
+            .filter(|_| slot.state == RunState::Running)
+            .ok_or_else(|| format!("{id} is not running"))?;
+        if !slot.registrations.ble {
+            return Err(format!("{id} has no Bluetooth handler"));
+        }
+        // A message over the runner frame limit would fault the extension when it is sent.
+        let event = Event::Ble { message };
+        let frame = HostMessage::Event {
+            scope: u64::MAX,
+            event: event.clone(),
+        };
+        tetrad_extensions::protocol::encode(&frame)
+            .map_err(|error| format!("the message is too large for an extension: {error}"))?;
+        session.ble_waiting.push_back(request);
+        let key = key.clone();
+        let mut outcome = Outcome::default();
+        self.deliver(&key, event, backend, &mut outcome);
+        Ok(outcome)
+    }
+
     /// A message on a reserved channel. Without a running owner it is dropped.
     pub fn on_midi(
         &mut self,
@@ -1080,6 +1154,7 @@ impl Extensions {
             outcome
                 .remote_replies
                 .extend(session.remote_orphans(&reason));
+            outcome.ble_replies.extend(session.ble_orphans(&reason));
             outcome.usb_replies.extend(session.orphans(&reason));
         }
         slot.end_session(Some(&reason));
@@ -1207,6 +1282,12 @@ impl Extensions {
                         None => Ok(result.unwrap_or(Json::Null)),
                     };
                     outcome.remote_replies.push(RemoteReply { request, result });
+                } else if let Some(request) = session.ble_scopes.remove(&scope) {
+                    let result = match error {
+                        Some(error) => Err(error),
+                        None => Ok(result.unwrap_or(Json::Null)),
+                    };
+                    outcome.ble_replies.push(BleReply { request, result });
                 }
                 while session.in_flight < IN_FLIGHT {
                     let Some(event) = session.backlog.pop_front() else {
@@ -1272,6 +1353,9 @@ impl Extensions {
         }
         if registrations.remote && !slot.installation.capabilities.remote {
             return Err("answers Remote messages without the remote capability".into());
+        }
+        if registrations.ble && !slot.installation.capabilities.ble {
+            return Err("answers Bluetooth messages without the ble capability".into());
         }
         let triggers = &registrations.triggers;
         if !triggers.is_empty() && !slot.installation.capabilities.triggers {
@@ -1386,6 +1470,24 @@ impl Extensions {
                     }
                     Err(refused) => refused,
                 }
+            }
+            "ble.notify" => {
+                if !capabilities.ble {
+                    return deny("ble");
+                }
+                if scope_generation.is_none() {
+                    return CallResult::error(
+                        ErrorCode::NotRunning,
+                        "notify needs a handler scope",
+                    );
+                }
+                if !self.app_listening {
+                    return CallResult::Ok(Json::Bool(false));
+                }
+                let value = params.get("value").cloned().unwrap_or(Json::Null);
+                let id = slot.installation.id.clone();
+                outcome.ble_events.push((id, value));
+                CallResult::Ok(Json::Bool(true))
             }
             "midi.send" => {
                 if !capabilities.midi_send {
@@ -2765,6 +2867,7 @@ fn installation(loaded: &Loaded) -> Installation {
             blocks: manifest.has(Capability::Blocks),
             usb: manifest.has(Capability::Usb),
             remote: manifest.has(Capability::Remote),
+            ble: manifest.has(Capability::Ble),
         },
         config: loaded.config.clone(),
         storage: loaded.storage.clone().into_iter().collect(),

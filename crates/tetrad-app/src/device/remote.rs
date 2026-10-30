@@ -201,10 +201,10 @@ impl<P: Platform> Device<P> {
         if let Some(backend) = self.platform.remote() {
             backend.stop();
         }
-        self.drop_remote_backup();
         let remote = &mut self.bridges.remote;
         remote.pin = None;
         remote.status = status;
+        self.drop_remote_backup();
     }
 
     /// Answers one page request.
@@ -242,6 +242,12 @@ impl<P: Platform> Device<P> {
             return Some(Reply::WrongPin);
         }
         remote.wrong = 0;
+        self.remote_answer(call, request)
+    }
+
+    /// The answer to a request that passed its check: the PIN of the page, or the PIN that the
+    /// Tetrad app gave over Bluetooth (`bluetooth_link`). `None`: an extension answers later.
+    pub(super) fn remote_answer(&mut self, call: u64, request: Request) -> Option<Reply> {
         Some(match request {
             Request::Status { .. } => match self.ir_destination() {
                 Ok((_, folder)) => Reply::Status { folder },
@@ -280,9 +286,6 @@ impl<P: Platform> Device<P> {
             Request::UpdateInstall { .. } => self.remote_update_install(),
             #[cfg(feature = "dev")]
             Request::AddKey { key, .. } => self.remote_add_key(&key),
-            // Answered before the PIN check.
-            #[cfg(feature = "dev")]
-            Request::AuthNonce | Request::AuthPin { .. } => unreachable!("answered above"),
             #[cfg(feature = "dev")]
             Request::Log { .. } => Reply::Log {
                 text: self.remote_log(),
@@ -311,6 +314,9 @@ impl<P: Platform> Device<P> {
             Request::TabCall { id, message, .. } => {
                 return self.remote_tab_call(call, &id, &message);
             }
+            // Answered by `remote_reply` before the PIN check.
+            #[cfg(feature = "dev")]
+            Request::AuthNonce | Request::AuthPin { .. } => Reply::Refused("no key here".into()),
         })
     }
 
@@ -641,6 +647,10 @@ impl<P: Platform> Device<P> {
             },
             Err(reason) => Reply::Refused(reason),
         };
+        if reply.request & super::bluetooth_link::LINK_CALL != 0 {
+            self.answer_link_tab(reply.request, answer);
+            return;
+        }
         if let Some(backend) = self.platform.remote() {
             backend.reply(reply.request, answer);
         }

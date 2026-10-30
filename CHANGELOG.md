@@ -44,6 +44,11 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Remote: **Support file** and **Change PIN** are at the top of every page.
 - Settings → Tetrad → Remote (and Send Report) shows a QR code. A phone that scans it opens the
   page with the PIN.
+- Tetrad Link: a Bluetooth service for the Tetrad app (in work), with every request of the
+  Remote page's API, behind an App PIN that the Bluetooth page shows; the unit remembers each
+  phone that gave it.
+- Extension API 8: the `ble` capability. `ctx.ble.onMessage` answers the Tetrad app over
+  Bluetooth, and `scope.ble.notify` pushes a value to it. Hosts before API 8 skip these packages.
 
 ### Changed
 

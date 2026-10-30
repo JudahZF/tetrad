@@ -244,7 +244,8 @@ manifest does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-bl
 `pressed` on trigger firings (see below); API 4 adds `footswitchMode`
 ([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)); API 5 adds
 the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)); API 6 adds `remote`
-([a tab on the Remote page](#add-a-tab-to-the-remote-page)); API 7 adds `app`
+([a tab on the Remote page](#add-a-tab-to-the-remote-page)); API 8 adds `ble`
+([answer the Tetrad app](#answer-the-tetrad-app)); API 7 adds `app`
 ([a program](#ship-a-program)). A manifest of an
 older API still works. Use API 3 only to send releases: Tetrad before API 3 does not install
 API 3 packages, because it would take a release for a press. Use API 5 for a block that uses
@@ -294,7 +295,8 @@ The full API, with comments, is in `tetrad.d.ts` (`tetrad-ext sdk` writes it):
 | `ctx.controls.list`, `ctx.controls.onChange` | `scope.storage.get`, `set`, `delete` |
 | `ctx.lifecycle.onRunning`, `onPresetLoaded` | `scope.ui.setStatus` |
 | `ctx.storage.get`, `ctx.triggers.declare`, `ctx.log/warn/error` | `scope.triggers.fire` |
-| `ctx.usb.onMessage` (its return value is the reply; see [usb.md](usb.md)) | |
+| `ctx.usb.onMessage` (its return value is the reply; see [usb.md](usb.md)) | `scope.ble.notify` |
+| `ctx.ble.onMessage` (the Tetrad app over Bluetooth; see below) | |
 
 A firing with `continuous: false` is a press. To release it, fire the same `source` again with
 `pressed: false` (MIDI Mapper does this on a note-off). A mapping in Momentary mode holds its
@@ -305,6 +307,23 @@ value stays held.
 scope. A scope closes when its handler settles. After a preset change, calls with an older scope fail
 with `staleContext`. There is no module loader: bundle everything into one file (`tetrad-ext
 build` does this).
+
+### Answer the Tetrad app
+
+With the `ble` capability (API 8) an extension talks with the Tetrad app over Bluetooth
+([bluetooth.md](bluetooth.md#the-tetrad-app-link)):
+
+```ts
+ctx.ble.onMessage(async (message, scope) => {
+  return { models: await scope.storage.get("models") }; // the reply to the app
+});
+// In any handler: push a value to the app, if one is connected and gave the PIN.
+const sent = await scope.ble.notify({ tuned: true }); // false when no app listens
+```
+
+The handler works as `ctx.usb.onMessage` does: one handler, the usual limits, its return value
+is the reply and a throw replies with an error. The app reaches it with its `extension` request.
+`scope.ble.notify` needs a handler scope. Hosts before API 8 skip `ble` packages.
 
 ### Add a tab to the Remote page
 

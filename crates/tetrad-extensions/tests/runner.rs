@@ -201,6 +201,56 @@ fn a_usb_message_is_answered_by_the_handler_result() {
     assert!(h.thread.join().unwrap().is_ok());
 }
 
+/// A Bluetooth handler answers like a USB handler, and `scope.ble.notify` is a scoped host call
+/// whose result (whether the app got the value) resolves the promise.
+#[test]
+fn a_ble_message_is_answered_and_notify_is_a_scoped_call() {
+    let mut h = Harness::start(
+        r#"export default { activate(ctx) {
+            ctx.ble.onMessage(async (message, scope) => {
+                const sent = await scope.ble.notify({ tick: message.n });
+                return { sent };
+            });
+        } };"#,
+        Limits::default(),
+    );
+    let RunnerMessage::Activated { registrations } = h.next() else {
+        panic!("not activated")
+    };
+    assert!(registrations.ble && !registrations.usb);
+    h.send(&HostMessage::Event {
+        scope: 5,
+        event: Event::Ble {
+            message: json!({"n": 3}),
+        },
+    });
+    let RunnerMessage::Request {
+        id,
+        scope,
+        method,
+        params,
+    } = h.next()
+    else {
+        panic!("no request")
+    };
+    assert_eq!((scope, method.as_str()), (Some(5), "ble.notify"));
+    assert_eq!(params, json!({"value": {"tick": 3}}));
+    h.send(&HostMessage::Response {
+        id,
+        result: CallResult::Ok(json!(true)),
+    });
+    assert_eq!(
+        h.next(),
+        RunnerMessage::Done {
+            scope: 5,
+            error: None,
+            result: Some(json!({"sent": true})),
+        }
+    );
+    h.send(&HostMessage::Stop);
+    assert!(h.thread.join().unwrap().is_ok());
+}
+
 #[test]
 fn declared_triggers_register_and_fire_as_scoped_calls() {
     let mut h = Harness::start(
