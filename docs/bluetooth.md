@@ -4,6 +4,11 @@ The Wi-Fi chip of the Quad Cortex (a Microchip WILC3000) also has a Bluetooth Lo
 radio. Stock CorOS does not use it. Tetrad uses it for BLE MIDI: a phone, a tablet or a computer
 can send MIDI to the unit and get the unit's MIDI, with no cable.
 
+> [!WARNING]
+> Bluetooth is experimental. Only one Linux computer has paired with a unit so far. Phones, Macs
+> and tablets are not tested on a unit yet. If pairing or BLE MIDI fails, send a support file
+> with the report.
+
 - [Turn on Bluetooth](#turn-on-bluetooth)
 - [Pair a phone or computer](#pair-a-phone-or-computer)
 - [BLE MIDI](#ble-midi)
