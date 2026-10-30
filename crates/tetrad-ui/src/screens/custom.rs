@@ -299,8 +299,11 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         moving,
         true,
     );
-    let clearable =
-        selected.is_some_and(|slot| slot.action.is_some() || slot.custom_label.is_some());
+    // PRESS clears the whole switch, its double press too.
+    let clearable = selected.is_some_and(|slot| {
+        let double = edit.gesture == Gesture::Press && slot.double.is_some();
+        slot.action.is_some() || slot.custom_label.is_some() || double
+    });
     header(
         l,
         620,

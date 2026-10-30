@@ -314,7 +314,7 @@
     const parts = [
       el("div", { className: "fs-head" },
         el("strong", { textContent: title + " · Page " + (page + 1) + " · " + (scope === "global" ? "ALL PRESETS" : "THIS PRESET") }),
-        slot.action ? button("Clear", "danger", () => { unpick(); edit({ kind: "clear" }); }) : null),
+        slot.action || (press && slot.double) ? button("Clear", "danger", () => { unpick(); edit({ kind: "clear" }); }) : null),
       el("div", { className: "fs-row fs-runs" }, el("span", { textContent: "Runs on" }), el("div", {},
         runs("press", "Press"), runs("double", "Double press" + (data.slots[selected].double ? " ●" : "")),
         ...neighbours(selected).map((other) =>
@@ -350,7 +350,7 @@
       parts.push(row("Momentary", box, el("small", { textContent: "The block changes only while the switch is down" })));
     }
     if (slot.action && slot.action.kind === "sendMidi") parts.push(row("Messages", messages(slot.messages)));
-    if (slot.action && press) parts.push(row("Copy or swap", ...copyMove()));
+    if (press && (slot.action || slot.double)) parts.push(row("Copy or swap", ...copyMove()));
     panel.replaceChildren(...parts);
   }
 

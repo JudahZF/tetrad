@@ -744,44 +744,45 @@ fn shapes(state: &State) -> [Shape; CUSTOM_SLOTS] {
     (custom.playing().get(usize::from(custom.page))).map_or_else(Default::default, Page::shapes)
 }
 
-/// Runs what the gestures fired, in order. A press that turned the page drops the presses after
-/// it, which belonged to the old page. A release right after its own press (a tap that waited)
-/// comes back as an action, so it reads the block as the press left it.
-fn fire(state: &mut State, fired: Vec<Fire>, origin: Origin) -> Vec<Effect> {
-    let mut effects = Vec::new();
-    let mut changed = false;
+/// What the gestures fired, as one [`Action::CustomFire`] each: a press reads the state that the
+/// presses before it left (a bypass, the page, the mode).
+fn fire(state: &State, fired: Vec<Fire>, origin: Origin) -> Vec<Effect> {
     let page = state.custom.page;
-    let mut started = Vec::new();
-    let mut dropped = Vec::new();
-    for fire in fired {
-        let ran = match fire {
-            Fire::Down { slot, .. } if state.custom.page != page => {
-                dropped.push(slot);
-                None
-            }
-            Fire::Down { slot, gesture } => {
-                started.push(slot);
-                start(state, slot, gesture, origin)
-            }
-            Fire::Up(slot) if dropped.contains(&slot) => None,
-            Fire::Up(slot) if started.contains(&slot) => {
-                Some(vec![Effect::Action(Action::CustomSlot {
-                    slot,
-                    pressed: false,
-                    origin,
-                })])
-            }
-            Fire::Up(slot) => end(state, slot, origin),
-        };
-        if let Some(ran) = ran {
-            effects.extend(ran);
-            changed = true;
-        }
-    }
-    if changed {
+    (fired.into_iter())
+        .map(|fire| {
+            let (slot, gesture) = match fire {
+                Fire::Down { slot, gesture } => (slot, Some(gesture)),
+                Fire::Up(slot) => (slot, None),
+            };
+            Effect::Action(Action::CustomFire {
+                slot,
+                gesture,
+                page,
+                origin,
+            })
+        })
+        .collect()
+}
+
+/// One fired press or release ([`Action::CustomFire`]). A press fired on another page, or
+/// after the mode ended, is dropped.
+pub fn fired(
+    state: &mut State,
+    slot: u8,
+    gesture: Option<Gesture>,
+    page: u8,
+    origin: Origin,
+) -> Vec<Effect> {
+    sync(state);
+    let ran = match gesture {
+        Some(_) if !state.performance.footswitch.custom || state.custom.page != page => None,
+        Some(gesture) => start(state, slot, gesture, origin),
+        None => end(state, slot, origin),
+    };
+    ran.map_or_else(Vec::new, |mut effects| {
         effects.push(Effect::Present);
-    }
-    effects
+        effects
+    })
 }
 
 /// Starts the `gesture` action of `slot` on the current page; `None` while the switch is held

@@ -1336,9 +1336,12 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
         (0, Gesture::Double, scene(2)),
         (0, Gesture::Combo(1), scene(3)),
         (1, Gesture::Press, scene(0)),
-        (2, Gesture::Press, bypass),
+        (2, Gesture::Press, bypass.clone()),
         (2, Gesture::Press, SlotEdit::SetMomentary(true)),
         (2, Gesture::Double, scene(2)),
+        (6, Gesture::Press, bypass),
+        (6, Gesture::Press, SlotEdit::SetMomentary(true)),
+        (6, Gesture::Double, scene(2)),
     ] {
         device.push(Event::Custom(CustomCommand::Slot {
             scope: LayoutScope::Global,
@@ -1411,6 +1414,15 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     for _ in 0..4 {
         assert!(device.step().is_none());
     }
+    assert_eq!(bypassed(&device), before);
+    // C and G (one block, both momentary) held together past the wait: their presses run one
+    // after the other, and their releases bring the block back.
+    edges(&mut device, &[(2, 1), (6, 1)]);
+    pump(&mut device, "the held presses", |d| {
+        d.state().custom.deadline().is_none()
+    });
+    edges(&mut device, &[(2, 0)]);
+    edges(&mut device, &[(6, 0)]);
     assert_eq!(bypassed(&device), before);
 }
 
