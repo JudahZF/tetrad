@@ -163,13 +163,13 @@ pub enum Action {
         pressed: bool,
         origin: super::custom::Origin,
     },
-    /// (O) One action that a Custom mode press or release fired on `page`: the press of
-    /// `gesture`, or (`None`) the release of what the switch holds. Each runs after the effects
-    /// of the one before.
+    /// (O) One action that a Custom mode press or release fired: the press of `gesture`, or
+    /// (`None`) the release of what the switch holds. Each runs after the effects of the one
+    /// before. `epoch` is the gestures' epoch when it fired (`custom::fired`).
     CustomFire {
         slot: u8,
         gesture: Option<tetrad_ui::Gesture>,
-        page: u8,
+        epoch: u32,
         origin: super::custom::Origin,
     },
     /// Scoped tempo in BPM, clamped to 40..=240, then `0x16` TempoChange (`0x875a48`).
@@ -864,9 +864,9 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
         Action::CustomFire {
             slot,
             gesture,
-            page,
+            epoch,
             origin,
-        } => effects.extend(super::custom::fired(state, slot, gesture, page, origin)),
+        } => effects.extend(super::custom::fired(state, slot, gesture, epoch, origin)),
         Action::SetConnector { id, value } => {
             effects.extend(super::jacks::set(state, id, value)?);
         }

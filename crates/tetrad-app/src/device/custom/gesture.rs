@@ -53,9 +53,15 @@ impl Pending {
 #[derive(Debug, Default)]
 pub struct Gestures {
     pending: [Option<Pending>; CUSTOM_SLOTS],
+    /// Counts [`Self::clear`]: a fired press from before a clear does not run.
+    epoch: u32,
 }
 
 impl Gestures {
+    pub fn epoch(&self) -> u32 {
+        self.epoch
+    }
+
     pub fn deadline(&self) -> Option<Duration> {
         self.pending
             .iter()
@@ -64,9 +70,11 @@ impl Gestures {
             .min()
     }
 
-    /// Drops every waiting press: it does not run late.
+    /// Drops every waiting press, and the fired presses that have not run yet: they do not
+    /// run late.
     pub fn clear(&mut self) {
         self.pending = Default::default();
+        self.epoch = self.epoch.wrapping_add(1);
     }
 
     /// A press or release of `slot` at `now`.

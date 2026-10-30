@@ -524,7 +524,10 @@ pub fn set_provider(
         // A new version can change the name and page count.
         custom.provider = provider;
         let pages = custom.provider.as_ref().map_or(1, |p| p.pages);
-        custom.page = custom.page.min(pages - 1);
+        if custom.page >= pages {
+            custom.page = pages - 1;
+            custom.gestures.clear();
+        }
         return Vec::new();
     }
     let mut effects = release_all(state, true);
@@ -747,7 +750,7 @@ fn shapes(state: &State) -> [Shape; CUSTOM_SLOTS] {
 /// What the gestures fired, as one [`Action::CustomFire`] each: a press reads the state that the
 /// presses before it left (a bypass, the page, the mode).
 fn fire(state: &State, fired: Vec<Fire>, origin: Origin) -> Vec<Effect> {
-    let page = state.custom.page;
+    let epoch = state.custom.gestures.epoch();
     (fired.into_iter())
         .map(|fire| {
             let (slot, gesture) = match fire {
@@ -757,25 +760,30 @@ fn fire(state: &State, fired: Vec<Fire>, origin: Origin) -> Vec<Effect> {
             Effect::Action(Action::CustomFire {
                 slot,
                 gesture,
-                page,
+                epoch,
                 origin,
             })
         })
         .collect()
 }
 
-/// One fired press or release ([`Action::CustomFire`]). A press fired on another page, or
-/// after the mode ended, is dropped.
+/// One fired press or release ([`Action::CustomFire`]). A press is dropped when the waiting
+/// presses were dropped since it fired (a page change, a preset load, a new layout, the end of
+/// the mode).
 pub fn fired(
     state: &mut State,
     slot: u8,
     gesture: Option<Gesture>,
-    page: u8,
+    epoch: u32,
     origin: Origin,
 ) -> Vec<Effect> {
     sync(state);
     let ran = match gesture {
-        Some(_) if !state.performance.footswitch.custom || state.custom.page != page => None,
+        Some(_)
+            if !state.performance.footswitch.custom || state.custom.gestures.epoch() != epoch =>
+        {
+            None
+        }
         Some(gesture) => start(state, slot, gesture, origin),
         None => end(state, slot, origin),
     };
