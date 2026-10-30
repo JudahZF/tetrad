@@ -49,6 +49,7 @@ tetrad-extensions.workspace = true
 tetrad-theme.workspace = true
 tetrad-remote.workspace = true
 tetrad-usb.workspace = true
+tetrad-ble.workspace = true
 # Cortex Control compression (device/control.rs); its cipher comes from qc-format.
 flate2.workspace = true
 # Device Information Zenwireless row (`md5sum` of the WILC3000 firmware, device/info.rs).

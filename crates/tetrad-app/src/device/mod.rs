@@ -10,6 +10,7 @@
 pub mod actions;
 pub mod app;
 pub mod appearance;
+pub mod bluetooth;
 mod boot;
 pub mod boot_selector;
 pub mod bringup;
@@ -184,6 +185,8 @@ pub enum Event {
     Custom(tetrad_ui::CustomCommand),
     /// A request of the Remote page (`remote`).
     Remote(tetrad_remote::Call),
+    /// An event of the BLE host (`bluetooth`).
+    Bluetooth(tetrad_ble::Event),
     Shutdown(PowerAction),
 }
 
@@ -254,6 +257,8 @@ pub enum Timer {
     Nc2Poll,
     /// Every [`app::POLL`] while an extension program runs: its exit and the quit hold.
     App,
+    /// Owned: Bluetooth starts again after a fault (`bluetooth`).
+    Bluetooth,
 }
 
 /// Work a reducer asks for. Executed in order by [`Device`].
@@ -284,6 +289,8 @@ pub enum Effect {
     Hal(HalCommand),
     /// One DIN MIDI message.
     MidiOut(Vec<u8>),
+    /// Owned: one MIDI message for the BLE MIDI hosts (`bluetooth`).
+    BluetoothMidi(Vec<u8>),
     /// Preset MIDI Out for a physical footswitch or pedal (`midi::Trigger`).
     PresetMidiOut(midi::Trigger),
     /// MIDI CC#35..=42: footswitch A..H (0..=7) as hardware edges
@@ -550,6 +557,7 @@ pub enum Subsystem {
     Extensions,
     Remote,
     Usb,
+    Bluetooth,
 }
 
 /// A degraded step or an unsupported request, kept for the UI and the log.
@@ -1011,6 +1019,7 @@ pub struct Bridges {
     pub extensions: extensions::Extensions,
     pub mappings: mappings::Mappings,
     pub remote: remote::Remote,
+    pub bluetooth: bluetooth::Bluetooth,
     pub boot_selector: boot_selector::BootSelector,
 }
 
@@ -1105,6 +1114,7 @@ impl<P: Platform> Device<P> {
                 mappings: mappings::Mappings::default(),
                 appearance: appearance::Appearance::default(),
                 remote: remote::Remote::default(),
+                bluetooth: bluetooth::Bluetooth::default(),
                 boot_selector: boot_selector::BootSelector::default(),
             },
             state: State::new(product, hal_platform, settings),
@@ -1517,6 +1527,7 @@ impl<P: Platform> Device<P> {
             }
         }
         self.sync_driver_timer();
+        self.sync_bluetooth_pairable();
         match self.state.custom.deadline() {
             Some(at) => self.timers.insert(Timer::CustomGesture, at),
             None => self.timers.remove(&Timer::CustomGesture),
@@ -1652,6 +1663,7 @@ impl<P: Platform> Device<P> {
                 Input::Service(notice) => Event::Service(notice),
                 Input::Extension(input) => Event::Extension(input),
                 Input::Remote(call) => Event::Remote(call),
+                Input::Bluetooth(event) => Event::Bluetooth(event),
                 Input::Power(_) if held => return None,
                 Input::Power(action) => Event::Shutdown(action),
             })
@@ -1668,6 +1680,7 @@ impl<P: Platform> Device<P> {
                     | Event::UiInput(ui::UiInput::Touch(_))
                     | Event::Extension(_)
                     | Event::Remote(_)
+                    | Event::Bluetooth(tetrad_ble::Event::Midi(_))
             )
         }) {
             self.interaction_at = self.clock.now();
@@ -1776,6 +1789,7 @@ impl<P: Platform> Device<P> {
                 self.remote_call(call);
                 Vec::new()
             }
+            Event::Bluetooth(event) => self.on_bluetooth(event, now),
             Event::Extension(input) => {
                 let native = self.bridges.midi.native_channel();
                 self.extensions(|extensions, backend, state| {
@@ -2202,6 +2216,10 @@ impl<P: Platform> Device<P> {
             Timer::TunerMeterIdle => actions::reduce(Action::TunerReading(None), &mut self.state)?,
             Timer::MetronomeFlush => actions::reduce(Action::MetronomeFlush, &mut self.state)?,
             Timer::ExpressionBypass => actions::reduce(Action::ExpressionPoll, &mut self.state)?,
+            Timer::Bluetooth => {
+                self.restart_bluetooth();
+                Vec::new()
+            }
             Timer::LooperPoll => {
                 let disabled = self
                     .platform
@@ -2320,6 +2338,18 @@ impl<P: Platform> Device<P> {
             ui::Handoff::RemoteBackup { restore } => self.remote_backup_touch(restore),
             ui::Handoff::BootSelector { shown } => {
                 self.set_boot_selector(shown);
+                Vec::new()
+            }
+            ui::Handoff::Bluetooth {
+                enabled,
+                host_mode,
+                midi,
+            } => {
+                self.set_bluetooth(enabled, host_mode, midi);
+                Vec::new()
+            }
+            ui::Handoff::ForgetBluetooth { address } => {
+                self.forget_bluetooth(&address);
                 Vec::new()
             }
             ui::Handoff::Capture(command) => self.capture_ui(&command)?,
@@ -2478,6 +2508,10 @@ impl<P: Platform> Device<P> {
                 .platform
                 .midi_write(&message)
                 .map_err(DeviceError::platform),
+            Effect::BluetoothMidi(message) => {
+                self.bluetooth_midi(message);
+                Ok(())
+            }
             Effect::PresetMidiOut(trigger) => {
                 let effects = self.bridges.midi.trigger(trigger, &self.state);
                 self.apply(effects);

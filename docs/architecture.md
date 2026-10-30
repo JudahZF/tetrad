@@ -30,6 +30,7 @@ the stock SHARC DSP firmware that is on the unit.
   tetrad-ui       tetrad-dsp-host    tetrad-control   tetrad-midi      tetrad-services   tetrad-watchdog
   tetrad-assets   tetrad-loader                                        tetrad-settings   tetrad-runtime
                                                                        tetrad-remote
+                                                                       tetrad-ble
   tetrad-theme    tetrad-engine
                   tetrad-dsp-protocol
   ──────────────────────────── data and rules ────────────────────────────────────────────────
@@ -57,6 +58,7 @@ the stock SHARC DSP firmware that is on the unit.
 | `tetrad-extension-cli` | `tetrad-ext`: scaffold, build, package, sign and stage extensions |
 | `tetrad-services` | Wi-Fi, DHCP, time, internet checks, updater and cloud clients |
 | `tetrad-remote` | Remote: the LAN web page and HTTP server that upload IRs |
+| `tetrad-ble` | Bluetooth: Tetrad's BLE host (HCI, L2CAP, ATT/GATT, SMP) and BLE MIDI, as a state machine with no I/O |
 | `tetrad-settings` | Global settings in the stock Qt INI format |
 | `tetrad-watchdog` | Start-up, supervision and power-action rules |
 | `tetrad-runtime` | Supervisor and worker models, owned DSP resident models |
@@ -69,7 +71,7 @@ the stock SHARC DSP firmware that is on the unit.
 | `tetrad-capture` | Neural Capture flows and numeric references |
 | `tetrad-firmware` | Known CorOS builds and their per-build addresses |
 | `tetrad-hal` | Hardware requests and records of the stock HAL |
-| `tetrad-sys` | Framebuffer, evdev, ioctls, UART, UIO, `/dev/mem`, power actions |
+| `tetrad-sys` | Framebuffer, evdev, ioctls, UART, UIO, `/dev/mem`, power actions, the Bluetooth thread |
 | `tetrad-cli` | `tetrad-cli`: offline inspection and export of local files |
 | `tetrad-sharc` | Owned SHARC ISA48 emitter, linker and simulator |
 | `tetrad-blocks` | Owned SHARC DSP blocks |

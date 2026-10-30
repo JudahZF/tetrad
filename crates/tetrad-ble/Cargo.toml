@@ -1,0 +1,22 @@
+[package]
+name = "tetrad-ble"
+description = "Tetrad's Bluetooth Low Energy host: HCI over a UART, L2CAP, ATT/GATT, SMP and BLE MIDI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aes.workspace = true
+cmac.workspace = true
+p256.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

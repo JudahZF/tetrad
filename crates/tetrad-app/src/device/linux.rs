@@ -1330,6 +1330,8 @@ pub struct LinuxPlatform {
     extensions: Option<crate::device::extensions::LocalBackend>,
     /// The Remote HTTP server; `None` until [`Self::enable_remote`].
     remote: Option<LinuxRemote>,
+    /// The BLE host; `None` until [`Self::enable_bluetooth`].
+    bluetooth: Option<LinuxBluetooth>,
 }
 
 impl LinuxPlatform {
@@ -1362,6 +1364,12 @@ impl LinuxPlatform {
     /// program does this; bring-up never opens a listening port.
     pub fn enable_remote(&mut self) {
         self.remote = Some(LinuxRemote::default());
+    }
+
+    /// Lets Bluetooth run (the controller starts when the user turns Bluetooth on). Only the
+    /// `run` program does this; bring-up never starts the radio.
+    pub fn enable_bluetooth(&mut self) {
+        self.bluetooth = Some(LinuxBluetooth::default());
     }
 
     /// Explicit hardware opt-in. Sets the comm name `ZenUI`, then opens the HAL, MIDI UART,
@@ -1412,6 +1420,7 @@ impl LinuxPlatform {
             supplicant_monitor: true,
             extensions: None,
             remote: None,
+            bluetooth: None,
         };
         for detail in failures {
             platform.note(detail);
@@ -1557,6 +1566,9 @@ impl Platform for LinuxPlatform {
             server.drain(&mut calls);
             out.extend(calls.into_iter().map(Input::Remote));
         }
+        if let Some(host) = (self.bluetooth.as_mut()).and_then(|b| b.host.as_mut()) {
+            out.extend(host.events().into_iter().map(Input::Bluetooth));
+        }
         if self.supplicant_monitor {
             self.services.supplicant.poll_events();
         }
@@ -1669,6 +1681,12 @@ impl Platform for LinuxPlatform {
         self.remote
             .as_mut()
             .map(|backend| backend as &mut dyn crate::device::remote::RemoteBackend)
+    }
+
+    fn bluetooth(&mut self) -> Option<&mut dyn crate::device::bluetooth::BluetoothBackend> {
+        self.bluetooth
+            .as_mut()
+            .map(|backend| backend as &mut dyn crate::device::bluetooth::BluetoothBackend)
     }
 
     fn forget_display(&mut self) {
@@ -1921,6 +1939,41 @@ mod tests {
 #[derive(Default)]
 pub struct LinuxRemote {
     server: Option<tetrad_remote::Server>,
+}
+
+/// The BLE host thread of tetrad-sys (`tetrad_sys::ble`).
+#[derive(Default)]
+pub struct LinuxBluetooth {
+    host: Option<tetrad_sys::ble::Bluetooth>,
+    /// The last host thread, still ending; the next start waits for it, never the device loop.
+    stopping: Option<tetrad_sys::ble::Stopping>,
+}
+
+impl crate::device::bluetooth::BluetoothBackend for LinuxBluetooth {
+    fn start(
+        &mut self,
+        config: tetrad_ble::Config,
+        bonds: Vec<tetrad_ble::Bond>,
+    ) -> Result<(), String> {
+        // One host owns the UART: the new thread waits until the old one ended.
+        self.stop();
+        let host = tetrad_sys::ble::Bluetooth::start(config, bonds, self.stopping.take())
+            .map_err(|error| format!("Bluetooth thread: {error}"))?;
+        self.host = Some(host);
+        Ok(())
+    }
+
+    fn stop(&mut self) {
+        if let Some(host) = self.host.take() {
+            self.stopping = Some(host.stop());
+        }
+    }
+
+    fn send(&mut self, command: tetrad_ble::Command) {
+        if let Some(host) = &mut self.host {
+            host.send(command);
+        }
+    }
 }
 
 impl crate::device::remote::RemoteBackend for LinuxRemote {
