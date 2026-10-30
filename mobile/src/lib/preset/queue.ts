@@ -8,7 +8,7 @@ import { type Edit, type Preset, slotKey } from "./model";
 
 export type Send = (loadId: number, edit: Edit) => Promise<Preset>;
 
-/** Edits with the same key replace each other while they wait. */
+/** An edit replaces the last one that waits when both have the same key. */
 function key(edit: Edit): string | null {
   switch (edit.kind) {
     case "param":
@@ -36,13 +36,12 @@ export class EditQueue {
   ) {}
 
   push(edit: Edit) {
+    // Only the last: an edit after a scene change must not move before it.
+    const last = this.waiting.at(-1);
     const k = key(edit);
-    if (k !== null) {
-      const at = this.waiting.findIndex((e) => key(e) === k);
-      if (at >= 0) {
-        this.waiting[at] = edit;
-        return;
-      }
+    if (k !== null && last && key(last) === k) {
+      this.waiting[this.waiting.length - 1] = edit;
+      return;
     }
     this.waiting.push(edit);
     void this.run();

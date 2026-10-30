@@ -62,7 +62,7 @@ export default function Rig() {
   );
 
   return (
-    <Screen title={header} right={<Button label="Save" icon="save" kind="action" disabled={!preset.edited} onPress={() => void save()} />} scroll={false}>
+    <Screen title={header} right={<Button label="Save" icon="save" kind="action" disabled={!preset.edited || sending} onPress={() => void save()} />} scroll={false}>
       <SceneStrip preset={preset} onScene={(scene) => edit({ kind: "scene", scene })} />
       <Grid
         preset={preset}

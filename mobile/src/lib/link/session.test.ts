@@ -78,6 +78,24 @@ describe("Tetrad Link session", () => {
     expect(events).toEqual([{ event: "extension", extension: "midi-mapper", value: { cc: 11 } }]);
   });
 
+  it("a link lost while a request goes out rejects it once, with nothing left unhandled", async () => {
+    let lose: (error: Error) => void = () => {};
+    const port: LinkPort = {
+      frameSize: 20,
+      async write() {
+        lose(new Error("The unit disconnected"));
+        throw new Error("not connected");
+      },
+      listen(_onFrame, onError) {
+        lose = onError;
+        return () => {};
+      },
+      async close() {},
+    };
+    const session = new LinkSession(port);
+    await expect(session.request("hello")).rejects.toThrow(/write failed/);
+  });
+
   it("closing rejects what still waits", async () => {
     const session = new LinkSession(fakePort(() => null));
     const waiting = session.request("support");

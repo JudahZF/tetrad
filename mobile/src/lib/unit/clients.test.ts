@@ -66,6 +66,17 @@ describe("Remote (Wi-Fi)", () => {
     expect(calls[0]?.body).toBe('{"op":"reset"}');
   });
 
+  it("a reply whose body stops coming times out", async () => {
+    const fetchFn: Fetch = async (_url, init) => ({
+      status: 200,
+      headers: { get: () => null },
+      text: () => new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted")))),
+      arrayBuffer: () => new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted")))),
+    });
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn, 20);
+    await expect(client.backupPiece(0)).rejects.toMatchObject({ refused: false, message: /did not answer/ });
+  });
+
   it("takes the support file's name from Content-Disposition", async () => {
     const { fetchFn } = fakeFetch(() => ({ bytes: Uint8Array.of(0x50, 0x4b), headers: { "content-disposition": 'attachment; filename="tetrad-support-1FEB.zip"' } }));
     const file = await new RemoteClient("192.168.1.20", "1234", fetchFn).support();

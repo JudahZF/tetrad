@@ -95,6 +95,8 @@ export class LinkSession {
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
+    // A timeout or a lost link can reject it while the frames still go out, before the await.
+    reply.catch(() => undefined);
     try {
       for (const frame of frames(encode({ ...fields, id, op }, body), this.port.frameSize)) {
         await this.port.write(frame);

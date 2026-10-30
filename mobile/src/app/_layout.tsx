@@ -12,28 +12,32 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ToastProvider } from "@/state/toast";
-import { UnitProvider } from "@/state/unit";
+import { UnitProvider, useUnit } from "@/state/unit";
 import { ThemeProvider, usePalette } from "@/ui/theme";
 
 void SplashScreen.preventAutoHideAsync();
 
 function Navigator() {
   const palette = usePalette();
+  const { client } = useUnit();
   const sheet = { presentation: "modal" as const, contentStyle: { backgroundColor: palette.background } };
   return (
     <>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: palette.background } }}>
         <Stack.Screen name="index" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="block/[slot]" options={sheet} />
-        <Stack.Screen name="add/[slot]" options={sheet} />
-        <Stack.Screen name="mapping" options={sheet} />
-        <Stack.Screen name="switch-action" options={sheet} />
-        <Stack.Screen name="extension/[id]" options={sheet} />
-        <Stack.Screen name="extensions" options={sheet} />
-        <Stack.Screen name="backup" options={sheet} />
-        <Stack.Screen name="notices" options={sheet} />
+        {/* A lost link closes every screen that needs the unit (useClient). */}
+        <Stack.Protected guard={client !== null}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="block/[slot]" options={sheet} />
+          <Stack.Screen name="add/[slot]" options={sheet} />
+          <Stack.Screen name="mapping" options={sheet} />
+          <Stack.Screen name="switch-action" options={sheet} />
+          <Stack.Screen name="extension/[id]" options={sheet} />
+          <Stack.Screen name="extensions" options={sheet} />
+          <Stack.Screen name="backup" options={sheet} />
+          <Stack.Screen name="notices" options={sheet} />
+        </Stack.Protected>
       </Stack>
     </>
   );

@@ -65,7 +65,14 @@ export class RemoteClient extends BaseClient implements UnitClient {
     return client;
   }
 
-  private async call(method: "GET" | "POST", path: string, query: Record<string, string | number | boolean | undefined> = {}, body?: Uint8Array | string) {
+  /** One request; `read` takes the body of a good reply, inside the timeout too. */
+  private async call<R>(
+    method: "GET" | "POST",
+    path: string,
+    query: Record<string, string | number | boolean | undefined>,
+    body: Uint8Array | string | undefined,
+    read: (reply: FetchReply) => Promise<R>,
+  ): Promise<R> {
     const params = Object.entries(query)
       .filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined)
       .map(([k, v]) => `${k}=${encodeURIComponent(typeof v === "boolean" ? (v ? "1" : "0") : String(v))}`)
@@ -73,15 +80,20 @@ export class RemoteClient extends BaseClient implements UnitClient {
     const url = `http://${this.host}${path}${params ? `?${params}` : ""}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    let reply: FetchReply;
+    let status: number;
+    let refusal: string;
     try {
-      reply = await this.fetchFn(url, {
+      const reply = await this.fetchFn(url, {
         method,
         headers: { "x-tetrad-pin": this.pin },
         // A POST needs Content-Length, even when empty: an empty string sends 0.
         ...(method === "POST" ? { body: body ?? "" } : {}),
         signal: controller.signal,
       });
+      // A link that stops in the middle of a download must not wait forever.
+      if (reply.status === 200) return await read(reply);
+      status = reply.status;
+      refusal = await reply.text();
     } catch (error) {
       if (error instanceof UnitError) throw error;
       throw new UnitError(
@@ -91,20 +103,16 @@ export class RemoteClient extends BaseClient implements UnitClient {
     } finally {
       clearTimeout(timer);
     }
-    if (reply.status !== 200) {
-      let text = `The unit refused (${reply.status})`;
-      try {
-        const parsed: unknown = JSON.parse(await reply.text());
-        if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") text = parsed.error;
-      } catch {}
-      throw new UnitError(text, true, reply.status === 401, reply.status);
-    }
-    return reply;
+    let text = `The unit refused (${status})`;
+    try {
+      const parsed: unknown = JSON.parse(refusal);
+      if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") text = parsed.error;
+    } catch {}
+    throw new UnitError(text, true, status === 401, status);
   }
 
-  private async json<R>(method: "GET" | "POST", path: string, query?: Record<string, string | number | boolean | undefined>, body?: Uint8Array | string): Promise<R> {
-    const reply = await this.call(method, path, query, body);
-    return JSON.parse(await reply.text()) as R;
+  private json<R>(method: "GET" | "POST", path: string, query: Record<string, string | number | boolean | undefined> = {}, body?: Uint8Array | string): Promise<R> {
+    return this.call(method, path, query, body, async (reply) => JSON.parse(await reply.text()) as R);
   }
 
   status() {
@@ -141,11 +149,12 @@ export class RemoteClient extends BaseClient implements UnitClient {
     if (typeof reply.error === "string") throw new UnitError(reply.error);
     return reply.result;
   }
-  async support() {
-    const reply = await this.call("GET", "/api/support");
-    const disposition = reply.headers.get("content-disposition") ?? "";
-    const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "tetrad-support.zip";
-    return { name, zip: new Uint8Array(await reply.arrayBuffer()) };
+  support() {
+    return this.call("GET", "/api/support", {}, undefined, async (reply) => {
+      const disposition = reply.headers.get("content-disposition") ?? "";
+      const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "tetrad-support.zip";
+      return { name, zip: new Uint8Array(await reply.arrayBuffer()) };
+    });
   }
   notices() {
     return this.json<T.NoticesReply>("GET", "/api/notices");
@@ -156,9 +165,8 @@ export class RemoteClient extends BaseClient implements UnitClient {
   backupCreate() {
     return this.json<T.BackupStatus>("POST", "/api/backup/create");
   }
-  async backupPiece(offset: number) {
-    const reply = await this.call("GET", "/api/backup/file", { offset });
-    return new Uint8Array(await reply.arrayBuffer());
+  backupPiece(offset: number) {
+    return this.call("GET", "/api/backup/file", { offset }, undefined, async (reply) => new Uint8Array(await reply.arrayBuffer()));
   }
   backupUpload(name: string, offset: number, last: boolean, bytes: Uint8Array) {
     return this.json<T.BackupStatus>("POST", "/api/backup/upload", { name, offset, last: last || undefined }, bytes);
