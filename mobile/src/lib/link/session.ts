@@ -23,6 +23,8 @@ export class LinkError extends Error {
     message: string,
     /** The unit refused the request (a reply with `error`), as opposed to a lost link. */
     readonly refused: boolean,
+    /** No reply came in time; the link may still be there. */
+    readonly timedOut = false,
   ) {
     super(message);
   }
@@ -91,7 +93,7 @@ export class LinkSession {
     const reply = new Promise<Message>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new LinkError(`The unit did not answer (${op})`, false));
+        reject(new LinkError(`The unit did not answer (${op})`, false, true));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });

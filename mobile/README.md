@@ -21,7 +21,7 @@ The icons are the unit's own: `scripts/icons.mjs` renders them from `crates/tetr
 | Messages to extensions with the `ble` capability | yes | no | yes |
 | Preset and Grid editing | from Link protocol 2 ([docs/preset-protocol.md](docs/preset-protocol.md)) | no | yes |
 
-- **Bluetooth (experimental)**: the Tetrad Link of docs/bluetooth.md (PR #44, not merged yet).
+- **Bluetooth (experimental)**: the Tetrad Link ([docs/bluetooth.md](../docs/bluetooth.md#the-tetrad-app-link)).
   It is not tested on a unit: the app's Link code passes its tests against fake ports only. The
   app finds units by the BLE MIDI service that they advertise, and asks once for the App PIN of
   the unit's Bluetooth page.

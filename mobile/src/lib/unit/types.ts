@@ -1,5 +1,5 @@
 /**
- * The unit's replies and commands, as the Remote API (PR #42) and the Tetrad Link send them.
+ * The unit's replies and commands, as the Remote API (docs/remote.md) and the Tetrad Link send them.
  * Field names are the unit's; see docs/remote-api.md for each source line.
  */
 

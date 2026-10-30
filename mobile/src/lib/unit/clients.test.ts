@@ -158,6 +158,18 @@ describe("Tetrad Link (Bluetooth)", () => {
     expect(seen.at(-1)).toEqual(["GET", "/api/backup/file?offset=0", 0]);
   });
 
+  it("sends hello again when the first one went while the link still paired", async () => {
+    let hellos = 0;
+    const unit = linkUnit((h) => {
+      if (h.op !== "hello") return null;
+      hellos++;
+      return hellos === 1 ? null : hello(1, true);
+    });
+    const client = await LinkClient.open(unit, 20);
+    expect(hellos).toBe(2);
+    expect(client.name).toBe("Quad Cortex 1FEB");
+  });
+
   it("says when the link was lost, but not when the app closed it", async () => {
     let fail: (e: Error) => void = () => {};
     const port: LinkPort = {

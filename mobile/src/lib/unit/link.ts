@@ -17,6 +17,13 @@ export const PRESET_PROTOCOL = 2;
 /** At about 8 KB/s a 48 KiB file piece takes several seconds, and the support file more. */
 const LINK_TIMEOUT = 120_000;
 
+/**
+ * A request sent while a new connection still pairs gets no reply (docs/bluetooth.md), and the
+ * phone's pairing prompt waits for a tap: `hello` goes again every 5 s, for up to a minute.
+ */
+const HELLO_WAIT = 5_000;
+const HELLO_TRIES = 12;
+
 export interface Hello {
   tetrad: string;
   protocol: number;
@@ -79,11 +86,17 @@ export class LinkClient extends RemoteClient {
     return this.hello.authorized;
   }
 
-  static async open(port: LinkPort): Promise<LinkClient> {
+  static async open(port: LinkPort, helloWait = HELLO_WAIT): Promise<LinkClient> {
     const session = new LinkSession(port);
     try {
-      const { header } = await session.request("hello");
-      return new LinkClient(session, fields<Hello>(header));
+      for (let tries = 1; ; tries++) {
+        try {
+          const { header } = await session.request("hello", {}, undefined, helloWait);
+          return new LinkClient(session, fields<Hello>(header));
+        } catch (error) {
+          if (!(error instanceof LinkError && error.timedOut) || tries >= HELLO_TRIES) throw error;
+        }
+      }
     } catch (error) {
       await session.close();
       throw wrap(error);
