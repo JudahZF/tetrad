@@ -12,9 +12,10 @@
 //! bypasses, which belong to the old preset's blocks.
 //!
 //! A switch can also have a double press, and two adjacent switches a combo. Footswitch presses
-//! (and MIDI CC#35..=42, which are footswitch edges) go through `gesture::Gestures`, which
-//! decides which of them runs; Gig View taps and Mappings presses run the press at once. A page change, leaving the mode, a preset load and a
-//! layout edit drop a press that still waits.
+//! (and MIDI CC#35..=42, which are footswitch taps: double presses, never combos) go through
+//! `gesture::Gestures`, which decides which of them runs; Gig View taps and Mappings presses run
+//! the press at once. A page change, leaving the mode, a preset load and a layout edit drop a
+//! press that still waits.
 //!
 //! The ALL PRESETS layout is one per extension installation, in [`LAYOUT_DIR`]; removing the
 //! extension keeps it. A preset can have its own layout (THIS PRESET) in the preset field

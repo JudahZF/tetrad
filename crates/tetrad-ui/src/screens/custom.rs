@@ -94,16 +94,12 @@ fn tile(
         let mark = Rect::new(bounds.x + 10, bounds.y + 6, 40, 24);
         l.text(mark, "2×", SMALL_BOLD, marks, Align::Left);
     }
-    if !assigned {
-        l.text(bounds, "-", MEDIUM, p.faint, Align::Center);
-        return;
-    }
-    let color = if slot.available { ink } else { p.muted };
-    if large {
-        let detail = match &slot.double {
-            Some(double) => format!("Double: {}", double.label),
-            None => slot.detail.clone(),
-        };
+    // Gig View names the double press, also on a switch without a press.
+    let detail = match &slot.double {
+        Some(double) => format!("Double: {}", double.label),
+        None => slot.detail.clone(),
+    };
+    if large && (assigned || slot.double.is_some()) {
         l.text(
             Rect::new(bounds.x + 12, bounds.y + 32, bounds.width - 24, 22),
             fit(&detail, CAPTION, (bounds.width - 24) as f32),
@@ -111,6 +107,13 @@ fn tile(
             marks,
             Align::Left,
         );
+    }
+    if !assigned {
+        l.text(bounds, "-", MEDIUM, p.faint, Align::Center);
+        return;
+    }
+    let color = if slot.available { ink } else { p.muted };
+    if large {
         let lines = wrap(&slot.label, XLARGE_BOLD, (bounds.width - 24) as f32)
             .len()
             .min(2) as i32;
@@ -1270,6 +1273,27 @@ mod tests {
             })
             .collect();
         assert_eq!(labels, ["Next page", "Previous page", "Page 1", "Page 2"]);
+    }
+
+    /// A switch with only a double press is not an empty tile in Gig View: it names the double
+    /// press.
+    #[test]
+    fn gig_view_names_a_double_press_without_a_press() {
+        let mut only_double = view(true);
+        only_double.slots[0].slots[5].double = Some(Box::new(CustomSlotView {
+            action: Some(SlotAction::System(SystemAction::Tuner)),
+            label: "Tuner".into(),
+            ..CustomSlotView::default()
+        }));
+        let mut ui = open(Screen::Gig, true);
+        let snapshot = UiSnapshot {
+            custom: Some(only_double),
+            ..ui.snapshot().clone()
+        };
+        ui.set_snapshot(snapshot).expect("valid snapshot");
+        let named = (ui.layout().items.iter())
+            .any(|item| matches!(item.look, Look::Text { .. }) && item.label == "Double: Tuner");
+        assert!(named);
     }
 
     /// While the mode is on, Gig View shows the ten slots of the playing layout's current page;
