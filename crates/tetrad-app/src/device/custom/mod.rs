@@ -497,10 +497,15 @@ pub fn sync(state: &mut State) {
         return;
     }
     custom.preset_revision = Some(revision);
-    custom.preset_layout = (state.current.as_ref())
+    let layout = (state.current.as_ref())
         .and_then(|current| current.preset.unknown.bytes_field(TETRAD_FOOTSWITCH_FIELD))
         .and_then(|bytes| decode(&bytes).ok())
         .map(|(layout, _)| layout);
+    // A waiting press belongs to the layout it was pressed on.
+    if layout != custom.preset_layout {
+        custom.gestures.clear();
+        custom.preset_layout = layout;
+    }
 }
 
 // ---- mode and provider ----------------------------------------------------------------------
@@ -739,12 +744,33 @@ fn shapes(state: &State) -> [Shape; CUSTOM_SLOTS] {
     (custom.playing().get(usize::from(custom.page))).map_or_else(Default::default, Page::shapes)
 }
 
+/// Runs what the gestures fired, in order. A press that turned the page drops the presses after
+/// it, which belonged to the old page. A release right after its own press (a tap that waited)
+/// comes back as an action, so it reads the block as the press left it.
 fn fire(state: &mut State, fired: Vec<Fire>, origin: Origin) -> Vec<Effect> {
     let mut effects = Vec::new();
     let mut changed = false;
+    let page = state.custom.page;
+    let mut started = Vec::new();
+    let mut dropped = Vec::new();
     for fire in fired {
         let ran = match fire {
-            Fire::Down { slot, gesture } => start(state, slot, gesture, origin),
+            Fire::Down { slot, .. } if state.custom.page != page => {
+                dropped.push(slot);
+                None
+            }
+            Fire::Down { slot, gesture } => {
+                started.push(slot);
+                start(state, slot, gesture, origin)
+            }
+            Fire::Up(slot) if dropped.contains(&slot) => None,
+            Fire::Up(slot) if started.contains(&slot) => {
+                Some(vec![Effect::Action(Action::CustomSlot {
+                    slot,
+                    pressed: false,
+                    origin,
+                })])
+            }
             Fire::Up(slot) => end(state, slot, origin),
         };
         if let Some(ran) = ran {
@@ -1190,7 +1216,9 @@ fn preset_layout(state: &mut State, own: bool) -> Result<Step, String> {
     if own == custom.preset_layout.is_some() {
         return Ok(Step::default());
     }
-    // The held presses keep their releases; a held slot of the old layout ends normally.
+    // The held presses keep their releases; a held slot of the old layout ends normally. A
+    // waiting press belongs to the old layout.
+    custom.gestures.clear();
     custom.preset_layout = own.then(|| custom.layout.clone());
     let bytes = custom.preset_layout.as_deref().map(encode);
     Ok(Step {

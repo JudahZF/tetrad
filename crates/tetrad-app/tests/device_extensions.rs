@@ -1308,8 +1308,8 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     use tetrad_hal::hal::Event as HalEvent;
     use tetrad_hal::node::Element;
     use tetrad_ui::{
-        COMBO_PRESS, CustomCommand, DOUBLE_PRESS, Gesture, LayoutScope, SlotAction, SlotEdit,
-        SystemAction,
+        BlockTarget, COMBO_PRESS, CustomCommand, DOUBLE_PRESS, Gesture, LayoutScope, SlotAction,
+        SlotEdit, SystemAction,
     };
 
     let web = repository_of(
@@ -1327,11 +1327,18 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
         d.state().custom.provider().is_some()
     });
     let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
+    let bypass = SlotEdit::SetAction(SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    });
     for (slot, gesture, edit) in [
         (0, Gesture::Press, scene(1)),
         (0, Gesture::Double, scene(2)),
         (0, Gesture::Combo(1), scene(3)),
         (1, Gesture::Press, scene(0)),
+        (2, Gesture::Press, bypass),
+        (2, Gesture::Press, SlotEdit::SetMomentary(true)),
+        (2, Gesture::Double, scene(2)),
     ] {
         device.push(Event::Custom(CustomCommand::Slot {
             scope: LayoutScope::Global,
@@ -1384,6 +1391,27 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     assert!(clock(&device) >= pressed + COMBO_PRESS);
     edges(&mut device, &[(1, 0)]);
     assert_eq!(device.state().custom.deadline(), None);
+
+    // A tap of C's momentary bypass that waited: the press and its release run together at the
+    // end of the wait, and the block ends where it started.
+    let bypassed = |d: &Device<Sim>| {
+        let current = d.state().current.as_ref().unwrap();
+        let site = Site::Slot(Slot {
+            row: Row::new(0).unwrap(),
+            column: Column::new(2).unwrap(),
+        });
+        let block = current.deployment.layout().instance(site).unwrap();
+        block.bypass.at(current.deployment.scene())
+    };
+    let before = bypassed(&device);
+    edges(&mut device, &[(2, 1), (2, 0)]);
+    pump(&mut device, "the tap after the wait", |d| {
+        d.state().custom.deadline().is_none()
+    });
+    for _ in 0..4 {
+        assert!(device.step().is_none());
+    }
+    assert_eq!(bypassed(&device), before);
 }
 
 /// A program installs with its files and starts from its page with `{app}` resolved. While it
