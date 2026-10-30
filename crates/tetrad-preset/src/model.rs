@@ -739,20 +739,20 @@ trait Encode {
 }
 
 fn key(out: &mut Vec<u8>, number: u32, wire: u8) {
-    out.extend(wire::encode_varint(
+    out.extend_from_slice(&wire::encode_varint(
         u64::from(number) << 3 | u64::from(wire),
     ));
 }
 
 fn put_u32(out: &mut Vec<u8>, number: u32, value: u32) {
     key(out, number, 0);
-    out.extend(wire::encode_varint(u64::from(value)));
+    out.extend_from_slice(&wire::encode_varint(u64::from(value)));
 }
 
 /// Negative int32 values sign-extend to ten bytes, as stock writes -1.
 fn put_i32(out: &mut Vec<u8>, number: u32, value: i32) {
     key(out, number, 0);
-    out.extend(wire::encode_varint(i64::from(value) as u64));
+    out.extend_from_slice(&wire::encode_varint(i64::from(value) as u64));
 }
 
 fn put_f32(out: &mut Vec<u8>, number: u32, value: f32) {
@@ -762,7 +762,7 @@ fn put_f32(out: &mut Vec<u8>, number: u32, value: f32) {
 
 fn put_bytes(out: &mut Vec<u8>, number: u32, data: &[u8]) {
     key(out, number, 2);
-    out.extend(wire::encode_varint(data.len() as u64));
+    out.extend_from_slice(&wire::encode_varint(data.len() as u64));
     out.extend_from_slice(data);
 }
 
@@ -829,31 +829,39 @@ fn strs(out: &mut Vec<u8>, number: u32, values: &[String]) {
     }
 }
 
+/// A length-delimited field whose payload `body` writes straight into `out`. Its length goes
+/// in front afterwards, so no payload needs a buffer of its own.
+fn put_nested(out: &mut Vec<u8>, number: u32, body: impl FnOnce(&mut Vec<u8>)) {
+    key(out, number, 2);
+    let start = out.len();
+    body(out);
+    let length = wire::encode_varint((out.len() - start) as u64);
+    out.splice(start..start, length.iter().copied());
+}
+
 fn packed(out: &mut Vec<u8>, number: u32, values: &[u32]) {
     if values.is_empty() {
         return;
     }
-    let payload: Vec<u8> = values
-        .iter()
-        .flat_map(|&value| wire::encode_varint(u64::from(value)))
-        .collect();
-    put_bytes(out, number, &payload);
+    put_nested(out, number, |out| {
+        for &value in values {
+            out.extend_from_slice(&wire::encode_varint(u64::from(value)));
+        }
+    });
 }
 
 fn msgs<T: Encode>(out: &mut Vec<u8>, number: u32, values: &[T]) {
     for value in values {
-        let mut body = Vec::new();
-        value.encode(&mut body);
-        put_bytes(out, number, &body);
+        put_nested(out, number, |out| value.encode(out));
     }
 }
 
 fn string_map(out: &mut Vec<u8>, number: u32, map: &MapField<String>) {
     for (key, value) in map.iter() {
-        let mut body = Vec::new();
-        put_u32(&mut body, 1, key);
-        put_bytes(&mut body, 2, value.as_bytes());
-        put_bytes(out, number, &body);
+        put_nested(out, number, |out| {
+            put_u32(out, 1, key);
+            put_bytes(out, 2, value.as_bytes());
+        });
     }
 }
 
@@ -893,10 +901,10 @@ impl Encode for Preset {
         msgs(out, 33, &self.midi_messages_general_v2);
         string_map(out, 34, &self.single_stomp_labels);
         for (key, value) in self.stomp_is_momentary.iter() {
-            let mut body = Vec::new();
-            put_u32(&mut body, 1, key);
-            put_u32(&mut body, 2, (*value).into());
-            put_bytes(out, 35, &body);
+            put_nested(out, 35, |out| {
+                put_u32(out, 1, key);
+                put_u32(out, 2, (*value).into());
+            });
         }
         opt_bool(out, 36, self.side_chain_follow_exists);
         opt_bool(out, 37, self.zsk_7182_applied);

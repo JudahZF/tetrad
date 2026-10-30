@@ -168,7 +168,7 @@ pub fn install(
     let mut blobs = CommunityBlobs::default();
     let mut statuses = Vec::with_capacity(sources.len());
     for (source, id) in sources.into_iter().zip(ids) {
-        let fingerprint = fingerprint(std::slice::from_ref(source));
+        let fingerprint = source_fingerprint(source);
         let kept = (previous.remove(&source.key))
             .filter(|compiled| compiled.fingerprint == fingerprint && Some(compiled.spec.id) == id);
         let compiled = match (kept, template, id) {
@@ -218,11 +218,16 @@ fn build(
         return Err(BuildError::TooLarge(nodes));
     }
     // The blob name holds the ID and an IR hash: a changed block never reuses the blob that
-    // the deploy kept for its old version.
-    let ir = source.ir.to_json()?;
-    let hash = ir.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
-        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    // the deploy kept for its old version. The hash is FNV-1a over `to_json`'s bytes, written
+    // straight into the hash.
+    source.ir.validate()?;
+    let mut hash = 0x811c_9dc5_u32;
+    let writer = HashWriter(|bytes: &[u8]| {
+        hash = bytes.iter().fold(hash, |hash, &byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        });
     });
+    serde_json::to_writer_pretty(writer, &source.ir).map_err(qcdsp::Error::from)?;
     let block =
         source
             .ir
@@ -280,27 +285,53 @@ impl Installed {
     }
 }
 
-/// FNV-1a over every source's key, name, category, placeholder and IR.
+/// An [`std::io::Write`] that gives each write to `F`: serde output goes into a hash without a
+/// string. A large WaveNet is about 165 KB of `to_json`.
+struct HashWriter<F>(F);
+
+impl<F: FnMut(&[u8])> std::io::Write for HashWriter<F> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        (self.0)(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+const FNV64_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+
+fn fnv64(hash: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(hash, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// FNV-1a over a source's key, name, category, placeholder and IR. The IR goes in as compact
+/// JSON: the content of `to_json` in half the bytes.
+fn source_fingerprint(source: &Source) -> u64 {
+    use std::io::Write;
+    let mut hash = FNV64_BASIS;
+    let mut writer = HashWriter(|bytes: &[u8]| hash = fnv64(hash, bytes));
+    // The writer never fails, and a `Block` always serializes.
+    let _ = write!(
+        writer,
+        "{}\0{}\0{}\0{:?}\0",
+        source.key,
+        source.name,
+        source.category.id(),
+        source.placeholder
+    );
+    let _ = serde_json::to_writer(writer, &source.ir);
+    hash
+}
+
+/// A fingerprint of a set of sources, in any order.
 fn fingerprint(sources: &[Source]) -> u64 {
-    let mut keys: Vec<String> = sources
-        .iter()
-        .map(|source| {
-            format!(
-                "{}\u{0}{}\u{0}{}\u{0}{:?}\u{0}{}",
-                source.key,
-                source.name,
-                source.category.id(),
-                source.placeholder,
-                source.ir.to_json().unwrap_or_default()
-            )
-        })
-        .collect();
-    keys.sort();
-    keys.iter()
-        .flat_map(|key| key.bytes().chain([0xff]))
-        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-        })
+    let mut prints: Vec<u64> = sources.iter().map(source_fingerprint).collect();
+    prints.sort_unstable();
+    (prints.iter()).fold(FNV64_BASIS, |hash, print| fnv64(hash, &print.to_le_bytes()))
 }
 
 /// [`IDS_FILE`], empty when it is missing.

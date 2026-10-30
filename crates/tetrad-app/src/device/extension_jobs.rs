@@ -142,8 +142,13 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
             let mut problems = Vec::new();
             let installed = (state.installed.iter())
                 .map(|installed| {
-                    let (blocks, generated) = block_irs(store, installed, &mut problems);
-                    let remote_page = store.remote_page(installed).unwrap_or_else(|error| {
+                    // The load read and checked the package already: no second decode.
+                    let package = (state.packages.remove(&installed.key))
+                        .map_or_else(|| store.package(&installed.key, &installed.current), Ok);
+                    let (static_blocks, remote_page) = package_parts(package);
+                    let (blocks, generated) =
+                        block_irs(store, installed, static_blocks, &mut problems);
+                    let remote_page = remote_page.unwrap_or_else(|error| {
                         problems.push(format!("{}: remote page: {error}", installed.key));
                         None
                     });
@@ -275,18 +280,33 @@ fn install<F: Fetch>(
     (store.install(&source.source, &source.key, entry, &bytes, &files)).map_err(|e| text(&e))
 }
 
-/// The static block IR of the package and the cached generated IR. A package that no longer
-/// reads keeps its runner; its blocks are left out with a problem line.
+/// The static block IR and the Remote page of a package read once ([`Store::package`]), or
+/// its read error for each.
+type PackageParts = (
+    Result<BTreeMap<String, qcdsp::Block>, String>,
+    Result<Option<String>, String>,
+);
+
+fn package_parts(package: Result<Package, store::StoreError>) -> PackageParts {
+    match package {
+        Ok(package) => (Ok(package.blocks), Ok(package.remote_page)),
+        Err(error) => (Err(error.to_string()), Err(error.to_string())),
+    }
+}
+
+/// The static block IR of the package (`static_blocks`) and the cached generated IR. A
+/// package that no longer reads keeps its runner; its blocks are left out with a problem line.
 fn block_irs(
     store: &Store,
     installed: &Installed,
+    static_blocks: Result<BTreeMap<String, qcdsp::Block>, String>,
     problems: &mut Vec<String>,
 ) -> (BTreeMap<String, qcdsp::Block>, Vec<GeneratedIr>) {
     let key = &installed.key;
     let manifest = &installed.current.manifest;
     let blocks = match manifest.blocks.iter().any(|block| !block.generated) {
         false => BTreeMap::new(),
-        true => store.blocks(installed).unwrap_or_else(|error| {
+        true => static_blocks.unwrap_or_else(|error| {
             problems.push(format!("{key}: DSP blocks: {error}"));
             BTreeMap::new()
         }),
@@ -411,11 +431,13 @@ fn json_len(text: &str) -> usize {
 fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
     let manifest = &installed.current.manifest;
     let mut problems = Vec::new();
-    let (blocks, generated) = block_irs(store, &installed, &mut problems);
+    let (static_blocks, remote_page) =
+        package_parts(store.package(&installed.key, &installed.current));
+    let (blocks, generated) = block_irs(store, &installed, static_blocks, &mut problems);
     if let Some(problem) = problems.into_iter().next() {
         return Err(problem);
     }
-    let remote_page = store.remote_page(&installed).map_err(|e| e.to_string())?;
+    let remote_page = remote_page?;
     Ok(Loaded {
         app: app_launch(store, &installed),
         module: store.module_path(&installed),

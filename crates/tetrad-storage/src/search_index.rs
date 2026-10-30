@@ -49,6 +49,17 @@ impl SearchIndex {
     /// contain `|`: like stock, owners come from entry start offsets, not from
     /// the separator.
     pub fn build(entries: Vec<SearchEntry>) -> Result<Self> {
+        let (mut index, starts) = Self::with_text(entries)?;
+        let mut suffixes: Vec<u32> = (0..index.text.len() as u32).collect();
+        suffixes.sort_unstable_by(|&a, &b| index.text[a as usize..].cmp(&index.text[b as usize..]));
+        index.owners = owners_of(&suffixes, &starts);
+        index.suffixes = suffixes;
+        Ok(index)
+    }
+
+    /// The entries with lowercase names and their text, without the derived arrays; and the
+    /// text offset of each entry.
+    fn with_text(entries: Vec<SearchEntry>) -> Result<(Self, Vec<usize>)> {
         let mut index = Self {
             entries,
             ..Self::default()
@@ -60,23 +71,14 @@ impl SearchIndex {
             index.text.extend_from_slice(entry.name.as_bytes());
             index.text.push(b'|');
         }
-        let length = u32::try_from(index.text.len()).map_err(|_| Error::Limit)?;
-        let mut suffixes: Vec<u32> = (0..length).collect();
-        suffixes.sort_unstable_by(|&a, &b| index.text[a as usize..].cmp(&index.text[b as usize..]));
-        index.owners = suffixes
-            .iter()
-            .map(|&position| {
-                (starts.partition_point(|&start| start <= position as usize) - 1) as u32
-            })
-            .collect();
-        index.suffixes = suffixes;
-        Ok(index)
+        u32::try_from(index.text.len()).map_err(|_| Error::Limit)?;
+        Ok((index, starts))
     }
 
-    /// Decodes a stock index and rebuilds the derived arrays. Entry boundaries
-    /// come from the stored owner array, so a name that contains `|` decodes.
-    /// The stored suffix and owner arrays must equal the rebuilt ones, or the
-    /// file is refused.
+    /// Decodes a stock index. Entry boundaries come from the stored owner
+    /// array, so a name that contains `|` decodes. The stored text, suffix and
+    /// owner arrays must equal the ones [`Self::build`] makes, or the file is
+    /// refused.
     pub fn decode(bytes: &[u8], max_entries: usize) -> Result<Self> {
         let mut text = None;
         let mut suffixes = Vec::new();
@@ -137,10 +139,23 @@ impl SearchIndex {
                 path,
             })
             .collect();
-        let index = Self::build(entries)?;
-        if index.text != text || index.suffixes != suffixes || index.owners != owners {
+        // The stored arrays must be the ones `build` makes. Distinct suffixes have one
+        // ascending order, so a permutation of the text positions in strictly ascending
+        // suffix order is that array: a linear check instead of a second sort.
+        let (mut index, starts) = Self::with_text(entries)?;
+        if index.text != text {
             return Err(inconsistent());
         }
+        let mut seen = vec![false; text.len()];
+        let permutation = (suffixes.iter())
+            .all(|&position| !std::mem::replace(&mut seen[position as usize], true));
+        let ascending =
+            (suffixes.windows(2)).all(|pair| text[pair[0] as usize..] < text[pair[1] as usize..]);
+        if !permutation || !ascending || owners_of(&suffixes, &starts) != owners {
+            return Err(inconsistent());
+        }
+        index.suffixes = suffixes;
+        index.owners = owners;
         Ok(index)
     }
 
@@ -184,6 +199,21 @@ impl SearchIndex {
         found.sort_by(|a, b| a.name.cmp(&b.name));
         found
     }
+}
+
+/// The entry of each suffix: the last entry that starts at or before it.
+fn owners_of(suffixes: &[u32], starts: &[usize]) -> Vec<u32> {
+    let mut owner_at = vec![0_u32; suffixes.len()];
+    for (owner, (&start, end)) in starts
+        .iter()
+        .zip(starts.iter().skip(1).copied().chain([suffixes.len()]))
+        .enumerate()
+    {
+        owner_at[start..end].fill(owner as u32);
+    }
+    (suffixes.iter())
+        .map(|&position| owner_at[position as usize])
+        .collect()
 }
 
 /// The stock `searchRecentChanges*` file, each item `{1: folder_key, 2: path}`:
@@ -257,7 +287,7 @@ impl<'a> Reader<'a> {
             let byte = *self
                 .bytes
                 .get(self.offset)
-                .ok_or(Error::Format("truncated varint"))?;
+                .ok_or_else(|| Error::Format("truncated varint"))?;
             self.offset += 1;
             value |= u64::from(byte & 0x7f) << shift;
             if byte < 0x80 {

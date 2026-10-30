@@ -321,17 +321,20 @@ fn connector(l: &mut Layout, port: &Port, (cx, cy): (i32, i32), selected: bool) 
     }
 }
 
-/// Flat-top hex nut (¼" jack body, shot 102) of circumradius `radius`: solid 1 px rows.
+/// Flat-top hex nut (¼" jack body, shot 102) of circumradius `radius`: one [`Look::HexNut`]
+/// item, `2 × radius` wide and two apothems high.
 fn hex_nut(l: &mut Layout, (cx, cy): (i32, i32), radius: i32, color: Rgb) {
     let apothem = (radius as f32 * 3f32.sqrt() / 2.0).round() as i32;
-    for y in -apothem..apothem {
-        let half = (radius as f32 - (y as f32 + 0.5).abs() / 3f32.sqrt()).round() as i32;
-        l.push(
-            Rect::new(cx - half, cy + y, half as u32 * 2, 1),
-            "",
-            Look::Fill(color),
-        );
-    }
+    l.push(
+        Rect::new(
+            cx - radius,
+            cy - apothem,
+            radius as u32 * 2,
+            apothem as u32 * 2,
+        ),
+        "",
+        Look::HexNut { color },
+    );
 }
 
 /// Output pairing mark between two jacks: a chain link, two rings with a bar through them.

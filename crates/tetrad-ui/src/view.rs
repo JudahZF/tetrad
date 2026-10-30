@@ -2006,8 +2006,8 @@ pub struct UiSnapshot {
     pub scenes: [SceneView; SCENE_COUNT],
     pub grid: [GridCell; GRID_CELLS],
     /// Presets of the open setlist, in bank order (8 per bank, 4 with a hybrid-with-preset
-    /// mode cycle, `0x58b968`).
-    pub presets: Vec<PresetItem>,
+    /// mode cycle, `0x58b968`). Shared: a snapshot copies the pointer, not the list.
+    pub presets: std::sync::Arc<Vec<PresetItem>>,
     pub bank_preview_active: bool,
     /// Raw stock mode ID; shown only when `footswitch_mode` is `None`.
     pub mode_id: u8,
@@ -2247,7 +2247,7 @@ impl Default for UiSnapshot {
             selected_scene: SceneIndex(0),
             scenes: Default::default(),
             grid: std::array::from_fn(|_| GridCell::default()),
-            presets: Vec::new(),
+            presets: Default::default(),
             bank_preview_active: false,
             bank_size: FOOTSWITCH_COUNT as u8,
             mode_id: 0,
@@ -2376,8 +2376,8 @@ impl UiSnapshot {
     }
 
     /// Validate every bound before the snapshot replaces the current one.
-    /// Checks the snapshot that replaces `old`. The shared lists (directory, models, media) are
-    /// checked only when their `Arc` changed: on the QC they made each check 7–17 ms.
+    /// Checks the snapshot that replaces `old`. The shared lists (directory, models, media,
+    /// presets) are checked only when their `Arc` changed: on the QC they made each check 7–17 ms.
     pub(crate) fn validate(&self, old: &UiSnapshot) -> Result<(), UiError> {
         use std::sync::Arc;
         if !Arc::ptr_eq(&self.directory, &old.directory) {
@@ -2421,10 +2421,11 @@ impl UiSnapshot {
         {
             return Err(UiError::TextTooLong);
         }
-        if self.presets.len() > MAX_PRESETS {
+        let new_presets = !Arc::ptr_eq(&self.presets, &old.presets);
+        if new_presets && self.presets.len() > MAX_PRESETS {
             return Err(UiError::TooManyPresets);
         }
-        if has_duplicates(self.presets.iter().map(|preset| preset.id)) {
+        if new_presets && has_duplicates(self.presets.iter().map(|preset| preset.id)) {
             return Err(UiError::DuplicatePreset);
         }
         if self.bank.presets.len() > FOOTSWITCH_COUNT
@@ -2484,7 +2485,10 @@ impl UiSnapshot {
         if !numbers_ok || self.expression_switch.delay_ms > MAX_SWITCH_DELAY_MS {
             return Err(UiError::InvalidNumber);
         }
-        if self.texts().any(|text| text.len() > MAX_TEXT_BYTES) {
+        let preset_titles = new_presets.then(|| self.presets.iter().map(|preset| &*preset.title));
+        if (self.texts().chain(preset_titles.into_iter().flatten()))
+            .any(|text| text.len() > MAX_TEXT_BYTES)
+        {
             return Err(UiError::TextTooLong);
         }
         Ok(())
@@ -2496,7 +2500,6 @@ impl UiSnapshot {
             .into_iter()
             .chain(self.scenes.iter().map(|scene| &scene.label))
             .chain(self.grid.iter().map(|cell| &cell.label))
-            .chain(self.presets.iter().map(|preset| &preset.title))
             .chain(self.bank.presets.iter().map(|preset| &preset.title))
             .chain(self.stomps.iter().map(|stomp| &stomp.label))
             .chain(

@@ -250,8 +250,9 @@ pub fn import_cloud_ir(
         let id = product.id;
         return Ok(CloudIr::Present { id, name });
     }
-    for other in view.product_ids(ProductType::Ir)? {
-        if name(view.product(&other)?).is_ok_and(|named| named == cloud.name) {
+    // The rows without rawdata: the rawdata of the other IRs stays unread.
+    for (_, row) in view.product_rows(ProductType::Ir)? {
+        if name(Some(row?)).is_ok_and(|named| named == cloud.name) {
             return Ok(CloudIr::NameTaken);
         }
     }

@@ -8,7 +8,7 @@ use tetrad_assets::{Icon, IconSize, Palette, Rgb, TextSize, Weight};
 use crate::layout::{
     BODY, BODY_BOLD, ButtonStyle, CAPTION, Item, LARGE_BOLD, Look, MEDIUM, SMALL_BOLD, TileMark,
 };
-use crate::render::{Align, Canvas, FULL, Font, RingPixel, fit, ring};
+use crate::render::{Align, Canvas, FULL, Font, RingPixel, cached_ring, fit, ring};
 use crate::{Control, ParameterKind, Rect, SettingControl, SettingId};
 
 /// Stock radius of cards, buttons and tiles.
@@ -194,6 +194,17 @@ fn shrink(open: Rect, item: &Item) -> Option<Rect> {
     })
 }
 
+/// A [`Look::HexNut`]: per row of the two apothems, a 1 px fill whose half width shrinks
+/// from the circumradius by `|y + 0.5| / √3`, rounded.
+fn hex_nut(canvas: &mut Canvas, b: Rect, color: Rgb) {
+    let (radius, apothem) = (b.width as i32 / 2, b.height as i32 / 2);
+    let (cx, cy) = (b.x + radius, b.y + apothem);
+    for y in -apothem..apothem {
+        let half = (radius as f32 - (y as f32 + 0.5).abs() / 3f32.sqrt()).round() as i32;
+        canvas.fill(Rect::new(cx - half, cy + y, half as u32 * 2, 1), color);
+    }
+}
+
 /// Text colour for enabled or disabled content.
 fn ink(p: &Palette, enabled: bool) -> Rgb {
     if enabled { p.text } else { p.faint }
@@ -229,13 +240,14 @@ fn paint(canvas: &mut Canvas, item: &Item, pressed: bool) {
             color,
         } => {
             let center = (b.x + b.width as i32 / 2, b.y + b.height as i32 / 2);
-            let pixels = ring(b.width as f32 / 2.0 - width / 2.0, *width);
+            let pixels = cached_ring(b.width as f32 / 2.0 - width / 2.0, *width);
             canvas.arc(center, &pixels, *start, *sweep, *color);
         }
         Look::Dot { color } => {
             let (cx, cy) = b.center();
             canvas.circle(cx as f32, cy as f32, b.width as f32 / 2.0, *color);
         }
+        Look::HexNut { color } => hex_nut(canvas, b, *color),
         Look::Text { font, color, align } => canvas.text(b, label, *font, *color, *align),
         Look::Paragraph { font, color, align } => {
             canvas.paragraph(b, label, *font, *color, *align);

@@ -744,7 +744,8 @@ fn library_replay_drives_pointer_selection_and_local_edits_without_database_writ
             id: 22,
             title: "Second".into(),
         },
-    ];
+    ]
+    .into();
     let mut ui = UiState::new();
     ui.set_snapshot(snapshot).unwrap();
     ui.handle_input(tetrad_ui::InputEvent::Activate(Control::Navigate(

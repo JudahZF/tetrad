@@ -115,6 +115,11 @@ pub(crate) enum Look {
     Dot {
         color: Rgb,
     },
+    /// Flat-top hex nut (the I/O page's ¼" jacks): solid 1 px rows, circumradius half the
+    /// bounds' width, apothem half their height ([`crate::draw`]).
+    HexNut {
+        color: Rgb,
+    },
     /// Part of a ring inside the bounds (outer edge on them), from `start` clockwise by
     /// `sweep` degrees (0° = +x, y down). The capture spinner (shot 070).
     Arc {
@@ -544,6 +549,20 @@ impl Layout {
         let offset = offset.clamp(0, scroller.max_offset());
         self.scrollers.push(scroller);
         self.clipped(viewport, |layout| build(layout, viewport.y - offset));
+    }
+
+    /// The rows (`count` of `height` px from `top`) that meet the clip. A long list builds
+    /// only these: [`Self::add`] drops every item of the others, if each item of a row lies
+    /// inside the row.
+    pub fn shown_rows(&self, top: i32, height: u32, count: usize) -> std::ops::Range<usize> {
+        let Some(clip) = self.clip else {
+            return 0..count;
+        };
+        let height = i64::from(height.max(1));
+        let row = |y: i32| (i64::from(y) - i64::from(top)).div_euclid(height);
+        let first = row(clip.y).clamp(0, count as i64) as usize;
+        let end = (row(clip.bottom() - 1) + 1).clamp(0, count as i64) as usize;
+        first..end.max(first)
     }
 
     /// Restrict items built by `build` to `viewport` (inside any outer clip).

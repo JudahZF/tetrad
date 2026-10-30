@@ -171,9 +171,12 @@ impl Harness {
         let target = stock.map_or(RETURN, |stock| CODE + stock);
         self.cpu.set_pc(CODE + entry);
         let start = self.cpu.cycles();
+        // SP at the last canary write, and the length of the write log checked since.
+        let mut canaries: Option<(u32, usize)> = None;
         loop {
             if [HEAP_MALLOC, HEAP_FREE].contains(&self.cpu.pc()) {
                 self.kernel();
+                canaries = None;
                 continue;
             }
             let cpu = &mut self.cpu;
@@ -182,10 +185,21 @@ impl Harness {
                 Err(MachineError::StepBudget(_)) if cpu.cycles() - start < 2_000_000 => {}
                 result => panic!("callback {entry:#x}, PC {:#x}: {result:?}", cpu.pc()),
             }
-            // The interrupt stack is shared: nothing live may be at/below SP.
-            for word in 0..8 {
-                self.memory.map.write(cpu.i[7] - 4 * word, CANARY).unwrap();
+            // The interrupt stack is shared: nothing live may be at/below SP. The canaries are
+            // still in place while SP stays and no step wrote over them.
+            let (sp, logged) = (cpu.i[7], self.memory.writes.len());
+            let fresh = canaries.is_some_and(|(at, checked)| {
+                at == sp
+                    && !self.memory.writes[checked..]
+                        .iter()
+                        .any(|&address| (0..8).any(|word| sp - 4 * word == address & !3))
+            });
+            if !fresh {
+                for word in 0..8 {
+                    self.memory.map.write(sp - 4 * word, CANARY).unwrap();
+                }
             }
+            canaries = Some((sp, logged));
         }
         let cpu = &self.cpu;
         for n in [3, 5, 6, 7, 9, 10, 11, 13, 14, 15] {

@@ -704,6 +704,8 @@ pub struct UiState {
     pub(crate) scene_source: Option<SceneIndex>,
     /// Directory category, view, pop-up, Multi Select and search state.
     pub(crate) directory: crate::screens::Directory,
+    /// What the long lists derive from the snapshot, kept between layouts.
+    pub(crate) list_cache: crate::screens::ListCache,
     /// The Grid scene dropdown is open (scene badge, manual "SCENES DROPDOWN").
     pub(crate) scene_menu: bool,
     /// Pedal tab of the expression assignment screen.
@@ -803,6 +805,7 @@ impl Default for UiState {
             save_as: None,
             scene_source: None,
             directory: crate::screens::Directory::default(),
+            list_cache: crate::screens::ListCache::default(),
             scene_menu: false,
             expression_pedal: ExpressionPedal::Exp1,
             expression_param: None,

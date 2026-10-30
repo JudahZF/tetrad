@@ -1367,10 +1367,10 @@ impl<P: Platform> Device<P> {
         #[cfg(feature = "dev")]
         let began = self.clock.now();
         let mut lap = Lap::start();
-        self.probe.enter();
+        self.probe.enter_at(lap.0);
         let busy = self.gather();
-        self.probe.leave(Label::new("gather"));
-        lap.end(&mut self.last_phases.gather);
+        let at = self.probe.leave(Label::text("gather"));
+        lap.end(at, &mut self.last_phases.gather);
         let now = self.clock.now();
         let due: Vec<Timer> = self
             .timers
@@ -1442,7 +1442,7 @@ impl<P: Platform> Device<P> {
             .bridges
             .control
             .sync(&mut self.state, capturing, self.clock.now());
-        self.probe.leave(Label::new("Control sync"));
+        self.probe.leave(Label::text("Control sync"));
         self.apply(control);
         // re-r38 §3: a question of a Control-started upload goes to Cortex Control only.
         let ask = (self.bridges.services.upload_prompt())
@@ -1477,27 +1477,28 @@ impl<P: Platform> Device<P> {
         self.probe.enter();
         self.send_control_reports(control::outgoing::FRAMES_PER_PASS);
         self.send_usb_reports(usb::REPORTS_PER_PASS);
-        self.probe.leave(Label::new("send_reports"));
-        lap.end(&mut self.last_phases.control);
+        let at = self.probe.leave(Label::text("send_reports"));
+        lap.end(at, &mut self.last_phases.control);
         self.probe.set_phase(Phase::Views);
-        self.probe.enter();
+        self.probe.enter_at(at);
         self.sync_looper();
-        self.probe.leave(Label::new("sync_looper"));
-        self.probe.enter();
+        let at = self.probe.leave(Label::text("sync_looper"));
+        self.probe.enter_at(at);
         self.sync_voice_notes();
-        self.probe.leave(Label::new("sync_voice_notes"));
-        self.probe.enter();
+        let at = self.probe.leave(Label::text("sync_voice_notes"));
+        self.probe.enter_at(at);
         self.sync_views();
-        self.probe.leave(Label::new("sync_views"));
-        lap.end(&mut self.last_phases.views);
+        let at = self.probe.leave(Label::text("sync_views"));
+        lap.end(at, &mut self.last_phases.views);
         self.probe.set_phase(Phase::Frame);
-        // A running program owns the screen; the frame waits for its end.
+        // A running program owns the screen; the frame waits for its end. Without a frame the
+        // phase is empty.
         if self.present && self.app.is_none() {
-            self.probe.enter();
+            self.probe.enter_at(at);
             self.present_frame();
-            self.probe.leave(Label::new("present_frame"));
+            let at = self.probe.leave(Label::text("present_frame"));
+            lap.end(at, &mut self.last_phases.frame);
         }
-        lap.end(&mut self.last_phases.frame);
         self.phase_max = self.phase_max.max(self.last_phases);
         #[cfg(feature = "dev")]
         {
@@ -3618,7 +3619,8 @@ impl PhaseTimes {
     }
 }
 
-/// Wall time since the last [`Lap::end`].
+/// Wall time since the last [`Lap::end`]. A phase ends where its last probe unit ends, and the
+/// next unit starts there: one clock read serves all three (on the unit, each read is a syscall).
 struct Lap(Instant);
 
 impl Lap {
@@ -3626,8 +3628,8 @@ impl Lap {
         Self(Instant::now())
     }
 
-    fn end(&mut self, phase: &mut Duration) {
-        let now = Instant::now();
+    /// Ends the phase at `now`, a time just read (the end of its last probe unit).
+    fn end(&mut self, now: Instant, phase: &mut Duration) {
         *phase = now - self.0;
         self.0 = now;
     }

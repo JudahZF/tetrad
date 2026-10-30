@@ -13,7 +13,8 @@
 //!
 //! Firmware: [`LinuxRoot::check_pinned_firmware`] identifies the stock build
 //! (`tetrad_firmware::Firmware`); `main` selects it. Every later stock read checks its file
-//! against the running build (`tetrad_firmware::running`).
+//! against the running build (`tetrad_firmware::running`). The root keeps the ZenUI image the
+//! check hashed, so the cipher and the driver tables do not read or hash it again.
 //!
 //! Logging: [`Platform::log`] writes to stderr and ignores errors. After
 //! `PowerStep::StopLogPipelines` stderr is a pipe without a reader (review-b2-linux S1), so
@@ -36,7 +37,7 @@ use tetrad_dsp_host::drain::StockThread;
 use tetrad_dsp_host::model::{CoreWindows, ModelError, ModelMemory};
 use tetrad_dsp_host::session::{Clock, SystemClock};
 use tetrad_dsp_host::setup::tables::{CIPHER_SEED, check_zenui_vas};
-use tetrad_dsp_host::setup::{ElfTables, StockTables, TableError};
+use tetrad_dsp_host::setup::{ElfTables, HashedZenUi, StockTables, TableError};
 use tetrad_dsp_host::transport::{MESSAGE_MEMORY_BASE, MESSAGE_MEMORY_BYTES};
 use tetrad_dsp_host::{MemoryError, SharedMemory};
 use tetrad_dsp_protocol::DspCore;
@@ -171,10 +172,14 @@ fn marker_path(marker: Marker) -> &'static str {
 
 /// The kernel and `moduleReport.xml` cipher (ZenUI `0x6abcac`, `EVP_BytesToKey` SHA-1 × 10 over
 /// seed ‖ serial; the NDSP scheme). `zenui_image` must be the ZenUI of the running build,
-/// because the seed VA belongs to that build. The secret bytes never leave this function.
+/// because the seed VA belongs to that build (a [`HashedZenUi`] is checked by its digest). The
+/// secret bytes never leave this function.
 /// Both buffers are `Zeroizing` and the joined one has its final capacity, so no
 /// reallocation frees an unzeroed copy (review r11 K2).
-pub fn device_cipher(zenui_image: Vec<u8>, qc_sn: &[u8]) -> Result<NdspCipher, LinuxError> {
+pub fn device_cipher(
+    zenui_image: impl Into<HashedZenUi>,
+    qc_sn: &[u8],
+) -> Result<NdspCipher, LinuxError> {
     let seed = Zeroizing::new(ElfTables::new(zenui_image)?.read(CIPHER_SEED)?);
     let serial = DeviceSerial::parse(qc_sn)?;
     let serial = serial.as_str().as_bytes();
@@ -205,6 +210,9 @@ pub struct LinuxRoot {
     /// Built once from the ZenUI image and the serial; memory only. The kernels, the media
     /// library, Cortex Control and capture saves share this one key (review-w6 F9).
     cipher: Option<DeviceCipher>,
+    /// The ZenUI image [`Self::check_pinned_firmware`] hashed, until the driver tables take it
+    /// ([`Self::zenui_image`]).
+    zenui: Option<HashedZenUi>,
 }
 
 impl LinuxRoot {
@@ -212,6 +220,7 @@ impl LinuxRoot {
         Self {
             root: root.into(),
             cipher: None,
+            zenui: None,
         }
     }
 
@@ -230,7 +239,7 @@ impl LinuxRoot {
     /// The start of `tetrad run` and `tetrad bringup`: [`Self::take_stock_comm`], then
     /// [`Self::check_pinned_firmware`], which hashes the 22 MB ZenUI image (about 3 to 6 s on
     /// the unit). The outer error is the rename; each caller treats the check in its own way.
-    pub fn start_as_stock(&self) -> io::Result<Result<&'static Profile, LinuxError>> {
+    pub fn start_as_stock(&mut self) -> io::Result<Result<&'static Profile, LinuxError>> {
         self.take_stock_comm()?;
         Ok(self.check_pinned_firmware())
     }
@@ -244,28 +253,13 @@ impl LinuxRoot {
     /// known build (`tetrad_firmware::Firmware::identify`) whose profile is complete and has a
     /// VA for every ZenUI read site, because the seed, table and booter addresses belong to
     /// it. A CorOS update changes both files. Returns the profile for `tetrad_firmware::select`.
-    /// Reads only; the 22 MB ZenUI image is hashed in chunks.
-    pub fn check_pinned_firmware(&self) -> Result<&'static Profile, LinuxError> {
+    /// Reads only. A known build keeps the 22 MB ZenUI image with its digest until the driver
+    /// tables take it, so the boot reads and hashes it once.
+    pub fn check_pinned_firmware(&mut self) -> Result<&'static Profile, LinuxError> {
         use sha2::{Digest, Sha256};
-        use std::io::Read;
-        let digest = |stock: &str| -> Result<Vec<u8>, LinuxError> {
-            let path = self.path(stock);
-            let mut hasher = Sha256::new();
-            let mut chunk = vec![0; 1 << 16];
-            let hashed = File::open(&path).and_then(|mut file| {
-                loop {
-                    match file.read(&mut chunk)? {
-                        0 => return Ok(()),
-                        read => hasher.update(&chunk[..read]),
-                    }
-                }
-            });
-            hashed.map_err(|source| LinuxError::File { path, source })?;
-            Ok(hasher.finalize().to_vec())
-        };
-        let zenui = digest(ZENUI_IMAGE)?;
-        let loadsharc = digest(LOADSHARC)?;
-        let profile = Firmware::identify(&zenui, &loadsharc)
+        let zenui = HashedZenUi::from(self.read(ZENUI_IMAGE)?);
+        let loadsharc = Sha256::digest(self.read(LOADSHARC)?);
+        let profile = Firmware::identify(zenui.sha256(), &loadsharc)
             .and_then(Firmware::profile)
             .map_err(|error| match error {
                 FirmwareError::UnknownZenUi => LinuxError::WrongImage("ZenUI"),
@@ -273,6 +267,7 @@ impl LinuxRoot {
                 error => LinuxError::Firmware(error),
             })?;
         check_zenui_vas(profile)?;
+        self.zenui = Some(zenui);
         Ok(profile)
     }
 
@@ -335,9 +330,24 @@ impl LinuxRoot {
     fn cipher(&mut self) -> Result<&DeviceCipher, LinuxError> {
         let cipher = match self.cipher.take() {
             Some(cipher) => cipher,
-            None => device_cipher(self.read(ZENUI_IMAGE)?, &self.read(SERIAL_PATH)?)?.into(),
+            None => {
+                let zenui = match &self.zenui {
+                    Some(zenui) => zenui.clone(),
+                    None => self.read(ZENUI_IMAGE)?.into(),
+                };
+                device_cipher(zenui, &self.read(SERIAL_PATH)?)?.into()
+            }
         };
         Ok(self.cipher.insert(cipher))
+    }
+
+    /// The ZenUI image for the driver tables: the one [`Self::check_pinned_firmware`] kept
+    /// (then this root holds it no longer), else read and hashed now.
+    pub fn zenui_image(&mut self) -> Result<HashedZenUi, LinuxError> {
+        match self.zenui.take() {
+            Some(zenui) => Ok(zenui),
+            None => Ok(self.read(ZENUI_IMAGE)?.into()),
+        }
     }
 
     /// loadsharc (checked), both kernels decrypted in memory (stock writes temp files,
@@ -1357,9 +1367,9 @@ impl LinuxPlatform {
     /// Explicit hardware opt-in. Sets the comm name `ZenUI`, then opens the HAL, MIDI UART,
     /// touch, framebuffer, splash queue and power programs. Only the rename, `/proc/cmdline` and
     /// the emulation markers can fail it; a node that does not open is logged and its feature
-    /// answers [`LinuxError::Unavailable`].
-    pub fn open() -> Result<Self, LinuxError> {
-        let root = LinuxRoot::new("/");
+    /// answers [`LinuxError::Unavailable`]. `root` is `/`; after
+    /// [`LinuxRoot::check_pinned_firmware`] it holds the hashed ZenUI image.
+    pub fn open(root: LinuxRoot) -> Result<Self, LinuxError> {
         root.take_stock_comm()?;
         let clock = SystemClock::new();
         let mut failures = Vec::new();
@@ -1509,6 +1519,9 @@ impl Platform for LinuxPlatform {
     }
     fn dsp_file(&mut self, file: DspFile<'_>) -> Result<Vec<u8>, LinuxError> {
         self.root.dsp_file(file)
+    }
+    fn zenui_image(&mut self) -> Result<HashedZenUi, LinuxError> {
+        self.root.zenui_image()
     }
     /// Polls every source; one failing source does not starve the others. The first error is
     /// returned after the pass.

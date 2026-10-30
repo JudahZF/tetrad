@@ -225,20 +225,16 @@ impl MediaLibrary {
         let mut failures = Vec::new();
         if let Some(database) = database {
             let view = database.view();
-            match view.product_ids(ProductType::Ir) {
-                Ok(ids) => {
-                    for id in ids {
-                        let name = view
-                            .product(&id)
+            match view.product_rows(ProductType::Ir) {
+                Ok(rows) => {
+                    for (id, row) in rows {
+                        let name = row.map_err(|error| error.to_string()).and_then(|row| {
+                            UserIrMetadata::from_blob(
+                                &row.metadata.unwrap_or_default(),
+                                &self.cipher,
+                            )
                             .map_err(|error| error.to_string())
-                            .and_then(|product| {
-                                let metadata = product.and_then(|row| row.metadata);
-                                UserIrMetadata::from_blob(
-                                    &metadata.unwrap_or_default(),
-                                    &self.cipher,
-                                )
-                                .map_err(|error| error.to_string())
-                            });
+                        });
                         match name {
                             Ok(metadata) => entries.push(MediaEntry {
                                 folder: MediaFolder::MyIrs,
@@ -269,19 +265,15 @@ impl MediaLibrary {
         view: &StockView<'_>,
     ) -> Result<(Vec<MediaEntry>, Vec<String>), String> {
         local_store(view, CaptureStore::User)?;
-        let ids = view
-            .product_ids(ProductType::Capture)
+        let rows = view
+            .product_rows(ProductType::Capture)
             .map_err(|error| error.to_string())?;
         let mut entries = Vec::new();
         let mut failures = Vec::new();
-        for id in ids {
-            let name = view
-                .product(&id)
+        for (id, row) in rows {
+            let name = row
                 .map_err(|error| error.to_string())
-                .and_then(|product| {
-                    let metadata = product.and_then(|row| row.metadata).unwrap_or_default();
-                    self.capture_metadata(metadata)
-                });
+                .and_then(|row| self.capture_metadata(row.metadata.unwrap_or_default()));
             match name {
                 Ok(metadata) => entries.push(MediaEntry {
                     folder: MediaFolder::MyCaptures,
@@ -491,10 +483,8 @@ impl MediaLibrary {
         }
         let mut entries = Vec::new();
         for kind in [ProductType::Capture, ProductType::Ir] {
-            for id in view.product_ids(kind)? {
-                let Some(row) = view.product(&id)? else {
-                    continue;
-                };
+            for (id, row) in view.product_rows(kind)? {
+                let row = row?;
                 // Health r34 #2: a row whose metadata does not read is left out, so the
                 // others keep their details; `entries` names it in a notice.
                 let Ok((metadata, plain)) =

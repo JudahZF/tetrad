@@ -2,8 +2,10 @@
 //! is in `presets.rs` and `directory_lists.rs`. Pop-ups are local to the Directory: they
 //! open as popover layers of the screen, and a tap outside (or Back) closes them.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::{Arc, Weak};
 
 use super::preset_target::{PresetTarget, is_target, slot_title};
 use crate::layout::ListId;
@@ -225,17 +227,20 @@ pub(crate) fn jump_bar(ui: &UiState, details: &MediaDetails, kind: MediaKind) ->
         SortKey::DeviceType => JumpBar::Device,
         SortKey::Gain => JumpBar::Gain,
         SortKey::Date => {
-            let days: Vec<i64> = media_rows(ui, details, kind)
-                .iter()
-                .filter_map(|(_, entry)| details.roles(entry).date.map(stock_days))
-                .collect();
-            let (oldest, newest) = (days.iter().min(), days.iter().max());
-            let origin = oldest.copied().unwrap_or(18_628);
-            JumpBar::Date(DateBar {
-                origin,
-                span: newest.map_or(0, |newest| newest - origin),
-                defaulted: oldest.is_none(),
-            })
+            let rows = directory_order(ui, details, kind);
+            JumpBar::Date(ui.list_cache.dates(&rows, || {
+                let days: Vec<i64> = (rows.iter())
+                    .map(|&index| &ui.snapshot.media[usize::from(index)])
+                    .filter_map(|entry| details.roles(entry).date.map(stock_days))
+                    .collect();
+                let (oldest, newest) = (days.iter().min(), days.iter().max());
+                let origin = oldest.copied().unwrap_or(18_628);
+                DateBar {
+                    origin,
+                    span: newest.map_or(0, |newest| newest - origin),
+                    defaulted: oldest.is_none(),
+                }
+            }))
         }
         _ => JumpBar::Letters,
     }
@@ -574,13 +579,13 @@ impl Directory {
 
 /// Library rows of the checked media indices (Multi Select in a capture/IR category).
 pub(crate) fn checked_media<'a>(
-    snapshot: &'a UiSnapshot,
+    ui: &'a UiState,
     checked: &BTreeSet<u64>,
 ) -> Vec<&'a DirectoryMedia> {
-    let details = MediaDetails::new(snapshot);
+    let details = MediaDetails::new(ui);
     checked
         .iter()
-        .filter_map(|index| snapshot.media.get(*index as usize))
+        .filter_map(|index| ui.snapshot.media.get(*index as usize))
         .filter_map(|entry| details.get(&entry.value))
         .collect()
 }
@@ -691,30 +696,45 @@ pub(crate) fn preset_rows(ui: &UiState) -> Vec<&PresetItem> {
     rows.into_iter().map(|(preset, _)| preset).collect()
 }
 
-/// `DirectoryView::media` by item key, built once per list or layout instead of one `find`
-/// per row (health r34 #9 d). Keys are unique (one row per product); the first row of a key
-/// wins, as `find` did.
+/// `DirectoryView::media` by item key, built once per directory ([`ListCache`]) instead of
+/// one `find` per row (health r34 #9 d). Keys are unique (one row per product); the first row
+/// of a key wins, as `find` did.
 pub(crate) struct MediaDetails<'a> {
-    items: HashMap<&'a str, &'a DirectoryMedia>,
-    pinned: HashSet<&'a str>,
+    index: Arc<MediaIndex>,
+    media: &'a [DirectoryMedia],
+}
+
+/// The positions in `DirectoryView::media` by item key, and the pinned captures.
+#[derive(Debug)]
+struct MediaIndex {
+    items: HashMap<String, usize>,
+    pinned: HashSet<String>,
+}
+
+impl MediaIndex {
+    fn new(directory: &DirectoryView) -> Self {
+        let mut items = HashMap::with_capacity(directory.media.len());
+        for (position, item) in directory.media.iter().enumerate() {
+            items.entry(item.value.clone()).or_insert(position);
+        }
+        Self {
+            items,
+            pinned: directory.pinned_captures.iter().cloned().collect(),
+        }
+    }
 }
 
 impl<'a> MediaDetails<'a> {
-    pub fn new(snapshot: &'a UiSnapshot) -> Self {
-        let media = &snapshot.directory.media;
-        let mut items = HashMap::with_capacity(media.len());
-        for item in media {
-            items.entry(item.value.as_str()).or_insert(item);
-        }
-        let pinned = snapshot.directory.pinned_captures.iter();
+    pub fn new(ui: &'a UiState) -> Self {
         Self {
-            items,
-            pinned: pinned.map(String::as_str).collect(),
+            index: ui.list_cache.index(&ui.snapshot.directory),
+            media: &ui.snapshot.directory.media,
         }
     }
 
     pub fn get(&self, value: &str) -> Option<&'a DirectoryMedia> {
-        self.items.get(value).copied()
+        let media = self.media;
+        (self.index.items.get(value)).map(|&position| &media[position])
     }
 
     /// The sort roles of one capture or IR row.
@@ -730,7 +750,156 @@ impl<'a> MediaDetails<'a> {
             gain: meta.and_then(|meta| meta.gain),
             id: &entry.value,
             pinned: entry.folder.kind() == MediaKind::Capture
-                && self.pinned.contains(entry.value.as_str()),
+                && self.index.pinned.contains(entry.value.as_str()),
+        }
+    }
+}
+
+/// Everything but the snapshot lists that a sorted long list reads ([`ListCache`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ListQuery {
+    /// [`media_rows`].
+    Directory {
+        kind: MediaKind,
+        folder: Option<MediaFolder>,
+        database_folder: Option<i64>,
+        made_by_me: bool,
+        device_types: BTreeSet<u8>,
+        version: CaptureVersion,
+        sort: Sort,
+    },
+    /// The media picker list (`media.rs`).
+    Picker {
+        kind: MediaKind,
+        folder: Option<MediaFolder>,
+        made_by_me: bool,
+        query: Option<String>,
+        sort: Sort,
+    },
+    /// The Add device capture browser list (`capture_browser::rows`).
+    Browser {
+        folder: CaptureFolder,
+        made_by_me: bool,
+        device_types: BTreeSet<u8>,
+        version: CaptureVersion,
+        query: Option<String>,
+        sort: Sort,
+    },
+    /// The Add device model list (`picker::shown_models`).
+    Models {
+        group: Option<DeviceGroup>,
+        instrument: Instrument,
+        query: String,
+        pinned: Vec<u32>,
+        unlicensed: BTreeSet<u32>,
+    },
+}
+
+/// What the long lists derive from the snapshot, kept between layouts: the device lays out
+/// each frame and several times per touch, and with 2000 captures the sort (natural names)
+/// was 63 % of a layout and the key index most of the rest. The index is a function of
+/// `UiSnapshot::directory`; the sorted rows of the Directory list, the media picker (indices
+/// into `UiSnapshot::media`), the capture browser (into `CaptureLibrary::captures`) and the
+/// model list (into `UiSnapshot::models`), and the Date jump bar, of the shared snapshot
+/// lists ([`Lists`]) and the [`ListQuery`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ListCache {
+    index: RefCell<Option<(Weak<DirectoryView>, Arc<MediaIndex>)>>,
+    directory: RefCell<Option<ListOrder>>,
+    picker: RefCell<Option<ListOrder>>,
+    browser: RefCell<Option<ListOrder>>,
+    models: RefCell<Option<ListOrder>>,
+}
+
+/// The shared lists of a snapshot, compared by address: each `Weak` keeps its address
+/// allocated, so it never names a later list.
+#[derive(Debug, Clone)]
+struct Lists {
+    media: Weak<Vec<MediaEntry>>,
+    directory: Weak<DirectoryView>,
+    captures: Weak<CaptureLibrary>,
+    models: Weak<Vec<ModelEntry>>,
+}
+
+impl Lists {
+    fn of(snapshot: &UiSnapshot) -> Self {
+        Self {
+            media: Arc::downgrade(&snapshot.media),
+            directory: Arc::downgrade(&snapshot.directory),
+            captures: Arc::downgrade(&snapshot.capture_library),
+            models: Arc::downgrade(&snapshot.models),
+        }
+    }
+
+    fn shown(&self, snapshot: &UiSnapshot) -> bool {
+        same(&self.media, &snapshot.media)
+            && same(&self.directory, &snapshot.directory)
+            && same(&self.captures, &snapshot.capture_library)
+            && same(&self.models, &snapshot.models)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ListOrder {
+    lists: Lists,
+    query: ListQuery,
+    rows: Arc<[u16]>,
+    /// The Date jump bar of `rows`, once a layout asked for it.
+    dates: Option<DateBar>,
+}
+
+fn same<T>(kept: &Weak<T>, shown: &Arc<T>) -> bool {
+    std::ptr::eq(kept.as_ptr(), Arc::as_ptr(shown))
+}
+
+impl ListCache {
+    fn index(&self, directory: &Arc<DirectoryView>) -> Arc<MediaIndex> {
+        let mut slot = self.index.borrow_mut();
+        match &*slot {
+            Some((kept, index)) if same(kept, directory) => Arc::clone(index),
+            _ => {
+                let index = Arc::new(MediaIndex::new(directory));
+                *slot = Some((Arc::downgrade(directory), Arc::clone(&index)));
+                index
+            }
+        }
+    }
+
+    /// The rows of `query`: the kept ones, or `sort()` when an input changed.
+    pub fn rows(
+        &self,
+        snapshot: &UiSnapshot,
+        query: ListQuery,
+        sort: impl FnOnce() -> Vec<u16>,
+    ) -> Arc<[u16]> {
+        let slot = match query {
+            ListQuery::Directory { .. } => &self.directory,
+            ListQuery::Picker { .. } => &self.picker,
+            ListQuery::Browser { .. } => &self.browser,
+            ListQuery::Models { .. } => &self.models,
+        };
+        let mut slot = slot.borrow_mut();
+        if let Some(order) = &*slot
+            && order.lists.shown(snapshot)
+            && order.query == query
+        {
+            return Arc::clone(&order.rows);
+        }
+        let rows: Arc<[u16]> = sort().into();
+        *slot = Some(ListOrder {
+            lists: Lists::of(snapshot),
+            query,
+            rows: Arc::clone(&rows),
+            dates: None,
+        });
+        rows
+    }
+
+    /// The Date jump bar of the Directory `rows` (as [`Self::rows`] returned them).
+    fn dates(&self, rows: &Arc<[u16]>, bar: impl FnOnce() -> DateBar) -> DateBar {
+        match self.directory.borrow_mut().as_mut() {
+            Some(order) if Arc::ptr_eq(&order.rows, rows) => *order.dates.get_or_insert_with(bar),
+            _ => bar(),
         }
     }
 }
@@ -741,25 +910,43 @@ pub(crate) fn media_rows<'a>(
     details: &MediaDetails<'a>,
     kind: MediaKind,
 ) -> Vec<(u16, &'a MediaEntry)> {
+    let media = &ui.snapshot.media;
+    (directory_order(ui, details, kind).iter())
+        .map(|&index| (index, &media[usize::from(index)]))
+        .collect()
+}
+
+/// [`media_rows`] as indices into `UiSnapshot::media`, from the [`ListCache`].
+fn directory_order<'a>(ui: &'a UiState, details: &MediaDetails<'a>, kind: MediaKind) -> Arc<[u16]> {
     let dir = &ui.directory;
-    let mut rows: Vec<((u16, &MediaEntry), Roles)> = ui
-        .snapshot
-        .media
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| {
-            entry.folder.kind() == kind
-                && dir.folder.is_none_or(|folder| folder == entry.folder)
-                && dir.database_folder.is_none_or(|folder| {
-                    (details.get(&entry.value)).is_some_and(|item| item.folders.contains(&folder))
-                })
-                && (!dir.made_by_me || entry.folder == MediaFolder::MyCaptures)
-                && (kind != MediaKind::Capture || capture_filter(ui, details, &entry.value))
-        })
-        .map(|(index, entry)| ((index as u16, entry), details.roles(entry)))
-        .collect();
-    rows.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
-    rows.into_iter().map(|(row, _)| row).collect()
+    let media = &ui.snapshot.media;
+    let query = ListQuery::Directory {
+        kind,
+        folder: dir.folder,
+        database_folder: dir.database_folder,
+        made_by_me: dir.made_by_me,
+        device_types: dir.device_types.clone(),
+        version: dir.version,
+        sort: dir.media_sort,
+    };
+    let sort = || {
+        let mut rows: Vec<(u16, Roles)> = (media.iter().enumerate())
+            .filter(|(_, entry)| {
+                entry.folder.kind() == kind
+                    && dir.folder.is_none_or(|folder| folder == entry.folder)
+                    && dir.database_folder.is_none_or(|folder| {
+                        (details.get(&entry.value))
+                            .is_some_and(|item| item.folders.contains(&folder))
+                    })
+                    && (!dir.made_by_me || entry.folder == MediaFolder::MyCaptures)
+                    && (kind != MediaKind::Capture || capture_filter(ui, details, &entry.value))
+            })
+            .map(|(index, entry)| (index as u16, details.roles(entry)))
+            .collect();
+        rows.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
+        rows.into_iter().map(|(index, _)| index).collect()
+    };
+    ui.list_cache.rows(&ui.snapshot, query, sort)
 }
 
 impl UiState {
@@ -771,7 +958,7 @@ impl UiState {
     /// and Made by Me filters do not apply. The list holds no folder rows (Tetrad keeps folders
     /// in the side tree). I: Tetrad keeps one media sort for every view (stock: one per view).
     pub fn capture_cycle(&self) -> Vec<CaptureCycleRow<'_>> {
-        let details = MediaDetails::new(&self.snapshot);
+        let details = MediaDetails::new(self);
         let mut rows: Vec<_> = (self.snapshot.media.iter())
             .filter(|entry| entry.folder == MediaFolder::MyCaptures)
             .map(|entry| (entry, details.get(&entry.value), details.roles(entry)))
@@ -854,7 +1041,7 @@ pub(crate) fn search_rows<'a>(ui: &'a UiState, kind: ItemKind) -> Vec<(u64, &'a 
         }
     };
     rows.retain(|(_, name)| name.to_lowercase().contains(&query));
-    let details = MediaDetails::new(&ui.snapshot);
+    let details = MediaDetails::new(ui);
     let roles = |row: &(u64, &'a str)| match kind {
         ItemKind::Preset => {
             let slot = (index.is_empty())
@@ -1140,7 +1327,7 @@ impl UiState {
                 dir.folder = Some(entry.folder);
                 dir.made_by_me = false;
                 dir.selected_media = Some(index);
-                let details = MediaDetails::new(&self.snapshot);
+                let details = MediaDetails::new(self);
                 let row = media_rows(self, &details, kind)
                     .iter()
                     .position(|(row, _)| *row == index)
@@ -1190,9 +1377,9 @@ impl UiState {
             }
             L::Bulk(BulkAction::Copy) => {
                 let checked = dir.multi.clone().unwrap_or_default();
-                dir.clipboard = match dir.category.media() {
+                let clipboard = match dir.category.media() {
                     Some(_) => Some(Clipboard::Media(
-                        checked_media(&self.snapshot, &checked)
+                        checked_media(self, &checked)
                             .into_iter()
                             .map(|item| item.value.clone())
                             .collect(),
@@ -1205,6 +1392,7 @@ impl UiState {
                             ids: checked.into_iter().collect(),
                         }),
                 };
+                self.directory.clipboard = clipboard;
                 self.open_popup(Popup::Target { remove: false });
             }
             L::Bulk(BulkAction::Paste) => return self.bulk_paste(),
@@ -1214,7 +1402,7 @@ impl UiState {
                 let checked = dir.multi.take().unwrap_or_default();
                 // Stock has no IR upload (re-r44 §1): an IR folder builds no item.
                 let items: Vec<UploadItem> = match dir.category.media() {
-                    Some(MediaKind::Capture) => checked_media(&self.snapshot, &checked)
+                    Some(MediaKind::Capture) => checked_media(self, &checked)
                         .into_iter()
                         .filter(|item| !item.read_only)
                         .map(|item| UploadItem::Capture(item.value.clone()))
@@ -1230,8 +1418,8 @@ impl UiState {
             }
             L::Bulk(BulkAction::Edit) => {
                 let checked = dir.multi.take().unwrap_or_default();
-                dir.rename_queue = match dir.category.media() {
-                    Some(kind) => checked_media(&self.snapshot, &checked)
+                let queue = match dir.category.media() {
+                    Some(kind) => checked_media(self, &checked)
                         .into_iter()
                         .filter(|item| !item.read_only)
                         .map(|item| BulkRename::Media {
@@ -1241,6 +1429,7 @@ impl UiState {
                         .collect(),
                     None => checked.into_iter().map(BulkRename::Preset).collect(),
                 };
+                self.directory.rename_queue = queue;
                 self.next_bulk_rename();
             }
             L::Bulk(BulkAction::Move) => self.open_popup(Popup::Target { remove: true }),
@@ -1255,7 +1444,7 @@ impl UiState {
                         .collect();
                 };
                 // Factory items are omitted ("Factory Captures will be omitted.").
-                return checked_media(&self.snapshot, &ids)
+                return checked_media(self, &ids)
                     .into_iter()
                     .filter(|item| !item.read_only)
                     .map(|item| {
@@ -1274,7 +1463,7 @@ impl UiState {
                 };
                 return vec![UiCommand::LinkMedia {
                     folder,
-                    ids: checked_media(&self.snapshot, &ids)
+                    ids: checked_media(self, &ids)
                         .into_iter()
                         .map(|item| item.value.clone())
                         .collect(),
@@ -1587,7 +1776,7 @@ impl UiState {
             MediaKind::Capture => "local_nc_root",
             MediaKind::Ir => "local_ir_root",
         };
-        checked_media(&self.snapshot, &checked)
+        checked_media(self, &checked)
             .into_iter()
             .map(|item| {
                 UiCommand::Directory(DirectoryRequest::FavoriteMedia {
@@ -1915,7 +2104,7 @@ impl UiState {
                 let Some(to) = link_targets(self).get(index).map(|folder| folder.id) else {
                     return Vec::new();
                 };
-                let ids: Vec<String> = checked_media(&self.snapshot, &checked)
+                let ids: Vec<String> = checked_media(self, &checked)
                     .into_iter()
                     .map(|item| item.value.clone())
                     .collect();
@@ -2032,7 +2221,7 @@ impl UiState {
                 Some(kind) => (
                     ListId::DirectoryItems,
                     {
-                        let details = MediaDetails::new(&self.snapshot);
+                        let details = MediaDetails::new(self);
                         media_rows(self, &details, kind)
                             .iter()
                             .map(|(_, entry)| initial(media_sort_text(self, &details, entry)))
@@ -2062,7 +2251,7 @@ impl UiState {
         let Some(kind) = self.directory.category.media() else {
             return;
         };
-        let details = MediaDetails::new(&self.snapshot);
+        let details = MediaDetails::new(self);
         let bar = jump_bar(self, &details, kind);
         let target = match bar {
             JumpBar::Letters => return,
@@ -2522,10 +2711,64 @@ mod tests {
         ui.set_snapshot(snapshot).unwrap();
         ui.directory.database_folder = Some(1);
         ui.directory.media_sort.key = SortKey::Date;
-        let details = MediaDetails::new(&ui.snapshot);
+        let details = MediaDetails::new(&ui);
         let rows = media_rows(&ui, &details, MediaKind::Capture);
         let keys: Vec<&str> = rows.iter().map(|(_, entry)| entry.value.as_str()).collect();
         assert_eq!(keys, ["d", "b", "a"]);
+    }
+
+    /// The kept rows ([`ListCache`]) follow each input as a new sort would: the sort
+    /// direction and role, a new directory (other dates) and a new media list.
+    #[test]
+    fn kept_media_rows_follow_the_sort_and_new_lists() {
+        use crate::{MediaFolder, UiSnapshot};
+        let entry = |name: &str, value: &str| MediaEntry {
+            folder: MediaFolder::MyCaptures,
+            name: name.into(),
+            value: value.into(),
+        };
+        let detail = |value: &str, date: &str| DirectoryMedia {
+            value: value.into(),
+            author: String::new(),
+            date: date.into(),
+            read_only: false,
+            folders: Vec::new(),
+            capture: None,
+        };
+        let mut snapshot = UiSnapshot {
+            media: vec![entry("B", "1"), entry("A", "2")].into(),
+            ..UiSnapshot::default()
+        };
+        std::sync::Arc::make_mut(&mut snapshot.directory).media = vec![
+            detail("1", "2020-01-01T00:00:00Z"),
+            detail("2", "2021-01-01T00:00:00Z"),
+        ];
+        let mut ui = UiState::default();
+        ui.set_snapshot(snapshot).unwrap();
+        let names = |ui: &UiState| -> Vec<String> {
+            let details = MediaDetails::new(ui);
+            (media_rows(ui, &details, MediaKind::Capture).into_iter())
+                .map(|(_, entry)| entry.name.clone())
+                .collect()
+        };
+        ui.directory.media_sort = sort(SortKey::Name, false);
+        assert_eq!(names(&ui), ["A", "B"]);
+        ui.directory.media_sort = sort(SortKey::Name, true);
+        assert_eq!(names(&ui), ["B", "A"]);
+        ui.directory.media_sort = sort(SortKey::Date, false);
+        assert_eq!(names(&ui), ["B", "A"]);
+        let mut next = ui.snapshot().clone();
+        std::sync::Arc::make_mut(&mut next.directory).media = vec![
+            detail("1", "2022-01-01T00:00:00Z"),
+            detail("2", "2021-01-01T00:00:00Z"),
+        ];
+        ui.set_snapshot(next).unwrap();
+        assert_eq!(names(&ui), ["A", "B"]);
+        let mut next = ui.snapshot().clone();
+        next.media = vec![entry("B", "1"), entry("A", "2"), entry("C", "3")].into();
+        ui.set_snapshot(next).unwrap();
+        // "3" has no details, so no date: it sorts first.
+        assert_eq!(names(&ui), ["C", "A", "B"]);
     }
 
     /// Health r34 #9 (d): host timing of one capture list layout with 2000 dated captures

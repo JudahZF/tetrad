@@ -93,6 +93,11 @@ pub trait Platform {
     /// One stock DSP data file. Encrypted files stay encrypted; the device decrypts them with
     /// keys the DSP sends after the handshake.
     fn dsp_file(&mut self, file: DspFile<'_>) -> Result<Vec<u8>, Self::Error>;
+    /// [`DspFile::ZenUi`] with its SHA-256. A platform that hashed the image already (the
+    /// firmware check) hands that one over, so the table load does not hash 22 MB again.
+    fn zenui_image(&mut self) -> Result<tetrad_dsp_host::setup::HashedZenUi, Self::Error> {
+        self.dsp_file(DspFile::ZenUi).map(Into::into)
+    }
 
     /// Moves ready platform input into `out`. Never blocks.
     fn poll_input(&mut self, out: &mut Vec<Input>) -> Result<(), Self::Error>;
