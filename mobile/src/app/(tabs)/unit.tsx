@@ -1,7 +1,7 @@
 /** Unit: the connected unit, its theme, and the pages of backup, extensions, notices and the support file. */
 
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 import { BUILTIN_THEMES } from "@/lib/themes";
 import type { ThemeEntry } from "@/lib/unit/types";
@@ -38,6 +38,13 @@ export default function Unit() {
   const toast = useToast();
   const themes = useLoad(() => client.themes(), client);
   const tabs = useLoad(() => client.tabs(), client);
+  // Extensions can gain or lose a page on the Extensions screen: ask again on each return here.
+  const { reload: reloadTabs } = tabs;
+  useFocusEffect(
+    useCallback(() => {
+      void reloadTabs();
+    }, [reloadTabs]),
+  );
   const [sending, setSending] = useState(false);
 
   const selectTheme = async (id: string) => {

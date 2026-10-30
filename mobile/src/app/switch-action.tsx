@@ -70,10 +70,11 @@ export default function SwitchAction() {
           <Row key={name} icon="folder" title={name} detail="Choose a preset of this setlist" chevron onPress={() => setSetlist(setlist === name ? null : name)} />
         ))}
       </Rows>
-      {setlist && (listed ? (
+      {/* Rows only from the chosen setlist's reply: a slot of another one would load the wrong preset. */}
+      {setlist && (listed?.setlist === setlist ? (
         <Rows>
           {listed.slots.map((p) => (
-            <Row key={p.slot} title={p.label} onPress={() => void choose({ kind: "preset", setlist, slot: p.slot })} />
+            <Row key={p.slot} title={p.label} onPress={() => void choose({ kind: "preset", setlist: listed.setlist, slot: p.slot })} />
           ))}
         </Rows>
       ) : <Spinner />)}

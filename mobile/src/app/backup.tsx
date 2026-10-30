@@ -28,9 +28,10 @@ export default function Backup() {
   const state = status.data?.state;
   const { reload } = status;
 
-  // The unit packs and restores on its own: ask once a second meanwhile.
+  // The unit packs, waits for a touch on RESTORE or DISCARD, and restores on its own: ask
+  // once a second meanwhile.
   useEffect(() => {
-    if (state !== "creating" && state !== "restoring") return;
+    if (state !== "creating" && state !== "received" && state !== "restoring") return;
     const timer = setInterval(() => void reload(), 1000);
     return () => clearInterval(timer);
   }, [state, reload]);
