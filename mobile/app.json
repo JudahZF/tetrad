@@ -46,6 +46,7 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": false,
+          "neverForLocation": true,
           "bluetoothAlwaysPermission": "Tetrad connects to your Quad Cortex over Bluetooth."
         }
       ]

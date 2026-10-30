@@ -52,6 +52,16 @@ export class EditQueue {
     return this.running || this.waiting.length > 0;
   }
 
+  /** The edits not sent yet. */
+  get pending(): readonly Edit[] {
+    return [...this.waiting];
+  }
+
+  /** The preset changed elsewhere: the edits not sent yet were made on the old one. */
+  dropPending() {
+    this.waiting = [];
+  }
+
   private async run() {
     if (this.running) return;
     this.running = true;
@@ -61,7 +71,7 @@ export class EditQueue {
         if (!preset) break;
         try {
           const reply = await this.send(preset.loadId, edit);
-          this.onPreset(reply, [...this.waiting]);
+          this.onPreset(reply, this.pending);
         } catch (error) {
           // A refused edit drops the ones queued after it: they were made on what it would have changed.
           this.waiting = [];

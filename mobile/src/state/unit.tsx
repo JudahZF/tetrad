@@ -98,7 +98,12 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     );
     queue.current = edits;
     const off = client.onEvent((event) => {
-      if (event.kind === "preset") showPreset(event.preset);
+      if (event.kind === "preset") {
+        // The reply to an edit comes before its event: a newer preset is a change made elsewhere.
+        const confirmed = presetRef.current;
+        if (confirmed && event.preset.loadId > confirmed.loadId) edits.dropPending();
+        showPreset(event.preset, edits.pending);
+      }
       if (event.kind === "closed") {
         setClient(null);
         toast.error(event.reason);

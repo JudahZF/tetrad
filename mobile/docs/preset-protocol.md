@@ -56,8 +56,10 @@ The JSON shape is `Preset` in `src/lib/preset/model.ts`:
 
 When the preset changes on the unit (by any source), the unit pushes
 `{"event": "preset", "value": <preset>}`. The app shows it at once, so the app and the unit can
-edit at the same time. A pushed preset with an older `loadId` than the one the app has is
-ignored.
+edit at the same time. The reply to the app's own edit comes before the event of that edit. A
+pushed preset with a newer `loadId` than the last reply is a change made elsewhere: the app drops
+the edits it has not sent yet, as they were made on the old preset. A pushed preset with an older
+`loadId` than the one the app has is ignored.
 
 ## Load on the link
 
