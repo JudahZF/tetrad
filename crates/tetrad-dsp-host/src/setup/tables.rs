@@ -5,7 +5,10 @@
 //! id). [`ElfTables`] accepts only the ZenUI of the running build
 //! (`tetrad_firmware::running()`, by SHA-256) and reads each site at that build's VA
 //! (`tetrad_firmware::ZenUiVas`). [`check_zenui_vas`] proves before start-up that
-//! the build has a VA for every site.
+//! the build has a VA for every site. A [`HashedZenUi`] carries its digest, so the platform
+//! hashes the image once per boot.
+
+use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use tetrad_firmware::{Profile, ZenUiVas};
@@ -100,6 +103,44 @@ impl<T: StockTables + ?Sized> StockTables for Option<&T> {
     }
 }
 
+/// A ZenUI image and its SHA-256. The only constructor ([`From<Vec<u8>>`]) hashes the bytes,
+/// and nothing can change them after, so [`ElfTables::new`] compares this digest with the
+/// running build instead of hashing again. Clones share the bytes.
+#[derive(Clone)]
+pub struct HashedZenUi {
+    image: Arc<Vec<u8>>,
+    sha256: [u8; 32],
+}
+
+impl HashedZenUi {
+    pub fn sha256(&self) -> &[u8; 32] {
+        &self.sha256
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.image
+    }
+}
+
+impl From<Vec<u8>> for HashedZenUi {
+    /// Hashes `image` (about 1 s for the 22 MB ZenUI on the unit).
+    fn from(image: Vec<u8>) -> Self {
+        let sha256 = Sha256::digest(&image).into();
+        Self {
+            image: Arc::new(image),
+            sha256,
+        }
+    }
+}
+
+impl std::fmt::Debug for HashedZenUi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HashedZenUi")
+            .field("bytes", &self.image.len())
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Load {
     va: u32,
@@ -110,7 +151,7 @@ struct Load {
 /// The ZenUI ELF of the running build in memory, read through its `PT_LOAD`
 /// headers, or only the ranges it keeps ([`Self::keeping`]). Reads take site VAs.
 pub struct ElfTables {
-    image: Vec<u8>,
+    image: Arc<Vec<u8>>,
     loads: Vec<Load>,
     vas: ZenUiVas,
 }
@@ -130,14 +171,14 @@ impl ElfTables {
     /// The driver tables only ([`super::drivers::stock_payloads`], about
     /// 7.3 MB instead of the 22 MB image). Use this for the long-lived
     /// table that [`crate::session::DspSession::run_setup`] reads.
-    pub fn drivers(image: Vec<u8>) -> Result<Self, TableError> {
+    pub fn drivers(image: impl Into<HashedZenUi>) -> Result<Self, TableError> {
         Self::keeping(image, super::drivers::stock_payloads())
     }
 
     /// Checks the image, then keeps only the bytes of `payloads` (merged
     /// ranges); other reads fail with [`TableError::Unmapped`].
     pub fn keeping(
-        image: Vec<u8>,
+        image: impl Into<HashedZenUi>,
         payloads: impl IntoIterator<Item = StockPayload>,
     ) -> Result<Self, TableError> {
         Self::new(image)?.keep(payloads)
@@ -176,16 +217,18 @@ impl ElfTables {
             image.extend_from_slice(full.mapped(segment)?);
         }
         Ok(Self {
-            image,
+            image: Arc::new(image),
             loads,
             vas: full.vas,
         })
     }
 
-    /// The whole checked image; fine for one-off reads.
-    pub fn new(image: Vec<u8>) -> Result<Self, TableError> {
+    /// The whole image, checked by its digest against the running build (a `Vec<u8>` is
+    /// hashed first); fine for one-off reads.
+    pub fn new(image: impl Into<HashedZenUi>) -> Result<Self, TableError> {
+        let HashedZenUi { image, sha256 } = image.into();
         let running = tetrad_firmware::running();
-        if Sha256::digest(&image).as_slice() != running.firmware.identity().zenui_sha256 {
+        if sha256 != running.firmware.identity().zenui_sha256 {
             return Err(TableError::WrongImage);
         }
         let u16_at = |at: usize| {
@@ -227,7 +270,7 @@ impl ElfTables {
     #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
-            image: Vec::new(),
+            image: Arc::default(),
             loads: Vec::new(),
             vas: ZenUiVas::Canonical,
         }
@@ -242,7 +285,7 @@ impl ElfTables {
             file_bytes: bytes.len() as u32,
         }];
         Self {
-            image: bytes,
+            image: Arc::new(bytes),
             loads,
             vas,
         }

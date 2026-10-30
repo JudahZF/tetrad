@@ -435,10 +435,14 @@ impl Builder<'_> {
         let Some(instance) = self.layout.instance(Site::Slot(slot)) else {
             return;
         };
-        let scenes: [Vec<f32>; crate::SCENES] =
-            std::array::from_fn(|scene| instance.dsp_values(SceneIndex(scene as u8)));
-        let values = (0..scenes[0].len())
-            .map(|index| crate::layout::collapse(std::array::from_fn(|s| scenes[s][index])))
+        // `Instance::dsp_values` of every scene, collapsed per value without a list per scene.
+        fn collapse(at: impl Fn(SceneIndex) -> f32) -> Scened<f32> {
+            crate::layout::collapse(std::array::from_fn(|scene| at(SceneIndex(scene as u8))))
+        }
+        let flag = |value: Scened<bool>| collapse(|scene| f32::from(u8::from(value.at(scene))));
+        let values = (instance.params.iter())
+            .map(|value| collapse(|scene| value.at(scene)))
+            .chain([flag(instance.mute), flag(instance.bypass)])
             .collect();
         let xml = instance.params.len() as u32;
         let mut skipped: Vec<u32> = self

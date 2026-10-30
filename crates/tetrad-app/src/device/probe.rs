@@ -61,6 +61,16 @@ impl Label {
         label
     }
 
+    /// [`Self::new`] for a fixed name, as a copy: the formatting machinery cost a sixth of an
+    /// idle loop pass. The same cut at a char boundary.
+    pub fn text(text: &str) -> Self {
+        let mut label = Self::empty();
+        let len = text.floor_char_boundary(LABEL_BYTES);
+        label.bytes[..len].copy_from_slice(&text.as_bytes()[..len]);
+        label.len = len as u8;
+        label
+    }
+
     /// The variant path of a derived `Debug` value, at most two names deep: `Deploy(Update {
     /// .. })` gives `Deploy Update`, `ControlReport([..])` gives `ControlReport`. The formatting
     /// stops at the first character that is not part of a name, so a large payload is not
@@ -180,17 +190,23 @@ impl Probe {
 
     /// Opens a unit; [`Self::leave`] closes the newest one.
     pub fn enter(&self) {
-        self.open
-            .borrow_mut()
-            .push((Instant::now(), Duration::ZERO));
+        self.enter_at(Instant::now());
     }
 
-    pub fn leave(&self, label: Label) {
+    /// [`Self::enter`] at a time just read, such as the end of the unit before: on the unit a
+    /// clock read is a syscall (no vDSO clock on the Cortex-A5).
+    pub fn enter_at(&self, start: Instant) {
+        self.open.borrow_mut().push((start, Duration::ZERO));
+    }
+
+    /// Closes the newest unit and returns the time it ended.
+    pub fn leave(&self, label: Label) -> Instant {
+        let end = Instant::now();
         let mut open = self.open.borrow_mut();
         let Some((start, inner)) = open.pop() else {
-            return;
+            return end;
         };
-        let total = start.elapsed();
+        let total = end.saturating_duration_since(start);
         if let Some((_, parent)) = open.last_mut() {
             *parent += total;
         }
@@ -208,6 +224,7 @@ impl Probe {
                 count: 1,
             }),
         }
+        end
     }
 
     /// The costliest unit of `phase` in the last pass.

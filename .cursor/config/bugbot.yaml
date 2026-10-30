@@ -1,0 +1,10 @@
+# Bugbot reads this file from the PR's base branch. Settings in the Cursor dashboard fill the gaps.
+version: 1
+triggers:
+  drafts: false
+  frequency: everyPush
+review:
+  incremental: true
+prSummary:
+  # PR descriptions are written by hand. Keep Bugbot's summary out of them.
+  mode: disabled

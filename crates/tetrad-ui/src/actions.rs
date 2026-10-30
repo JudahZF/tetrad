@@ -1417,11 +1417,12 @@ impl UiState {
                 switch,
                 label: stomp_name(&text),
             }],
-            TextTarget::SlotLabel(scope, page, slot) => {
+            TextTarget::SlotLabel(scope, page, slot, gesture) => {
                 vec![UiCommand::Custom(crate::CustomCommand::Slot {
                     scope,
                     page,
                     slot,
+                    gesture,
                     edit: crate::SlotEdit::SetLabel(text),
                 })]
             }

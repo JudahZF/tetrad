@@ -41,7 +41,7 @@ fn page_icon(page: SettingsPage) -> Icon {
         FactoryReset => Icon::Factory,
         GlobalBypass => Icon::Cab,
         StompModeBypass => Icon::Footswitch,
-        HoldTiming => Icon::Timer,
+        HoldTiming | DoublePressCombo => Icon::Timer,
         LatencyCompensation => Icon::Clock,
         GigViewAccess => Icon::ModeScene,
         Midi => Icon::Midi,

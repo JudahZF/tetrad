@@ -9,7 +9,7 @@
 
 use tetrad_assets::Icon;
 
-use super::directory::{MediaDetails, media_sort_text};
+use super::directory::{ListQuery, MediaDetails, media_sort_text};
 use super::directory_glyph::Glyph;
 use super::directory_lists::check_box;
 use super::picker::{Mark, glyph};
@@ -161,25 +161,32 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         .search
         .is_some()
         .then(|| ui.library_query.to_lowercase());
-    let details = MediaDetails::new(s);
-    let mut items: Vec<_> = s
-        .media
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| match pick.folder {
-            Some(folder) => entry.folder == folder,
-            None => entry.folder.kind() == pick.kind,
-        })
-        .filter(|(_, entry)| !dir.made_by_me || entry.folder == MediaFolder::MyCaptures)
-        .filter(|(_, entry)| {
-            query
-                .as_ref()
-                .is_none_or(|query| entry.name.to_lowercase().contains(query))
-        })
-        .map(|item| (item, details.roles(item.1)))
+    let details = MediaDetails::new(ui);
+    let sort = || {
+        let mut items: Vec<_> = (s.media.iter().enumerate())
+            .filter(|(_, entry)| match pick.folder {
+                Some(folder) => entry.folder == folder,
+                None => entry.folder.kind() == pick.kind,
+            })
+            .filter(|(_, entry)| !dir.made_by_me || entry.folder == MediaFolder::MyCaptures)
+            .filter(|(_, entry)| {
+                (query.as_ref()).is_none_or(|query| entry.name.to_lowercase().contains(query))
+            })
+            .map(|(index, entry)| (index as u16, details.roles(entry)))
+            .collect();
+        items.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
+        items.into_iter().map(|(index, _)| index).collect()
+    };
+    let order = ListQuery::Picker {
+        kind: pick.kind,
+        folder: pick.folder,
+        made_by_me: dir.made_by_me,
+        query: query.clone(),
+        sort: dir.media_sort,
+    };
+    let items: Vec<(usize, &MediaEntry)> = (ui.list_cache.rows(s, order, sort).iter())
+        .map(|&index| (usize::from(index), &s.media[usize::from(index)]))
         .collect();
-    items.sort_by(|a, b| dir.media_sort.order(&a.1, &b.1));
-    let items: Vec<(usize, &MediaEntry)> = items.into_iter().map(|(item, _)| item).collect();
     l.panel(CONTENT, p.panel, 8.0, None);
     l.scroll(
         ListId::MediaItems,
@@ -187,7 +194,9 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         items.len() as u32 * ROW,
         ui.offset(ListId::MediaItems),
         |l, top| {
-            for (row_index, (index, entry)) in items.iter().enumerate() {
+            let shown = l.shown_rows(top, ROW, items.len());
+            let rows = items.iter().enumerate().take(shown.end).skip(shown.start);
+            for (row_index, (index, entry)) in rows {
                 let row = Rect::new(
                     CONTENT.x,
                     top + row_index as i32 * ROW as i32,

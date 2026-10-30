@@ -8,7 +8,6 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 
 use crate::variant::Variant;
 
@@ -223,9 +222,14 @@ impl SettingsFile {
     /// after a good write): clears the dirty flag and removed-key positions.
     pub fn save(&mut self) -> Vec<u8> {
         let bytes = self.to_bytes();
+        self.saved();
+        bytes
+    }
+
+    /// [`Self::save`] without the bytes, after a good write of [`Self::to_bytes`].
+    pub(crate) fn saved(&mut self) {
         self.removed.clear();
         self.dirty = false;
-        bytes
     }
 
     /// True when a key changed since the last [`Self::save`].
@@ -494,7 +498,7 @@ fn escape_value(text: &str, out: &mut Vec<u8>) {
         }
         let is_hex = unit < 0x80 && (unit as u8).is_ascii_hexdigit();
         if escape_next_if_digit && is_hex {
-            let _ = write!(Bytes(out), "\\x{unit:x}");
+            escape_hex(unit, out);
             continue;
         }
         escape_next_if_digit = false;
@@ -512,7 +516,7 @@ fn escape_value(text: &str, out: &mut Vec<u8>) {
             0x0B => out.extend_from_slice(b"\\v"),
             0x22 | 0x5C => out.extend_from_slice(&[b'\\', unit as u8]),
             u if u <= 0x1F || u >= 0x7F => {
-                let _ = write!(Bytes(out), "\\x{u:x}");
+                escape_hex(u, out);
                 escape_next_if_digit = true;
             }
             u => out.push(u as u8),
@@ -525,13 +529,14 @@ fn escape_value(text: &str, out: &mut Vec<u8>) {
     }
 }
 
-/// `fmt::Write` adapter so `write!` can append ASCII to a byte buffer.
-struct Bytes<'a>(&'a mut Vec<u8>);
-
-impl std::fmt::Write for Bytes<'_> {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        self.0.extend_from_slice(s.as_bytes());
-        Ok(())
+/// `\x` and `unit` in lowercase hex without leading zeros (`{unit:x}`, without `fmt`: a
+/// stock `@Variant` value has one per few bytes).
+fn escape_hex(unit: u16, out: &mut Vec<u8>) {
+    const LOWER: &[u8; 16] = b"0123456789abcdef";
+    out.extend_from_slice(b"\\x");
+    let digits = (u16::BITS - unit.leading_zeros()).div_ceil(4).max(1);
+    for digit in (0..digits).rev() {
+        out.push(LOWER[usize::from((unit >> (4 * digit)) & 15)]);
     }
 }
 

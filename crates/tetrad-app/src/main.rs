@@ -701,7 +701,7 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
         tetrad_app::device::enable_perf_log();
     }
     let umask = stock_umask();
-    let root = LinuxRoot::new("/");
+    let mut root = LinuxRoot::new("/");
     // `--check` runs while stock ZenUI still runs: it keeps its own name.
     let pinned = if args.check {
         root.check_pinned_firmware()
@@ -722,8 +722,9 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
         return Ok(pinned.map_or(ExitCode::from(WRONG_FIRMWARE_EXIT), |_| ExitCode::SUCCESS));
     }
     // Prints nothing from here: after the power teardown stderr may have no reader. The
-    // device logs through `Platform::log`, which ignores write errors.
-    let mut platform = LinuxPlatform::open()?;
+    // device logs through `Platform::log`, which ignores write errors. The root keeps the ZenUI
+    // image the check hashed, for the cipher and the driver tables.
+    let mut platform = LinuxPlatform::open(root)?;
     platform.enable_extensions()?;
     platform.enable_remote();
     platform.enable_bluetooth();
@@ -782,7 +783,7 @@ fn bringup(args: BringupArgs) -> Result<ExitCode, Error> {
     if let Ok(profile) = LinuxRoot::new("/").start_as_stock()? {
         tetrad_firmware::select(profile).map_err(LinuxError::Firmware)?;
     }
-    let mut platform = LinuxPlatform::open()?;
+    let mut platform = LinuxPlatform::open(LinuxRoot::new("/"))?;
     if !options.services {
         platform.skip_supplicant_monitor();
     }

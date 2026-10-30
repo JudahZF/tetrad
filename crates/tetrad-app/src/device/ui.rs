@@ -2135,6 +2135,7 @@ impl Ui {
             slots: Vec::new(),
             favorites,
             presets,
+            windows: Vec::new(),
         });
         if let Some(Request::Effect(Effect::Notice(_, detail))) = self.refresh_slots(state).pop() {
             unread.push(detail);
@@ -2146,7 +2147,16 @@ impl Ui {
         }
     }
 
+    /// Reads the slots of the browsed setlist again ([`Self::read_slots`]).
     fn refresh_slots(&mut self, state: &State) -> Vec<Request> {
+        let requests = self.read_slots(state);
+        if let Some(view) = self.library.as_mut() {
+            view.index_titles();
+        }
+        requests
+    }
+
+    fn read_slots(&mut self, state: &State) -> Vec<Request> {
         let (Some(view), Some(library)) = (self.library.as_mut(), state.library.as_ref()) else {
             return Vec::new();
         };

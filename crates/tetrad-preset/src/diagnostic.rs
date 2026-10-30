@@ -152,7 +152,7 @@ fn packed(kind: Kind, data: &[u8], path: &str, out: &mut Vec<Diagnostic>) {
             scalar(
                 kind,
                 &Value::Varint {
-                    raw: Vec::new(),
+                    raw: Default::default(),
                     value,
                 },
                 path,

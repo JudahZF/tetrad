@@ -867,8 +867,10 @@ pub enum CustomControl {
     Edit,
     /// An editor page tab, 0-based.
     Tab(u8),
-    /// An editor tile: select slot 0..=9.
+    /// An editor tile: select slot 0..=9. While a combo shows, a neighbour becomes its partner.
     Select(u8),
+    /// PRESS, DOUBLE or COMBO: which action of the selected switch the editor shows.
+    Gesture(crate::Gesture),
     /// The Action row: the action menu.
     Actions,
     /// The Label row: the keyboard.

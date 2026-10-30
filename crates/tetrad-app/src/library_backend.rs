@@ -132,7 +132,8 @@ impl LibraryBackend {
                 id: entry.ui_handle,
                 title: entry.title.clone(),
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into();
         Ok(AdmittedSnapshot::new(view)?)
     }
 }

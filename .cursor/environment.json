@@ -1,0 +1,4 @@
+{
+  "name": "tetrad",
+  "install": "sh .cursor/install.sh"
+}

@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 use tetrad_library::stock::SlotSummary;
 use tetrad_remote::{EditorOp, Reply};
 use tetrad_ui::{
-    BlockTarget, CUSTOM_SLOTS, CustomCommand, CustomModeView, CustomSlotView, GridPosition,
-    LayoutScope, LooperButton, MappingBlock, MidiMessageKind, MidiOutMessage, ModeChoice, PageStep,
-    SlotAction, SlotEdit, SystemAction,
+    BlockTarget, CUSTOM_SLOTS, CustomCommand, CustomModeView, CustomPageView, CustomSlotView,
+    Gesture, GridPosition, LayoutScope, LooperButton, MappingBlock, MidiMessageKind,
+    MidiOutMessage, ModeChoice, PageStep, SlotAction, SlotEdit, SystemAction,
 };
 
 use super::mappings::{self, SystemDef};
@@ -20,8 +20,9 @@ use super::ui::Handoff;
 use super::{Device, DeviceError, Subsystem, custom};
 
 /// One command of the page: `{"op": "slot", "scope": "global", "page": 0, "slot": 3,
-/// "edit": {"kind": "label", "label": "Lead"}}`. Pages are 0-based, slots 0..=9 (A–H, Down,
-/// Tap).
+/// "gesture": "double", "edit": {"kind": "label", "label": "Lead"}}`. Pages are 0-based, slots
+/// 0..=9 (A–H, Down, Tap). `gesture` is `"press"` (without it too), `"double"` or
+/// `{"combo": 2}`.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
 enum Command {
@@ -29,6 +30,8 @@ enum Command {
         scope: Scope,
         page: u8,
         slot: u8,
+        #[serde(default)]
+        gesture: GestureDef,
         edit: Edit,
     },
     CopyPage {
@@ -51,6 +54,15 @@ enum Command {
 enum Scope {
     Global,
     Preset,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum GestureDef {
+    #[default]
+    Press,
+    Double,
+    Combo(u8),
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,9 +247,18 @@ impl<P: Platform> Device<P> {
 
     /// The view as the page reads it (docs/remote.md).
     fn footswitch_view(&self, view: &CustomModeView) -> Value {
-        let layout = |pages: &[[CustomSlotView; CUSTOM_SLOTS]]| {
+        let layout = |pages: &[CustomPageView]| {
             (pages.iter())
-                .map(|page| page.iter().map(slot).collect::<Vec<_>>())
+                .map(|page| {
+                    let combos: Vec<_> = (page.combos.iter())
+                        .map(|combo| {
+                            let mut view = slot(&combo.binding);
+                            view["switches"] = json!(combo.switches);
+                            view
+                        })
+                        .collect();
+                    json!({ "slots": page.slots.iter().map(slot).collect::<Vec<_>>(), "combos": combos })
+                })
                 .collect::<Vec<_>>()
         };
         let blocks: Vec<_> = (self.state.views.mappings.blocks.iter())
@@ -277,6 +298,10 @@ impl<P: Platform> Device<P> {
             "preset": view.preset,
             "presetLoaded": self.state.current.is_some(),
             "colours": view.colours.iter().map(|&rgb| hex(rgb)).collect::<Vec<_>>(),
+            "timing": {
+                "double": view.double_press.as_millis() as u64,
+                "combo": view.combo_press.as_millis() as u64,
+            },
             "layouts": {
                 "global": layout(&view.slots),
                 "preset": view.preset_slots.as_deref().map(layout),
@@ -316,12 +341,18 @@ fn checked(
             scope,
             page,
             slot,
+            gesture,
             edit,
         } => {
             let scope = LayoutScope::from(scope);
             let (page, slot) = (page_in(page)?, slot_in(slot)?);
+            let gesture = match gesture {
+                GestureDef::Press => Gesture::Press,
+                GestureDef::Double => Gesture::Double,
+                GestureDef::Combo(partner) => Gesture::Combo(slot_in(partner)?),
+            };
             // THIS PRESET without its own layout: the touch path refuses with its reason.
-            let current = view.slot(scope, page, usize::from(slot));
+            let current = view.binding(scope, page, slot, gesture);
             let edit = match edit {
                 Edit::Action { action } => SlotEdit::SetAction(slot_action(view, blocks, action)?),
                 Edit::Clear => SlotEdit::Clear,
@@ -362,6 +393,7 @@ fn checked(
                 scope,
                 page,
                 slot,
+                gesture,
                 edit,
             }
         }
@@ -483,6 +515,7 @@ fn slot(slot: &CustomSlotView) -> Value {
         "value": slot.value,
         "momentary": slot.momentary,
         "messages": messages,
+        "double": slot.double.as_deref().map(self::slot),
     })
 }
 

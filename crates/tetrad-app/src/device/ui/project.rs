@@ -58,11 +58,58 @@ pub(super) struct LibraryView {
     pub favorites: Vec<String>,
     /// Filled preset slots in every setlist (Device Storage "My Presets").
     pub presets: u32,
+    /// Each slot of the browsed setlist as the presets and bank lists show it, in windows of
+    /// [`MAX_PRESETS`] slots, made from `titles` and `slots` by [`Self::index_titles`].
+    /// Shared: a sync copies the pointer of the shown window, not its titles.
+    pub windows: Vec<Arc<Vec<PresetItem>>>,
 }
 
 impl LibraryView {
     pub fn browsed(&self) -> Option<&Setlist> {
         self.setlists.get(self.browse)
+    }
+
+    /// Builds `windows` again; call it after each change of `titles` or `slots`. A slot shows
+    /// its stored name, else its file stem, else "Unsaved".
+    pub fn index_titles(&mut self) {
+        let item = |slot: usize| PresetItem {
+            id: slot as u64,
+            title: self.titles.get(&(slot as u64)).cloned().unwrap_or_else(|| {
+                match self.slots.get(slot) {
+                    Some(Some(path)) => preset_title(path),
+                    _ => "Unsaved".to_owned(),
+                }
+            }),
+        };
+        let windows = (0..SETLIST_SLOTS)
+            .step_by(MAX_PRESETS)
+            .map(|first| {
+                Arc::new(
+                    (first..(first + MAX_PRESETS).min(SETLIST_SLOTS))
+                        .map(item)
+                        .collect(),
+                )
+            })
+            .collect();
+        self.windows = windows;
+    }
+
+    /// The window of slots from `first`, a multiple of [`MAX_PRESETS`]; empty past the last
+    /// slot.
+    fn window(&self, first: usize) -> Arc<Vec<PresetItem>> {
+        (self.windows.get(first / MAX_PRESETS)).map_or_else(Default::default, Arc::clone)
+    }
+
+    /// The items of the slots in `range`; none past the last slot.
+    fn items(&self, range: std::ops::Range<usize>) -> Vec<PresetItem> {
+        range
+            .filter_map(|slot| {
+                self.windows
+                    .get(slot / MAX_PRESETS)?
+                    .get(slot % MAX_PRESETS)
+            })
+            .cloned()
+            .collect()
     }
 }
 
@@ -164,6 +211,7 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
             // Power Functions "Lock Touchscreen and Master Volume" (`0x11ff6f8`).
             let locked = state.master_volume.locked;
             map.insert(SettingId::LockScreen, SettingValue::Bool(locked));
+            map.extend(crate::device::custom::settings(&state.custom));
             map
         },
         tempo: TempoView {
@@ -381,10 +429,6 @@ fn allowed_modes(settings: &Settings) -> Vec<FootswitchMode> {
 
 fn project_library(snapshot: &mut UiSnapshot, library: &LibraryView, bank: u16, size: BankSize) {
     snapshot.directory = Arc::clone(&library.directory);
-    let title = |slot: Option<&Option<String>>| match slot {
-        Some(Some(path)) => preset_title(path),
-        _ => "Unsaved".to_owned(),
-    };
     snapshot.setlists = library
         .setlists
         .iter()
@@ -410,30 +454,12 @@ fn project_library(snapshot: &mut UiSnapshot, library: &LibraryView, bank: u16, 
     let bank_first = size.first(u32::from(bank)) as usize;
     // The window of MAX_PRESETS slots that holds the shown bank.
     let first = bank_first / MAX_PRESETS * MAX_PRESETS;
-    snapshot.presets = (first..(first + MAX_PRESETS).min(SETLIST_SLOTS))
-        .map(|slot| PresetItem {
-            id: slot as u64,
-            title: library
-                .titles
-                .get(&(slot as u64))
-                .cloned()
-                .unwrap_or_else(|| title(library.slots.get(slot))),
-        })
-        .collect();
+    snapshot.presets = library.window(first);
     // Eight tiles from the bank start: a hybrid preset half shows the first four, pure
     // PRESET with split banks shows two banks of four (`0x660c78`).
     snapshot.bank = BankView {
         index: bank,
-        presets: (bank_first..(bank_first + FOOTSWITCH_COUNT).min(SETLIST_SLOTS))
-            .map(|slot| PresetItem {
-                id: slot as u64,
-                title: library
-                    .titles
-                    .get(&(slot as u64))
-                    .cloned()
-                    .unwrap_or_else(|| title(library.slots.get(slot))),
-            })
-            .collect(),
+        presets: library.items(bank_first..(bank_first + FOOTSWITCH_COUNT).min(SETLIST_SLOTS)),
         highlighted: None,
     };
 }

@@ -166,16 +166,15 @@ impl AddressUnit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Region {
     base: u32,
+    /// One past the last address, kept because every bus access looks it up.
+    end: u64,
     unit: AddressUnit,
     words: Vec<u32>,
 }
 
 impl Region {
-    fn end(&self) -> u64 {
-        u64::from(self.base) + self.words.len() as u64 * u64::from(self.unit.scale())
-    }
     fn contains(&self, address: u32) -> bool {
-        address >= self.base && u64::from(address) < self.end()
+        address >= self.base && u64::from(address) < self.end
     }
     fn word_index(&self, address: u32) -> Result<usize, BusError> {
         let offset = address - self.base;
@@ -207,18 +206,19 @@ impl MemoryMap {
     pub fn add(&mut self, base: u32, unit: AddressUnit, words: usize) -> Result<(), RegionError> {
         let region = Region {
             base,
+            end: u64::from(base) + words as u64 * u64::from(unit.scale()),
             unit,
             words: vec![0; words],
         };
         let overlaps = self
             .regions
             .iter()
-            .any(|r| u64::from(base) < r.end() && u64::from(r.base) < region.end());
-        if region.end() > 1 << 32 || overlaps {
+            .any(|r| u64::from(base) < r.end && u64::from(r.base) < region.end);
+        if region.end > 1 << 32 || overlaps {
             return Err(RegionError::Overlap(base));
         }
         let space = match unit {
-            AddressUnit::Word => region.end() <= u64::from(BYTE_SPACE),
+            AddressUnit::Word => region.end <= u64::from(BYTE_SPACE),
             AddressUnit::Byte => base >= BYTE_SPACE,
         };
         if !space {

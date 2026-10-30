@@ -2,9 +2,9 @@
 //! kernel's call protocol (ABI record §2–§4), against the block's Rust twin.
 //! No hardware execution is claimed: `Machine` is one step per word, has no
 //! pipeline, and refuses circular buffers, so the stack has L7 = 0 here.
-//! Interrupts share the C stack (ABI record §4): after every step V2 writes a
-//! canary over the words an interrupt would push at and below I7, so a read
-//! of a value below I7 fails the twin comparison.
+//! Interrupts share the C stack (ABI record §4): after every step the words an
+//! interrupt would push at and below I7 hold a canary, so a read of a value
+//! below I7 fails the twin comparison.
 
 use std::ops::Range;
 use std::slice;
@@ -489,6 +489,9 @@ impl Kernel {
         let start = machine.cycles();
         machine.set_pc(entry);
         let stack = STACK_TOP - 4 * (STACK_WORDS - 1)..=STACK_TOP;
+        let canary = |i7: u32, word: u32| i7.wrapping_sub(4 * word);
+        // I7 at the last canary write, and the length of the write log checked since.
+        let mut canaries: Option<(u32, usize)> = None;
         loop {
             match machine.run(&self.program, &mut self.memory, Some(RETURN), 1) {
                 Ok(Stop::Breakpoint(_)) => break,
@@ -496,13 +499,24 @@ impl Kernel {
                 Err(MachineError::StepBudget(_)) if machine.cycles() - start < STEP_BUDGET => {}
                 Err(error) => return Err(VerificationError::Machine { call, error }),
             }
-            // Bypasses the write log: these are the interrupt's writes.
-            for word in 0..INTERRUPT_WORDS {
-                let address = machine.i[7].wrapping_sub(4 * word);
-                if stack.contains(&address) {
-                    self.memory.map.write(address, CANARY)?;
+            // The canaries are still in place while I7 stays and no step wrote over them.
+            let (i7, logged) = (machine.i[7], self.memory.writes.len());
+            let fresh = canaries.is_some_and(|(at, checked)| {
+                at == i7
+                    && !self.memory.writes[checked..].iter().any(|&address| {
+                        (0..INTERRUPT_WORDS).any(|word| canary(i7, word) == address & !3)
+                    })
+            });
+            if !fresh {
+                // Bypasses the write log: these are the interrupt's writes.
+                for word in 0..INTERRUPT_WORDS {
+                    let address = canary(i7, word);
+                    if stack.contains(&address) {
+                        self.memory.map.write(address, CANARY)?;
+                    }
                 }
             }
+            canaries = Some((i7, logged));
         }
         self.calls += 1;
 

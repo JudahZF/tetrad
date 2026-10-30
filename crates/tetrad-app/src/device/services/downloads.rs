@@ -8,7 +8,7 @@
 //! way. Until a read lands the views keep the rows they have (none at boot). I: stock fills its
 //! Downloads models when their views are built; when is not traced.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, mpsc};
 
 use tetrad_media::factory::DeviceCipher;
@@ -39,7 +39,7 @@ pub(in crate::device) enum Source<'a> {
     /// No open `zenui.db` (no library, or a restore holds it): no stored rows.
     None,
     /// The database file: a worker opens it read-only.
-    File(PathBuf),
+    File(&'a Path),
     /// A database without a file (in memory): read on this thread.
     Open(&'a StockDb),
 }
@@ -85,7 +85,7 @@ impl StoredDownloads {
             Source::Open(db) => read(&db.view(), cipher),
             Source::File(path) => {
                 let (send, receive) = mpsc::channel();
-                let (file, worker_cipher) = (path.clone(), cipher.cloned());
+                let (file, worker_cipher) = (path.to_path_buf(), cipher.cloned());
                 let spawned = std::thread::Builder::new()
                     .name("downloads-rows".into())
                     .spawn(move || _ = send.send(read_file(&file, worker_cipher.as_ref())));
@@ -95,7 +95,7 @@ impl StoredDownloads {
                         return landed;
                     }
                     // No thread: read here.
-                    Err(_) => read_file(&path, cipher),
+                    Err(_) => read_file(path, cipher),
                 }
             }
         };

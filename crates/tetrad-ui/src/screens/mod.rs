@@ -48,7 +48,7 @@ use crate::*;
 
 #[cfg(test)]
 pub(crate) use directory::PasteSlots;
-pub(crate) use directory::{Category, CloudGate, Directory};
+pub(crate) use directory::{Category, CloudGate, Directory, ListCache};
 /// The Grid header, also drawn behind the picker drawer (shot 076).
 use grid::header as main_bar;
 

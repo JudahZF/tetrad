@@ -88,6 +88,13 @@ pub struct SettingsViews {
     pub upload_batch: bool,
 }
 
+/// Puts `value` in `slot` and says whether it differed from the old value.
+fn replace_changed<T: PartialEq>(slot: &mut T, value: T) -> bool {
+    let changed = *slot != value;
+    *slot = value;
+    changed
+}
+
 /// BANK UP rows of DOWNLOADS (`0x7657f8`): the stored captures in the view's order, each
 /// keyed by its hash then its name (`0x214b84`, `0x6f7018`) with its record version.
 fn cycle_captures(rows: &[DownloadsRow]) -> Vec<CycleCapture> {
@@ -352,116 +359,106 @@ impl<P: Platform> Device<P> {
                 total,
             });
         let control = &self.bridges.control;
+        let control_link = match (control.connected(), control.online()) {
+            (_, true) => tetrad_ui::ControlLinkState::Online,
+            (true, false) => tetrad_ui::ControlLinkState::Offline,
+            (false, false) => tetrad_ui::ControlLinkState::Disconnected,
+        };
+        let restoring = self.restore_hold();
+        let usb_shown = self.bridges.ui.shows_dsp_load();
         let wifi = services.wifi_view();
         let remote = &self.bridges.remote;
-        let mut views = SettingsViews {
-            remote: remote.view(wifi.ip_address.as_deref()),
-            boot_selector: self.bridges.boot_selector.view(),
-            bluetooth: self.bridges.bluetooth.view(),
-            toast: remote.toast(),
-            wifi,
-            extensions: Default::default(),
-            mappings: Default::default(),
-            appearance: Default::default(),
-            control_online: control.cloud_route().is_some(),
-            control_link: match (control.connected(), control.online()) {
-                (_, true) => tetrad_ui::ControlLinkState::Online,
-                (true, false) => tetrad_ui::ControlLinkState::Offline,
-                (false, false) => tetrad_ui::ControlLinkState::Disconnected,
-            },
-            updater: services.updater_view(),
-            tetrad_update: services.tetrad_update_view(),
-            backups: services.backup_view(),
-            restoring: self.restore_hold(),
-            storage: StorageView::default(),
-            capture,
-            quarantine: Vec::new(),
-            usb_statistics: None,
-            usb_block,
-            screen,
-            cloud: Default::default(),
-            cloud_changes: Some(changes),
-            downloads_cycle: Vec::new(),
-            upload_overwrite: (device_prompt(ProductKind::Preset))
-                .map(|question| question.name.to_owned()),
-            capture_overwrite: services.capture_question().cloned(),
-            capture_upload_overwrite: (device_prompt(ProductKind::NeuralCapture))
-                .map(|question| question.name.to_owned()),
-            uploading: services.uploading(),
-            upload_progress,
-            upload_batch: (services.upload_prompts())
-                .any(|question| !question.from_control && question.batch),
-        };
+        // Each view is compared and replaced in its own field: a pass builds, moves and drops
+        // no whole `SettingsViews`. The pattern has no `..`: a new field does not compile until
+        // it is synced here too.
+        let SettingsViews {
+            wifi: _,
+            extensions: _,
+            mappings: _,
+            appearance: _,
+            remote: _,
+            boot_selector: _,
+            bluetooth: _,
+            toast: _,
+            control_online: _,
+            control_link: _,
+            updater: _,
+            tetrad_update: _,
+            backups: _,
+            restoring: _,
+            storage: _,
+            capture: _,
+            quarantine: _,
+            usb_statistics: _,
+            usb_block: _,
+            screen: _,
+            cloud: _,
+            cloud_changes: _,
+            downloads_cycle: _,
+            upload_overwrite: _,
+            capture_overwrite: _,
+            capture_upload_overwrite: _,
+            uploading: _,
+            upload_progress: _,
+            upload_batch: _,
+        } = &self.state.views;
         let old = &mut self.state.views;
+        let mut changed = false;
+        changed |= replace_changed(&mut old.remote, remote.view(wifi.ip_address.as_deref()));
+        changed |= replace_changed(&mut old.boot_selector, self.bridges.boot_selector.view());
+        changed |= replace_changed(&mut old.bluetooth, self.bridges.bluetooth.view());
+        changed |= replace_changed(&mut old.toast, remote.toast());
+        changed |= replace_changed(&mut old.wifi, wifi);
+        changed |= replace_changed(&mut old.control_online, control.cloud_route().is_some());
+        changed |= replace_changed(&mut old.control_link, control_link);
+        changed |= replace_changed(&mut old.updater, services.updater_view());
+        changed |= replace_changed(&mut old.tetrad_update, services.tetrad_update_view());
+        changed |= replace_changed(&mut old.backups, services.backup_view());
+        changed |= replace_changed(&mut old.restoring, restoring);
+        changed |= replace_changed(&mut old.storage, StorageView::default());
+        changed |= replace_changed(&mut old.capture, capture);
+        changed |= replace_changed(&mut old.screen, screen);
+        changed |= replace_changed(&mut old.cloud_changes, Some(changes));
+        let upload_overwrite =
+            device_prompt(ProductKind::Preset).map(|question| question.name.to_owned());
+        changed |= replace_changed(&mut old.upload_overwrite, upload_overwrite);
+        let capture_overwrite = services.capture_question().cloned();
+        changed |= replace_changed(&mut old.capture_overwrite, capture_overwrite);
+        let capture_upload_overwrite =
+            device_prompt(ProductKind::NeuralCapture).map(|question| question.name.to_owned());
+        changed |= replace_changed(&mut old.capture_upload_overwrite, capture_upload_overwrite);
+        changed |= replace_changed(&mut old.uploading, services.uploading());
+        changed |= replace_changed(&mut old.upload_progress, upload_progress);
+        let upload_batch =
+            (services.upload_prompts()).any(|question| !question.from_control && question.batch);
+        changed |= replace_changed(&mut old.upload_batch, upload_batch);
         // A generation move always presents (O: with equal rows it costs one frame); a landed
         // read presents only when its rows differ.
-        let mut changed = (rebuilt.as_ref()).is_some_and(|(cloud, cycle)| {
-            generation || *cloud != *old.cloud || *cycle != old.downloads_cycle
-        });
-        let (cloud, downloads_cycle) = match rebuilt {
-            Some((cloud, cycle)) => (Arc::new(cloud), cycle),
-            None => (take(&mut old.cloud), take(&mut old.downloads_cycle)),
-        };
-        let extensions = match extensions {
-            Some(view) => {
-                changed |= view != old.extensions;
-                view
-            }
-            None => take(&mut old.extensions),
-        };
-        let mappings = match mappings {
-            Some(view) => {
-                changed |= view != old.mappings;
-                view
-            }
-            None => take(&mut old.mappings),
-        };
-        let appearance = match appearance {
-            Some(view) => {
-                changed |= view != old.appearance;
-                view
-            }
-            None => take(&mut old.appearance),
-        };
-        // Rows read again are compared; unchanged rows move over with no copy.
-        let quarantine = match quarantine {
-            Some(rows) => {
-                changed |= rows != old.quarantine;
-                rows
-            }
-            None => take(&mut old.quarantine),
-        };
+        if let Some((cloud, cycle)) = rebuilt {
+            changed |= generation || cloud != *old.cloud || cycle != old.downloads_cycle;
+            old.cloud = Arc::new(cloud);
+            old.downloads_cycle = cycle;
+        }
+        // Views and rows built again are compared; else the old ones stay, with no copy.
+        if let Some(view) = extensions {
+            changed |= replace_changed(&mut old.extensions, view);
+        }
+        if let Some(view) = mappings {
+            changed |= replace_changed(&mut old.mappings, view);
+        }
+        if let Some(view) = appearance {
+            changed |= replace_changed(&mut old.appearance, view);
+        }
+        if let Some(rows) = quarantine {
+            changed |= replace_changed(&mut old.quarantine, rows);
+        }
         // Only the USB Statistics page draws the rows (stock fills them in its own slot
         // `0x68a90c`). Elsewhere a new block costs no frame: its HID counters move with each
         // Cortex Control report, so the 1 Hz block requested a frame on the grid (r48).
-        let usb_shown = self.bridges.ui.shows_dsp_load();
-        let usb_statistics = match usb_statistics {
-            Some(values) => {
-                changed |= usb_shown && values != old.usb_statistics;
-                values
-            }
-            None => take(&mut old.usb_statistics),
-        };
-        if !usb_shown {
-            old.usb_block = views.usb_block;
+        if let Some(values) = usb_statistics {
+            changed |= replace_changed(&mut old.usb_statistics, values) && usb_shown;
         }
-        // Compared without the moved rows: `old` is empty there now too.
-        old.cloud = Arc::default();
-        old.downloads_cycle.clear();
-        old.quarantine.clear();
-        old.usb_statistics = None;
-        old.extensions = Default::default();
-        old.mappings = Default::default();
-        old.appearance = Default::default();
-        changed |= views != *old;
-        views.cloud = cloud;
-        views.downloads_cycle = downloads_cycle;
-        views.quarantine = quarantine;
-        views.usb_statistics = usb_statistics;
-        views.extensions = extensions;
-        views.mappings = mappings;
-        views.appearance = appearance;
-        *old = views;
+        changed |= replace_changed(&mut old.usb_block, usb_block) && usb_shown;
         self.present |= changed;
     }
 
