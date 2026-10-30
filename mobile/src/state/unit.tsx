@@ -40,11 +40,26 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   const setPalette = useSetPalette();
   const toast = useToast();
 
-  const showPreset = useCallback((next: Preset) => {
+  // The catalog for edits made outside a render (a reply that arrives later).
+  const catalog = useRef<BlockModel[]>([]);
+  useEffect(() => {
+    catalog.current = blocks;
+  }, [blocks]);
+
+  const showPreset = useCallback((next: Preset, waiting: readonly Edit[] = []) => {
     // An older preset (a late event) never replaces a newer one.
     if (presetRef.current && next.loadId < presetRef.current.loadId && next.name === presetRef.current.name) return;
     presetRef.current = next;
-    setPreset(next);
+    // Edits that still wait stay on screen: the reply has only the edits sent before them.
+    setPreset(
+      waiting.reduce((shown, edit) => {
+        try {
+          return applyEdit(shown, edit, catalog.current);
+        } catch {
+          return shown;
+        }
+      }, next),
+    );
   }, []);
 
   const followTheme = useCallback(

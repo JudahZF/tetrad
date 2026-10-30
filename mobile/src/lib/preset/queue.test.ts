@@ -17,10 +17,14 @@ describe("edit queue", () => {
       return applyEdit(current, edit, DEMO_CATALOG);
     };
     let idle = 0;
+    const waited: number[] = [];
     const queue = new EditQueue(
       () => current,
       send,
-      (p) => (current = p),
+      (p, waiting) => {
+        current = p;
+        waited.push(waiting.length);
+      },
       (e) => {
         throw e;
       },
@@ -35,6 +39,8 @@ describe("edit queue", () => {
     release();
     await new Promise((r) => setTimeout(r, 0));
     expect(sent.map((e) => (e.kind === "param" ? e.value : null))).toEqual([6.3, 6.6]);
+    // The first reply comes while 6.6 waits: the screen keeps showing it.
+    expect(waited).toEqual([1, 0]);
     expect(queue.busy).toBe(false);
     expect(idle).toBe(1);
     expect(current.grid[0]?.[2]?.params.find((p) => p.id === "master")?.value).toBe(6.6);

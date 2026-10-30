@@ -29,7 +29,8 @@ export class EditQueue {
   constructor(
     private preset: () => Preset | null,
     private readonly send: Send,
-    private readonly onPreset: (preset: Preset) => void,
+    /** The unit's reply, and the edits that still wait (the reply does not have them yet). */
+    private readonly onPreset: (preset: Preset, waiting: readonly Edit[]) => void,
     private readonly onError: (error: unknown) => void,
     /** Nothing waits or is on its way any more. */
     private readonly onIdle: () => void = () => {},
@@ -59,7 +60,8 @@ export class EditQueue {
         const preset = this.preset();
         if (!preset) break;
         try {
-          this.onPreset(await this.send(preset.loadId, edit));
+          const reply = await this.send(preset.loadId, edit);
+          this.onPreset(reply, [...this.waiting]);
         } catch (error) {
           // A refused edit drops the ones queued after it: they were made on what it would have changed.
           this.waiting = [];
