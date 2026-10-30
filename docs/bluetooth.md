@@ -2,7 +2,7 @@
 
 The Wi-Fi chip of the Quad Cortex (a Microchip WILC3000) also has a Bluetooth Low Energy (BLE)
 radio. Stock CorOS does not use it. Tetrad uses it for BLE MIDI: a phone, a tablet or a computer
-can send MIDI to the unit and get the unit's MIDI, with no cable. The Tetrad app (in work) uses
+can send MIDI to the unit and get the unit's MIDI, with no cable. The Tetrad app ([mobile/](../mobile/README.md)) uses
 the same link to do what the Remote page does.
 
 > [!WARNING]

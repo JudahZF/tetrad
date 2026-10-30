@@ -201,6 +201,140 @@ pub enum Icon {
 
 const ICON_COUNT: usize = Icon::MultipleDevices as usize + 1;
 
+impl Icon {
+    /// Every icon, in declaration order (the icon export of the Tetrad app reads it).
+    pub const ALL: [Icon; ICON_COUNT] = [
+        Icon::Back,
+        Icon::Forward,
+        Icon::Up,
+        Icon::Down,
+        Icon::Close,
+        Icon::Plus,
+        Icon::Minus,
+        Icon::Check,
+        Icon::Gear,
+        Icon::Search,
+        Icon::Tuner,
+        Icon::Metronome,
+        Icon::Looper,
+        Icon::Wifi,
+        Icon::Bluetooth,
+        Icon::Lock,
+        Icon::Play,
+        Icon::Stop,
+        Icon::Record,
+        Icon::Undo,
+        Icon::Redo,
+        Icon::Trash,
+        Icon::Copy,
+        Icon::Paste,
+        Icon::Pencil,
+        Icon::Grid,
+        Icon::Gig,
+        Icon::Menu,
+        Icon::Folder,
+        Icon::Star,
+        Icon::Info,
+        Icon::Download,
+        Icon::Refresh,
+        Icon::Midi,
+        Icon::Display,
+        Icon::Footswitch,
+        Icon::Pedal,
+        Icon::InOut,
+        Icon::Capture,
+        Icon::Archive,
+        Icon::Power,
+        Icon::Shift,
+        Icon::Backspace,
+        Icon::Enter,
+        Icon::Headphones,
+        Icon::Save,
+        Icon::More,
+        Icon::ModePreset,
+        Icon::ModeScene,
+        Icon::Swap,
+        Icon::Edit,
+        Icon::Spark,
+        Icon::TrashCross,
+        Icon::Chip,
+        Icon::StepBack,
+        Icon::StepForward,
+        Icon::Sync,
+        Icon::Brightness,
+        Icon::Bolt,
+        Icon::Knob,
+        Icon::Storage,
+        Icon::Factory,
+        Icon::Timer,
+        Icon::Clock,
+        Icon::Device,
+        Icon::Palette,
+        Icon::EqPeak,
+        Icon::EqHighPass,
+        Icon::EqLowPass,
+        Icon::EqHighShelf,
+        Icon::EqLowShelf,
+        Icon::Cloud,
+        Icon::Person,
+        Icon::NoSignal,
+        Icon::NotLoggedIn,
+        Icon::CornerCross,
+        Icon::CloudSync,
+        Icon::CloudUpload,
+        Icon::CloudDownload,
+        Icon::Envelope,
+        Icon::Pulse,
+        Icon::InfoFilled,
+        Icon::Bug,
+        Icon::PlusBold,
+        Icon::Document,
+        Icon::FolderFilled,
+        Icon::SaveArrow,
+        Icon::SaveCheck,
+        Icon::SaveBadge,
+        Icon::Caret,
+        Icon::Binoculars,
+        Icon::HeartBroken,
+        Icon::SidechainSource,
+        Icon::SidechainSink,
+        Icon::NeuralCaptureMenu,
+        Icon::CaptureType,
+        Icon::PresetMatch,
+        Icon::Plugin,
+        Icon::Amp,
+        Icon::ComboAmp,
+        Icon::NcAmpCab,
+        Icon::NeuralCapture,
+        Icon::NcPedal,
+        Icon::Cab,
+        Icon::Overdrive,
+        Icon::Fuzz,
+        Icon::Delay,
+        Icon::Reverb,
+        Icon::Compressor,
+        Icon::Pitch,
+        Icon::Multivoicer,
+        Icon::Modulation,
+        Icon::Morph,
+        Icon::Freeze,
+        Icon::BitCrusher,
+        Icon::Synth,
+        Icon::Filter,
+        Icon::Eq,
+        Icon::IrLoader,
+        Icon::Wah,
+        Icon::FxLoop,
+        Icon::FxSend,
+        Icon::FxReturn,
+        Icon::LooperReels,
+        Icon::Blend,
+        Icon::Doubler,
+        Icon::Utility,
+        Icon::MultipleDevices,
+    ];
+}
+
 /// The cut top-right corner of the floppy outline: a 2 px band at 45° from the top edge
 /// (x 19.1) to the right edge (y 5.9), as `save.png` on `st-mp1c`.
 const SAVE_CORNER: Shape = fill(&[
@@ -1531,7 +1665,14 @@ pub fn icon(icon: Icon, size: IconSize) -> &'static Mask {
 }
 
 fn rasterize_for(icon: Icon, size: IconSize) -> Mask {
-    let px = size.px() as f32;
+    render(icon, size.px(), 1.0)
+}
+
+/// Uncached: `icon` drawn for a `px` box and then scaled by `scale`, so its lines keep the
+/// weight they have at `px` (a 24 px icon at 3 for a phone screen). The mask is
+/// `px × scale` square.
+pub fn render(icon: Icon, px: u32, scale: f32) -> Mask {
+    let px = px as f32;
     // Stock glyphs keep a thin ~2 px line at every size (shot 013).
     let (art, grid, radius) = match (device_art::art(icon), icon.traced()) {
         // The stock device set draws 2 px lines on its 32 px grid; they scale with the box.
@@ -1543,10 +1684,11 @@ fn rasterize_for(icon: Icon, size: IconSize) -> Mask {
             (px * 0.045).clamp(0.75, 1.3),
         ),
     };
+    let radius = radius * scale;
     rasterize(
         &art,
         Placement {
-            scale: px / grid,
+            scale: px * scale / grid,
             offset_x: 0.0,
             offset_y: 0.0,
             radius,
@@ -1568,7 +1710,7 @@ mod tests {
     fn device_glyph_rasterisation_work_is_bounded() {
         let terms = || crate::raster::TERMS.with(std::cell::Cell::get);
         let before = terms();
-        for entry in ALL
+        for entry in Icon::ALL
             .into_iter()
             .filter(|&entry| device_art::art(entry).is_some())
         {
@@ -1580,8 +1722,15 @@ mod tests {
     }
 
     #[test]
+    fn all_lists_every_icon_at_its_own_index() {
+        for (index, entry) in Icon::ALL.into_iter().enumerate() {
+            assert_eq!(entry as usize, index, "{entry:?}");
+        }
+    }
+
+    #[test]
     fn every_icon_has_ink_inside_its_box() {
-        for entry in ALL {
+        for entry in Icon::ALL {
             // Icons are authored on the grid; ink must stay near the box.
             let mask = icon(entry, IconSize::Medium);
             assert!(mask.alpha.iter().any(|&alpha| alpha > 128), "{entry:?}");
@@ -1675,135 +1824,4 @@ mod tests {
             }
         }
     }
-
-    const ALL: [Icon; ICON_COUNT] = [
-        Icon::Back,
-        Icon::Forward,
-        Icon::Up,
-        Icon::Down,
-        Icon::Close,
-        Icon::Plus,
-        Icon::Minus,
-        Icon::Check,
-        Icon::Gear,
-        Icon::Search,
-        Icon::Tuner,
-        Icon::Metronome,
-        Icon::Looper,
-        Icon::Wifi,
-        Icon::Bluetooth,
-        Icon::Lock,
-        Icon::Play,
-        Icon::Stop,
-        Icon::Record,
-        Icon::Undo,
-        Icon::Redo,
-        Icon::Trash,
-        Icon::Copy,
-        Icon::Paste,
-        Icon::Pencil,
-        Icon::Grid,
-        Icon::Gig,
-        Icon::Menu,
-        Icon::Folder,
-        Icon::Star,
-        Icon::Info,
-        Icon::Download,
-        Icon::Refresh,
-        Icon::Midi,
-        Icon::Display,
-        Icon::Footswitch,
-        Icon::Pedal,
-        Icon::InOut,
-        Icon::Capture,
-        Icon::Archive,
-        Icon::Power,
-        Icon::Shift,
-        Icon::Backspace,
-        Icon::Enter,
-        Icon::Headphones,
-        Icon::Save,
-        Icon::More,
-        Icon::ModePreset,
-        Icon::ModeScene,
-        Icon::Swap,
-        Icon::Edit,
-        Icon::StepBack,
-        Icon::StepForward,
-        Icon::Sync,
-        Icon::Brightness,
-        Icon::Bolt,
-        Icon::Knob,
-        Icon::Storage,
-        Icon::Factory,
-        Icon::Timer,
-        Icon::Clock,
-        Icon::Device,
-        Icon::Palette,
-        Icon::EqPeak,
-        Icon::EqHighPass,
-        Icon::EqLowPass,
-        Icon::EqHighShelf,
-        Icon::EqLowShelf,
-        Icon::Cloud,
-        Icon::Person,
-        Icon::NoSignal,
-        Icon::NotLoggedIn,
-        Icon::CornerCross,
-        Icon::CloudSync,
-        Icon::CloudUpload,
-        Icon::CloudDownload,
-        Icon::Envelope,
-        Icon::Pulse,
-        Icon::InfoFilled,
-        Icon::Bug,
-        Icon::PlusBold,
-        Icon::Document,
-        Icon::FolderFilled,
-        Icon::SaveArrow,
-        Icon::SaveCheck,
-        Icon::SaveBadge,
-        Icon::Caret,
-        Icon::Binoculars,
-        Icon::HeartBroken,
-        Icon::SidechainSource,
-        Icon::SidechainSink,
-        Icon::NeuralCaptureMenu,
-        Icon::CaptureType,
-        Icon::PresetMatch,
-        Icon::Plugin,
-        Icon::Amp,
-        Icon::ComboAmp,
-        Icon::NcAmpCab,
-        Icon::NeuralCapture,
-        Icon::NcPedal,
-        Icon::Cab,
-        Icon::Overdrive,
-        Icon::Fuzz,
-        Icon::Delay,
-        Icon::Reverb,
-        Icon::Compressor,
-        Icon::Pitch,
-        Icon::Multivoicer,
-        Icon::Modulation,
-        Icon::Morph,
-        Icon::Freeze,
-        Icon::BitCrusher,
-        Icon::Synth,
-        Icon::Filter,
-        Icon::Eq,
-        Icon::IrLoader,
-        Icon::Wah,
-        Icon::FxLoop,
-        Icon::FxSend,
-        Icon::FxReturn,
-        Icon::LooperReels,
-        Icon::Blend,
-        Icon::Doubler,
-        Icon::Utility,
-        Icon::Spark,
-        Icon::TrashCross,
-        Icon::Chip,
-        Icon::MultipleDevices,
-    ];
 }

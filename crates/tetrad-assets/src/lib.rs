@@ -10,7 +10,7 @@ mod icon;
 mod raster;
 
 pub use font::{Glyph, TextSize, Weight, glyph, pen_advance, text_width};
-pub use icon::{Icon, IconSize, icon};
+pub use icon::{Icon, IconSize, icon, render};
 pub use raster::Mask;
 
 pub use tetrad_theme::{Palette, Rgb};
