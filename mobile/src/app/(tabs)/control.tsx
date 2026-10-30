@@ -38,11 +38,14 @@ function Footswitches() {
   const slots = layout?.[Math.min(page, (layout?.length ?? 1) - 1)] ?? [];
   const current: SlotView | undefined = slot !== null ? slots[slot] : undefined;
 
+  /** True when the unit took the command. */
   const send = async (command: FootswitchCommand) => {
     try {
       view.set(await client.footswitchCommand(command));
+      return true;
     } catch (error) {
       toast.error(error);
+      return false;
     }
   };
   const editSlot = (edit: SlotEdit) => slot !== null && void send({ op: "slot", scope, page, slot, edit });
@@ -67,7 +70,7 @@ function Footswitches() {
           <Button
             icon="copy"
             accessibilityLabel="Copy page"
-            onPress={() => void send({ op: "copyPage", scope, from: page, to: (page + 1) % fs.mode.pages }).then(() => toast.ok(`Page ${page + 1} copied to page ${((page + 1) % fs.mode.pages) + 1}`))}
+            onPress={() => void send({ op: "copyPage", scope, from: page, to: (page + 1) % fs.mode.pages }).then((done) => done && toast.ok(`Page ${page + 1} copied to page ${((page + 1) % fs.mode.pages) + 1}`))}
           />
         )}
       </View>

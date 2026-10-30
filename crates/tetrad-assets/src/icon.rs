@@ -255,6 +255,9 @@ impl Icon {
         Icon::ModeScene,
         Icon::Swap,
         Icon::Edit,
+        Icon::Spark,
+        Icon::TrashCross,
+        Icon::Chip,
         Icon::StepBack,
         Icon::StepForward,
         Icon::Sync,
@@ -328,9 +331,6 @@ impl Icon {
         Icon::Blend,
         Icon::Doubler,
         Icon::Utility,
-        Icon::Spark,
-        Icon::TrashCross,
-        Icon::Chip,
         Icon::MultipleDevices,
     ];
 }
@@ -1719,6 +1719,13 @@ mod tests {
         let work = terms() - before;
         // r49: 51 691 terms for the 29 glyphs; every shape at every pixel was 3 395 205.
         assert!(work < 70_000, "{work} distance terms");
+    }
+
+    #[test]
+    fn all_lists_every_icon_at_its_own_index() {
+        for (index, entry) in Icon::ALL.into_iter().enumerate() {
+            assert_eq!(entry as usize, index, "{entry:?}");
+        }
     }
 
     #[test]

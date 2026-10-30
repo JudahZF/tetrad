@@ -37,14 +37,28 @@ export async function scanUnits(onFound: (unit: FoundUnit) => void, onError: (me
     onError("Tetrad needs the Bluetooth permission to find your unit.");
     return () => {};
   }
-  const state = await ble().state();
-  if (state !== "PoweredOn") onError("Turn on Bluetooth to find your unit.");
-  await ble().startDeviceScan([MIDI_SERVICE], { allowDuplicates: false }, (error, device) => {
-    if (error) return onError(error.message);
-    if (!device) return;
-    onFound({ id: device.id, name: device.localName ?? device.name ?? "Quad Cortex", rssi: device.rssi });
-  });
-  return () => void ble().stopDeviceScan();
+  // At launch (iOS) the state is Unknown for a moment: scan when it is PoweredOn, also later.
+  let scanning = false;
+  const watch = ble().onStateChange((state) => {
+    if (state !== "PoweredOn") {
+      scanning = false; // Bluetooth off ends the scan: scan again when it comes back.
+      if (state !== "Unknown" && state !== "Resetting") onError("Turn on Bluetooth to find your unit.");
+      return;
+    }
+    if (scanning) return;
+    scanning = true;
+    ble()
+      .startDeviceScan([MIDI_SERVICE], { allowDuplicates: false }, (error, device) => {
+        if (error) return onError(error.message);
+        if (!device) return;
+        onFound({ id: device.id, name: device.localName ?? device.name ?? "Quad Cortex", rssi: device.rssi });
+      })
+      .catch((error: unknown) => onError(String(error)));
+  }, true);
+  return () => {
+    watch.remove();
+    void ble().stopDeviceScan();
+  };
 }
 
 class BlePort implements LinkPort {

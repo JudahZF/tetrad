@@ -36,7 +36,9 @@ export async function shareFile(name: string, bytes: Uint8Array, mimeType: strin
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     return;
   }
-  const file = new File(Paths.cache, name);
+  // The name comes from the unit: keep only its last part, so it stays in the cache.
+  const base = name.split(/[/\\]/).pop() ?? "";
+  const file = new File(Paths.cache, base && base !== "." && base !== ".." ? base : "tetrad-file");
   if (file.exists) file.delete();
   file.create();
   await file.write(bytes);

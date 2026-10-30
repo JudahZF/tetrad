@@ -39,12 +39,12 @@ export default function Connect() {
 
   useEffect(() => {
     void savedUnits().then(setSaved);
-    let stop = () => {};
-    void scanUnits(
+    // The scan can start after the screen has gone (a permission prompt): then stop it at once.
+    const scan = scanUnits(
       (unit) => setNearby((list) => (list.some((u) => u.id === unit.id) ? list.map((u) => (u.id === unit.id ? unit : u)) : [...list, unit])),
       setScanNote,
-    ).then((s) => (stop = s));
-    return () => stop();
+    );
+    return () => void scan.then((stop) => stop());
   }, []);
 
   const enter = useCallback(

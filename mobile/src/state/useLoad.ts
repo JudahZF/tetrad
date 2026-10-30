@@ -12,22 +12,27 @@ export function useLoad<T>(load: () => Promise<T>, key: unknown, key2?: unknown,
   const [loading, setLoading] = useState(true);
   const latest = useRef(load);
   const live = useRef(true);
+  // Each load and each `set` takes a number: only the newest may change the view, so a slow
+  // older reply (an overlapping poll, the last view) never overwrites a newer one.
+  const turn = useRef(0);
   useEffect(() => {
     latest.current = load;
   });
 
   const reload = useCallback(async () => {
+    const mine = ++turn.current;
+    const current = () => live.current && mine === turn.current;
     setLoading(true);
     try {
       const next = await latest.current();
-      if (live.current) {
+      if (current()) {
         setData(next);
         setError(null);
       }
     } catch (e) {
-      if (live.current) setError(errorText(e));
+      if (current()) setError(errorText(e));
     } finally {
-      if (live.current) setLoading(false);
+      if (current()) setLoading(false);
     }
     // `key` and `key2` say when the view is another one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -44,5 +49,12 @@ export function useLoad<T>(load: () => Promise<T>, key: unknown, key2?: unknown,
     };
   }, [reload, every]);
 
-  return { data, error, loading, reload, set: setData };
+  const set = useCallback((next: T) => {
+    turn.current++;
+    setData(next);
+    setError(null);
+    setLoading(false);
+  }, []);
+
+  return { data, error, loading, reload, set };
 }
