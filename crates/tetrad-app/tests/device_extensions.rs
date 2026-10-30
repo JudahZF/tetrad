@@ -1445,6 +1445,77 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     assert_eq!(settings[0], (SettingId::DoublePressTime, longest));
 }
 
+/// A Custom mode press that waits does not run once a program has the footswitches.
+#[test]
+fn a_waiting_custom_press_does_not_run_in_a_program() {
+    use tetrad_app::device::Action;
+    use tetrad_hal::hal::Event as HalEvent;
+    use tetrad_hal::node::Element;
+    use tetrad_ui::{
+        CustomCommand, Gesture, LayoutScope, SettingId, SettingValue, SlotAction, SlotEdit,
+        SystemAction,
+    };
+
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let manifest = json!({
+        "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0", "api": 7,
+        "footswitchMode": { "name": "Custom", "pages": 1 },
+        "app": {"label": "Play", "exec": "game", "args": []}
+    });
+    let files: [(&str, &[u8]); 1] = [("game", b"\x7fELF")];
+    let web = repository_of_files(manifest, None, None, &files);
+    let (mut device, _media) = boot(media, web);
+    install(&mut device);
+    pump(&mut device, "the provider", |d| {
+        d.state().custom.provider().is_some()
+    });
+    let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
+    for (gesture, edit) in [(Gesture::Press, scene(1)), (Gesture::Double, scene(2))] {
+        device.push(Event::Custom(CustomCommand::Slot {
+            scope: LayoutScope::Global,
+            page: 0,
+            slot: 0,
+            gesture,
+            edit,
+        }));
+        assert!(device.step().is_none());
+    }
+    device.push(Event::Action(Action::ChangeSetting {
+        id: SettingId::DoublePressTime,
+        value: SettingValue::Choice(4),
+    }));
+    device.push(Event::Action(Action::SetCustomMode(true)));
+    assert!(device.step().is_none());
+
+    // A tap of A waits 500 ms; the program starts before that.
+    let switch_a = Element::all().next().unwrap();
+    for value in [1, 0] {
+        device.push(Event::Hal(HalEvent::Stomp {
+            element: switch_a,
+            value,
+        }));
+    }
+    assert!(device.step().is_none());
+    assert!(
+        device.state().custom.deadline().is_some(),
+        "A's press waits"
+    );
+    let apps = device.platform().apps.clone();
+    device.push(Event::Extensions(ExtensionCommand::Launch {
+        key: KEY.into(),
+    }));
+    pump(&mut device, "the start", |_| apps.borrow().running);
+    pump(&mut device, "the end of the wait", |d| {
+        d.state().custom.deadline().is_none()
+    });
+    let current = device.state().current.as_ref().unwrap();
+    assert_eq!(
+        current.deployment.scene().index(),
+        0,
+        "A's press did not run"
+    );
+}
+
 /// A program installs with its files and starts from its page with `{app}` resolved. While it
 /// runs it has the screen and the footswitches: Tetrad presents no frame and ignores a
 /// footswitch. A touch held for 2 s ends it, and Tetrad draws the screen again.

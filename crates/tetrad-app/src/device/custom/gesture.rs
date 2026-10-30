@@ -171,9 +171,9 @@ impl Gestures {
         fired
     }
 
-    /// The waits that ended by `now`.
+    /// The waits that ended by `now`, in the order they ended.
     pub fn expire(&mut self, now: Duration, shapes: &[Shape; CUSTOM_SLOTS]) -> Vec<Fire> {
-        let mut fired = Vec::new();
+        let mut ended = Vec::new();
         for (slot, entry) in (0..).zip(&mut self.pending) {
             let Some(mut pending) = *entry else {
                 continue;
@@ -190,15 +190,18 @@ impl Gestures {
                 }
             }
             *entry = None;
-            fired.push(Fire::Down {
-                slot,
-                gesture: Gesture::Press,
-            });
-            if !pending.down {
-                fired.push(Fire::Up(slot));
-            }
+            ended.push((self.times.until(pending), slot, pending.down));
         }
-        fired
+        ended.sort_unstable();
+        (ended.into_iter())
+            .flat_map(|(_, slot, down)| {
+                let press = Fire::Down {
+                    slot,
+                    gesture: Gesture::Press,
+                };
+                std::iter::once(press).chain((!down).then_some(Fire::Up(slot)))
+            })
+            .collect()
     }
 }
 
@@ -298,6 +301,26 @@ mod tests {
             [(100, down(D, Gesture::Double)), (150, Fire::Up(D))]
         );
         assert_eq!(run(&both, &tap(0)), [(300, press(D)), (300, Fire::Up(D))]);
+    }
+
+    /// Waits that ended before a late expiry run in the order they ended, not in switch order.
+    #[test]
+    fn late_expiries_run_in_the_order_they_ended() {
+        let mut shapes = [Shape::default(); CUSTOM_SLOTS];
+        shapes[usize::from(C)].double = true;
+        shapes[usize::from(D)].double = true;
+        let mut gestures = Gestures::default();
+        for (slot, pressed, at) in [(D, true, 0), (D, false, 10), (C, true, 50), (C, false, 60)] {
+            assert!(gestures.edge(slot, pressed, ms(at), &shapes).is_empty());
+        }
+        let press = |slot| Fire::Down {
+            slot,
+            gesture: Gesture::Press,
+        };
+        assert_eq!(
+            gestures.expire(ms(500), &shapes),
+            [press(D), Fire::Up(D), press(C), Fire::Up(C)]
+        );
     }
 
     /// A cleared wait (a page change, a layout edit) runs nothing, and its release is quiet

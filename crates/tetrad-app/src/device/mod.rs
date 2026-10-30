@@ -2072,6 +2072,11 @@ impl<P: Platform> Device<P> {
                     now,
                 )?
             }
+            // A running program has the footswitches: a press that waited does not run in it.
+            Timer::CustomGesture if self.app.is_some() => {
+                self.state.custom.drop_waiting();
+                Vec::new()
+            }
             Timer::CustomGesture => custom::expire(&mut self.state),
             Timer::FootswitchHold => {
                 let effects = self.bridges.input.on_hold_expired(&mut self.state, now);

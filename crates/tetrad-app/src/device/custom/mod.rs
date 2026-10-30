@@ -437,6 +437,11 @@ impl CustomMode {
     pub fn deadline(&self) -> Option<Duration> {
         self.gestures.deadline()
     }
+
+    /// Drops the presses that wait: an extension program has the footswitches now.
+    pub fn drop_waiting(&mut self) {
+        self.gestures.clear();
+    }
 }
 
 /// The stored form of `layout` (the layout file and the preset field).

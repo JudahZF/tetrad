@@ -849,10 +849,16 @@ impl UiState {
                 self.custom_edit.gesture = Gesture::Combo(to);
                 Vec::new()
             }
+            // Another switch: its press, or its double press while DOUBLE shows.
             C::Select(to) => {
+                let gesture = match gesture {
+                    Gesture::Combo(_) => Gesture::Press,
+                    gesture => gesture,
+                };
                 self.custom_edit = clamped(
                     CustomEdit {
                         slot: to,
+                        gesture,
                         pending: None,
                         ..edit
                     },
@@ -1123,9 +1129,9 @@ mod tests {
         activate(&mut ui, custom(CustomControl::Gesture(Gesture::Combo(2))));
         activate(&mut ui, custom(CustomControl::Select(7)));
         assert_eq!(choose(&mut ui), edit(3, Gesture::Combo(7), next.clone()));
-        // A is not next to D: it is selected, on its press.
-        activate(&mut ui, custom(CustomControl::Select(0)));
-        assert_eq!(choose(&mut ui), edit(0, Gesture::Press, next));
+        // G is not next to D (only next to H): it is selected, on its press.
+        activate(&mut ui, custom(CustomControl::Select(6)));
+        assert_eq!(choose(&mut ui), edit(6, Gesture::Press, next));
     }
 
     /// COPY and MOVE wait for the target switch (on any page); COPY PAGE waits for the target
