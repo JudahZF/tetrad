@@ -1164,7 +1164,7 @@ impl StockView<'_> {
     }
 
     /// `0x01204554` (`0x00835204`): the writable user root of a product type. Outside a
-    /// transaction the result stays cached until this connection writes ([`RootCache`]):
+    /// transaction the result stays cached until this connection writes (`RootCache`):
     /// Cortex Control reads both roots on every device step.
     pub fn root_folder(&self, product_type: ProductType) -> Result<Option<i64>> {
         let code = product_type.code();
