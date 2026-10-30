@@ -47,8 +47,10 @@ use super::{Action, Effect, State};
 pub const ACTIVE_FILE: &str = "/media/p4/tetrad/footswitch-mode.json";
 /// One layout per installation: `<install key file stem>.json`.
 pub const LAYOUT_DIR: &str = "/media/p4/tetrad/footswitch-modes";
-/// Largest layout or active file. Read them with `read_bounded(.., MAX_FILE)`.
-pub const MAX_FILE: u64 = 256 * 1024;
+/// Largest layout or active file. Read them with `read_bounded(.., MAX_FILE)`. A full layout
+/// (four pages of presses, double presses and all 13 combos, each with 12 messages and a
+/// 16-character label) is about 290 KB.
+pub const MAX_FILE: u64 = 1024 * 1024;
 const FORMAT: u32 = 1;
 /// Longest typed slot label.
 pub const MAX_LABEL: usize = 16;
