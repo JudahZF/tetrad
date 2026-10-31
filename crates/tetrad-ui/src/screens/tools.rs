@@ -343,6 +343,10 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
     let p = l.palette;
     const LINE_Y: i32 = 189;
     const BALL: i32 = 41;
+    const DOT: i32 = 30;
+    // The line is full width; the coloured dot's centre travels it, kept whole on screen.
+    const LINE_X: (i32, i32) = (26, WIDTH as i32 - 26);
+    const TRAVEL: (i32, i32) = (DOT + 2, WIDTH as i32 - DOT - 2);
     let t = &ui.snapshot.tuner;
     l.push(Rect::new(0, 0, WIDTH, HEIGHT), "", Look::Fill(p.tone(PAGE)));
     page_header(l, "Tuner", Control::Back, Icon::Check);
@@ -360,7 +364,12 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
         p.muted,
         Align::Right,
     );
-    l.line((26.0, LINE_Y as f32), (774.0, LINE_Y as f32), 2.0, p.text);
+    l.line(
+        (LINE_X.0 as f32, LINE_Y as f32),
+        (LINE_X.1 as f32, LINE_Y as f32),
+        2.0,
+        p.text,
+    );
     let Some(note) = t.note else {
         l.text(
             Rect::new(250, 255, 300, 90),
@@ -412,16 +421,20 @@ pub(super) fn tuner(ui: &UiState, l: &mut Layout) {
             Align::Center,
         );
     }
-    // Stock ball centre: (cents + 50) · 7.48 + 26, so the travel is the whole line.
-    let x = ((cents + 50.0) * 7.48 + 26.0).round() as i32;
-    for (radius, color) in [
-        (BALL, p.text),
-        (BALL - 2, p.canvas),
-        (30, if in_tune { TUNER_IN } else { p.danger }),
+    // The white-bordered ring is the fixed target in the middle of the line; the coloured dot
+    // moves along the line with the pitch.
+    let mid = WIDTH as i32 / 2;
+    let span = (TRAVEL.1 - TRAVEL.0) as f32;
+    let x = ((cents + 50.0) / 100.0 * span).round() as i32 + TRAVEL.0;
+    // The ring is filled black, so the line stops at its edge.
+    for (cx, radius, color) in [
+        (mid, BALL, p.text),
+        (mid, BALL - 2, p.canvas),
+        (x, DOT, if in_tune { TUNER_IN } else { p.danger }),
     ] {
         l.push(
             Rect::new(
-                x - radius,
+                cx - radius,
                 LINE_Y - radius,
                 2 * radius as u32,
                 2 * radius as u32,
