@@ -33,5 +33,6 @@ In the menu, A, B, C and F move and DOWN chooses. qcDOOM gives no switch the `y`
 quit question of DOOM cannot be answered: hold the screen for 2 seconds to quit. DOOM has no
 sound here; the amp sound goes on.
 
-Saved games and the DOOM settings are in the asset folder of the extension,
-`/media/p4/tetrad/assets/tetrad.doom/`.
+Saved games and the DOOM settings are in `.qcdoom.tar/` in the program's data folder,
+`/media/p4/tetrad/program-data/tetrad.doom/`. (qcDOOM writes them to `/mnt/.qcdoom.tar/`, and a
+program sees its data folder at `/mnt`.)

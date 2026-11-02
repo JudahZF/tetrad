@@ -120,7 +120,8 @@ pub struct AvailableExtension {
     /// The repositories ("Default" or `owner/repo`) that have this extension installed and on.
     /// Installed from here too, it would add the same blocks, themes and handlers twice.
     pub duplicates: Vec<String>,
-    /// It brings a program, which runs with full access to the unit.
+    /// It brings a program. The program runs as its own user: it can read the unit's files but
+    /// not change Tetrad, the stock files or the settings.
     pub app: bool,
 }
 

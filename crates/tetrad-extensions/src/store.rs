@@ -187,6 +187,8 @@ pub enum StoreError {
     BadName(String),
     #[error("block IR: {0}")]
     Ir(#[from] qcdsp::Error),
+    #[error("{0}: its signing key is revoked (docs/extensions.md#rules)")]
+    Revoked(SourceId),
 }
 
 type Result<T> = std::result::Result<T, StoreError>;
@@ -287,7 +289,9 @@ impl Store {
 
     /// Reads everything, re-verifying cached catalogs against pinned keys and installed
     /// packages against their recorded SHA-256. Bad files are skipped and reported in
-    /// [`StoreState::problems`]; stale temporary files are deleted.
+    /// [`StoreState::problems`]; stale temporary files are deleted. A source whose pinned key is
+    /// revoked ([`repository::is_revoked`]) keeps its files, but its catalog does not load; nor
+    /// does an installation whose release a revoked key signed, even after its source is removed.
     pub fn load(&self) -> StoreState {
         let mut state = StoreState::default();
         remove_temp_files(&self.root, 4, &mut state.problems);
@@ -312,6 +316,13 @@ impl Store {
         };
 
         for source in &state.sources {
+            if repository::is_revoked(&source.key) {
+                let error = StoreError::Revoked(source.source.clone());
+                state
+                    .problems
+                    .push(format!("{error}; nothing from it loads"));
+                continue;
+            }
             let (json_path, sig_path) = self.catalog_paths(&source.source);
             let read = read_bounded(&json_path, crate::catalog::MAX_CATALOG)
                 .and_then(|json| Ok((json, read_bounded(&sig_path, 1024)?)));
@@ -335,6 +346,12 @@ impl Store {
 
         for path in json_files(&self.root.join("installed"), &mut state.problems) {
             match self.load_installed(&path) {
+                Ok((installed, _)) if repository::is_revoked_signer(&installed.current.signer) => {
+                    let error = StoreError::Revoked(installed.key.source.clone());
+                    state
+                        .problems
+                        .push(format!("{}: {error}", installed.key.id));
+                }
                 Ok((installed, package)) => {
                     state.packages.insert(installed.key.clone(), package);
                     state.installed.push(installed);
@@ -496,6 +513,9 @@ impl Store {
         package_bytes: &[u8],
         files: &AppFiles,
     ) -> Result<Installed> {
+        if repository::is_revoked(signer) {
+            return Err(StoreError::Revoked(source.clone()));
+        }
         repository::check_asset(package_bytes, entry).map_err(|e| {
             StoreError::Mismatch(match e {
                 AssetMismatch::Size => "size",
@@ -600,6 +620,9 @@ impl Store {
         let previous = old
             .previous
             .ok_or_else(|| StoreError::NoPrevious(key.clone()))?;
+        if repository::is_revoked_signer(&previous.signer) {
+            return Err(StoreError::Revoked(key.source.clone()));
+        }
         self.check_release(key, &previous)?;
         let installed = Installed {
             key: old.key,
@@ -1086,6 +1109,53 @@ mod tests {
         assert!(matches!(
             store.install(&source(), &key(), &entry, &bytes, &AppFiles::new()),
             Err(StoreError::Conflict(_))
+        ));
+    }
+
+    /// Once a key is revoked, nothing installs with it, and a release that it signed earlier
+    /// stays on disk but does not load, also after the user removes its source, and is no
+    /// rollback target.
+    #[test]
+    fn a_revoked_key_installs_and_loads_nothing() {
+        let dir = TempDir::new();
+        let store = Store::open(&dir.0).unwrap();
+        let (entry, bytes) = release("1.0.0");
+        let revoked = PublicKey::from_base64(repository::tests::REVOKED_KEY).unwrap();
+        assert!(matches!(
+            store.install(&source(), &revoked, &entry, &bytes, &AppFiles::new()),
+            Err(StoreError::Revoked(_))
+        ));
+        // As if the key signed the release before its revocation.
+        let mut installed = store
+            .install(&source(), &key(), &entry, &bytes, &AppFiles::new())
+            .unwrap();
+        installed.current.signer = revoked.fingerprint();
+        let record = serde_json::to_vec(&installed).unwrap();
+        write_atomic(&store.record_path(&installed.key), &record).unwrap();
+        let state = store.load();
+        assert!(state.installed.is_empty());
+        assert_eq!(state.problems.len(), 1, "{:?}", state.problems);
+        assert!(store.installed(&installed.key).unwrap().is_some());
+        // A source that pins the key loads no catalog either.
+        let pinned = Source {
+            source: source(),
+            key: revoked,
+            default: false,
+            enabled: true,
+        };
+        store.save_sources(&[pinned]).unwrap();
+        store.save_catalog(&source(), b"{}", b"AAAA").unwrap();
+        let state = store.load();
+        assert!(state.catalogs.is_empty());
+        assert_eq!(state.problems.len(), 2, "{:?}", state.problems);
+        // A trusted update over a release that a revoked key signed cannot roll back to it.
+        let (update, update_bytes) = release("1.1.0");
+        let updated = store
+            .install(&source(), &key(), &update, &update_bytes, &AppFiles::new())
+            .unwrap();
+        assert!(matches!(
+            store.rollback(&updated.key),
+            Err(StoreError::Revoked(_))
         ));
     }
 

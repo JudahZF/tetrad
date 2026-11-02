@@ -2,6 +2,7 @@
 # qc-dev/ (https://github.com/JudahZF/tetrad-toolchain) and, for a `v*` tag, publish a GitHub
 # release with:
 #   tetrad, tetrad.sha256             the ARM binary and its SHA-256
+#   tetrad.md5                        its md5, which a support file shows (docs/support.md)
 #   tetrad-<tag>-armv7.tar.gz (+ .sha256)  the layout that scripts/install.sh expects
 #   tetrad-update.json (+ .sig) + the 3 launcher scripts  what Settings → Tetrad Updates
 #                                     installs (crates/tetrad-services/src/updater/tetrad.rs)
@@ -52,12 +53,12 @@ jobs:
           install -m 755 scripts/install.sh scripts/qc-ssh-proxy.py "pkg/$NAME/scripts/"
           install -m 644 docs/install.md docs/launcher.md docs/updates.md "pkg/$NAME/docs/"
           install -m 644 docs/images/*.png "pkg/$NAME/docs/images/"
-          install -m 644 README.md CHANGELOG.md LICENSE "pkg/$NAME/"
+          install -m 644 README.md CHANGELOG.md LICENSE TRADEMARKS.md "pkg/$NAME/"
           tar -C pkg --owner=0 --group=0 --numeric-owner -czf "dist/$NAME.tar.gz" "$NAME"
-          (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" && md5sum tetrad > tetrad.md5)
           {
             echo '```'
-            cat dist/tetrad.sha256 "dist/$NAME.tar.gz.sha256"
+            cat dist/tetrad.sha256 dist/tetrad.md5 "dist/$NAME.tar.gz.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -104,6 +105,7 @@ jobs:
           path: |
             dist/tetrad
             dist/tetrad.sha256
+            dist/tetrad.md5
             dist/*.tar.gz
             dist/*.tar.gz.sha256
             dist/*.sh
@@ -121,5 +123,5 @@ jobs:
           case $TAG in *-*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag "${flags[@]}" \
             --title "Tetrad $TAG" --notes "See CHANGELOG.md. Install: docs/install.md." \
-            dist/tetrad dist/tetrad.sha256 dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.sh \
+            dist/tetrad dist/tetrad.sha256 dist/tetrad.md5 dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.sh \
             dist/tetrad-update.json dist/tetrad-update.json.sig

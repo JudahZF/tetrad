@@ -1661,7 +1661,8 @@ impl Platform for LinuxPlatform {
         launch: &crate::device::app::AppLaunch,
     ) -> Result<Box<dyn crate::device::app::AppProcess>, String> {
         let program = launch.program.display();
-        fs::create_dir_all(&launch.dir).map_err(|e| format!("{}: {e}", launch.dir.display()))?;
+        tetrad_sys::process::prepare_app(&launch.dir)
+            .map_err(|e| format!("{}: {e}", launch.dir.display()))?;
         let mut command = std::process::Command::new(&launch.program);
         command
             .args(&launch.args)
@@ -1700,12 +1701,17 @@ impl Platform for LinuxPlatform {
 struct LinuxApp(std::process::Child);
 
 impl crate::device::app::AppProcess for LinuxApp {
+    /// Once the program has exited, what it started ends too.
     fn exited(&mut self) -> Option<String> {
-        match self.0.try_wait() {
-            Ok(None) => None,
-            Ok(Some(status)) => Some(status.to_string()),
-            Err(error) => Some(error.to_string()),
-        }
+        let ended = match self.0.try_wait() {
+            Ok(None) => return None,
+            Ok(Some(status)) => status.to_string(),
+            Err(error) => error.to_string(),
+        };
+        Some(match tetrad_sys::process::end_app_processes() {
+            Ok(()) => ended,
+            Err(error) => format!("{ended}; {error}"),
+        })
     }
     fn stop(&mut self) {
         let _ = self.0.kill();
@@ -1713,9 +1719,12 @@ impl crate::device::app::AppProcess for LinuxApp {
 }
 
 impl Drop for LinuxApp {
+    /// The program and everything it started end, also when Tetrad stops while it runs. A
+    /// failure here is reported by the next start ([`tetrad_sys::process::prepare_app`]).
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+        let _ = tetrad_sys::process::end_app_processes();
     }
 }
 

@@ -24,7 +24,7 @@ pub struct AppLaunch {
     pub program: PathBuf,
     /// `{app}` already replaced with the program folder.
     pub args: Vec<String>,
-    /// The working folder: the extension's asset folder, where a game keeps its saves.
+    /// The working folder: the extension's program data folder, where a game keeps its saves.
     pub dir: PathBuf,
     /// The button label on the extension's page.
     pub label: String,

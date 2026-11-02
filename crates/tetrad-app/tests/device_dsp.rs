@@ -505,7 +505,8 @@ fn synthetic_preset_deploys_with_per_model_setup() {
 }
 
 /// `addModelToChain` `0x00522d70` → `0x00521c84`: a Grid plugin block whose licence status is
-/// not 2 deploys bypassed; a block without a `plugin_id` keeps its stored bypass.
+/// not 2 deploys bypassed; a block without a `plugin_id` keeps its stored bypass. (O) Before
+/// the first `set_licences`, no plugin is licensed: the gate fails closed.
 #[test]
 fn unlicensed_plugin_block_deploys_bypassed() {
     let (mut rig, _) = Rig::deploy(|preset, catalog| {
@@ -513,8 +514,6 @@ fn unlicensed_plugin_block_deploys_bypassed() {
         insert(preset, catalog, ECHO, 2, &[0.3, 0.5, 0.0]);
     });
     let (light, echo) = (rig.placement(LIGHT), rig.placement(ECHO));
-    rig.dsp
-        .set_licences(tetrad_app::device::services::Licences::default());
     let mark = rig.mark();
     let (next, update) = rig.edited(COMP, 5018);
     rig.try_apply(&update, Some(&next)).unwrap();
