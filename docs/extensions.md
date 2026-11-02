@@ -3,7 +3,8 @@
 Extensions add programs and DSP blocks to Tetrad. You install them on the unit from a
 repository on GitHub. Most extensions are written in TypeScript and run in their own process,
 so a slow or broken extension cannot stop your sound or the touch UI. A program extension,
-such as DOOM, runs a native program with full access to the unit. A DSP block is a graph that
+such as DOOM, runs a native program as its own user: it can read the unit's files but not
+change Tetrad or the settings ([Ship a program](#ship-a-program)). A DSP block is a graph that
 Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 
 - **MIDI Mapper** reserves a second MIDI channel and offers it as a trigger on the
@@ -23,6 +24,7 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 - [Write an extension](#write-an-extension)
 - [Write a DSP block](#write-a-dsp-block)
 - [Publish a repository](#publish-a-repository)
+- [Rules](#rules)
 
 ## Use extensions
 
@@ -50,7 +52,8 @@ To add another repository, tap **REPOSITORIES → ADD REPOSITORY** and type its 
 Tetrad shows the fingerprint of the repository's signing key and asks you to trust it. Trust
 only repositories that you know: an extension runs code on your unit. After you trust a key,
 Tetrad installs only packages that this key signed, and it refuses a catalog if the key
-changes.
+changes. Tetrad also refuses a repository whose key a Tetrad release has revoked (see
+[Rules](#rules)).
 
 ### Settings, commands and faults
 
@@ -95,9 +98,9 @@ DSP Examples 0.2.0 had a stereo copy of the guitar block, "qcdsp Micro Synth". D
 ### DOOM
 
 DOOM is a [program](#ship-a-program): the original qcDOOM binary by Thomas Van Iseghem, with the
-shareware WAD. Its Available row says **Runs a program with full access to the unit**. The
-program is not confined as the TypeScript extensions are, so install it only from a repository
-that you trust.
+shareware WAD. Its Available row says **Runs a program that can read the unit's files**. The
+program is not confined as tightly as the TypeScript extensions are, so install it only from a
+repository that you trust.
 
 1. Install **DOOM** from the default repository (it needs a Tetrad build with extension API 7,
    0.1.0-alpha.10 or later) and open its page.
@@ -402,9 +405,26 @@ install and change nothing.
 ### Ship a program
 
 A package can bring a native program, such as a game, and start it from the extension's page.
-The program runs as Tetrad does: as root, with full access to the unit, outside the limits of
-the TypeScript extensions. Tetrad shows **Runs a program with full access to the unit** on the
-Available row, before the install.
+The program runs outside the limits of the TypeScript extensions, but not as root. Tetrad
+starts it as its own user and group (ID 2000), with no other groups and no new privileges
+(`PR_SET_NO_NEW_PRIVS`):
+
+- It runs in its data folder, `/media/p4/tetrad/program-data/<id>/`, which Tetrad gives to that
+  user, and it can write only there and in its own `/tmp` and `/dev/shm`: two empty folders
+  that only the program sees, and that go when it ends. The program also sees its data folder
+  at `/mnt`, for programs made for the stock unit that keep their files there. It cannot change
+  Tetrad, the stock files, the settings or the installed extensions. All programs run as the
+  same user, so a program can also write the data folders of other programs.
+- It can read the extension's asset folder (`/media/p4/tetrad/assets/<id>/`), with the files
+  from the Remote page, but not change it. Tetrad writes there, so it stays Tetrad's.
+- It can read the files that every user can read, and it can use the network. Tetrad shows
+  **Runs a program that can read the unit's files** on the Available row, before the install.
+- Tetrad lets it use the screen and the footswitches (below). Every other device node keeps its
+  stock permissions; the touch screen node, for example, is for root only.
+- When it ends, every process that it started ends too.
+
+The unit runs Linux 4.0, which has known local privilege escalations, so this keeps honest
+programs from damage, not a determined attacker. The [rules](#rules) cover the rest.
 
 While the program runs:
 
@@ -428,8 +448,8 @@ Declare it in the manifest (API 7) and put its files in `app/`, next to the mani
 - `exec` is the file in `app/` that runs: a 32-bit ARM Linux program. A static binary is the
   safest; the unit runs Linux 4.0.
 - `args` are at most 16 arguments. `{app}` in an argument becomes the folder of the program
-  files. The program runs in the extension's asset folder (`/media/p4/tetrad/assets/<id>/`),
-  where it can write its saves.
+  files. The program runs in its data folder (`/media/p4/tetrad/program-data/<id>/`), where
+  it can write its saves.
 
 `tetrad-ext package` pins each file of `app/` in the package by size and SHA-256 (format 4) and
 copies it next to the package as `<package name without .tetradext>.<file>`. Publish these files
@@ -457,7 +477,9 @@ Declare each block in the manifest:
 `category` is one of `guitar_overdrive`, `guitar_amplifier`, `bass_amplifier`,
 `bass_overdrive`, `equalizer`, `compressor`, `delay`, `modulation`, `reverb`, `wah`,
 `utility`, `pitch`, `filter` and `synth`. `placeholder` is the stock model ID that presets
-store for stock CorOS (default: the stock Gain block, 16005). A package has at most 16 blocks.
+store for stock CorOS (default: the stock Gain block, 16005). It must be a stock grid block that
+is not part of a paid plugin; for any other model Tetrad uses the stock Gain block. A package has
+at most 16 blocks.
 
 **A static block** has its graph in `blocks/<id>.qcdsp.json`. Make it with qcdsp's
 `BlockBuilder` in Rust (`block.to_json()`), or start from the example that
@@ -536,3 +558,23 @@ package: give each change a new version.
 
 If you lose the signing key, units that trust your repository cannot verify a new catalog.
 Users must remove the repository and trust a new key.
+
+## Rules
+
+These rules apply to every package in the default repository, and to every repository that
+we talk about in the Tetrad issues, discussions and Discord. A package must not:
+
+- Bypass, disable or weaken the plugin licences of Neural DSP, or any other licence check of
+  the unit. This includes a block or program that loads the code of a plugin that the unit has
+  no licence for.
+- Change the Tetrad program, the stock files or the settings of the unit, or install another
+  program without the user's choice.
+- Read or send the user's account, Wi-Fi or licence data.
+
+When a package breaks a rule, we remove it from the default repository. When a repository
+ships such a package, the next Tetrad release adds its signing key to `REVOKED_KEYS`
+(`crates/tetrad-extensions/src/repository.rs`). Tetrad then refuses to add, refresh or install
+from that repository, and it does not load the extensions installed from it. Their files stay
+on the unit until the user removes them.
+
+To report a package, open an issue or write to us on Discord.

@@ -3,6 +3,33 @@
 All notable changes to Tetrad are in this file. The version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Plugin licences: the README says how the project treats licence bypasses, `TRADEMARKS.md`
+  keeps the name and logo from builds that bypass them, and docs/extensions.md has
+  [rules](docs/extensions.md#rules) for packages. `REVOKED_KEYS` lists repository signing keys
+  that Tetrad no longer trusts: it refuses to add, refresh or install from such a repository and
+  does not load what it installed. The list is empty.
+- Releases have `tetrad.md5`, the md5 that a support file shows, to tell release builds from
+  others ([docs/support.md](docs/support.md#release-builds-only)).
+
+### Changed
+
+- Extension programs (API 7) no longer run as root. A program runs as its own user (ID 2000)
+  with no new privileges, in its data folder (`/media/p4/tetrad/program-data/<id>/`): it can
+  write only there and in its own empty `/tmp` and `/dev/shm`, can read the unit's files (the
+  Available row now says **Runs a program that can read the unit's files**), and cannot change
+  Tetrad, the stock files or the settings. When it ends, every process that it started ends too
+  ([docs/extensions.md](docs/extensions.md#ship-a-program)). The program also finds its data
+  folder at `/mnt`, where qcDOOM keeps its saves and settings (`/mnt/.qcdoom.tar/`). With
+  0.1.0-alpha.10, DOOM wrote them to the real `/mnt/.qcdoom.tar/` when the root partition let
+  it; to keep them, copy that folder to `/media/p4/tetrad/program-data/tetrad.doom/`.
+- Plugin licences fail closed: until the DSP reports the licences at boot, every plugin block
+  deploys bypassed. Before, a deploy in that window had no licence gate.
+- A DSP block's `placeholder` cannot be a plugin model: Tetrad uses the stock Gain block instead.
+
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
 ### Added

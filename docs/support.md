@@ -38,6 +38,15 @@ curl -H 'x-tetrad-pin: 4821' -o support.zip http://192.168.1.20/api/support
 | `logs/boot-<n>.log` | The 5 newest stock boot logs (this boot and the 4 before it), the last 256 KiB of each. `n` is the log's own number |
 | `logs/launch.log`, `logs/launch.log.1` | The boot launcher log: boot choices, unconfirmed starts and why Tetrad was turned off |
 
+## Release builds only
+
+We look into reports from release builds only. The `binary md5` line of `summary.txt` is the md5
+of the Tetrad program that the launcher starts. Each
+[release](https://github.com/JudahZF/tetrad/releases) after 0.1.0-alpha.10 has the md5 of its
+program in `tetrad.md5`. A program with another md5 is a build of your own or someone else's,
+and we cannot tell what it changed. We give no help with builds that bypass plugin licences
+([README](../README.md#plugin-licences)).
+
 ## What is never in it
 
 - Cloud and Cortex Control sign-in tokens, account names and email.

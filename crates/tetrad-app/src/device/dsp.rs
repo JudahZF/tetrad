@@ -296,7 +296,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn push(&self, licences: Option<Licences>) -> Push<'a> {
+    fn push(&self, licences: Licences) -> Push<'a> {
         Push {
             specs: self.specs,
             plan: self.deployment.plan(),
@@ -345,7 +345,7 @@ struct Push<'a> {
     capture_lock: bool,
     nopoll: bool,
     preset: Option<&'a tetrad_preset::Preset>,
-    licences: Option<Licences>,
+    licences: Licences,
 }
 
 /// One grid block after setup.
@@ -410,9 +410,9 @@ pub struct Dsp<P: Platform> {
     /// (O) The stock Volume framework of community blocks, read once ([`Self::volume_template`]).
     template: Option<VolumeTemplate>,
     /// Plugin licences ([`Self::set_licences`]): a Grid block with a ModelRepo `plugin_id` that
-    /// is not [`PluginStatus::Active`] deploys bypassed (`0x00521c84`, `0x005280d8`). `None`
-    /// (the default): no gate.
-    licences: Option<Licences>,
+    /// is not [`PluginStatus::Active`] deploys bypassed (`0x00521c84`, `0x005280d8`). Until the
+    /// first [`Self::set_licences`], no plugin is licensed: the gate fails closed.
+    licences: Licences,
 }
 
 /// The model blobs of [`Dsp::core_blob`]. Stock imports every blob and `diffs.blob` once at
@@ -561,7 +561,7 @@ pub fn boot<P: Platform>(platform: &mut P, variant: Variant) -> Result<Booted<P>
             community: CommunityBlobs::default(),
             template: None,
             blobs: Default::default(),
-            licences: None,
+            licences: Licences::default(),
         },
         soc1_failures: soc1.failures,
         soc1_retried,
@@ -1134,7 +1134,7 @@ impl<P: Platform> Dsp<P> {
 
     /// The plugin licences later pushes gate with; set at boot and after each `0x20` answer.
     pub fn set_licences(&mut self, licences: Licences) {
-        self.licences = Some(licences);
+        self.licences = licences;
     }
 
     /// `0x20` to cores 0 and 1 (`0x876470`). `value = mute | flag << 1`. After a fault every
@@ -2467,10 +2467,8 @@ fn forced(push: Push, slot: Slot, deployed: &Deployed) -> bool {
     let spec = push.specs.models.get(&block_model(push, slot, deployed));
     let category = spec.map_or(u32::MAX, |spec| spec.category_id);
     let row = slot.row.index();
-    let unlicensed = push
-        .licences
-        .zip(spec.and_then(|spec| spec.plugin_id))
-        .is_some_and(|(licences, plugin)| licences.status(plugin) != PluginStatus::Active);
+    let unlicensed = (spec.and_then(|spec| spec.plugin_id))
+        .is_some_and(|plugin| push.licences.status(plugin) != PluginStatus::Active);
     (CAB_CATEGORIES.contains(&category) && push.global_bypass.cab[row])
         || (category == IR_LOADER_CATEGORY && push.global_bypass.ir[row])
         || unlicensed

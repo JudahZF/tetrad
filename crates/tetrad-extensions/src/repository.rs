@@ -22,6 +22,33 @@ pub const DEFAULT_SOURCE: &str = "JudahZF/tetrad-extensions";
 /// The default repository's signing key, base64.
 pub const DEFAULT_KEY: &str = "DqK96SpLHkAUuJ80pbsc0sd/08qnig+reI6yqAwtbYY=";
 
+/// Signing keys that Tetrad no longer trusts, base64. When a repository ships a package that
+/// breaks the rules for extensions (docs/extensions.md#rules), such as one that bypasses plugin
+/// licences, the next Tetrad release lists its key here. Tetrad then refuses to add, refresh or
+/// install from the repository, and does not load the extensions it installed.
+pub const REVOKED_KEYS: &[&str] = &[];
+
+/// `key` is in [`REVOKED_KEYS`] (in tests, also the tests' own revoked key).
+pub fn is_revoked(key: &PublicKey) -> bool {
+    let key = key.to_base64();
+    #[cfg(test)]
+    if key == tests::REVOKED_KEY {
+        return true;
+    }
+    REVOKED_KEYS.contains(&key.as_str())
+}
+
+/// A key of [`REVOKED_KEYS`] has this [`PublicKey::fingerprint`], as an installation records
+/// its signer.
+pub fn is_revoked_signer(fingerprint: &str) -> bool {
+    let revoked = REVOKED_KEYS.iter().copied();
+    #[cfg(test)]
+    let revoked = revoked.chain([tests::REVOKED_KEY]);
+    revoked
+        .filter_map(|key| PublicKey::from_base64(key).ok())
+        .any(|key| key.fingerprint() == fingerprint)
+}
+
 /// A GitHub repository, `owner/repo`. Compares case-insensitively, as GitHub does, and keeps
 /// the spelling it was given for display.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +205,8 @@ pub enum RepositoryError {
     Size(String),
     #[error("{0}: SHA-256 does not match the signed catalog")]
     Hash(String),
+    #[error("{0}: its signing key is revoked (docs/extensions.md#rules)")]
+    Revoked(SourceId),
 }
 
 /// A verified catalog with the exact bytes it was verified from, for the store's cache.
@@ -203,7 +232,11 @@ fn get(fetch: &mut impl Fetch, url: String, max: usize) -> Result<Vec<u8>, Repos
 pub fn fetch_key(fetch: &mut impl Fetch, source: &SourceId) -> Result<PublicKey, RepositoryError> {
     let bytes = get(fetch, source.raw_url(KEY_FILE), MAX_KEY_FILE)?;
     let text = std::str::from_utf8(&bytes).map_err(|_| CatalogError::Key("not UTF-8"))?;
-    Ok(PublicKey::from_base64(text)?)
+    let key = PublicKey::from_base64(text)?;
+    if is_revoked(&key) {
+        return Err(RepositoryError::Revoked(source.clone()));
+    }
+    Ok(key)
 }
 
 /// Fetches the catalog and its signature and verifies them against the pinned key.
@@ -212,6 +245,9 @@ pub fn refresh(
     source: &SourceId,
     key: &PublicKey,
 ) -> Result<Refreshed, RepositoryError> {
+    if is_revoked(key) {
+        return Err(RepositoryError::Revoked(source.clone()));
+    }
     let json = get(fetch, source.raw_url(CATALOG_FILE), MAX_CATALOG)?;
     let signature = get(fetch, source.raw_url(SIGNATURE_FILE), MAX_KEY_FILE)?;
     let catalog = Catalog::verify(&json, &signature, key)?;
@@ -282,7 +318,7 @@ pub(crate) fn check_bytes(bytes: &[u8], size: u64, sha256: &str) -> Result<(), A
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -336,5 +372,17 @@ mod tests {
     #[test]
     fn default_key_is_valid() {
         PublicKey::from_base64(DEFAULT_KEY).unwrap();
+    }
+
+    /// A key only the tests revoke.
+    pub(crate) const REVOKED_KEY: &str = "tcIAxscbc0Xu7znfW4h8hwQ/BiK7sazrjkbOp7UID7U=";
+
+    /// The list holds valid keys, and never the default repository's.
+    #[test]
+    fn revoked_keys_are_valid_and_spare_the_default() {
+        for key in REVOKED_KEYS {
+            assert!(PublicKey::from_base64(key).is_ok(), "{key}");
+        }
+        assert!(!is_revoked(&PublicKey::from_base64(DEFAULT_KEY).unwrap()));
     }
 }

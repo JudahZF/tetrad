@@ -18,6 +18,10 @@ pub const STORE_DIR: &str = "tetrad/extensions";
 /// (O) Asset files of an extension are in `<store root>/../assets/<extension id>/`, that is
 /// `/media/p4/tetrad/assets/<id>` on the unit. The user copies them there.
 pub const ASSETS_DIR: &str = "assets";
+/// (O) A program (`app`) runs in `<store root>/../program-data/<extension id>/`, which belongs
+/// to the program user. Tetrad never writes into it, so nothing that the program puts there
+/// can redirect a write of Tetrad. The asset folder stays Tetrad's.
+pub const PROGRAM_DATA_DIR: &str = "program-data";
 /// The largest asset file.
 pub const MAX_ASSET_BYTES: usize = 3 * 1024 * 1024;
 /// The largest asset text as a JSON string. It goes to the runner in one frame, and escaping
@@ -243,7 +247,7 @@ pub fn run<F: Fetch>(store: &Store, fetch: &mut F, job: ExtensionJob) -> JobResu
 }
 
 /// The program of `installed`: its file, its arguments with the program folder for `{app}`,
-/// and the extension's asset folder to run in.
+/// and the extension's program data folder to run in.
 fn app_launch(store: &Store, installed: &Installed) -> Option<super::app::AppLaunch> {
     use tetrad_extensions::manifest::APP_DIR_PLACEHOLDER;
     let manifest = &installed.current.manifest;
@@ -257,7 +261,7 @@ fn app_launch(store: &Store, installed: &Installed) -> Option<super::app::AppLau
         args: (spec.args.iter())
             .map(|arg| arg.replace(APP_DIR_PLACEHOLDER, &folder))
             .collect(),
-        dir: assets_dir(store.root(), &manifest.id),
+        dir: extension_dir(store.root(), PROGRAM_DATA_DIR, &manifest.id),
     })
 }
 
@@ -323,10 +327,15 @@ fn block_irs(
 
 /// `<store root>/../assets/<id>`.
 pub fn assets_dir(store_root: &Path, id: &str) -> PathBuf {
+    extension_dir(store_root, ASSETS_DIR, id)
+}
+
+/// `<store root>/../<folder>/<id>`.
+fn extension_dir(store_root: &Path, folder: &str, id: &str) -> PathBuf {
     store_root
         .parent()
         .unwrap_or(store_root)
-        .join(ASSETS_DIR)
+        .join(folder)
         .join(id)
 }
 

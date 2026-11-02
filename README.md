@@ -161,6 +161,25 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
 - **A bad CorOS update needs manual steps.** No automatic fall-back is known if a CorOS update
   writes a bad root partition. Only step 6 of the recovery steps above brings the unit back.
 
+## Plugin licences
+
+Tetrad respects the plugin licences of Neural DSP, as stock CorOS does. A plugin's blocks play
+only when the unit reports a licence and an activation for that plugin. A block of a plugin
+without a licence stays on the grid with a lock and plays bypassed, and Tetrad loads no DSP code
+for it.
+
+We do not help anyone bypass these licences:
+
+- We close pull requests and issues that bypass, disable or weaken a licence check.
+- We remove extensions that do so from the default repository, and a release revokes the
+  signing key of a repository that ships one ([rules](docs/extensions.md#rules)).
+- We remove posts that share bypass builds or patches from the issues, discussions and Discord.
+- We give no support to builds that bypass licences ([release builds only](docs/support.md#release-builds-only)).
+- A build that bypasses licences must not use the name Tetrad or its logo
+  ([TRADEMARKS.md](TRADEMARKS.md)).
+
+To report a bypass build or package, open an issue or write to us on Discord.
+
 ## Known gaps
 
 - Only one unit type is tested: the original Quad Cortex without the ESS codec. The ESS codec
@@ -199,11 +218,13 @@ To build Tetrad, run the tests or find your way in the code, see
 builds for your computer.
 
 To ask a question, share a preset or talk about Tetrad, join the
-[Discord server](https://discord.gg/m8qP7RnuP).
+[Discord server](https://discord.gg/m8qP7RnuP). Contributions must follow the
+[plugin licence rules](#plugin-licences).
 
 ## Licence
 
 Tetrad is licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE).
+The name "Tetrad" and the logo have their own terms: see [TRADEMARKS.md](TRADEMARKS.md).
 
 The IBM Plex Sans fonts in `crates/tetrad-assets/fonts/ibm-plex-sans/` keep their own licence, the
 SIL Open Font License 1.1. See `OFL.txt` in that folder.

@@ -187,16 +187,16 @@
 
   function offer(ext, busy) {
     const install = el("button", { type: "button", className: "small primary", textContent: "Install", disabled: busy });
-    // A program runs with full access to the unit: the unit's Available row says so, and so does
-    // this one, with a question before the install.
+    // A program can read the unit's files: the unit's Available row says so, and so does this
+    // one, with a question before the install.
     install.addEventListener("click", () => {
-      if (ext.app && !confirm(ext.name + " runs a program with full access to the unit. Install it?")) return;
+      if (ext.app && !confirm(ext.name + " runs a program that can read the unit's files. Install it?")) return;
       send({ op: "install", source: ext.source, id: ext.id }, install);
     });
     return el("li", {},
       el("span", { className: "name", textContent: ext.name },
         el("small", { textContent: ext.version + " · " + ext.source + (ext.description ? " · " + ext.description : "") }),
-        ext.app ? el("small", { className: "failed", textContent: "Runs a program with full access to the unit" }) : null,
+        ext.app ? el("small", { className: "failed", textContent: "Runs a program that can read the unit's files" }) : null,
         ext.duplicates.length
           ? el("small", { className: "working", textContent: "Also installed from " + ext.duplicates.join(", ") + ": keep one on" })
           : null),

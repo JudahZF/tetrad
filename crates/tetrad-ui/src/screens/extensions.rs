@@ -412,7 +412,7 @@ fn available_row(
 }
 
 /// What a program may do, on the Available row.
-const APP_WARNING: &str = "Runs a program with full access to the unit";
+const APP_WARNING: &str = "Runs a program that can read the unit's files";
 
 /// One block of the detail page.
 enum Part<'a> {

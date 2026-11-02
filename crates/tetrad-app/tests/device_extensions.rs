@@ -1564,7 +1564,7 @@ fn a_program_takes_the_screen_until_a_held_touch_ends_it() {
     assert_eq!(std::fs::read(&launch.program).unwrap(), b"\x7fELF");
     let folder = launch.program.parent().unwrap().display().to_string();
     assert_eq!(launch.args, ["-iwad", &format!("{folder}/game.wad")]);
-    assert!(launch.dir.ends_with("tetrad/assets/test.mapper"));
+    assert!(launch.dir.ends_with("tetrad/program-data/test.mapper"));
 
     // In Scene mode, footswitch B would select scene 2.
     device.push(Event::Action(Action::SetMode(FootswitchMode::Scene)));

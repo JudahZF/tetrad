@@ -88,8 +88,8 @@ pub struct Manifest {
 }
 
 /// A native program of the package, such as a game. While it runs, Tetrad does not draw the
-/// screen or act on the footswitches, the knobs and TEMPO; the sound goes on. It runs as Tetrad
-/// does, with full access to the unit, in the extension's asset folder.
+/// screen or act on the footswitches, the knobs and TEMPO; the sound goes on. It runs in its own
+/// data folder as its own user, which can read the unit's files but change only that folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppSpec {
