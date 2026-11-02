@@ -54,14 +54,16 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
   extensions do: scenes, presets, tuner, tap tempo, Looper, block bypass and parameters, and
   Send MIDI. See [docs/mappings.md](docs/mappings.md).
 - **Custom footswitch mode.** Install the Custom Footswitch Mode extension for a fourth
-  footswitch mode: four pages of ten switches (A–D, Down, E–H, Tap), each with a scene, preset,
-  block, MIDI, system, page or extension action that you choose on the unit. See
-  [docs/footswitch-modes.md](docs/footswitch-modes.md).
+  footswitch mode: four pages of ten switches (A–D, Down, E–H, Tap). Each switch runs a press,
+  and it can also run a double press and a combo with a switch next to it. An action is a
+  scene, preset, block, MIDI message, system command, page change or extension command. You
+  set them on the unit. See [docs/footswitch-modes.md](docs/footswitch-modes.md).
 - **Themes.** Choose the colours of the UI in Settings → Tetrad → Appearance: Stock, Stage
   High Contrast, Slate, Ember, or your own theme files and extension themes. See
   [docs/themes.md](docs/themes.md).
-- **Extensions.** Install small TypeScript programs from signed GitHub repositories
-  (Settings → Tetrad → Extensions), such as MIDI Mapper for a second MIDI channel. See
+- **Extensions.** Install extensions from signed GitHub repositories
+  (Settings → Tetrad → Extensions). A TypeScript program, such as MIDI Mapper, adds a second
+  MIDI channel. A native program, such as DOOM, can take the screen. See
   [docs/extensions.md](docs/extensions.md).
 - **DSP blocks (experimental).** Extensions can add DSP blocks that Tetrad compiles for the
   DSP, such as Neural Amp Modeler A1 for NAM LSTM and WaveNet models (up to the trainer's lite
@@ -72,12 +74,16 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
   browse files, make backups and update CorOS.
 - **Wi-Fi and cloud.** Sign in, download and upload presets, and back up to the cloud or to the
   unit.
-- **Remote.** Add IRs from a browser on the same Wi-Fi: open the address the unit shows
-  (Settings → Tetrad → Remote), enter the PIN and drop the files. See
+- **Remote.** Use a browser on the same Wi-Fi to manage IRs, mappings, Custom footswitch
+  layouts, backups, themes, notices and extensions. Open the address that the unit shows
+  (Settings → Tetrad → Remote) and enter the PIN, or scan the QR code. See
   [docs/remote.md](docs/remote.md).
+- **Tetrad app.** The app in `mobile/` does what Remote does. Wi-Fi is tested on a unit.
+  Bluetooth is experimental and is not tested on a unit. Preset editing needs a later link
+  on the unit. The demo unit in the app has it. See [mobile/README.md](mobile/README.md).
 - **Support file.** For a bug report, download a `.zip` with versions, licence states, the
-  loaded preset's blocks and recent logs from the Remote page. It holds no passwords, tokens or
-  presets. See [docs/support.md](docs/support.md).
+  loaded preset's blocks and recent logs from the Remote page. It holds no passwords, tokens,
+  presets or Bluetooth pairing keys. See [docs/support.md](docs/support.md).
 - **Bluetooth MIDI (experimental).** The unit's own Bluetooth radio, which stock CorOS does not use, works as a
   BLE MIDI device for a Mac, a phone or a tablet (Settings → Tetrad → Bluetooth). See
   [docs/bluetooth.md](docs/bluetooth.md).
@@ -169,7 +175,19 @@ Details: [docs/launcher.md](docs/launcher.md#recovery).
 - Tetrad writes only the stock library database schema of CorOS 4.1.x (410.1).
 - Mappings cannot yet load a chosen preset, set a tempo value, send MIDI from a MIDI trigger
   or a global mapping, or run system actions from an expression pedal.
-- Remote is not tested on the unit yet. It uploads IRs and hands out the support file.
+- Remote was tested on one unit for IRs (upload, rename and delete), a theme, one extension
+  setting, one global mapping, a backup download (the file was discarded, not restored), the
+  support file and the QR code. A restore, the Footswitch page and the Notices page were not
+  in that test.
+- Bluetooth MIDI is experimental. One Linux computer has paired with a unit. Phones, Macs and
+  tablets are not tested. There is no MIDI clock, and only one phone or computer connects at
+  a time.
+- The Tetrad app was tested over Wi-Fi from a computer, not from a phone. Its Bluetooth link
+  is not tested on a unit. The unit cannot edit a preset from the app yet.
+- Double presses and combos of the Custom footswitch mode are not tested on a unit.
+- DOOM started on a unit from a staged dev build and quit on a 2 second hold. An install from
+  the published repository, play with the footswitches, and the power-button stop are not
+  tested.
 
 The changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 
