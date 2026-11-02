@@ -55,7 +55,7 @@ export class DemoClient extends BaseClient implements UnitClient {
 
   constructor(private readonly latencyMs = 120) {
     super();
-    this.version = "0.1.0-alpha.9 (demo)";
+    this.version = "0.1.0-alpha.10 (demo)";
   }
 
   private later(ms: number, run: () => void) {

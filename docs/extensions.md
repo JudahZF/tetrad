@@ -100,7 +100,7 @@ program is not confined as the TypeScript extensions are, so install it only fro
 that you trust.
 
 1. Install **DOOM** from the default repository (it needs a Tetrad build with extension API 7,
-   after 0.1.0-alpha.9) and open its page.
+   0.1.0-alpha.10 or later) and open its page.
 2. Tap **Play DOOM**. DOOM takes the screen and the footswitches. Tetrad keeps the sound, MIDI,
    the volume knob and the expression pedals.
 3. To quit, hold the screen for 2 seconds (or push the power button). Tetrad comes back.

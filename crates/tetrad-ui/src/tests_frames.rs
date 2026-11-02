@@ -154,23 +154,23 @@ const STEPS: [Step; 14] = [
 
 /// Frame hashes of [`STEPS`] from the renderer before the speed work, with the Grid mode glyph
 /// redrawn and moved to the stock box, the stock block tile corners, the stock Grid header, the
-/// block glyphs fitted to the stock images, the stock row pads, the "Tetrad 0.1.0-alpha.9"
+/// block glyphs fitted to the stock images, the stock row pads, the "Tetrad 0.1.0-alpha.10"
 /// version line under the grid and the ⋮ menu's Mappings row.
 const GOLDEN: [u64; 14] = [
-    0xdf99bdd208a42902,
-    0xa086e914cad498ea,
-    0xdf99bdd208a42902,
+    0x40080c47bb41f44b,
+    0xf512081ea1f740b4,
+    0x40080c47bb41f44b,
     0x5962cb401c8355e5,
     0x2e5a5be15edbadeb,
     0x99c0ffaf2c64adc5,
-    0xdf99bdd208a42902,
+    0x40080c47bb41f44b,
     0x1377eade186805f0,
     0x520cc05e7c925e2d,
-    0xdf99bdd208a42902,
+    0x40080c47bb41f44b,
     0x69048b73fb7ea096,
     0x13b2fc624f3b10b2,
-    0xdf99bdd208a42902,
-    0xbbc8640a5ba6039c,
+    0x40080c47bb41f44b,
+    0x7a66de45547d5199,
 ];
 
 fn start() -> UiState {
