@@ -70,6 +70,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
   `cargo build --release`), the error now gives the `qc-dev/build-arm.sh` command. The build
   guides tell the host build and the device build apart.
 
+### Fixed
+
+- Tuner: the ring stays in the middle of the line. Only the dot moves with the pitch. The dot
+  is red, and it turns green when the note is in tune. At -50 and +50 cents the dot stays
+  whole on the screen (#47, thanks Rick Peters).
+
 ## [0.1.0-alpha.9](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.9) (2026-10-28)
 
 ### Added
