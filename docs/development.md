@@ -199,6 +199,13 @@ on-device update.
 - A 61 minute soak with Cortex Control and the USB clock.
 - Boots through the boot selector, and the fall-back to CorOS after failed starts.
 - A CorOS 4.1.0 to 4.1.1 update from the touchscreen that kept Tetrad.
+- Bluetooth (experimental), from one Linux computer: pairing, a saved pairing, and a BLE MIDI
+  program change that loaded a preset. Phones, Macs and tablets were not used.
+- Remote: IR upload, rename and delete; a theme; an extension setting; a global mapping; a
+  backup download (the file was discarded, not restored); the support file; the QR code.
+- DOOM, from a staged dev build: it started from its page, drew, and quit on a 2 second hold.
+- The Tetrad app over Wi-Fi, from a computer: every request of the app against a unit. Not from
+  a phone. The Bluetooth link of the app was not used on a unit.
 
 ## Project layout
 
@@ -222,15 +229,20 @@ on-device update.
 | `crates/tetrad-capture` | Neural Capture V1 and V2 flows and numeric references |
 | `crates/tetrad-midi` | MIDI receive and transmit rules, clock and program changes |
 | `crates/tetrad-services` | Wi-Fi, DHCP, time, updater and cloud clients |
+| `crates/tetrad-remote` | Remote: the LAN web page for IRs, mappings, footswitch layouts, backups, themes, notices, extensions and the support file |
+| `crates/tetrad-ble` | Bluetooth: Tetrad's BLE host, BLE MIDI and the Tetrad Link, with no I/O |
+| `crates/tetrad-extensions` | Extension packages, the runner, the store and the TypeScript SDK |
+| `crates/tetrad-extension-cli` | `tetrad-ext`: scaffold, build, package and sign extensions |
 | `crates/tetrad-settings` | Global settings in the stock file format |
 | `crates/tetrad-firmware` | Known CorOS builds and their per-build addresses |
 | `crates/tetrad-hal` | Hardware requests and records of the stock HAL |
-| `crates/tetrad-sys` | Linux backends: framebuffer, input, ioctls, UIO, `/dev/mem` |
+| `crates/tetrad-sys` | Linux backends: framebuffer, input, ioctls, UIO, `/dev/mem`, the Bluetooth thread |
 | `crates/tetrad-runtime` | Supervisor, worker and owned DSP resident models |
 | `crates/tetrad-watchdog` | Start-up, supervision and power-action rules |
 | `crates/tetrad-sharc` | Owned SHARC ISA48 code emitter and simulator |
 | `crates/tetrad-blocks` | Owned SHARC DSP blocks |
 | `crates/tetrad-cli` | `tetrad-cli`: offline inspection and export of local files |
+| `mobile/` | The Tetrad phone app. Wi-Fi uses Remote. Bluetooth uses the Tetrad Link |
 | `scripts/launcher/` | Boot launcher, operator commands and the CorOS update wrapper (run on the unit) |
 | `scripts/bringup/` | Developer tools for staged test runs on a unit |
 | `scripts/install.sh` | The installer that runs on your computer ([install.md](install.md)) |

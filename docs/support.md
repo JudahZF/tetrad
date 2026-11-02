@@ -32,6 +32,7 @@ curl -H 'x-tetrad-pin: 4821' -o support.zip http://192.168.1.20/api/support
 | `catalog.txt` | Model counts: all, hidden, internal, plugin and extension models |
 | `preset.txt` | Path, name and scene of the loaded preset; each block's row, column, model id, plugin id, bypass and name. No parameter values |
 | `extensions.txt` | Installed extensions with version, source and state, their DSP blocks (category and CPU, or why a block is off) and their 40 newest log lines. No extension settings |
+| `bluetooth.txt` | The Bluetooth switches, the state, and the name of each paired device (or its address when it has no name). No pairing keys |
 | `dsp.txt` | DSP load, and per core the CPU, heap use, dropped messages and FP exceptions (as DSP Diagnostics shows them) |
 | `notices.txt` | The last 256 notices (warnings and errors) of this boot, with the time of day once the clock is set |
 | `logs/boot-<n>.log` | The 5 newest stock boot logs (this boot and the 4 before it), the last 256 KiB of each. `n` is the log's own number |
@@ -41,7 +42,7 @@ curl -H 'x-tetrad-pin: 4821' -o support.zip http://192.168.1.20/api/support
 
 - Cloud and Cortex Control sign-in tokens, account names and email.
 - The plugin licence data (`PluginLicenses.ini`), activation codes and signing material.
-- Wi-Fi network names and passwords, the Remote PIN.
+- Wi-Fi network names and passwords, the Remote PIN, and the Bluetooth pairing keys.
 - The serial number. `summary.txt` has a unit id instead: the first 8 hex digits of the SHA-256
   of the serial. It tells us that two reports come from the same unit. The stock boot log
   prints the serial; each copy becomes `<serial>`.

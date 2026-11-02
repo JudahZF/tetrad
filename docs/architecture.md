@@ -54,11 +54,11 @@ the stock SHARC DSP firmware that is on the unit.
 | `tetrad-dsp-protocol` | DSP message codecs |
 | `tetrad-control` | Cortex Control link: report framing, payload codecs, the dispatcher |
 | `tetrad-midi` | MIDI receive and transmit, assignments, clock, program changes |
-| `tetrad-extensions` | Extension runner (QuickJS), host protocol, manifests, packages (with DSP block graphs), signed catalogs, the on-device store, the TypeScript SDK and its block builder |
+| `tetrad-extensions` | Extension runner (QuickJS), host protocol, manifests, packages (DSP block graphs and native programs), signed catalogs, the on-device store, the TypeScript SDK and its block builder |
 | `tetrad-extension-cli` | `tetrad-ext`: scaffold, build, package, sign and stage extensions |
 | `tetrad-services` | Wi-Fi, DHCP, time, internet checks, updater and cloud clients |
-| `tetrad-remote` | Remote: the LAN web page and HTTP server that upload IRs |
-| `tetrad-ble` | Bluetooth: Tetrad's BLE host (HCI, L2CAP, ATT/GATT, SMP) and BLE MIDI, as a state machine with no I/O |
+| `tetrad-remote` | Remote: the LAN web page and HTTP server for IRs, mappings, footswitch layouts, backups, themes, notices, extensions and the support file |
+| `tetrad-ble` | Bluetooth: Tetrad's BLE host (HCI, L2CAP, ATT/GATT, SMP), BLE MIDI and the Tetrad Link, as a state machine with no I/O |
 | `tetrad-settings` | Global settings in the stock Qt INI format |
 | `tetrad-watchdog` | Start-up, supervision and power-action rules |
 | `tetrad-runtime` | Supervisor and worker models, owned DSP resident models |

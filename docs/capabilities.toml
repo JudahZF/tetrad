@@ -115,9 +115,9 @@ gaps = "Tested on one unit over USB audio: gain, saturator, slapback, a 187 ms a
 
 [[capability]]
 id = "custom_footswitch_mode"
-what = "A footswitch mode from an extension manifest (API 4): up to 4 pages of ten switches (A–D, Down, E–H, Tap) with system, page, block, preset (the loaded one or one chosen from a setlist), Send MIDI and extension command actions, LEDs, a Gig View page, an editor with copy, move and copy page, Mappings control, a stored layout and per-preset layouts (preset field 7003)."
+what = "A footswitch mode from an extension manifest (API 4): up to 4 pages of ten switches (A–D, Down, E–H, Tap) with system, page, block, preset (the loaded one or one chosen from a setlist), Send MIDI and extension command actions, a double press and combos of two adjacent switches, LEDs, a Gig View page, an editor with copy, move and copy page, Mappings control, a stored layout and per-preset layouts (preset field 7003)."
 tested = "host"
-gaps = "Not run on a unit: switch latency, the LED frames and the Bank Up hold."
+gaps = "Not run on a unit: switch latency, the LED frames, the Bank Up hold, double presses and combos."
 
 [[capability]]
 id = "extension_apps"
@@ -132,10 +132,16 @@ tested = "unit"
 gaps = "Tested with BlueZ on Linux; macOS, iOS, Android and Windows hosts are not tested. On the test unit, links later dropped within seconds (supervision timeout) with a weak 2.4 GHz Wi-Fi signal; the radio is shared with Wi-Fi. No MIDI clock over Bluetooth. One phone or computer at a time."
 
 [[capability]]
-id = "remote"
-what = "A web page on port 80 (Settings → System → Remote) that converts IRs in the browser and imports them into the IR saving destination, and downloads the support file (docs/support.md), behind a 4-digit PIN. It also manages the asset files of extensions (NAM models) and shows tabs that extensions supply."
+id = "tetrad_link"
+what = "The Tetrad Link (experimental): a Bluetooth GATT service. After the App PIN on the Bluetooth page, the Tetrad app sends every request of the Remote API, and extensions with the ble capability (API 8) can answer it (docs/bluetooth.md)."
 tested = "host"
-gaps = "Not run on the unit yet."
+gaps = "Not tested on a unit with a phone. The app's Wi-Fi path was tested against a unit. Its Bluetooth path was not."
+
+[[capability]]
+id = "remote"
+what = "A web page on port 80 (Settings → Tetrad → Remote), behind a 4-digit PIN and a QR code. It manages the IR library, mappings, Custom footswitch layouts, backups, themes, notices and extensions, the asset files of extensions, extension tabs, and the support file (docs/remote.md)."
+tested = "unit"
+gaps = "On one unit: IR upload, rename and delete, a theme, an extension setting, a global mapping, a backup download that was discarded, the support file, a wrong PIN and the phone layout. Not in that test: a restore, the Footswitch page and the Notices page."
 
 [[capability]]
 id = "owned_dsp_blocks"

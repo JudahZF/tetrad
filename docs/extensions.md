@@ -1,8 +1,9 @@
 # Extensions
 
-Extensions add small programs and DSP blocks to Tetrad. You install them on the unit from a
-repository on GitHub. An extension is written in TypeScript and runs in its own process, so a
-slow or broken extension cannot stop your sound or the touch UI. A DSP block is a graph that
+Extensions add programs and DSP blocks to Tetrad. You install them on the unit from a
+repository on GitHub. Most extensions are written in TypeScript and run in their own process,
+so a slow or broken extension cannot stop your sound or the touch UI. A program extension,
+such as DOOM, runs a native program with full access to the unit. A DSP block is a graph that
 Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 
 - **MIDI Mapper** reserves a second MIDI channel and offers it as a trigger on the

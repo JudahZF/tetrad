@@ -25,8 +25,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
   while the page is open) and uses it as a BLE MIDI device: notes, CCs, program changes and
   SysEx in, and the unit's MIDI out, but no MIDI clock. Host mode and MIDI over Bluetooth are
   switches on the page; FORGET removes a pairing. The support file has a `bluetooth.txt` with
-  the state and the names of the paired devices, never their keys
-  ([docs/bluetooth.md](docs/bluetooth.md)).
+  the switches, the state and the name of each paired device (or its address when it has no
+  name). It never has the keys ([docs/bluetooth.md](docs/bluetooth.md)).
 - Remote has new pages ([docs/remote.md](docs/remote.md)), in a sidebar with the groups Library,
   Controls, Unit and Extensions:
   - **IRs**: the IR library under the upload box. Search, folders, rename, delete, put an IR in
@@ -44,14 +44,23 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Remote: **Support file** and **Change PIN** are at the top of every page.
 - Settings → Tetrad → Remote (and Send Report) shows a QR code. A phone that scans it opens the
   page with the PIN.
-- Tetrad Link: a Bluetooth service for the Tetrad app (in work), with every request of the
-  Remote page's API, behind an App PIN that the Bluetooth page shows; the unit remembers each
-  phone that gave it.
+- Tetrad Link: a Bluetooth service for the Tetrad app, with every request of the Remote page's
+  API, behind an App PIN that the Bluetooth page shows. The unit remembers each phone that gave
+  it ([docs/bluetooth.md](docs/bluetooth.md)).
+- The Tetrad phone app (`mobile/`): the Rig, Library, Control and Unit tabs. Over Wi-Fi it does
+  what the Remote page does (tested on a unit). Over Bluetooth it uses the Tetrad Link
+  (experimental; not tested on a unit). The Rig editor needs Link protocol 2, which the unit
+  does not have yet. The demo unit in the app has every feature
+  ([mobile/README.md](mobile/README.md)).
 - Extension API 8: the `ble` capability. `ctx.ble.onMessage` answers the Tetrad app over
   Bluetooth, and `scope.ble.notify` pushes a value to it. Hosts before API 8 skip these packages.
 
 ### Changed
 
+- Tetrad starts sooner and draws faster. On the test unit, the time from `tetrad run` to the
+  first loop pass went from 35.0 s to 27.2 s. A frame in a touch tour went from 21.9 ms to
+  11.3 ms. The screen, the sound and the files stay the same.
+- The README shows the Tetrad logo and a link to the Discord server.
 - The default extension repository has one home, `JudahZF/tetrad-extensions`: this repository no
   longer keeps a copy of its catalog and packages. `scripts/fetch-extensions.sh` downloads them,
   for the tests (CI checks that the published packages still decode and run) and for a publish.
@@ -60,6 +69,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - `scripts/install.sh`: when the binary is not the 32-bit ARM build (for example from a plain
   `cargo build --release`), the error now gives the `qc-dev/build-arm.sh` command. The build
   guides tell the host build and the device build apart.
+
+### Fixed
+
+- Tuner: the ring stays in the middle of the line. Only the dot moves with the pitch. The dot
+  is red, and it turns green when the note is in tune. At -50 and +50 cents the dot stays
+  whole on the screen (#47, thanks Rick Peters).
 
 ## [0.1.0-alpha.9](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.9) (2026-10-28)
 
