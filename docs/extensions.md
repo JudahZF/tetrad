@@ -116,8 +116,8 @@ repository that you trust.
 | D | Fire | H | Use |
 | TEMPO | Menu | DOWN | Enter |
 
-In the menu, A, B, C and F move and DOWN chooses. Saved games are in
-`/media/p4/tetrad/assets/tetrad.doom/`.
+In the menu, A, B, C and F move and DOWN chooses. Saved games are in `.qcdoom.tar/` in
+`/media/p4/tetrad/program-data/tetrad.doom/`.
 
 ### Limits
 

@@ -28,25 +28,24 @@ pub const DEFAULT_KEY: &str = "DqK96SpLHkAUuJ80pbsc0sd/08qnig+reI6yqAwtbYY=";
 /// install from the repository, and does not load the extensions it installed.
 pub const REVOKED_KEYS: &[&str] = &[];
 
-/// `key` is in [`REVOKED_KEYS`] (in tests, also the tests' own revoked key).
-pub fn is_revoked(key: &PublicKey) -> bool {
-    let key = key.to_base64();
+/// The keys of [`REVOKED_KEYS`] (in tests, also the tests' own revoked key), parsed as
+/// [`PublicKey::from_base64`] parses them, so the spelling of an entry does not matter.
+fn revoked_keys() -> impl Iterator<Item = PublicKey> {
+    let keys = REVOKED_KEYS.iter().copied();
     #[cfg(test)]
-    if key == tests::REVOKED_KEY {
-        return true;
-    }
-    REVOKED_KEYS.contains(&key.as_str())
+    let keys = keys.chain([tests::REVOKED_KEY]);
+    keys.filter_map(|key| PublicKey::from_base64(key).ok())
+}
+
+/// `key` is in [`REVOKED_KEYS`].
+pub fn is_revoked(key: &PublicKey) -> bool {
+    revoked_keys().any(|revoked| revoked == *key)
 }
 
 /// A key of [`REVOKED_KEYS`] has this [`PublicKey::fingerprint`], as an installation records
 /// its signer.
 pub fn is_revoked_signer(fingerprint: &str) -> bool {
-    let revoked = REVOKED_KEYS.iter().copied();
-    #[cfg(test)]
-    let revoked = revoked.chain([tests::REVOKED_KEY]);
-    revoked
-        .filter_map(|key| PublicKey::from_base64(key).ok())
-        .any(|key| key.fingerprint() == fingerprint)
+    revoked_keys().any(|revoked| revoked.fingerprint() == fingerprint)
 }
 
 /// A GitHub repository, `owner/repo`. Compares case-insensitively, as GitHub does, and keeps
@@ -374,8 +373,8 @@ pub(crate) mod tests {
         PublicKey::from_base64(DEFAULT_KEY).unwrap();
     }
 
-    /// A key only the tests revoke.
-    pub(crate) const REVOKED_KEY: &str = "tcIAxscbc0Xu7znfW4h8hwQ/BiK7sazrjkbOp7UID7U=";
+    /// A key only the tests revoke, with the space and line end that an entry may have.
+    pub(crate) const REVOKED_KEY: &str = " tcIAxscbc0Xu7znfW4h8hwQ/BiK7sazrjkbOp7UID7U=\n";
 
     /// The list holds valid keys, and never the default repository's.
     #[test]

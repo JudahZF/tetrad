@@ -620,6 +620,9 @@ impl Store {
         let previous = old
             .previous
             .ok_or_else(|| StoreError::NoPrevious(key.clone()))?;
+        if repository::is_revoked_signer(&previous.signer) {
+            return Err(StoreError::Revoked(key.source.clone()));
+        }
         self.check_release(key, &previous)?;
         let installed = Installed {
             key: old.key,
@@ -1110,7 +1113,8 @@ mod tests {
     }
 
     /// Once a key is revoked, nothing installs with it, and a release that it signed earlier
-    /// stays on disk but does not load, also after the user removes its source.
+    /// stays on disk but does not load, also after the user removes its source, and is no
+    /// rollback target.
     #[test]
     fn a_revoked_key_installs_and_loads_nothing() {
         let dir = TempDir::new();
@@ -1144,6 +1148,15 @@ mod tests {
         let state = store.load();
         assert!(state.catalogs.is_empty());
         assert_eq!(state.problems.len(), 2, "{:?}", state.problems);
+        // A trusted update over a release that a revoked key signed cannot roll back to it.
+        let (update, update_bytes) = release("1.1.0");
+        let updated = store
+            .install(&source(), &key(), &update, &update_bytes, &AppFiles::new())
+            .unwrap();
+        assert!(matches!(
+            store.rollback(&updated.key),
+            Err(StoreError::Revoked(_))
+        ));
     }
 
     #[test]
