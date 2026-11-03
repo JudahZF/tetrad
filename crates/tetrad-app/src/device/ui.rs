@@ -2528,7 +2528,8 @@ fn nudge(state: &State, site: Site, parameter: u16, steps: i32) -> Vec<Request> 
 }
 
 /// A choice list row: the parameter takes the value of step `step`
-/// (`ParameterScale::step_value`, `0x5cc9e0`), written only when the step changes.
+/// (`ParameterScale::step_value`, `0x5cc9e0`), written only when the step changes. A
+/// parameter without a step grid takes no step.
 fn set_step(state: &State, site: Site, parameter: u16, step: u16) -> Vec<Request> {
     let (Some(current), Some(specs)) = (&*state.current, &state.specs) else {
         return Vec::new();
@@ -2545,11 +2546,22 @@ fn set_step(state: &State, site: Site, parameter: u16, step: u16) -> Vec<Request
     ) else {
         return Vec::new();
     };
-    let scale = &spec.scale;
-    if !matches!(
+    let mut scale = spec.scale.clone();
+    // A sidechain SOURCE has the steps the grid gives it (`project::sidechain_source`).
+    let source = (specs.model(block.model.0))
+        .and_then(|model| model.sidechain)
+        .is_some_and(|sidechain| sidechain.source_param == index);
+    if let Site::Slot(slot) = site
+        && source
+    {
+        let layout = current.deployment.layout();
+        scale.set_steps(tetrad_engine::sidechain_steps(layout, slot) as i32);
+    }
+    let choice = matches!(
         scale.kind,
         ParameterType::RotarySwitch | ParameterType::ComboBox
-    ) {
+    );
+    if !choice || scale.step_size() <= 0.0 {
         return Vec::new();
     }
     let Ok(value) = scale.step_value(i64::from(step)) else {

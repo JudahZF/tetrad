@@ -779,9 +779,66 @@ pub(crate) fn parameters(
     specs: &Specs,
     media: &[MediaEntry],
 ) -> Vec<ParameterView> {
-    instance(layout, position)
-        .map(|block| instance_parameters(block, scene, specs, media))
-        .unwrap_or_default()
+    let (Some(block), Some(slot)) = (instance(layout, position), slot_of(position)) else {
+        return Vec::new();
+    };
+    let mut views = instance_parameters(block, scene, specs, media);
+    sidechain_source(&mut views, layout, slot, block, scene, specs);
+    views
+}
+
+/// A sidechain SOURCE has the steps the grid gives it, not the catalog's 45: Off, Follow
+/// Input, the 12 inputs, then the blocks before the sink (`setSteps`, `0x52ebf4`;
+/// `tetrad_engine::sidechain_steps`). Its list and value text follow the engine's step.
+fn sidechain_source(
+    views: &mut [ParameterView],
+    layout: &Layout,
+    slot: Slot,
+    block: &Instance,
+    scene: EngineScene,
+    specs: &Specs,
+) {
+    let Some(spec) = specs.model(block.model.0) else {
+        return;
+    };
+    let Some(index) = spec.sidechain.map(|sidechain| sidechain.source_param) else {
+        return;
+    };
+    let (Some(param), Some(view), Some(value)) = (
+        spec.parameter(index),
+        views.iter_mut().find(|view| u32::from(view.index) == index),
+        block.params.get(index as usize),
+    ) else {
+        return;
+    };
+    let names = &param.scale.labels.step_names;
+    let fixed = (0..14).map(|step| names.get(step).cloned().unwrap_or_else(|| step.to_string()));
+    let blocks = layout.sidechain_sources(slot).into_iter().map(|source| {
+        let name = (layout.instance(Site::Slot(source)))
+            .and_then(|block| specs.model(block.model.0))
+            .map_or("", |spec| spec.name.as_str());
+        let (row, column) = (source.row.index() + 1, source.column.index() + 1);
+        format!("{name} (R{row} C{column})")
+    });
+    let choices: Vec<String> = fixed.chain(blocks).collect();
+    let mut scale = param.scale.clone();
+    scale.set_steps(choices.len() as i32);
+    let Some(step) = (scale.step_index(value.at(scene)).ok())
+        .and_then(|step| usize::try_from(step).ok())
+        .filter(|&step| step < choices.len())
+    else {
+        return;
+    };
+    let position = step as f32 / (choices.len() - 1) as f32;
+    view.kind = match view.kind {
+        ParameterKind::Choice { .. } => ParameterKind::Choice {
+            position,
+            steps: choices.len() as u16,
+        },
+        _ => ParameterKind::ComboBox { position },
+    };
+    view.value = choices[step].clone();
+    view.choices = choices;
 }
 
 /// Visible parameters of any instance: a block, a lane control or a junction.
@@ -838,13 +895,14 @@ pub(crate) fn instance_parameters(
 }
 
 /// The value text of each step of a choice, for its list (`ComboBoxSelector`): the catalog
-/// `stepNames`, else the number of each step. Empty for other kinds, or when a step has no
-/// text; a tap then steps the choice.
+/// `stepNames`, else the number of each step. Empty for other kinds, without a step grid (no
+/// `steps`), or when a step has no text; a tap then steps the choice.
 fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
-    if !matches!(
+    let choice = matches!(
         kind,
         ParameterKind::Choice { .. } | ParameterKind::ComboBox { .. }
-    ) {
+    );
+    if !choice || scale.step_size() <= 0.0 {
         return Vec::new();
     }
     let units = &scale.labels.units;

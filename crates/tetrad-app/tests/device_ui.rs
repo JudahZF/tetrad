@@ -2383,6 +2383,64 @@ fn a_choice_parameter_tap_opens_its_steps_and_a_row_writes_the_step() {
     );
 }
 
+/// A sidechain SOURCE lists the steps the grid gives it (Off, Follow Input, 12 inputs, then
+/// the blocks before the sink), not the catalog's, and a row writes that step on the same grid.
+#[test]
+fn a_sidechain_source_lists_the_blocks_before_it() {
+    let specs = STOCK.specs();
+    let catalog = SpecsCatalog(&specs);
+    let mut preset = Preset::new_default("4.1.0", &catalog).unwrap();
+    let light = Model::block(1, [ParamValue::Float(0.5), ParamValue::Float(0.0)]);
+    let gate = Model::block(16007, [0.5, 0.0].map(ParamValue::Float));
+    for (column, block) in [(0, light), (2, gate)] {
+        preset
+            .insert_block(Slot { row: 0, column }, block, &catalog)
+            .unwrap();
+    }
+    let mut state = loaded_state(specs, preset);
+    let site = Site::Slot(EngineSlot {
+        row: Row::new(0).unwrap(),
+        column: Column::new(2).unwrap(),
+    });
+    let now = Duration::from_secs(5);
+    // USB input 7/8, step 13 of 15, so the list scrolls to its end.
+    let usb = Action::SetParameter {
+        site,
+        index: 1,
+        value: 13.0 / 14.0,
+    };
+    run(&mut state, vec![Request::Action(usb)], now);
+    let mut ui = Ui::new();
+    let _ = ui.render(&state);
+    let cell = target(&ui, Control::SelectCell(GridPosition::new(0, 2).unwrap()));
+    let requests = tap(&mut ui, &state, cell, now);
+    run(&mut state, requests, now);
+    let _ = ui.render(&state);
+    let source = target(
+        &ui,
+        Control::Param(ParamControl::Knob(KnobIndex::new(1).unwrap())),
+    );
+    assert!(edits(&tap(&mut ui, &state, source, now + Duration::from_secs(1))).is_empty());
+    let _ = ui.render(&state);
+    let rows: Vec<(u16, String)> = (ui.view().hit_regions().into_iter())
+        .filter_map(|region| match region.control {
+            Control::Choose(index) => Some((index, region.label)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows.last(), Some(&(14, "Light (R1 C1)".to_owned())));
+    let row = target(&ui, Control::Choose(14));
+    let requests = tap(&mut ui, &state, row, now + Duration::from_secs(2));
+    assert_eq!(
+        edits(&requests),
+        [&Action::SetParameter {
+            site,
+            index: 1,
+            value: 1.0
+        }]
+    );
+}
+
 /// An I/O preset load ends in the I/O reload (`0x362d18` → `0x360da8`, `jacks::reload`),
 /// not the settings-reset path: after the settle timer Cortex Control gets one full
 /// IOSettings push (`0x17be68`), not the per-pair echoes.
