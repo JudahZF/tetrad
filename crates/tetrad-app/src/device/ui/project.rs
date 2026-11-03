@@ -837,8 +837,9 @@ pub(crate) fn instance_parameters(
         .collect()
 }
 
-/// The value text of each step of a choice, for its list (`ComboBoxSelector`). Empty for
-/// other kinds, or when a step has no text; a tap then steps the choice.
+/// The value text of each step of a choice, for its list (`ComboBoxSelector`): the catalog
+/// `stepNames`, else the number of each step. Empty for other kinds, or when a step has no
+/// text; a tap then steps the choice.
 fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
     if !matches!(
         kind,
@@ -846,8 +847,18 @@ fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
     ) {
         return Vec::new();
     }
+    let units = &scale.labels.units;
     (0..i64::from(scale.steps()))
-        .map(|step| scale.display_with_units(scale.step_value(step)?))
+        .map(|step| {
+            let value = scale.step_value(step)?;
+            // A choice without catalog `stepNames` lists its number texts.
+            scale.display_with_units(value).or_else(|_| {
+                (scale.value_text(value)).map(|text| match units.is_empty() {
+                    true => text,
+                    false => format!("{text} {units}"),
+                })
+            })
+        })
         .collect::<Result<_, _>>()
         .unwrap_or_default()
 }
@@ -1576,14 +1587,15 @@ defaultValue='0' units='dB'/></Model></Category></Models>";
 
     /// The kind keeps the stock types apart that drag differently (mask `0x1013`): a rotary
     /// switch carries its catalog step count (one step per 100 · step px, `0x5cc994`); Int and
-    /// ComboBox do not drag; FloatWithLed (type 12) shows and drags as a Float.
+    /// ComboBox do not drag; FloatWithLed (type 12) shows and drags as a Float. A choice lists
+    /// its `stepNames`, or the number of each step without them (issue #39).
     #[test]
     fn parameter_kinds_keep_the_stock_drag_types_and_step_count() {
         const MODELS: &str = "<Models><Category id='1' name='Amp'><Model id='1001' name='Amp' \
 blob='amp'><Parameter name='MODE' type='rotarySwitch' min='0' max='2' steps='3' \
 defaultValue='0'/><Parameter name='VOICES' type='int' min='1' max='4' steps='4' \
 defaultValue='1'/><Parameter name='SHAPE' type='comboBox' min='0' max='2' steps='3' \
-defaultValue='0'/><Parameter name='LEVEL' type='floatWithLed' min='0' max='10' \
+defaultValue='0' stepNames='Sine,Square,Saw'/><Parameter name='LEVEL' type='floatWithLed' min='0' max='10' \
 defaultValue='5'/></Model></Category></Models>";
         let specs =
             Specs::resolve(&tetrad_catalog::Catalog::parse(MODELS, "<ModuleReport/>").unwrap())
@@ -1609,6 +1621,11 @@ defaultValue='5'/></Model></Category></Models>";
         assert!(
             view[1].entry.is_some(),
             "an Int knob keeps the numeric keyboard"
+        );
+        let choices: Vec<&[String]> = view.iter().map(|view| &view.choices[..]).collect();
+        assert_eq!(
+            choices,
+            [&["0", "1", "2"][..], &[], &["Sine", "Square", "Saw"], &[]]
         );
     }
 
