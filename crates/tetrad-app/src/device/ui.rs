@@ -1486,6 +1486,18 @@ impl Ui {
                 site.map(|site| enter(state, site, parameter, &text))
                     .unwrap_or_default()
             }
+            C::SetStep {
+                target,
+                parameter,
+                step,
+            } => {
+                let site = match target {
+                    tetrad_ui::ParameterTarget::Block(position) => slot(position).map(Site::Slot),
+                    tetrad_ui::ParameterTarget::Site(site) => Some(project::engine_site(site)),
+                };
+                site.map(|site| set_step(state, site, parameter, step))
+                    .unwrap_or_default()
+            }
             C::SetDeviceName { name } => edit(Action::SetDeviceName(
                 Some(name.trim().to_owned()).filter(|name| !name.is_empty()),
             )),
@@ -2278,6 +2290,7 @@ fn undo_path(command: &ViewCommand) -> Option<UndoPath> {
         | C::SetPosition { .. }
         | C::NudgeSite { .. }
         | C::EnterParameter { .. }
+        | C::SetStep { .. }
         | C::SelectText { .. } => Some(UndoPath::View),
         C::SetBlockBypass { .. }
         | C::ToggleStomp { .. }
@@ -2512,6 +2525,41 @@ fn nudge(state: &State, site: Site, parameter: u16, steps: i32) -> Vec<Request> 
         .chain(super::preset::step_run(current, site, index))
         .map(|index| Request::Action(Action::SetParameter { site, index, value }))
         .collect()
+}
+
+/// A choice list row: the parameter takes the value of step `step`
+/// (`ParameterScale::step_value`, `0x5cc9e0`), written only when the step changes.
+fn set_step(state: &State, site: Site, parameter: u16, step: u16) -> Vec<Request> {
+    let (Some(current), Some(specs)) = (&*state.current, &state.specs) else {
+        return Vec::new();
+    };
+    let Some(block) = current.deployment.layout().instance(site) else {
+        return Vec::new();
+    };
+    let index = u32::from(parameter);
+    let (Some(spec), Some(stored)) = (
+        specs
+            .model(block.model.0)
+            .and_then(|model| model.parameter(index)),
+        block.params.get(usize::from(parameter)),
+    ) else {
+        return Vec::new();
+    };
+    let scale = &spec.scale;
+    if !matches!(
+        scale.kind,
+        ParameterType::RotarySwitch | ParameterType::ComboBox
+    ) {
+        return Vec::new();
+    }
+    let Ok(value) = scale.step_value(i64::from(step)) else {
+        return Vec::new();
+    };
+    let old = scale.step_index(stored.at(current.deployment.scene()));
+    if old.is_ok_and(|old| i64::from(old) == i64::from(step)) {
+        return Vec::new();
+    }
+    vec![Request::Action(Action::SetParameter { site, index, value })]
 }
 
 /// A graph drag (`controlPointMovedToPosSlot` of the synth and voicer editors): the value

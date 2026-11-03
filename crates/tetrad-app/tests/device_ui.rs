@@ -2323,6 +2323,66 @@ fn a_graph_drag_snaps_stepped_parameters_and_skips_an_unchanged_step() {
     );
 }
 
+/// Issue #39: a tap on a ComboBox parameter (Arpeggio Delay SCALE, catalog `stepNames`) opens
+/// its steps as a list (stock `ComboBoxSelector`), and a row writes that step's value.
+#[test]
+fn a_choice_parameter_tap_opens_its_steps_and_a_row_writes_the_step() {
+    let specs = STOCK.specs();
+    let catalog = SpecsCatalog(&specs);
+    let mut preset = Preset::new_default("4.1.0", &catalog).unwrap();
+    let block = Model::block(6031, [0.0; 10].map(ParamValue::Float));
+    preset
+        .insert_block(Slot { row: 0, column: 2 }, block, &catalog)
+        .unwrap();
+    let mut state = loaded_state(specs, preset);
+    let mut ui = Ui::new();
+    let _ = ui.render(&state);
+    let mut now = Duration::from_secs(5);
+    let cell = target(&ui, Control::SelectCell(GridPosition::new(0, 2).unwrap()));
+    let requests = tap(&mut ui, &state, cell, now);
+    run(&mut state, requests, now);
+    let _ = ui.render(&state);
+
+    now += Duration::from_secs(1);
+    let scale = target(&ui, Control::Editor(tetrad_ui::EditorControl::Knob(3)));
+    assert!(edits(&tap(&mut ui, &state, scale, now)).is_empty());
+    let _ = ui.render(&state);
+    let rows: Vec<String> = (ui.view().hit_regions().into_iter())
+        .filter(|region| matches!(region.control, Control::Choose(_)))
+        .map(|region| region.label)
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "Chromatic",
+            "Major",
+            "Natural Minor",
+            "Harmonic Minor",
+            "Melodic Minor"
+        ]
+    );
+
+    now += Duration::from_secs(1);
+    let row = target(&ui, Control::Choose(2));
+    let requests = tap(&mut ui, &state, row, now);
+    let site = Site::Slot(EngineSlot {
+        row: Row::new(0).unwrap(),
+        column: Column::new(2).unwrap(),
+    });
+    assert_eq!(
+        edits(&requests),
+        [&Action::SetParameter {
+            site,
+            index: 3,
+            value: 0.5
+        }]
+    );
+    let _ = ui.render(&state);
+    assert!(
+        (ui.view().hit_regions().into_iter()).all(|r| !matches!(r.control, Control::Choose(_)))
+    );
+}
+
 /// An I/O preset load ends in the I/O reload (`0x362d18` → `0x360da8`, `jacks::reload`),
 /// not the settings-reset path: after the settle timer Cortex Control gets one full
 /// IOSettings push (`0x17be68`), not the per-pair echoes.

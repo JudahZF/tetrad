@@ -1046,6 +1046,16 @@ fn split_unit(value: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// The drop-down field of a choice or media parameter cell.
+pub(crate) fn dropdown_field(cell: Rect) -> Rect {
+    Rect::new(
+        cell.x + 10,
+        cell.bottom() - 48,
+        cell.width.saturating_sub(20),
+        36,
+    )
+}
+
 /// Stock parameter cell (shots 127, 008): label top-left, value bottom-left,
 /// a 58 px knob on the right with a 270° arc in `color` from the lower left,
 /// a black face and a white pointer. `dial_dy` moves the dial and value only.
@@ -1147,14 +1157,7 @@ fn knob(
                 ParameterKind::IconChoice { icon } => Some(icon),
                 _ => None,
             };
-            dropdown(
-                canvas,
-                Rect::new(b.x + 10, b.bottom() - 48, b.width.saturating_sub(20), 36),
-                value,
-                icon,
-                enabled,
-                false,
-            );
+            dropdown(canvas, dropdown_field(b), value, icon, enabled, false);
         }
     }
 }

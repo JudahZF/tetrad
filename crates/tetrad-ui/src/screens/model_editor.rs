@@ -1013,6 +1013,15 @@ impl UiState {
         };
         match control {
             EditorControl::Knob(index) => match parameter(self, index).map(|p| p.kind) {
+                Some(ParameterKind::Choice { .. } | ParameterKind::ComboBox { .. })
+                    if self.open_parameter_choice(
+                        ParameterTarget::Block(position),
+                        index,
+                        Control::Editor(control),
+                    ) =>
+                {
+                    Vec::new()
+                }
                 Some(
                     ParameterKind::Toggle { .. }
                     | ParameterKind::Choice { .. }

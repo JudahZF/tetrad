@@ -1565,6 +1565,7 @@ mod tests {
             label: "Mic Distance".into(),
             value: "1.0 in".into(),
             kind: ParameterKind::Continuous { position: 0.2 },
+            choices: Vec::new(),
         }];
         ui.set_snapshot(snapshot).unwrap();
         assert!(ui.hit_regions().iter().any(|r| r.control == cab));

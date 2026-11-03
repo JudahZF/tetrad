@@ -809,6 +809,7 @@ pub(crate) fn instance_parameters(
                     kind: ParameterKind::Media(kind),
                     entry: None,
                     scene: scene_mode(param.index),
+                    choices: Vec::new(),
                 });
             }
             if param.hidden && !ir_switch(spec, param.index) {
@@ -830,9 +831,25 @@ pub(crate) fn instance_parameters(
                 kind,
                 entry: numeric_range(&param.scale, normalized, kind),
                 scene: scene_mode(param.index),
+                choices: choices(&param.scale, kind),
             })
         })
         .collect()
+}
+
+/// The value text of each step of a choice, for its list (`ComboBoxSelector`). Empty for
+/// other kinds, or when a step has no text; a tap then steps the choice.
+fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
+    if !matches!(
+        kind,
+        ParameterKind::Choice { .. } | ParameterKind::ComboBox { .. }
+    ) {
+        return Vec::new();
+    }
+    (0..i64::from(scale.steps()))
+        .map(|step| scale.display_with_units(scale.step_value(step)?))
+        .collect::<Result<_, _>>()
+        .unwrap_or_default()
 }
 
 /// The numeric keyboard range of a continuous knob (`0x4c62d4`): the display value and the
