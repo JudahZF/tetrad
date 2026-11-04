@@ -2126,7 +2126,9 @@ fn controls_list(state: &State) -> Json {
             let mut block = serde_json::to_value(protocol_site(site)).ok()?;
             let fields = block.as_object_mut()?;
             fields.insert("model".into(), json!(instance.model.0));
-            fields.insert("name".into(), json!(model.map_or("", |m| m.name.as_str())));
+            let name =
+                super::ui::project::block_name(instance, scene, Some(specs), &state.capture_names);
+            fields.insert("name".into(), json!(name.unwrap_or_default()));
             fields.insert("bypassed".into(), json!(instance.bypass.at(scene)));
             fields.insert("parameters".into(), json!(parameters));
             Some(block)
@@ -2879,5 +2881,100 @@ fn installation(loaded: &Loaded) -> Installation {
                 page: page.clone(),
             }),
         app: loaded.app.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tetrad_catalog::{Catalog, Specs};
+    use tetrad_hal::platform::{Platform, Product};
+    use tetrad_preset::{Model, ParamValue, Preset, Slot};
+    use tetrad_settings::device::{DeviceSettings, Hardware};
+
+    use super::super::preset::{SpecsCatalog, prepare};
+    use super::super::{Current, State};
+    use super::*;
+
+    /// A capture player (parameter 5 `file_name`) and the hidden models every preset holds.
+    const MODELS: &str = "<Models>\
+<Category id='14' name='Capture'><Model id='14001' name='Eltron 30' blob='c2'>\
+<Parameter name='A' type='float' min='0' max='1' defaultValue='0'/>\
+<Parameter name='B' type='float' min='0' max='1' defaultValue='0'/>\
+<Parameter name='C' type='float' min='0' max='1' defaultValue='0'/>\
+<Parameter name='D' type='float' min='0' max='1' defaultValue='0'/>\
+<Parameter name='E' type='float' min='0' max='1' defaultValue='0'/>\
+<Parameter name='file_name' type='string' defaultValue=''/></Model></Category>\
+<Category id='10' name='Splitter' hidden='true'><Model id='10004' name='Splitter'>\
+<Parameter name='TYPE' type='switch' min='0' max='2' defaultValue='0'/></Model></Category>\
+<Category id='11' name='Mixer' hidden='true'><Model id='11000' name='Mixer'>\
+<Parameter name='LEVEL A' type='float' min='MIN_MIXER_DB' max='MAX_MIXER_DB' defaultValue='0'/>\
+</Model></Category>\
+<Category id='23' name='Lane Output' hidden='true'><Model id='23000' name='Lane Output'>\
+<Parameter name='VOLUME' type='float' min='0' max='1' defaultValue='0.76923'/></Model></Category>\
+<Category id='25' name='Tempo' hidden='true'><Model id='25000' name='Tempo'>\
+<Parameter name='TEMPO' type='float' min='40' max='240' defaultValue='120'/></Model></Category>\
+<Category id='28' name='Input Gate' hidden='true'><Model id='28000' name='Input Gate'>\
+<Parameter name='THRESHOLD' type='float' min='-96' max='0' defaultValue='-60'/></Model></Category>\
+</Models>";
+
+    const REPORT: &str = "<ModuleReport>\
+<Kernel core='0' cpu='0' dm_heap='0' pm_heap='0' sd_heap='0'/>\
+<Kernel core='1' cpu='2' dm_heap='0' pm_heap='0' sd_heap='0'/>\
+<Kernel core='2' cpu='0' dm_heap='0' pm_heap='0' sd_heap='0'/>\
+<Kernel core='3' cpu='0' dm_heap='0' pm_heap='0' sd_heap='0'/>\
+<Module id='14001' name='Eltron 30' blob_name='c2' category='14' dm_heap='100' pm_heap='10' \
+sd_heap='0' dma='0' dm='10' pm='0' sw='100' nw='0' Latency='16'>\
+<Test name='Stimulus High' avg='10'/></Module>\
+</ModuleReport>";
+
+    struct NoFiles;
+
+    impl tetrad_settings::SettingsStorage for NoFiles {
+        fn read(&self, _: tetrad_settings::SettingsFileId) -> std::io::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        fn write(&mut self, _: tetrad_settings::SettingsFileId, _: &[u8]) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn remove(&mut self, _: tetrad_settings::SettingsFileId) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// `controls.list` names a capture block as the Grid does, not by its catalog model
+    /// ("Eltron 30"): the name after the 64-unit key, else the "My Captures" name of the key.
+    #[test]
+    fn controls_list_names_captures() {
+        let specs = Specs::resolve(&Catalog::parse(MODELS, REPORT).unwrap()).unwrap();
+        let catalog = SpecsCatalog(&specs);
+        let mut preset = Preset::new_default(tetrad_firmware::running().version, &catalog).unwrap();
+        let (named, bare) = ("a".repeat(64), "b".repeat(64));
+        for (column, file_name) in [(0, format!("{named}Lead")), (1, bare.clone())] {
+            let mut values = vec![ParamValue::Float(0.0); 5];
+            values.push(ParamValue::String(file_name));
+            values.push(ParamValue::Float(0.0)); // MUTE
+            let block = Model::block(14001, values);
+            preset
+                .insert_block(Slot { row: 0, column }, block, &catalog)
+                .unwrap();
+        }
+        let prepared = prepare(preset, &specs, false, None, Default::default()).unwrap();
+        let (settings, _) = DeviceSettings::load(&NoFiles, Hardware::QuadCortex).unwrap();
+        let mut state = State::new(Product::QuadCortex, Platform::QcOriginal, settings);
+        state.specs = Some(specs);
+        state.capture_names = [(bare, "Plexi".to_owned())].into();
+        *state.current.get_mut() = Some(Current {
+            path: None,
+            preset: prepared.preset,
+            migration: prepared.migration,
+            deployment: prepared.deployment,
+        });
+
+        let blocks = controls_list(&state);
+        let names: Vec<&str> = (blocks.as_array().unwrap().iter())
+            .filter(|block| block["model"] == 14001)
+            .map(|block| block["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["Lead", "Plexi"]);
     }
 }

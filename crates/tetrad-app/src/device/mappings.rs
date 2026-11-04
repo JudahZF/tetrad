@@ -1759,10 +1759,17 @@ fn preset_midi(state: &State) -> PresetMidiView {
 
 // ---- rows ----------------------------------------------------------------------------------
 
+/// The block's name as the Grid shows it ([`super::ui::project::block_name`]).
 pub(super) fn block_name(state: &State, position: GridPosition) -> Option<String> {
-    let model = model_at(state, position)?;
-    let specs = state.specs.as_ref()?;
-    Some(specs.model(model)?.name.clone())
+    let current = state.current.as_ref()?;
+    let deployment = &current.deployment;
+    let instance = (deployment.layout()).instance(Site::Slot(engine_slot(position)?))?;
+    super::ui::project::block_name(
+        instance,
+        deployment.scene(),
+        state.specs.as_ref(),
+        &state.capture_names,
+    )
 }
 
 pub(super) fn target_name(state: &State, position: GridPosition, target: BlockTarget) -> String {
@@ -2283,6 +2290,7 @@ fn blocks(state: &State) -> Vec<MappingBlock> {
         return Vec::new();
     };
     let layout = current.deployment.layout();
+    let scene = current.deployment.scene();
     let mut blocks = Vec::new();
     for row in 0..tetrad_engine::ROWS as u8 {
         for column in 0..tetrad_engine::COLUMNS as u8 {
@@ -2308,10 +2316,13 @@ fn blocks(state: &State) -> Vec<MappingBlock> {
                 .collect();
             blocks.push(MappingBlock {
                 position,
-                name: spec.map_or_else(
-                    || format!("Model {}", instance.model.0),
-                    |spec| spec.name.clone(),
-                ),
+                name: super::ui::project::block_name(
+                    instance,
+                    scene,
+                    Some(specs),
+                    &state.capture_names,
+                )
+                .unwrap_or_else(|| format!("Model {}", instance.model.0)),
                 location: format!("Row {} slot {}", row + 1, column + 1),
                 parameters,
             });
