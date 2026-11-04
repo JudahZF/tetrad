@@ -2,9 +2,10 @@
 
 The **Custom Footswitch Mode** extension adds a fourth footswitch mode next to Preset, Scene and
 Stomp. The mode has four pages. On each page, ten footswitches are yours: A, B, C, D and Down
-on the top row, and E, F, G, H and Tap on the bottom row. Each footswitch runs one action that
-you choose, such as a scene, a preset, a block, MIDI, a system action, a page change or a
-command of another extension.
+on the top row, and E, F, G, H and Tap on the bottom row. Each footswitch runs up to eight
+actions that you choose, such as a scene, a preset, a block, MIDI, a system action, a page
+change or a command of another extension. Each action has a mode, as on the
+[Mappings](mappings.md#modes) page.
 
 Tetrad runs the mode itself. The extension only adds it, so it runs no code, and a footswitch
 press never waits for an extension.
@@ -36,12 +37,15 @@ Open the editor with **EDIT** in Gig View, or with **EDIT** under "Footswitch mo
 extension's page.
 
 <p align="center">
-  <img src="images/custom-edit.png" width="600" alt="The editor of the Custom mode: four page tabs, PRESS, DOUBLE and COMBO, the ten switches of page 1 and the settings of switch D">
+  <img src="images/custom-edit.png" width="600" alt="The editor of the Custom mode: four page tabs, PRESS, DOUBLE and COMBO, the ten switches of page 1, and the label, colour and two actions of switch D">
 </p>
 
 1. Tap a page tab (**PAGE 1** to **PAGE 4**).
-2. Tap a switch. Its settings show below the switches.
-3. Tap the **Action** row and choose the action:
+2. Tap a switch. Its label, colour and actions show below the switches. Scroll the actions to
+   see more.
+3. Tap **Add action**, or an action to change it. The action editor opens: it has the
+   **Action**, **Mode** and **Values** rows of a mapping (see [mappings.md](mappings.md#modes)).
+4. Tap the **Action** row and choose the action:
 
    | Action | What a press does |
    | --- | --- |
@@ -52,24 +56,35 @@ extension's page.
    | Tuner, Gig View | Opens or closes it. |
    | Tempo → Tap tempo | A tap tempo. |
    | Mode | Goes to another footswitch mode. |
-   | Looper | A Looper button. It is held while the switch is held. |
+   | Looper | A Looper button: a tap, or (**Momentary**) held while the switch is held. |
    | Page | The next page, the previous page or page 1 to 4. The pages wrap. |
-   | BLOCKS → a block → Bypass | Turns the block on or off. With **Momentary** on, the block changes only while the switch is down. |
-   | BLOCKS → a block → a parameter | Sets the parameter to **Value** (5 % steps). |
+   | BLOCKS → a block → Bypass | Turns the block on or off: **Toggle**, **Momentary** (only while the switch is down) or **Set** (always on, or always off). |
+   | BLOCKS → a block → a parameter | **Set** a value, **Toggle** between A and B, **Momentary** (the value while the switch is down) or **Step** (move the value on each press). Values show in the parameter's own units. |
    | MIDI OUT → Send MIDI | Sends up to 12 messages (CC, CC Toggle or PC). Tap **Edit messages**. |
    | EXTENSIONS → Commands | Runs a command of a running extension. |
 
-4. **Label**: the text of the switch in Gig View. Leave it empty to show the name of the action.
-5. **Colour**: the colour of the switch LED and its Gig View tile. **A** (Auto) takes a colour
-   from the action, such as the scene colour or the block colour.
-6. The trash button clears the switch.
+5. **Mode**: how the press drives the action, as on the Mappings page. Tuner and Gig View also
+   have Toggle, Momentary and Set. The other actions run on each press.
+6. The trash button of the action editor removes the action. Back returns to the switches.
+7. **Label**: the text of the switch in Gig View. Leave it empty to show the name of the first
+   action.
+8. **Colour**: the colour of the switch LED and its Gig View tile. **A** (Auto) takes a colour
+   from the first action, such as the scene colour or the block colour.
+9. The trash button above the switches clears the switch.
+
+A press runs the actions in their order. A release ends the Momentary actions. The tile, the
+LED and Gig View show the first action.
+
+<p align="center">
+  <img src="images/custom-action.png" width="600" alt="The action editor of switch D: the Plate Verb Mix in Toggle mode between 25 % and 60 %">
+</p>
 
 ### Double press and combos
 
 A switch can do a second action when you press it two times, and two switches next to each
 other can do a third action when you press them together. **PRESS**, **DOUBLE** and **COMBO**
 (right of the page tabs) choose which action of the selected switch the editor shows. Set it
-as you set the press: Action, Label and the action's setting. The colour belongs to the switch.
+as you set the press: its actions and its label. The colour belongs to the switch.
 
 - **DOUBLE**: runs when you press the switch two times within the double press time (300 ms
   unless you change it). Its press does not run. The tile shows **2×**.
@@ -101,7 +116,7 @@ stay where they are. COPY PAGE copies the combos of the page too.
 ### Copy and move switches
 
 - **COPY** (the two squares): tap it, then tap another switch. That switch gets a copy of the
-  selected one: its action, label, colour and settings.
+  selected one: its actions, label and colour.
 - **MOVE** (the two arrows): tap it, then tap another switch. The two switches swap.
 - **COPY PAGE**: tap it, then tap a page tab. That page gets a copy of the page that shows.
 
@@ -131,7 +146,7 @@ model as when you chose it.
 Gig View shows the ten switches of the current page, the page number and **EDIT**. Tap a tile to
 press its switch. Tap the page number to go to the next page.
 
-The LED of a switch is at full brightness when its action is on: its scene is the active scene,
+The LED of a switch is at full brightness when its first action is on: its scene is the active scene,
 its block is on, the tuner or Gig View shows, or the switch is held. It is dimmed when the
 action is off, and off when the switch has no action. Bank Up is dimmed white.
 
@@ -156,7 +171,7 @@ SYSTEM actions:
 - **Custom** → **Press A** to **Press Tap**: presses that switch of the current page, as a
   Looper button works in Mappings. **On press** taps the switch (a press, then a release).
   **Momentary** holds it from the press to the release: a note-off, a CC that leaves its window
-  or the release of a MIDI Mapper key. Use Momentary for a switch with a momentary action.
+  or the release of a MIDI Mapper key. Use Momentary for a switch with Momentary actions.
 
 These actions do nothing while the Custom mode is off.
 
@@ -165,6 +180,9 @@ These actions do nothing while the Custom mode is off.
 - The ALL PRESETS switches: `/media/p4/tetrad/footswitch-modes/<repository>~<extension>.json`.
   When you remove the extension, the file stays, so a new install keeps your switches.
 - The layout of one preset: in the preset (a Tetrad field that stock CorOS keeps).
+- A layout from Tetrad 0.1.0-alpha.10 or earlier (one action per switch) reads as before: a
+  parameter's value becomes Set, a momentary bypass and a Looper button become Momentary. Tetrad
+  writes it in the new format, which older Tetrad builds do not read.
 - Whether the mode is on, and the double press and combo times:
   `/media/p4/tetrad/footswitch-mode.json`.
 

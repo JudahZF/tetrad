@@ -536,10 +536,10 @@ fn detail(
     let p = l.palette;
     l.panel(DETAIL, p.panel, 8.0, None);
     let first = Rect::new(DETAIL.x, DETAIL.y, DETAIL.width, DETAIL_ROW);
-    if let Some(status) = status(custom, edit) {
-        let (text, color) = status;
+    if let Some((text, waiting)) = status(custom, edit) {
+        let color = if waiting { p.accent } else { p.warning };
         let text = fit(&text, MEDIUM, (first.width - 32) as f32);
-        l.text(first.inset(16, 0), text, MEDIUM, color(&p), Align::Left);
+        l.text(first.inset(16, 0), text, MEDIUM, color, Align::Left);
     } else {
         let bounds = Rect::new(first.x, first.y, 376, first.height);
         l.control(
@@ -746,8 +746,8 @@ fn action_page(
     l.text(footer, note, CAPTION, color, Align::Left);
 }
 
-/// What a waiting copy or move needs, else the last refusal, with its colour.
-fn status(custom: &CustomModeView, edit: CustomEdit) -> Option<(String, fn(&Palette) -> Rgb)> {
+/// What a waiting copy or move needs (`true`), else the last refusal (`false`).
+fn status(custom: &CustomModeView, edit: CustomEdit) -> Option<(String, bool)> {
     let waiting = match edit.pending {
         Some(CustomPending::Copy { page, slot }) => Some(format!(
             "Tap the switch that gets a copy of {} (page {})",
@@ -766,8 +766,8 @@ fn status(custom: &CustomModeView, edit: CustomEdit) -> Option<(String, fn(&Pale
         None => None,
     };
     match (waiting, &custom.notice) {
-        (Some(waiting), _) => Some((waiting, |p| p.accent)),
-        (None, Some(notice)) => Some((notice.clone(), |p| p.warning)),
+        (Some(waiting), _) => Some((waiting, true)),
+        (None, Some(notice)) => Some((notice.clone(), false)),
         (None, None) => None,
     }
 }

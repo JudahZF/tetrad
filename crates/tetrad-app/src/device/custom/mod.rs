@@ -1019,7 +1019,10 @@ fn run(state: &mut State, key: (u8, u8, Gesture, u8), act: &Act) -> Ran {
             }
             Ran {
                 press: act_on(vec![show(next)]),
-                release: held.then(|| act_on(vec![show(on)])).unwrap_or_default(),
+                release: match held {
+                    true => act_on(vec![show(on)]),
+                    false => Vec::new(),
+                },
                 invert: None,
             }
         }

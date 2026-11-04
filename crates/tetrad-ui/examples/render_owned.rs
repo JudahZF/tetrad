@@ -3237,7 +3237,7 @@ fn custom_fixture() -> Result<CustomModeView, UiError> {
     delay.modes = switch_modes.to_vec();
     first[3].actions.push(CustomActionView {
         action: SlotAction::Block {
-            position: GridPosition::new(1, 3)?,
+            position: GridPosition::new(0, 6)?,
             target: BlockTarget::Parameter(4),
         },
         label: "Plate Verb".into(),
