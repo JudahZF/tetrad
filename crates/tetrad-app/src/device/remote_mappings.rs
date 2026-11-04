@@ -300,8 +300,8 @@ fn action_menu(view: &MappingsView, custom: Option<&CustomModeView>) -> Vec<Grou
     let mut system = vec![S::NextPreset, S::PreviousPreset];
     system.extend((0..8).map(S::Scene));
     system.extend([S::NextScene, S::PreviousScene, S::Tuner, S::TapTempo]);
-    system.extend([ModeChoice::Preset, ModeChoice::Scene, ModeChoice::Stomp].map(S::Mode));
-    system.extend(custom.map(|_| S::Mode(ModeChoice::Custom)));
+    // Custom plays in the place of Stomp mode.
+    system.extend([ModeChoice::Preset, ModeChoice::Scene, ModeChoice::Custom].map(S::Mode));
     system.extend([S::NextMode, S::GigView]);
     system.extend(
         [

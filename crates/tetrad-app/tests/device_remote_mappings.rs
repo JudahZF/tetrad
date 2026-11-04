@@ -151,8 +151,8 @@ fn the_view_lists_preset_and_global_mappings_with_labels() {
     let view = view(&mut device);
     assert_eq!(view["preset"], "Light");
     let preset = &view["rows"]["preset"][0];
-    assert_eq!(preset["trigger"], json!({ "kind": "stomp", "stomp": 0 }));
-    assert_eq!(preset["triggerLabel"], "Stomp A");
+    assert_eq!(preset["trigger"], json!({ "kind": "presetLoaded" }));
+    assert_eq!(preset["triggerLabel"], "Preset loaded");
     assert_eq!(preset["actionLabel"], "Light");
     assert_eq!(preset["actionDetail"], "GAIN");
     let global = &view["rows"]["global"][0];
@@ -164,15 +164,17 @@ fn the_view_lists_preset_and_global_mappings_with_labels() {
         view["triggers"]["global"],
         json!([{ "kind": "midi", "label": "MIDI (QC channel)" }])
     );
-    assert_eq!(view["triggers"]["preset"].as_array().unwrap().len(), 4);
+    // No footswitches: they are the Custom mode's.
+    assert_eq!(view["triggers"]["preset"].as_array().unwrap().len(), 3);
     // Blocks and Send MIDI are preset actions only.
     let labels = |scope: &str| -> Vec<String> {
         (view["actions"][scope].as_array().unwrap().iter())
             .map(|group| group["label"].as_str().unwrap().to_owned())
             .collect()
     };
-    assert_eq!(labels("global"), ["System"]);
-    assert_eq!(labels("preset").len(), 3);
+    // The Custom mode is built in: its pages and switch presses are a group of their own.
+    assert_eq!(labels("global"), ["System", "Custom"]);
+    assert_eq!(labels("preset").len(), 4);
 }
 
 /// Add, a trigger and an action from the page give the same mapping as the same touches on the
@@ -225,7 +227,12 @@ fn web_edits_give_the_mapping_of_the_touch_path_and_save_it() {
 fn a_mode_and_a_value_change_follow_the_touch_rules() {
     let mut device = boot(&MemFiles::default());
     let id = add(&mut device, "preset");
-    let view = view(&mut device);
+    let note = json!({ "kind": "note", "number": 60 });
+    let view = applied(
+        &mut device,
+        json!({ "op": "trigger", "scope": "preset", "id": id, "trigger": note }),
+    );
+    let id = view["focus"]["id"].as_str().unwrap().to_owned();
     let gain = action(&view, "preset", "Light", "GAIN");
     let view = applied(
         &mut device,
@@ -368,7 +375,7 @@ fn a_bad_command_is_refused_with_a_reason_and_changes_nothing() {
                 "trigger",
                 json!({ "trigger": { "kind": "stomp", "stomp": 1 } }),
             ),
-            "Global mappings use MIDI triggers",
+            "The footswitches are on the Custom mode page",
         ),
     ];
     for (json, reason) in cases {

@@ -433,6 +433,8 @@ struct Held {
     invert: Vec<Site>,
     /// The actions of the press, as they were at the press; each runs as [`act`].
     actions: Vec<Act>,
+    /// The stock stomp (A–H on page 1) whose blocks the press toggled through the stock path.
+    stomp: Option<u8>,
 }
 
 /// What a command asks the device to do.
@@ -751,13 +753,20 @@ fn bypassed(state: &State, site: Site) -> Option<bool> {
 /// The blocks whose bypass a held momentary slot changed: a save stores them at rest
 /// (`preset::save_resting`).
 pub fn held_bypass_slots(state: &State) -> Vec<tetrad_engine::Slot> {
-    (state.custom.held.iter().flatten())
-        .flat_map(|held| &held.invert)
-        .filter_map(|site| match site {
-            Site::Slot(slot) => Some(*slot),
-            _ => None,
-        })
-        .collect()
+    let held = state.custom.held.iter().flatten();
+    let own = (held.clone().flat_map(|held| &held.invert)).filter_map(|site| match site {
+        Site::Slot(slot) => Some(*slot),
+        _ => None,
+    });
+    // A held stock stomp in Momentary, as stock Stomp mode saves it (`preset::save_resting`).
+    let stock = (state.current.as_ref()).into_iter().flat_map(|current| {
+        let preset = &current.preset;
+        (held.clone().filter_map(|held| held.stomp))
+            .filter(|&stomp| preset.stomp_is_momentary.get(u32::from(stomp)) == Some(&true))
+            .flat_map(|stomp| super::actions::stomp_slots(preset, u32::from(stomp)))
+            .collect::<Vec<_>>()
+    });
+    own.chain(stock).collect()
 }
 
 /// A preset finished loading: the held momentary bypasses and parameters belonged to the old
@@ -893,6 +902,7 @@ fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Optio
         })
     };
     let (mut effects, release) = (stocked(true), stocked(false));
+    let stomp = stomp.filter(|_| !effects.is_empty());
     // Each action runs after the effects of the ones before ([`act`]).
     effects.extend(
         (0..binding.actions.len() as u8)
@@ -906,6 +916,7 @@ fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Optio
         restore: Vec::new(),
         invert: Vec::new(),
         actions: binding.actions,
+        stomp,
     });
     Some(effects)
 }

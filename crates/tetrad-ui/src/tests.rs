@@ -3468,10 +3468,18 @@ fn modes_configuration_drags_merge_reorder_remove_and_split() {
     ui.set_snapshot(single).unwrap();
     let only = slot(&ui, 0);
     assert!(drag(&mut ui, only, (700, 60)).is_empty());
+    // Custom takes the place of Stomp.
     activate(&mut ui, Control::Mode(ModeControl::Add));
     assert_eq!(
-        activate(&mut ui, Control::Mode(ModeControl::Insert(Stomp))),
-        vec![cycle(vec![Preset, Stomp], rows.upper, rows.lower)]
+        activate(
+            &mut ui,
+            Control::Mode(ModeControl::Insert(FootswitchMode::Custom))
+        ),
+        vec![cycle(
+            vec![Preset, FootswitchMode::Custom],
+            rows.upper,
+            rows.lower
+        )]
     );
     assert!(ui.led_state().2);
 }

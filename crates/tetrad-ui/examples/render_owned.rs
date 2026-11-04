@@ -3285,18 +3285,20 @@ fn custom_fixture() -> Result<CustomModeView, UiError> {
         slots: first,
         combos: vec![lead],
     };
+    let slots = vec![
+        first,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+    ];
     Ok(CustomModeView {
         name: "Custom".into(),
-        extension: "Custom Footswitch Mode".into(),
+        extension: "Tetrad".into(),
         pages: 4,
         page: 0,
         active: true,
-        slots: vec![
-            first,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        ],
+        playing: slots.clone(),
+        slots,
         preset_slots: None,
         preset: "Studio Crunch".into(),
         commands: vec![CommandChoice {

@@ -21,7 +21,7 @@ use tetrad_dsp_host::session::Clock;
 use tetrad_dsp_protocol::CoreId;
 use tetrad_engine::{Column, Row, SceneIndex as EngineScene, Site, Slot as EngineSlot};
 use tetrad_hal::platform::{Platform as HalPlatform, Product};
-use tetrad_preset::{Model, ParamValue, Preset, Slot, StompRole};
+use tetrad_preset::{Model, ParamValue, Preset, Slot};
 use tetrad_settings::device::{DeviceSettings, Hardware};
 use tetrad_storage::media::MediaRoot;
 use tetrad_ui::{
@@ -1147,35 +1147,6 @@ fn gig_view_polls_the_tuner_meter_only_with_live_tuner() {
     device.push(Event::UiInput(UiInput::Hide(Screen::Gig)));
     device.step();
     assert!(!polled(&mut device));
-}
-
-/// Gig View EDIT STOMP opens the block editor of the switch's first block on the Grid.
-#[test]
-fn gig_stomp_edit_opens_the_block_editor() {
-    let specs = STOCK.specs();
-    let catalog = SpecsCatalog(&specs);
-    let mut preset = Preset::new_default("4.1.0", &catalog).unwrap();
-    let light = Model::block(1, [ParamValue::Float(0.5), ParamValue::Float(0.0)]);
-    preset
-        .insert_block(Slot { row: 0, column: 2 }, light, &catalog)
-        .unwrap();
-    preset
-        .assign_stomp(Slot { row: 0, column: 2 }, 0, StompRole::Primary)
-        .unwrap();
-    let mut state = loaded_state(specs, preset);
-    state.performance.footswitch.mode = tetrad_core::performance::FootswitchMode::Stomp;
-    let block = GridPosition::new(0, 2).unwrap();
-    let mut ui = Ui::new();
-    let _ = ui.render(&state);
-    let now = Duration::from_secs(5);
-    ui.handle(UiInput::Show(Screen::Gig), &state, now);
-    ui.render(&state).unwrap();
-    assert_eq!(ui.view().snapshot().stomps[0].position, Some(block));
-    let edit = target(&ui, Control::EditBlock(block));
-    tap(&mut ui, &state, edit, now);
-    ui.render(&state).unwrap();
-    assert_eq!(ui.view().screen(), Screen::Grid);
-    assert_eq!(ui.view().snapshot().selected_block, Some(block));
 }
 
 /// "Unsaved" is the PresetDirty flag (`0x5ad250`): it reads `State::clean`, so an expression

@@ -616,6 +616,20 @@ impl Input {
             return Vec::new();
         }
         let tiles = if state.platform.is_atma() { 4 } else { 8 };
+        // (O) In the Custom mode (stock Stomp mode), a stomp tile presses that switch of the
+        // current page, as a Gig View tap does.
+        if state.performance.footswitch.custom {
+            return (tile < tiles)
+                .then(|| {
+                    Effect::Action(Action::CustomSlot {
+                        slot: tile,
+                        pressed,
+                        origin: super::custom::Origin::Touch,
+                    })
+                })
+                .into_iter()
+                .collect();
+        }
         let button = (tile < tiles)
             .then(|| state.performance.footswitch.gig_button(tile, pressed))
             .flatten();

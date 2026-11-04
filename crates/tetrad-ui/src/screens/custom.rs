@@ -1285,13 +1285,15 @@ pub(crate) mod tests {
             slots: page,
             combos: Vec::new(),
         };
+        let slots = vec![Default::default(), page];
         CustomModeView {
             name: "Custom".into(),
-            extension: "Custom Footswitch Mode".into(),
+            extension: "Tetrad".into(),
             pages: 2,
             page: 0,
             active,
-            slots: vec![Default::default(), page],
+            playing: slots.clone(),
+            slots,
             preset_slots: None,
             preset: "Studio Crunch".into(),
             commands: Vec::new(),
@@ -1475,36 +1477,33 @@ pub(crate) mod tests {
         );
     }
 
-    /// THIS PRESET without a layout offers one; with one, its edits name that layout.
+    /// THIS PRESET edits name its layout; its empty switches show the ALL PRESETS ones, and its
+    /// action menu offers Nothing.
     #[test]
-    fn this_preset_gets_and_edits_its_own_layout() {
+    fn this_preset_edits_its_own_layout() {
         let mut ui = open(Screen::CustomMode, false);
-        activate(&mut ui, custom(CustomControl::Scope(LayoutScope::Preset)));
-        assert_eq!(
-            activate(&mut ui, custom(CustomControl::PresetLayout(true))),
-            sent(CustomCommand::PresetLayout(true))
-        );
         let mut own = view(false);
-        own.preset_slots = Some(own.slots.clone());
+        own.preset_slots = Some(vec![Default::default(); 2]);
         let snapshot = UiSnapshot {
             custom: Some(own),
             ..ui.snapshot().clone()
         };
         ui.set_snapshot(snapshot).expect("valid snapshot");
+        activate(&mut ui, custom(CustomControl::Scope(LayoutScope::Preset)));
         activate(&mut ui, custom(CustomControl::Tab(1)));
+        // A of page 2 shows the ALL PRESETS Green Drive under a veil.
+        let shown = ui.hit_regions();
+        assert!(shown.iter().any(|region| region.label == "A"));
+        activate(&mut ui, custom(CustomControl::OpenAction(0)));
         assert_eq!(
-            activate(&mut ui, custom(CustomControl::Clear)),
+            pick(&mut ui, "Nothing"),
             sent(CustomCommand::Slot {
                 scope: LayoutScope::Preset,
                 page: 1,
                 slot: 0,
                 gesture: Gesture::Press,
-                edit: SlotEdit::Clear,
+                edit: set(0, SlotAction::Nothing),
             })
-        );
-        assert_eq!(
-            activate(&mut ui, custom(CustomControl::PresetLayout(false))),
-            sent(CustomCommand::PresetLayout(false))
         );
     }
 
@@ -1584,6 +1583,7 @@ pub(crate) mod tests {
             label: "Tuner".into(),
             ..CustomSlotView::default()
         }));
+        only_double.playing = only_double.slots.clone();
         let mut ui = open(Screen::Gig, true);
         let snapshot = UiSnapshot {
             custom: Some(only_double),

@@ -27,10 +27,12 @@ use crate::device::{Action, Effect, State};
 /// The stock switches: A–H on page 1.
 pub(super) const STOMPS: u8 = 8;
 
-/// Positions of the blocks that switch `stomp` toggles (primary assignments), in stored order.
+/// Positions of the blocks that switch `stomp` toggles (primary assignments; stock reads no
+/// role as primary), in stored order.
 fn assigned(preset: &Preset, stomp: u8) -> Vec<(u8, u8)> {
     (preset.stomp_mode_assignments.iter())
-        .filter(|a| a.stomp_index == u32::from(stomp) && a.role == Some(StompRole::Primary))
+        .filter(|a| a.stomp_index == u32::from(stomp))
+        .filter(|a| matches!(a.role, None | Some(StompRole::Primary)))
         .filter_map(|a| Some((u8::try_from(a.row).ok()?, u8::try_from(a.column).ok()?)))
         .filter(|&(row, column)| mappings::position(row, column).is_some())
         .collect()

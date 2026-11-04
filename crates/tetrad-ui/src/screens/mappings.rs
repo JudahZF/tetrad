@@ -1121,11 +1121,10 @@ pub(super) fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
             [
                 ("Preset mode", S::Mode(ModeChoice::Preset)),
                 ("Scene mode", S::Mode(ModeChoice::Scene)),
-                ("Stomp mode", S::Mode(ModeChoice::Stomp)),
-            ]
-            .into_iter()
-            .chain(custom.map(|_| ("Custom mode", S::Mode(ModeChoice::Custom))))
-            .chain([("Next mode", S::NextMode)]),
+                // Custom plays in the place of Stomp mode.
+                ("Custom mode", S::Mode(ModeChoice::Custom)),
+                ("Next mode", S::NextMode),
+            ],
         ),
         ActionMenu::Custom => {
             let Some(custom) = custom else {
@@ -1916,14 +1915,15 @@ pub(crate) mod tests {
             activate(&mut ui, Control::Choose(2)),
             set(Trigger::Stomp(2))
         );
+        // Preset loaded, Expression pedal, MIDI, then the extensions: no footswitches.
         activate(&mut ui, map(MappingControl::Choice(MappingChoice::Kind)));
         assert_eq!(
-            activate(&mut ui, Control::Choose(3)),
+            activate(&mut ui, Control::Choose(2)),
             set(Trigger::Midi(MidiInput::Cc(FIRST_FREE_CC)))
         );
         activate(&mut ui, map(MappingControl::Choice(MappingChoice::Kind)));
         assert_eq!(
-            activate(&mut ui, Control::Choose(4)),
+            activate(&mut ui, Control::Choose(3)),
             set(Trigger::Extension {
                 key: MAPPER.into(),
                 trigger: "midi".into(),

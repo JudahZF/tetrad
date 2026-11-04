@@ -620,12 +620,8 @@ fn systems(pages: u8) -> Vec<Value> {
         LooperButton::PunchIn,
         LooperButton::Duplicate,
     ];
-    let modes = [
-        ModeChoice::Preset,
-        ModeChoice::Scene,
-        ModeChoice::Stomp,
-        ModeChoice::Custom,
-    ];
+    // Custom plays in the place of Stomp mode.
+    let modes = [ModeChoice::Preset, ModeChoice::Scene, ModeChoice::Custom];
     let groups: [(&str, Vec<SystemAction>); 8] = [
         ("Preset", vec![S::NextPreset, S::PreviousPreset]),
         (

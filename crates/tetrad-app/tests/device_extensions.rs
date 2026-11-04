@@ -1245,10 +1245,15 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     }
     assert!(custom(&device));
 
-    // A restart keeps the layout and the mode.
+    // A restart keeps the layout. (The mode is the stock Stomp mode setting; this harness
+    // starts each boot with new settings.)
     drop(device);
     let (mut device, _media) = boot_over(media, Web::default(), files);
-    pump(&mut device, "the restored mode", custom);
+    device.push(Event::Action(Action::SetMode(
+        tetrad_settings::controls::FootswitchMode::Stomp,
+    )));
+    assert!(device.step().is_none());
+    assert!(custom(&device));
     assert_eq!(device.state().custom.page(), 0);
     let before = bypassed(&device);
     switch(&mut device, 0, 1);
@@ -1269,8 +1274,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     switch(&mut device, 2, 0);
     assert_eq!(scene(&device), 2);
 
-    // THIS PRESET: a copy of the layout, then its own A (scene D) plays instead.
-    send(&mut device, CustomCommand::PresetLayout(true));
+    // THIS PRESET: its own A (scene D) plays instead, switch by switch.
     send(
         &mut device,
         edit(
@@ -1284,8 +1288,11 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     switch(&mut device, 0, 0);
     assert_eq!(scene(&device), 3);
     assert!(device.state().preset_dirty(), "the preset holds its layout");
-    // Back to ALL PRESETS: A is the momentary bypass again.
-    send(&mut device, CustomCommand::PresetLayout(false));
+    // Without it, A is the ALL PRESETS momentary bypass again.
+    send(
+        &mut device,
+        edit(LayoutScope::Preset, 0, 0, SlotEdit::Clear),
+    );
     let before = bypassed(&device);
     switch(&mut device, 0, 1);
     assert_eq!(bypassed(&device), !before);
