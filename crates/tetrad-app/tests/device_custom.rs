@@ -294,3 +294,48 @@ fn stock_bypasses_move_and_older_layouts_keep_theirs() {
     settle(&mut device);
     assert_eq!(assignments(&device), [(0, 2, 2)], "moved to the stock data");
 }
+
+/// A stock switch with more actions than a stored switch holds cannot move to one: the edit is
+/// refused and its assignments stay.
+#[test]
+fn a_stock_switch_too_big_to_store_does_not_move() {
+    use tetrad_preset::{Model, ParamValue, StompAssignment};
+    let specs = STOCK.specs();
+    let catalog = tetrad_app::device::preset::SpecsCatalog(&specs);
+    let mut stored = light_preset(&specs, 2);
+    let columns: Vec<usize> = (0..8).filter(|&column| column != 2).collect();
+    for &column in &columns {
+        let block = Model::block(1, [ParamValue::Float(0.5), ParamValue::Float(0.0)]);
+        let slot = tetrad_preset::Slot { row: 0, column };
+        stored.insert_block(slot, block, &catalog).unwrap();
+    }
+    let block = Model::block(1, [ParamValue::Float(0.5), ParamValue::Float(0.0)]);
+    let slot = tetrad_preset::Slot { row: 1, column: 0 };
+    stored.insert_block(slot, block, &catalog).unwrap();
+    for (row, column) in (0..8).map(|column| (0, column)).chain([(1, 0)]) {
+        stored.stomp_mode_assignments.push(StompAssignment {
+            row,
+            column,
+            stomp_index: 0,
+            ..StompAssignment::default()
+        });
+    }
+    let media = Media::new([("Many", stored)]);
+    let (mut device, _log, _media) = boot_with_files(media, MemFiles::default());
+    settle(&mut device);
+    assert_eq!(preset_a(&device).len(), 9);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 0,
+        gesture: Gesture::Press,
+        edit: SlotEdit::MoveTo { page: 1, slot: 0 },
+    }));
+    settle(&mut device);
+    let view = custom::view(device.state()).unwrap();
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("A switch runs at most 8 actions")
+    );
+    assert_eq!(preset(&device).stomp_mode_assignments.len(), 9);
+}

@@ -496,9 +496,10 @@ fn clamped(edit: CustomEdit, custom: &CustomModeView) -> CustomEdit {
     };
     let actions = (custom.binding(edit.scope, edit.page, edit.slot, edit.gesture))
         .map_or(&[][..], |binding| &binding.actions);
-    let action = edit
-        .action
-        .filter(|&index| usize::from(index) <= actions.len().min(MAX_ACTIONS - 1));
+    let action = edit.action.filter(|&index| {
+        let index = usize::from(index);
+        index < actions.len() || (index == actions.len() && index < MAX_ACTIONS)
+    });
     let fields = action
         .and_then(|index| actions.get(usize::from(index)))
         .map_or(0, |action| action.fields.len());

@@ -1504,6 +1504,39 @@ fn change(
     if layout == before {
         return Ok(Step::default());
     }
+    // A copy or move of a stock switch can bring more actions than a stored switch holds; only
+    // page 1's A–H of THIS PRESET keep theirs in the stock data.
+    let stored = |page: usize, slot: usize, gesture: Gesture| {
+        scope == LayoutScope::Preset
+            && page == 0
+            && slot < usize::from(stock::STOMPS)
+            && gesture == Gesture::Press
+    };
+    for (p, page) in layout.iter().enumerate() {
+        let slots = page.slots.iter().enumerate().flat_map(|(s, slot)| {
+            let press = std::iter::once((s, Gesture::Press, &slot.press));
+            press.chain(
+                slot.double
+                    .iter()
+                    .map(move |double| (s, Gesture::Double, double)),
+            )
+        });
+        let combos = (page.combos.iter()).map(|combo| {
+            (
+                usize::from(combo.switches[0]),
+                Gesture::Combo(0),
+                &combo.binding,
+            )
+        });
+        for (s, gesture, binding) in slots.chain(combos) {
+            let kept = (binding.actions.iter())
+                .filter(|act| !(act.stock && stored(p, s, gesture)))
+                .count();
+            if kept > MAX_ACTIONS {
+                return Err(format!("A switch runs at most {MAX_ACTIONS} actions"));
+            }
+        }
+    }
     // Both layouts play (switch by switch): held and waiting presses and CC Toggle states of
     // the touched switches end.
     let mut effects = Vec::new();
