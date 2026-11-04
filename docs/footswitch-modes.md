@@ -108,8 +108,10 @@ release the switch, so Momentary still works.
 
 Only the footswitches do double presses and combos. MIDI CC#35 to 42 press the switches too: two
 messages for one switch within the double press time are a double press. They cannot make a
-combo, because each message presses and releases its switch at once. A Gig View tap and the
-**Press** actions of Mappings run the press at once. A page change drops a press that waits.
+combo, because each message presses and releases its switch at once. One exception: on page
+1, a switch that plays the preset's Stomp-mode data in Momentary gets the press from one
+message and the release from the next, as in Stomp mode. A Gig View tap and the **Press**
+actions of Mappings run the press at once. A page change drops a press that waits.
 
 The trash button clears the action that shows. In PRESS, it clears the whole switch, its double
 press too. COPY and MOVE take the whole switch (its press, double press and colour); combos
