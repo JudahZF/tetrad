@@ -714,6 +714,21 @@ pub fn follow_mode(state: &mut State) -> Vec<Effect> {
     effects
 }
 
+/// MIDI CC#35..=42 for switch `letter` (A–H) alternate a press and a release, as for a
+/// momentary stomp in stock Stomp mode: on page 1, a switch that plays the preset's stock data
+/// with the stock momentary flag.
+pub fn midi_momentary(state: &State, letter: u8) -> bool {
+    let custom = &state.custom;
+    let stock = (custom.page == 0 && letter < stock::STOMPS)
+        && (custom.playing_page(0).slots.get(usize::from(letter)))
+            .is_some_and(|slot| slot.press.stock);
+    stock
+        && (state.current.as_ref()).is_some_and(|current| {
+            let stored = &current.preset.stomp_is_momentary;
+            stored.get(u32::from(letter)).copied().unwrap_or(false)
+        })
+}
+
 /// The releases owed by every held slot. `run` false drops them. Waiting presses go.
 fn release_all(state: &mut State, run: bool) -> Vec<Effect> {
     state.custom.gestures.clear();
@@ -1746,8 +1761,8 @@ pub fn change_setting(
 /// The LEDs of the current page: the press of each switch.
 pub fn leds(state: &State) -> [Option<CustomLed>; CUSTOM_SLOTS] {
     let page = state.custom.page;
+    let playing = state.custom.playing_page(page);
     std::array::from_fn(|index| {
-        let playing = state.custom.playing_page(page);
         let data = &playing.slots[index];
         let first = data.press.actions.first()?;
         let at = (page, index as u8, Gesture::Press);

@@ -504,3 +504,33 @@ fn an_old_layout_that_does_not_decode_stays() {
     settle(&mut device);
     assert_eq!(files.get(custom::LAYOUT_FILE), None);
 }
+
+/// MIDI CC#35 presses A: on a momentary stock stomp, one message is the press and the next
+/// the release, as in stock Stomp mode.
+#[test]
+fn midi_cc_holds_a_momentary_stock_stomp() {
+    let (mut device, _media) = boot();
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+    let bypass = SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    edit_a(&mut device, 0, ActionEdit::Set(bypass));
+    edit_a(&mut device, 0, ActionEdit::Mode(ModeKind::Momentary));
+    let start = bypassed(&device);
+    let cc35 = |device: &mut Device<Sim>| {
+        let inputs = device.platform().inputs.clone();
+        inputs.borrow_mut().extend([0xb0, 35, 127].map(|byte| {
+            tetrad_app::device::platform::Input::MidiByte {
+                byte,
+                at: std::time::Duration::ZERO,
+            }
+        }));
+        settle(device);
+    };
+    cc35(&mut device);
+    assert_eq!(bypassed(&device), !start, "held");
+    cc35(&mut device);
+    assert_eq!(bypassed(&device), start, "released");
+}

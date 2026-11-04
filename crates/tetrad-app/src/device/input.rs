@@ -169,7 +169,8 @@ impl Input {
     /// of its element (table `0xa19268` = [`LOGICAL_TO_PHYSICAL`]), so the result follows the
     /// current mode. A stomp stored momentary (`0x002e220c`) gets one edge per message,
     /// alternating press and release (`+0x1a0`; the first edge being a press is inferred).
-    /// Any other switch, and every slot of the Custom mode (O), gets a press, then a release.
+    /// In the Custom mode (O), so does a page 1 switch that plays the preset's momentary stock
+    /// data (`custom::midi_momentary`). Any other switch gets a press, then a release.
     pub fn midi_footswitch(
         &mut self,
         letter: u8,
@@ -180,11 +181,13 @@ impl Input {
             .get(usize::from(letter))
             .and_then(|&index| Element::try_from(index).ok())
             .ok_or(InputError::Unsupported("MIDI footswitch outside A..=H"))?;
-        let momentary = !state.performance.footswitch.custom
-            && state.current.as_ref().is_some_and(|current| {
+        let momentary = match state.performance.footswitch.custom {
+            true => super::custom::midi_momentary(state, letter),
+            false => state.current.as_ref().is_some_and(|current| {
                 let stored = &current.preset.stomp_is_momentary;
                 stored.get(u32::from(letter)).copied().unwrap_or(false)
-            });
+            }),
+        };
         if momentary {
             let bit = 1 << element.index();
             self.midi_pressed ^= bit;
