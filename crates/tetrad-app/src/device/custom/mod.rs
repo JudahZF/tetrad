@@ -1504,8 +1504,9 @@ fn change(
     if layout == before {
         return Ok(Step::default());
     }
-    // A copy or move of a stock switch can bring more actions than a stored switch holds; only
-    // page 1's A–H of THIS PRESET keep theirs in the stock data.
+    // A switch's layout field holds `MAX_ACTIONS`: a copy or move of a stock switch, or a stock
+    // bypass in Set mode, must fit. Page 1's A–H of THIS PRESET keep their stock part in the
+    // stock data (`stock::stored_count`).
     let stored = |page: usize, slot: usize, gesture: Gesture| {
         scope == LayoutScope::Preset
             && page == 0
@@ -1529,9 +1530,10 @@ fn change(
             )
         });
         for (s, gesture, binding) in slots.chain(combos) {
-            let kept = (binding.actions.iter())
-                .filter(|act| !(act.stock && stored(p, s, gesture)))
-                .count();
+            let kept = match stored(p, s, gesture) {
+                true => stock::stored_count(binding),
+                false => binding.actions.len(),
+            };
             if kept > MAX_ACTIONS {
                 return Err(format!("A switch runs at most {MAX_ACTIONS} actions"));
             }

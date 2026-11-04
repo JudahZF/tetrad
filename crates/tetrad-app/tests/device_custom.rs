@@ -338,4 +338,20 @@ fn a_stock_switch_too_big_to_store_does_not_move() {
         Some("A switch runs at most 8 actions")
     );
     assert_eq!(preset(&device).stomp_mode_assignments.len(), 9);
+
+    // A bypass in Set mode leaves the stock data for the layout field: eight fit, the ninth
+    // is refused.
+    for _ in 0..9 {
+        let at = (preset_a(&device).iter())
+            .position(|(_, mode)| *mode != Some(ModeKind::Set))
+            .unwrap() as u8;
+        edit_a(&mut device, at, ActionEdit::Mode(ModeKind::Set));
+    }
+    let view = custom::view(device.state()).unwrap();
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("A switch runs at most 8 actions")
+    );
+    assert_eq!(preset(&device).stomp_mode_assignments.len(), 1);
+    assert_eq!(preset_a(&device).len(), 9, "nothing is lost");
 }

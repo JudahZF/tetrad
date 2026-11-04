@@ -149,6 +149,22 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
     Some(layout)
 }
 
+/// The actions of a page 1 A–H press that [`store`] keeps in the layout field: all but the
+/// bypasses in Toggle or Momentary and the first Send MIDI, which go to the stock data.
+pub(super) fn stored_count(binding: &Binding) -> usize {
+    let mut send = false;
+    (binding.actions.iter())
+        .filter(|act| match act.action {
+            StoredAction::Block { .. } if stock_bypass(act) => false,
+            StoredAction::SendMidi if !send => {
+                send = true;
+                false
+            }
+            _ => true,
+        })
+        .count()
+}
+
 /// The stock stomp press or release of switch `stomp` (A–H on page 1 of the preset's
 /// layout), when the preset has stock data for it.
 pub(super) fn press(state: &State, binding: &Binding, stomp: u8, pressed: bool) -> Vec<Effect> {
