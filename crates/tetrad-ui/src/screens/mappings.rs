@@ -58,6 +58,41 @@ const LOOPER: [(&str, LooperButton); 8] = [
     ("Duplicate", LooperButton::Duplicate),
 ];
 
+/// A mode with its menu and values: a mapping row's, or a Custom switch action's. The Mode
+/// row, the Values row and the Values page draw it.
+#[derive(Clone, Copy)]
+pub(super) struct ModeRows<'a> {
+    pub mode: Option<&'a ModeView>,
+    pub modes: &'a [ModeView],
+    pub fields: &'a [ValueField],
+    pub summary: &'a str,
+    pub response: Option<&'a ResponseView>,
+}
+
+impl<'a> From<&'a MappingRow> for ModeRows<'a> {
+    fn from(row: &'a MappingRow) -> Self {
+        ModeRows {
+            mode: row.mode.as_ref(),
+            modes: &row.modes,
+            fields: &row.fields,
+            summary: &row.summary,
+            response: row.response.as_ref(),
+        }
+    }
+}
+
+impl<'a> From<&'a CustomActionView> for ModeRows<'a> {
+    fn from(action: &'a CustomActionView) -> Self {
+        ModeRows {
+            mode: action.mode.as_ref(),
+            modes: &action.modes,
+            fields: &action.fields,
+            summary: &action.summary,
+            response: None,
+        }
+    }
+}
+
 /// The row whose detail page is open.
 fn open_row(ui: &UiState) -> Option<&MappingRow> {
     let page = &ui.mappings;
@@ -70,7 +105,12 @@ fn learning(view: &MappingsView, scope: MappingScope, id: &MappingId) -> bool {
 
 pub(super) fn layout(ui: &UiState, l: &mut Layout) {
     match open_row(ui) {
-        Some(row) if ui.mappings.values => values(ui, l, row),
+        Some(row) if ui.mappings.values => values(
+            l,
+            &format!("{} values", row.trigger_label),
+            row.into(),
+            ui.snapshot.mappings.notice.as_deref(),
+        ),
         Some(row) => detail(ui, l, row),
         None => list(ui, l),
     }
@@ -384,7 +424,7 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     chevron(l, action);
     divider(l, action);
     let mode = Rect::new(panel.x, action.bottom(), panel.width, ROW);
-    mode_row(l, row, mode);
+    mode_row(l, row.into(), mode);
     let third = Rect::new(panel.x, mode.bottom(), panel.width, ROW);
     if target.is_some() {
         divider(l, mode);
@@ -394,7 +434,7 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
         chevron(l, third);
     } else if !row.fields.is_empty() {
         divider(l, mode);
-        values_row(l, row, third);
+        values_row(l, row.into(), third);
     }
     // A refusal replaces the storage note until the next accepted command.
     let footer = Rect::new(16, panel.bottom() + 6, 768, 24);
@@ -418,7 +458,7 @@ fn detail(ui: &UiState, l: &mut Layout, row: &MappingRow) {
 }
 
 /// The Mode row: the mode's detail and its dropdown, or the fixed mode as text.
-fn mode_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
+pub(super) fn mode_row(l: &mut Layout, row: ModeRows, bounds: Rect) {
     let p = l.palette;
     label(l, bounds, "Mode");
     let field = Rect::new(
@@ -427,7 +467,7 @@ fn mode_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
         FIELD_WIDTH,
         ROW,
     );
-    let Some(mode) = &row.mode else {
+    let Some(mode) = row.mode else {
         l.text(field, "Choose an action", MEDIUM, p.muted, Align::Right);
         return;
     };
@@ -449,9 +489,9 @@ fn mode_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
 }
 
 /// The Values row: one or two steppers, or the summary that opens the Values page.
-fn values_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
+pub(super) fn values_row(l: &mut Layout, row: ModeRows, bounds: Rect) {
     let p = l.palette;
-    match row.fields.as_slice() {
+    match row.fields {
         [field] => field_row(l, field, bounds),
         [first, second] => {
             let (left, right) = bounds.take_left(bounds.width / 2, 0);
@@ -466,7 +506,7 @@ fn values_row(l: &mut Layout, row: &MappingRow, bounds: Rect) {
             let width = (bounds.right() - 48 - x).max(0) as u32;
             l.text(
                 Rect::new(x, bounds.y, width, ROW),
-                fit(&row.summary, MEDIUM, width as f32),
+                fit(row.summary, MEDIUM, width as f32),
                 MEDIUM,
                 p.muted,
                 Align::Right,
@@ -499,12 +539,11 @@ fn field_row(l: &mut Layout, field: &ValueField, bounds: Rect) {
 }
 
 /// The Values page of a mode with more than two values: the CC response graph (when the host
-/// sends one) and one stepper row per value.
-fn values(ui: &UiState, l: &mut Layout, row: &MappingRow) {
+/// sends one) and one stepper row per value. A refusal replaces the mode's description.
+pub(super) fn values(l: &mut Layout, title: &str, row: ModeRows, notice: Option<&str>) {
     let p = l.palette;
-    let title = format!("{} values", row.trigger_label);
-    crate::widgets::page_header(l, &title, Control::Back, Icon::Check);
-    let (x, width) = match &row.response {
+    crate::widgets::page_header(l, title, Control::Back, Icon::Check);
+    let (x, width) = match row.response {
         Some(response) => {
             l.panel(GRAPH_PANEL, p.panel, 8.0, None);
             graph(l, response);
@@ -523,8 +562,8 @@ fn values(ui: &UiState, l: &mut Layout, row: &MappingRow) {
     }
     // A refusal replaces the mode's description until the next accepted command.
     let footer = Rect::new(x + 8, panel.bottom() + 6, width - 16, 24);
-    let (text, color) = match (&ui.snapshot.mappings.notice, &row.mode) {
-        (Some(notice), _) => (notice.as_str(), p.warning),
+    let (text, color) = match (notice, row.mode) {
+        (Some(notice), _) => (notice, p.warning),
         (None, Some(mode)) => (mode.detail.as_str(), p.faint),
         (None, None) => return,
     };
@@ -823,6 +862,9 @@ fn midi_target(trigger: &Trigger) -> Option<MidiOutTarget> {
 
 /// Options and selection of a dropdown of the open row.
 pub(super) fn choice(ui: &UiState, choice: MappingChoice) -> Option<(Vec<&str>, Option<usize>)> {
+    if slot_menu(ui) {
+        return (choice == MappingChoice::Mode).then(|| ui.custom_modes())?;
+    }
     let row = open_row(ui)?;
     Some(match (choice, &row.trigger) {
         (MappingChoice::Mode, _) if !row.modes.is_empty() => {
@@ -1228,7 +1270,7 @@ impl UiState {
         if slot_menu(self) {
             return match control {
                 C::Pick(index) => self.custom_pick(index),
-                _ => Vec::new(),
+                control => self.custom_mode_control(control),
             };
         }
         match control {
@@ -1345,6 +1387,12 @@ impl UiState {
 
     /// A pick from a dropdown of the open row: its new mode, or its full new trigger.
     pub(crate) fn choose_mapping(&self, choice: MappingChoice, index: usize) -> Vec<UiCommand> {
+        if slot_menu(self) {
+            return match choice {
+                MappingChoice::Mode => self.choose_custom_mode(index),
+                _ => Vec::new(),
+            };
+        }
         let Some(row) = open_row(self) else {
             return Vec::new();
         };
@@ -1426,6 +1474,10 @@ impl UiState {
             Some(Overlay::MappingActions(_)) => page.detail.is_none() && !slot_menu(self),
             // A dropdown whose options no longer fit the open row (its trigger kind changed,
             // or the extension triggers behind the Type list did) would pick the wrong thing.
+            // The open Custom action's mode menu closes with the action.
+            Some(Overlay::Choice(ChoicePurpose::Mapping(_))) if slot_menu(self) => {
+                self.custom_modes().is_none()
+            }
             Some(Overlay::Choice(ChoicePurpose::Mapping(dropdown))) => {
                 let modes = |view: &MappingsView| {
                     let id = page.detail.as_ref()?;

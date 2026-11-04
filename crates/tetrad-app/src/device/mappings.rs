@@ -15,7 +15,7 @@
 //! press. A row without a stored mode uses the first mode its trigger and action allow, which
 //! is the behaviour from before modes.
 
-mod mode;
+pub(super) mod mode;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -583,8 +583,6 @@ impl Mappings {
         } = drive;
         let next = match (input, mode) {
             (Input::Level { value, .. }, _) => window.contains(value),
-            (Input::Press, Mode::Set { value }) => value >= 0.5,
-            (Input::Press, Mode::Follow { .. }) => true,
             (Input::Press, Mode::Momentary { .. }) => {
                 if self.held.contains_key(&key) {
                     return None;
@@ -592,7 +590,7 @@ impl Mappings {
                 self.held.insert(key, f32::from(u8::from(on)));
                 !on
             }
-            (Input::Press, _) => !on,
+            (Input::Press, mode) => mode::pressed_switch(mode, on),
             (Input::Release, Mode::Momentary { .. }) => self.held.remove(&key)? >= 0.5,
             (Input::Release, Mode::Follow { .. }) => false,
             (Input::Release, _) => return None,
@@ -630,16 +628,7 @@ impl Mappings {
                     Ok(ticks) => param.stepped(current, ticks, false),
                 }
             }
-            (Input::Press, Mode::Set { value }) => value,
-            (Input::Press, Mode::Follow { max, .. }) => max,
             (Input::Release, Mode::Follow { min, .. }) => min,
-            (Input::Press, Mode::Toggle { a, b }) => {
-                if param.near(current, a) {
-                    b
-                } else {
-                    a
-                }
-            }
             (Input::Press, Mode::Momentary { value }) => {
                 if self.held.contains_key(&key) {
                     return None;
@@ -648,7 +637,7 @@ impl Mappings {
                 value
             }
             (Input::Release, Mode::Momentary { .. }) => self.held.remove(&key)?,
-            (Input::Press, Mode::Step { amount, wrap }) => param.stepped(current, amount, wrap),
+            (Input::Press, mode) => param.pressed(mode)?,
             _ => return None,
         }
         .clamp(0.0, 1.0);
@@ -1731,7 +1720,7 @@ fn link(position: GridPosition, target: BlockTarget, pedal: u8, linked: bool) ->
 
 /// The parameter at `index` of the block in `slot`, when the page offers it (no text or
 /// disabled parameters).
-fn param_at(state: &State, slot: Slot, model: u32, index: u32) -> Option<Param<'_>> {
+pub(super) fn param_at(state: &State, slot: Slot, model: u32, index: u32) -> Option<Param<'_>> {
     let current = state.current.as_ref()?;
     let instance = current.deployment.layout().instance(Site::Slot(slot))?;
     if instance.model.0 != model {
@@ -1931,7 +1920,7 @@ pub(super) fn system_text(action: SystemAction) -> (String, String) {
     (label.into(), detail)
 }
 
-fn mode_label(kind: ModeKind) -> &'static str {
+pub(super) fn mode_label(kind: ModeKind) -> &'static str {
     match kind {
         ModeKind::OnPress => "On press",
         ModeKind::Follow => "Follow",
@@ -1943,7 +1932,7 @@ fn mode_label(kind: ModeKind) -> &'static str {
     }
 }
 
-fn mode_view(kind: ModeKind, source: Source, target: Target) -> ModeView {
+pub(super) fn mode_view(kind: ModeKind, source: Source, target: Target) -> ModeView {
     let detail = match (kind, target, source) {
         (ModeKind::OnPress, Target::SendMidi, _) => "Sends the messages on each trigger",
         (ModeKind::OnPress, _, Source::Load) => "Runs when the preset loads",
@@ -1974,13 +1963,13 @@ fn mode_view(kind: ModeKind, source: Source, target: Target) -> ModeView {
     }
 }
 
-/// On and off of a switch action.
-fn switch_text(action: &StoredAction, on: bool) -> &'static str {
-    match (action, on) {
-        (StoredAction::Block { .. }, true) => "Engaged",
-        (StoredAction::Block { .. }, false) => "Bypassed",
-        (_, true) => "Open",
-        (_, false) => "Closed",
+/// On and off of a switch action: a block's, or a screen's.
+fn switch_text(block: bool, on: bool) -> &'static str {
+    match (block, on) {
+        (true, true) => "Engaged",
+        (true, false) => "Bypassed",
+        (false, true) => "Open",
+        (false, false) => "Closed",
     }
 }
 
@@ -2000,13 +1989,101 @@ fn field_label(field: FieldId) -> &'static str {
     }
 }
 
-/// The parts of a row that come from its mode.
-struct ModeParts {
-    mode: ModeView,
-    modes: Vec<ModeView>,
-    fields: Vec<ValueField>,
-    summary: String,
-    response: Option<ResponseView>,
+/// The parts of a row, or of a Custom switch action, that come from its mode.
+pub(super) struct ModeParts {
+    pub mode: ModeView,
+    pub modes: Vec<ModeView>,
+    pub fields: Vec<ValueField>,
+    pub summary: String,
+}
+
+/// The mode, its menu, its value fields and their summary, for an action of `target` that
+/// `source` triggers. `param` is the parameter of a parameter action while its block is there;
+/// `block` names a switch's states as a block's (Engaged, Bypassed).
+pub(super) fn mode_parts(
+    mode: Mode,
+    window: Window,
+    (source, target): (Source, Target),
+    param: Option<&Param>,
+    block: bool,
+) -> ModeParts {
+    let modes = mode::modes(source, target);
+    let value_text = |value: f32| match param {
+        Some(param) => param.text(value),
+        None if target == Target::Switch => switch_text(block, value >= 0.5).into(),
+        // The block was moved or replaced.
+        None => "-".into(),
+    };
+    let ids = mode::fields(mode, source, target);
+    let fields = (ids.iter())
+        .map(|&id| {
+            let text = match (id, mode) {
+                (FieldId::Value, Mode::Set { value } | Mode::Momentary { value })
+                | (FieldId::A, Mode::Toggle { a: value, .. })
+                | (FieldId::B, Mode::Toggle { b: value, .. })
+                | (FieldId::Min, Mode::Follow { min: value, .. })
+                | (FieldId::Max, Mode::Follow { max: value, .. }) => value_text(value),
+                (FieldId::Amount, Mode::Step { amount, .. }) => format!("{amount:+}"),
+                (FieldId::Wrap, Mode::Step { wrap, .. }) => {
+                    if wrap { "Wrap" } else { "Stop" }.into()
+                }
+                (FieldId::Pickup, Mode::Follow { pickup, .. }) => {
+                    if pickup { "Pickup" } else { "Jump" }.into()
+                }
+                (FieldId::Encoding, Mode::Relative { encoding }) => {
+                    mode::encoding_text(encoding).into()
+                }
+                (FieldId::Low, _) => format!("CC {}", window.low),
+                (FieldId::High, _) => format!("CC {}", window.high),
+                _ => String::new(),
+            };
+            ValueField {
+                id,
+                label: field_label(id).into(),
+                text,
+            }
+        })
+        .collect();
+    let values = match (target, mode) {
+        (Target::Parameter, Mode::Set { value }) | (Target::Switch, Mode::Set { value }) => {
+            value_text(value)
+        }
+        (Target::Parameter, Mode::Toggle { a, b }) => {
+            format!("{} ↔ {}", value_text(a), value_text(b))
+        }
+        (Target::Parameter, Mode::Momentary { value }) => {
+            format!("{} while held", value_text(value))
+        }
+        (Target::Parameter, Mode::Step { amount, wrap }) => {
+            let ends = if wrap { " · wrap" } else { "" };
+            format!("{amount:+} per press{ends}")
+        }
+        (Target::Parameter, Mode::Follow { min, max, pickup }) => {
+            let pickup = if pickup { " · pickup" } else { "" };
+            format!("{} – {}{pickup}", value_text(min), value_text(max))
+        }
+        (Target::Parameter, Mode::Relative { encoding }) => mode::encoding_text(encoding).into(),
+        _ => String::new(),
+    };
+    let window_text =
+        (ids.contains(&FieldId::Low)).then(|| format!("CC {}–{}", window.low, window.high));
+    let summary = [Some(values).filter(|v| !v.is_empty()), window_text]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+    ModeParts {
+        mode: mode_view(mode.kind(), source, target),
+        modes: if modes.len() > 1 {
+            (modes.iter())
+                .map(|&kind| mode_view(kind, source, target))
+                .collect()
+        } else {
+            Vec::new()
+        },
+        fields,
+        summary,
+    }
 }
 
 /// A normalized value in thousandths, for the Values page graph.
@@ -2031,14 +2108,14 @@ impl Mappings {
         let (action_label, action_detail) = action.map_or_else(Default::default, |action| {
             action_text(state, midi, trigger, action)
         });
-        let parts = action.map(|action| self.mode_parts(state, stored, action, key));
+        let parts = action.map(|action| self.row_parts(state, stored, action, key));
         let (mode, modes, fields, summary, response) = match parts {
-            Some(parts) => (
+            Some((parts, response)) => (
                 Some(parts.mode),
                 parts.modes,
                 parts.fields,
                 parts.summary,
-                parts.response,
+                response,
             ),
             None => Default::default(),
         };
@@ -2058,84 +2135,21 @@ impl Mappings {
         }
     }
 
-    fn mode_parts(
+    /// The row's mode parts and its Values page graph.
+    fn row_parts(
         &self,
         state: &State,
         stored: &Stored,
         action: &StoredAction,
         key: Option<RowKey>,
-    ) -> ModeParts {
+    ) -> (ModeParts, Option<ResponseView>) {
         let (source, target) = (source(&stored.trigger), target(action));
         let mode = effective_mode(stored);
         let window = stored.window.unwrap_or(mode.default_window(target));
         let param = action_param(state, action);
-        let modes = mode::modes(source, target);
-        let value_text = |value: f32| match &param {
-            Some(param) => param.text(value),
-            None if target == Target::Switch => switch_text(action, value >= 0.5).into(),
-            // The block was moved or replaced.
-            None => "-".into(),
-        };
-        let ids = mode::fields(mode, source, target);
-        let fields = (ids.iter())
-            .map(|&id| {
-                let text = match (id, mode) {
-                    (FieldId::Value, Mode::Set { value } | Mode::Momentary { value })
-                    | (FieldId::A, Mode::Toggle { a: value, .. })
-                    | (FieldId::B, Mode::Toggle { b: value, .. })
-                    | (FieldId::Min, Mode::Follow { min: value, .. })
-                    | (FieldId::Max, Mode::Follow { max: value, .. }) => value_text(value),
-                    (FieldId::Amount, Mode::Step { amount, .. }) => format!("{amount:+}"),
-                    (FieldId::Wrap, Mode::Step { wrap, .. }) => {
-                        if wrap { "Wrap" } else { "Stop" }.into()
-                    }
-                    (FieldId::Pickup, Mode::Follow { pickup, .. }) => {
-                        if pickup { "Pickup" } else { "Jump" }.into()
-                    }
-                    (FieldId::Encoding, Mode::Relative { encoding }) => {
-                        mode::encoding_text(encoding).into()
-                    }
-                    (FieldId::Low, _) => format!("CC {}", window.low),
-                    (FieldId::High, _) => format!("CC {}", window.high),
-                    _ => String::new(),
-                };
-                ValueField {
-                    id,
-                    label: field_label(id).into(),
-                    text,
-                }
-            })
-            .collect();
-        let values = match (target, mode) {
-            (Target::Parameter, Mode::Set { value }) | (Target::Switch, Mode::Set { value }) => {
-                value_text(value)
-            }
-            (Target::Parameter, Mode::Toggle { a, b }) => {
-                format!("{} ↔ {}", value_text(a), value_text(b))
-            }
-            (Target::Parameter, Mode::Momentary { value }) => {
-                format!("{} while held", value_text(value))
-            }
-            (Target::Parameter, Mode::Step { amount, wrap }) => {
-                let ends = if wrap { " · wrap" } else { "" };
-                format!("{amount:+} per press{ends}")
-            }
-            (Target::Parameter, Mode::Follow { min, max, pickup }) => {
-                let pickup = if pickup { " · pickup" } else { "" };
-                format!("{} – {}{pickup}", value_text(min), value_text(max))
-            }
-            (Target::Parameter, Mode::Relative { encoding }) => {
-                mode::encoding_text(encoding).into()
-            }
-            _ => String::new(),
-        };
-        let windowed = ids.contains(&FieldId::Low);
-        let window_text = windowed.then(|| format!("CC {}–{}", window.low, window.high));
-        let summary = [Some(values).filter(|v| !v.is_empty()), window_text]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
+        let block = matches!(action, StoredAction::Block { .. });
+        let parts = mode_parts(mode, window, (source, target), param.as_ref(), block);
+        let windowed = mode::fields(mode, source, target).contains(&FieldId::Low);
         let follow = match (mode, &param) {
             (Mode::Follow { min, max, pickup }, Some(param)) => Some((min, max, pickup, param)),
             _ => None,
@@ -2150,19 +2164,7 @@ impl Mappings {
                 pickup && key.is_none_or(|key| !self.caught(key, param))
             }),
         });
-        ModeParts {
-            mode: mode_view(mode.kind(), source, target),
-            modes: if modes.len() > 1 {
-                (modes.iter())
-                    .map(|&kind| mode_view(kind, source, target))
-                    .collect()
-            } else {
-                Vec::new()
-            },
-            fields,
-            summary,
-            response,
-        }
+        (parts, response)
     }
 }
 

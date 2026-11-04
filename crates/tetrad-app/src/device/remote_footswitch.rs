@@ -9,13 +9,15 @@ use serde_json::{Value, json};
 use tetrad_library::stock::SlotSummary;
 use tetrad_remote::{EditorOp, Reply};
 use tetrad_ui::{
-    BlockTarget, CUSTOM_SLOTS, CustomCommand, CustomModeView, CustomPageView, CustomSlotView,
-    Gesture, GridPosition, LayoutScope, LooperButton, MappingBlock, MidiMessageKind,
-    MidiOutMessage, ModeChoice, PageStep, SlotAction, SlotEdit, SystemAction,
+    ActionEdit, BlockTarget, CUSTOM_SLOTS, CustomActionView, CustomCommand, CustomModeView,
+    CustomPageView, CustomSlotView, Gesture, GridPosition, LayoutScope, LooperButton, MAX_ACTIONS,
+    MappingBlock, MidiMessageKind, MidiOutMessage, ModeChoice, PageStep, SlotAction, SlotEdit,
+    SystemAction,
 };
 
 use super::mappings::{self, SystemDef};
 use super::platform::Platform;
+use super::remote_mappings::{field_key, mode_key};
 use super::ui::Handoff;
 use super::{Device, DeviceError, Subsystem, custom};
 
@@ -65,11 +67,31 @@ enum GestureDef {
     Combo(u8),
 }
 
+/// An edit of a slot. `index` names one of its actions (0 without it); an action at the
+/// number of actions adds one.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum Edit {
     Action {
+        #[serde(default)]
+        index: u8,
         action: Action,
+    },
+    Remove {
+        index: u8,
+    },
+    /// One of the action's `modes`, by `kind`.
+    Mode {
+        #[serde(default)]
+        index: u8,
+        mode: String,
+    },
+    /// A stepper tap on one of the action's `fields`, by `id`.
+    Step {
+        #[serde(default)]
+        index: u8,
+        field: String,
+        ticks: i32,
     },
     Clear,
     Label {
@@ -79,16 +101,10 @@ enum Edit {
     Colour {
         colour: Option<u8>,
     },
-    /// Percent, for a parameter action.
-    Value {
-        value: u8,
-    },
-    /// For a bypass action.
-    Momentary {
-        momentary: bool,
-    },
     /// For a Send MIDI action: the whole list.
     Messages {
+        #[serde(default)]
+        index: u8,
         messages: Vec<Message>,
     },
     CopyTo {
@@ -184,6 +200,7 @@ impl<P: Platform> Device<P> {
                 edit:
                     Edit::Action {
                         action: Action::Preset { setlist, slot },
+                        ..
                     },
                 ..
             } => Some((setlist.clone(), *slot)),
@@ -352,34 +369,63 @@ fn checked(
                 GestureDef::Combo(partner) => Gesture::Combo(slot_in(partner)?),
             };
             // THIS PRESET without its own layout: the touch path refuses with its reason.
-            let current = view.binding(scope, page, slot, gesture);
+            let actions = (view.binding(scope, page, slot, gesture))
+                .map_or(&[][..], |binding| &binding.actions);
+            let existing = |index: u8| {
+                (actions.get(usize::from(index)))
+                    .ok_or_else(|| format!("There is no action {}", u16::from(index) + 1))
+            };
+            let action_edit = |index, edit| SlotEdit::Action { index, edit };
             let edit = match edit {
-                Edit::Action { action } => SlotEdit::SetAction(slot_action(view, blocks, action)?),
-                Edit::Clear => SlotEdit::Clear,
-                Edit::Label { label } => SlotEdit::SetLabel(label),
-                Edit::Colour { colour } => SlotEdit::SetColour(colour),
-                Edit::Value { value } => {
-                    if current.is_some_and(|slot| slot.value.is_none()) {
-                        return Err("Only a parameter action has a value".into());
+                Edit::Action { index, action } => {
+                    if usize::from(index) > actions.len().min(MAX_ACTIONS - 1) {
+                        return Err(format!(
+                            "A switch runs at most {MAX_ACTIONS} actions, in order"
+                        ));
                     }
-                    if value > 100 {
-                        return Err("A value is 0 to 100 %".into());
-                    }
-                    SlotEdit::SetValue(value)
+                    let action = slot_action(view, blocks, action)?;
+                    action_edit(index, ActionEdit::Set(action))
                 }
-                Edit::Momentary { momentary } => {
-                    if current.is_some_and(|slot| slot.momentary.is_none()) {
-                        return Err("Only a bypass action is momentary".into());
-                    }
-                    SlotEdit::SetMomentary(momentary)
+                Edit::Remove { index } => {
+                    existing(index)?;
+                    action_edit(index, ActionEdit::Remove)
                 }
-                Edit::Messages { messages } => {
-                    if current.is_some_and(|slot| slot.action != Some(SlotAction::SendMidi)) {
+                Edit::Mode { index, mode } => {
+                    let shown = existing(index)?;
+                    let kind = (shown.modes.iter())
+                        .map(|offered| offered.kind)
+                        .find(|&kind| mode_key(kind) == mode)
+                        .ok_or_else(|| format!("{} cannot use the mode {mode}", shown.label))?;
+                    action_edit(index, ActionEdit::Mode(kind))
+                }
+                Edit::Step {
+                    index,
+                    field,
+                    ticks,
+                } => {
+                    let shown = existing(index)?;
+                    let field = (shown.fields.iter())
+                        .map(|shown| shown.id)
+                        .find(|&shown| field_key(shown) == field)
+                        .ok_or_else(|| format!("{} has no value {field}", shown.label))?;
+                    if ticks == 0 || !(-127..=127).contains(&ticks) {
+                        return Err("ticks goes from -127 to 127 and is not 0".into());
+                    }
+                    action_edit(index, ActionEdit::Field { field, ticks })
+                }
+                Edit::Messages { index, messages } => {
+                    if existing(index)?.action != SlotAction::SendMidi {
                         return Err("Choose Send MIDI first".into());
                     }
                     let messages = messages.into_iter().map(midi_message);
-                    SlotEdit::SetMessages(messages.collect::<Result<_, _>>()?)
+                    action_edit(
+                        index,
+                        ActionEdit::Messages(messages.collect::<Result<_, _>>()?),
+                    )
                 }
+                Edit::Clear => SlotEdit::Clear,
+                Edit::Label { label } => SlotEdit::SetLabel(label),
+                Edit::Colour { colour } => SlotEdit::SetColour(colour),
                 Edit::CopyTo { page, slot } => SlotEdit::CopyTo {
                     page: page_in(page)?,
                     slot: slot_in(slot)?,
@@ -493,7 +539,23 @@ fn hex([red, green, blue]: [u8; 3]) -> String {
 }
 
 fn slot(slot: &CustomSlotView) -> Value {
-    let messages: Vec<_> = (slot.messages.iter())
+    json!({
+        "action": slot.action.as_ref().map(action),
+        "actions": slot.actions.iter().map(action_view).collect::<Vec<_>>(),
+        "label": slot.label,
+        "customLabel": slot.custom_label,
+        "detail": slot.detail,
+        "colour": hex(slot.colour),
+        "swatch": slot.swatch,
+        "engaged": slot.engaged,
+        "available": slot.available,
+        "double": slot.double.as_deref().map(self::slot),
+    })
+}
+
+/// One action of a slot with its mode, as a Mappings row has it.
+fn action_view(view: &CustomActionView) -> Value {
+    let messages: Vec<_> = (view.messages.iter())
         .map(|message| {
             let kind = match message.kind {
                 MidiMessageKind::Cc => "cc",
@@ -503,19 +565,20 @@ fn slot(slot: &CustomSlotView) -> Value {
             json!({ "kind": kind, "channel": message.channel, "values": message.values })
         })
         .collect();
+    let mode = |mode: &tetrad_ui::ModeView| json!({ "kind": mode_key(mode.kind), "label": mode.label, "detail": mode.detail });
+    let fields: Vec<_> = (view.fields.iter())
+        .map(|field| json!({ "id": field_key(field.id), "label": field.label, "text": field.text }))
+        .collect();
     json!({
-        "action": slot.action.as_ref().map(action),
-        "label": slot.label,
-        "customLabel": slot.custom_label,
-        "detail": slot.detail,
-        "colour": hex(slot.colour),
-        "swatch": slot.swatch,
-        "engaged": slot.engaged,
-        "available": slot.available,
-        "value": slot.value,
-        "momentary": slot.momentary,
+        "action": action(&view.action),
+        "label": view.label,
+        "detail": view.detail,
+        "available": view.available,
+        "mode": view.mode.as_ref().map(mode),
+        "modes": view.modes.iter().map(mode).collect::<Vec<_>>(),
+        "fields": fields,
+        "summary": view.summary,
         "messages": messages,
-        "double": slot.double.as_deref().map(self::slot),
     })
 }
 

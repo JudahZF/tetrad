@@ -49,6 +49,8 @@ pub(crate) enum ListId {
     Mappings,
     /// The Mappings action menu.
     MappingActions,
+    /// The actions of the selected Custom mode switch.
+    CustomActions,
     IoPage,
     Wifi,
     Backups,

@@ -15,7 +15,7 @@ const MAX_AMOUNT: i8 = 64;
 /// `Set::value` (0.5 or more is on).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub(super) enum Mode {
+pub(in crate::device) enum Mode {
     OnPress,
     /// The window's Low…High maps to `min…max`; `min > max` inverts.
     Follow {
@@ -49,7 +49,7 @@ pub(super) enum Mode {
 /// How an endless encoder codes its ticks in a CC value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) enum Encoding {
+pub(in crate::device) enum Encoding {
     /// 1..=63 up, 127 down to 65 (-1..=-63).
     TwosComplement,
     /// 64 is still: 65 is +1, 63 is -1.
@@ -66,7 +66,7 @@ const ENCODINGS: [Encoding; 3] = [
 
 /// The CC values (inclusive) where a press mode presses, or that Follow maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Window {
+pub(in crate::device) struct Window {
     pub low: u8,
     pub high: u8,
 }
@@ -86,7 +86,7 @@ impl Window {
 
 /// What a trigger reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Input {
+pub(in crate::device) enum Input {
     Press,
     Release,
     /// A CC value and the one before it, when there was one.
@@ -98,7 +98,7 @@ pub(super) enum Input {
 
 /// How a trigger reports, as the mode rules see it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Source {
+pub(in crate::device) enum Source {
     /// Preset loaded: one press.
     Load,
     /// Footswitch, note, extension press: press and release.
@@ -111,7 +111,7 @@ pub(super) enum Source {
 
 /// What an action drives, as the mode rules see it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Target {
+pub(in crate::device) enum Target {
     Parameter,
     /// Block bypass (on = engaged), tuner, Gig View.
     Switch,
@@ -123,7 +123,7 @@ pub(super) enum Target {
 
 /// The modes a mapping may use, the default first. A pedal on a block has none: its stock
 /// expression link decides (shown as Follow).
-pub(super) fn modes(source: Source, target: Target) -> &'static [ModeKind] {
+pub(in crate::device) fn modes(source: Source, target: Target) -> &'static [ModeKind] {
     use ModeKind::*;
     match (target, source) {
         (Target::Command | Target::SendMidi, _) => &[OnPress],
@@ -203,9 +203,19 @@ impl Mode {
     }
 }
 
+/// The state a press gives a switch that is `on` now. Momentary flips it, and its release
+/// brings it back.
+pub(in crate::device) fn pressed_switch(mode: Mode, on: bool) -> bool {
+    match mode {
+        Mode::Set { value } => value >= 0.5,
+        Mode::Follow { .. } => true,
+        _ => !on,
+    }
+}
+
 /// A CC against a press mode's window: a press when it enters the window or repeats its value
 /// inside it (a button that sends only 127), a release when it leaves.
-pub(super) fn edge(value: u8, previous: Option<u8>, window: Window) -> Option<Input> {
+pub(in crate::device) fn edge(value: u8, previous: Option<u8>, window: Window) -> Option<Input> {
     let inside = window.contains(value);
     let was_inside = previous.is_some_and(|p| window.contains(p));
     match (was_inside, inside) {
@@ -216,7 +226,7 @@ pub(super) fn edge(value: u8, previous: Option<u8>, window: Window) -> Option<In
 }
 
 /// Follow's map of a CC value to a target value.
-pub(super) fn follow(value: u8, window: Window, min: f32, max: f32) -> f32 {
+pub(in crate::device) fn follow(value: u8, window: Window, min: f32, max: f32) -> f32 {
     let t = if window.high == window.low {
         f32::from(u8::from(value >= window.low))
     } else {
@@ -227,7 +237,7 @@ pub(super) fn follow(value: u8, window: Window, min: f32, max: f32) -> f32 {
 }
 
 /// Encoder ticks in a CC value; 0 moves nothing.
-pub(super) fn ticks(encoding: Encoding, value: u8) -> i32 {
+pub(in crate::device) fn ticks(encoding: Encoding, value: u8) -> i32 {
     let value = i32::from(value.min(127));
     match encoding {
         Encoding::TwosComplement if value < 64 => value,
@@ -239,7 +249,7 @@ pub(super) fn ticks(encoding: Encoding, value: u8) -> i32 {
 }
 
 /// A block parameter as the loaded preset has it now.
-pub(super) struct Param<'a> {
+pub(in crate::device) struct Param<'a> {
     pub spec: &'a ParamSpec,
     pub current: f32,
 }
@@ -287,6 +297,21 @@ impl Param<'_> {
         (index as f32 * size).clamp(0.0, 1.0)
     }
 
+    /// The value a press sets: Momentary's value (its release restores the one from before),
+    /// Follow's Max. `None` for a mode without one.
+    pub fn pressed(&self, mode: Mode) -> Option<f32> {
+        let current = self.current;
+        let next = match mode {
+            Mode::Set { value } | Mode::Momentary { value } => value,
+            Mode::Follow { max, .. } => max,
+            Mode::Toggle { a, b } if self.near(current, a) => b,
+            Mode::Toggle { a, .. } => a,
+            Mode::Step { amount, wrap } => self.stepped(current, amount, wrap),
+            Mode::OnPress | Mode::Relative { .. } => return None,
+        };
+        Some(next.clamp(0.0, 1.0))
+    }
+
     /// The value as the block editor shows it ("12.0 dB", "Plate", "On").
     pub fn text(&self, value: f32) -> String {
         match self.spec.kind {
@@ -299,7 +324,7 @@ impl Param<'_> {
 }
 
 /// The window of a CC trigger, then the fields of the mode.
-pub(super) fn fields(mode: Mode, source: Source, target: Target) -> Vec<FieldId> {
+pub(in crate::device) fn fields(mode: Mode, source: Source, target: Target) -> Vec<FieldId> {
     use FieldId::*;
     if source == Source::Pedal {
         return Vec::new();
@@ -323,7 +348,7 @@ pub(super) fn fields(mode: Mode, source: Source, target: Target) -> Vec<FieldId>
 
 /// One stepper tap on `field`: target values move by the parameter's own steps, choices go to
 /// the next one. `false` when the field is not one of the mode's.
-pub(super) fn step_field(
+pub(in crate::device) fn step_field(
     mode: &mut Mode,
     window: &mut Window,
     field: FieldId,
@@ -370,7 +395,7 @@ pub(super) fn step_field(
     true
 }
 
-pub(super) fn encoding_text(encoding: Encoding) -> &'static str {
+pub(in crate::device) fn encoding_text(encoding: Encoding) -> &'static str {
     match encoding {
         Encoding::TwosComplement => "2's compl.",
         Encoding::Offset => "Offset 64",

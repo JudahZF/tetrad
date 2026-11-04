@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tetrad_ui::*;
 
-const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|send-report|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-app|ext-settings|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|remote-menu|boot-selector|bluetooth|custom-gig|custom-edit|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
+const VIEWS: &str = "preset-grid|dir-filter|dir-folder-menu|dir-gain|numeric|params-tabs|params-bypassed|picker-pin|device-info|licences|licence|diagnostics|diag-dsp|diag-fs|diag-usb|send-report|dir-link|dir-media-delete|dir-media-remove|vd-overwrite|vd-delete|dir-category|dir-captures|dir-irs|dir-list|dir-multi|dir-menu|dir-search|dir-recent|favorites|saveas|savedest|copyscene|gigpreset|grid|scenes|gig|presets|draft|params|picker|media|menu|settings|wifi|updates|io|tuner|looper|looper-empty|tempo|capture|keyboard|block|routing|confirm|choice|stomp|diagram|groups|update-ready|update-confirm|update-install|backups|storage|process|ab|picker-amp|vd-presets|vd-menu|expression|media-capture|capture-tab2|capture-save|power|locked|volume|modes|modes-hybrid|modes-add|brightness|bypass|scene-bypass|factory|about|recovery|resetting|io-out|io-usb|io-ret|io-hp|global-eq|midi-out|midi-edit|assign|edit-stomp|notice|gate|exp-range|account|stomp-bar|nc2|nc2-lost|nc2-ab|eq-presets|eq-preset-menu|io-presets|splitter|nc2-saved|pattern|pattern-2|cab|cab-2|cab-missing|restoring|eq|eq-out|eq-type|geq|geq-2|ir|ir-2|nc|nc-missing|dsp-error|synth-filter|parallax-expanded|mini-midi|storage-quarantine|dir-cloud|dir-cloud-empty|cloud-offline|whats-new|backup-name|backup-menu|paste-option|paste-bar|dir-cloud-multi|preset-metadata|upload-overwrite|capture-overwrite|capture-upload-overwrite|upload-failed|upload-done|add-to-grid|dir-media-edit|dir-ir-exists|download-setlist|download-option|upload-status|upload-batch|upload-batch-ask|details|dir-cloud-ir-multi|cpu-status|eq-off|eq-gate-off|extensions|ext-empty|ext-detail|ext-blocks|ext-detail-mid|ext-detail-end|ext-fault|ext-app|ext-settings|ext-remove|ext-sources|ext-trust|map-menu|map-list|map-global|map-detail|map-learn|map-send|map-actions|map-block|map-toggle|map-values|appearance|remote|remote-menu|boot-selector|bluetooth|custom-gig|custom-edit|custom-action|custom-actions|custom-copy|custom-preset|custom-picker|picker-ext";
 
 fn fixture() -> Result<UiSnapshot, UiError> {
     let mut s = UiSnapshot {
@@ -1097,8 +1097,13 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 activate(&mut ui, Control::Custom(CustomControl::Select(3)));
             }
             match view {
+                "custom-action" => {
+                    activate(&mut ui, Control::Custom(CustomControl::OpenAction(1)));
+                }
+                // Scene A has one action: Add action is the second row.
                 "custom-actions" | "custom-picker" => {
-                    activate(&mut ui, Control::Custom(CustomControl::Actions));
+                    activate(&mut ui, Control::Custom(CustomControl::Select(0)));
+                    activate(&mut ui, Control::Custom(CustomControl::OpenAction(1)));
                 }
                 "custom-copy" => {
                     activate(&mut ui, Control::Custom(CustomControl::Copy));
@@ -3135,11 +3140,29 @@ fn extensions_fixture() -> ExtensionsView {
     }
 }
 
-/// A Custom footswitch mode with four pages; page 1 holds one action of each kind, a double
-/// press on D (the tuner) and the combo C + D (a preset).
+/// A Custom footswitch mode with four pages; page 1 holds one action of each kind, a second
+/// action on D (a Plate Verb Mix toggle), a double press on D (the tuner) and the combo C + D
+/// (a preset).
 fn custom_fixture() -> Result<CustomModeView, UiError> {
-    let slot = |label: &str, detail: &str, colour, engaged, action| CustomSlotView {
-        action: Some(action),
+    let mode = |kind, label: &str, detail: &str| ModeView {
+        kind,
+        label: label.into(),
+        detail: detail.into(),
+    };
+    let one = |label: &str, detail: &str, action| CustomActionView {
+        action,
+        label: label.into(),
+        detail: detail.into(),
+        available: true,
+        mode: Some(mode(ModeKind::OnPress, "On press", "Runs on each press")),
+        modes: Vec::new(),
+        fields: Vec::new(),
+        summary: String::new(),
+        messages: Vec::new(),
+    };
+    let slot = |label: &str, detail: &str, colour, engaged, action: SlotAction| CustomSlotView {
+        action: Some(action.clone()),
+        actions: vec![one(label, detail, action)],
         label: label.into(),
         detail: detail.into(),
         colour,
@@ -3203,7 +3226,50 @@ fn custom_fixture() -> Result<CustomModeView, UiError> {
         ),
         slot("Page ›", "Next page", [255; 3], false, page(PageStep::Next)),
     ];
-    first[3].momentary = Some(true);
+    let switch_modes = [
+        mode(ModeKind::Toggle, "Toggle", "Each press switches on and off"),
+        mode(ModeKind::Momentary, "Momentary", "Switched while held"),
+        mode(ModeKind::Set, "Set", "Each press sets the value"),
+    ];
+    let delay = &mut first[3].actions[0];
+    delay.detail = "Bypass · Momentary".into();
+    delay.mode = Some(switch_modes[1].clone());
+    delay.modes = switch_modes.to_vec();
+    first[3].actions.push(CustomActionView {
+        action: SlotAction::Block {
+            position: GridPosition::new(1, 3)?,
+            target: BlockTarget::Parameter(4),
+        },
+        label: "Plate Verb".into(),
+        detail: "Mix · Toggle".into(),
+        available: true,
+        mode: Some(mode(ModeKind::Toggle, "Toggle", "Each press swaps A and B")),
+        modes: vec![
+            mode(ModeKind::Set, "Set", "Each press sets the value"),
+            mode(ModeKind::Toggle, "Toggle", "Each press swaps A and B"),
+            mode(
+                ModeKind::Momentary,
+                "Momentary",
+                "Held: the value; released: as before",
+            ),
+            mode(ModeKind::Step, "Step", "Each press moves the value"),
+        ],
+        fields: vec![
+            ValueField {
+                id: FieldId::A,
+                label: "A".into(),
+                text: "25 %".into(),
+            },
+            ValueField {
+                id: FieldId::B,
+                label: "B".into(),
+                text: "60 %".into(),
+            },
+        ],
+        summary: "25 % ↔ 60 %".into(),
+        messages: Vec::new(),
+    });
+    first[3].detail = "Bypass · Momentary · +1".into();
     first[3].custom_label = Some("Delay".into());
     first[3].swatch = Some(4);
     let tuner = SlotAction::System(SystemAction::Tuner);

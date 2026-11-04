@@ -356,7 +356,7 @@ fn action_menu(view: &MappingsView, custom: Option<&CustomModeView>) -> Vec<Grou
     groups
 }
 
-fn mode_key(kind: ModeKind) -> &'static str {
+pub(super) fn mode_key(kind: ModeKind) -> &'static str {
     match kind {
         ModeKind::OnPress => "onPress",
         ModeKind::Follow => "follow",
@@ -368,7 +368,7 @@ fn mode_key(kind: ModeKind) -> &'static str {
     }
 }
 
-fn field_key(field: FieldId) -> &'static str {
+pub(super) fn field_key(field: FieldId) -> &'static str {
     match field {
         FieldId::Value => "value",
         FieldId::A => "a",
