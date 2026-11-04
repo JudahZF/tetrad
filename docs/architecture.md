@@ -123,9 +123,10 @@ the loaded preset leaves with the old catalog and is recalled with the new one.
 
 ## Custom footswitch mode
 
-Custom plays in the place of stock Stomp mode: it is on while the stored mode is Stomp
-(`custom::plays_custom`, followed by the settings mirror), so the stock INI, Cortex Control and
-MIDI CC#47 see Stomp. `tetrad-core` `FootswitchContext::custom` turns the ten switches into slot
+Custom plays in the place of stock Stomp mode: it is on while the stored mode is Stomp, or a
+stored Stomp hybrid that Tetrad no longer offers (`custom::plays_custom`, followed by the
+settings mirror). The stock INI, Cortex Control and MIDI CC#47 keep the stored value: Stomp,
+or that hybrid. `tetrad-core` `FootswitchContext::custom` turns the ten switches into slot
 presses and Bank Up into the mode switch, and `tetrad-app` `device/custom/` keeps the layout,
 the page and the held presses in `State::custom`. A press runs each of its actions as an
 `Action::CustomAct`, after the effects of the one before, with the Mappings mode rules

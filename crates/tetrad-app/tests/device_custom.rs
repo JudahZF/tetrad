@@ -478,3 +478,29 @@ fn old_mappings_over_the_limit_are_kept() {
     );
     assert_eq!(preset_a(&device).len(), 8);
 }
+
+/// Stomp and a stored Stomp hybrid both play Custom: the cycle does not stop on Custom twice.
+#[test]
+fn the_cycle_passes_one_custom() {
+    let (mut device, _media) = boot();
+    let modes = vec![FootswitchMode::Stomp, FootswitchMode::StompPreset];
+    device.push(Event::Action(Action::SetAllowedModes(modes)));
+    settle(&mut device);
+    assert!(device.state().performance.footswitch.custom);
+    device.push(Event::Action(Action::CycleMode));
+    settle(&mut device);
+    let mode = device.state().settings.settings().mode.mode();
+    assert_eq!(mode, FootswitchMode::Stomp, "no second stop on Custom");
+}
+
+/// An old layout that does not decode is not replaced by an empty layout file: the next start
+/// reads it again.
+#[test]
+fn an_old_layout_that_does_not_decode_stays() {
+    let files = MemFiles::default();
+    files.put("/media/p4/tetrad/footswitch-modes/a~b.json", "{not json");
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _log, _media) = boot_with_files(media, files.clone());
+    settle(&mut device);
+    assert_eq!(files.get(custom::LAYOUT_FILE), None);
+}

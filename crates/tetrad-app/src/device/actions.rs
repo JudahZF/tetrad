@@ -942,7 +942,12 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
             let mode = &state.settings.settings().mode;
             let available = mode.available();
             let position = (available.iter()).position(|candidate| *candidate == mode.mode());
-            let next = position.map_or(0, |index| (index + 1) % available.len().max(1));
+            // Stomp and a stored Stomp hybrid both play Custom: the cycle passes one Custom.
+            let custom = super::custom::plays_custom(mode.mode());
+            let next = (1..=available.len())
+                .map(|step| position.map_or(0, |index| (index + step) % available.len()))
+                .find(|&at| !(custom && super::custom::plays_custom(available[at])))
+                .unwrap_or(0);
             let next = *available
                 .get(next)
                 .ok_or(ActionError::Unavailable("an allowed footswitch mode"))?;

@@ -662,22 +662,26 @@ pub fn sync(state: &mut State) {
 
 // ---- the mode ------------------------------------------------------------------------------
 
-/// The stored ALL PRESETS layout, read at start-up (`None`: no file). A bad layout is reported
-/// and the switches start empty.
-pub fn load_layout(state: &mut State, layout: Option<Result<Vec<u8>, String>>) -> Vec<Effect> {
+/// The stored ALL PRESETS layout, read at start-up (`None`: no file), and whether it decoded. A
+/// bad layout is reported and the switches start empty.
+pub fn load_layout(
+    state: &mut State,
+    layout: Option<Result<Vec<u8>, String>>,
+) -> (Vec<Effect>, bool) {
     let custom = &mut state.custom;
     custom.layout = empty_layout();
     custom.notice = None;
-    let problem = match layout.map(|layout| layout.and_then(|bytes| decode(&bytes))) {
-        None => None,
+    let (problem, decoded) = match layout.map(|layout| layout.and_then(|bytes| decode(&bytes))) {
+        None => (None, false),
         Some(Ok((layout, dropped))) => {
             custom.layout = layout;
-            (dropped > 0).then(|| format!("{dropped} slots were not valid"))
+            let problem = (dropped > 0).then(|| format!("{dropped} slots were not valid"));
+            (problem, true)
         }
-        Some(Err(error)) => Some(format!("The layout was not read: {error}")),
+        Some(Err(error)) => (Some(format!("The layout was not read: {error}")), false),
     };
     custom.notice = problem.clone();
-    problem
+    let effects = problem
         .map(|problem| {
             Effect::Notice(
                 super::Subsystem::Extensions,
@@ -685,7 +689,8 @@ pub fn load_layout(state: &mut State, layout: Option<Result<Vec<u8>, String>>) -
             )
         })
         .into_iter()
-        .collect()
+        .collect();
+    (effects, decoded)
 }
 
 /// Follows a change of the stored footswitch mode ([`plays_custom`]): on, the mode starts on

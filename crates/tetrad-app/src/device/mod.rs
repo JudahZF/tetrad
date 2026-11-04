@@ -3362,12 +3362,13 @@ impl<P: Platform> Device<P> {
                 .or(names.into_iter().next());
             if let Some(name) = name {
                 layout = read(files, &dir.join(name));
-                moved = matches!(layout, Some(Ok(_)));
+                moved = true;
             }
         }
-        let effects = custom::load_layout(&mut self.state, layout);
+        let (effects, decoded) = custom::load_layout(&mut self.state, layout);
         self.apply(Ok::<_, DeviceError>(effects));
-        if moved {
+        // An old layout that does not decode stays where it is, to be read again.
+        if moved && decoded {
             let bytes = self.state.custom.layout_file();
             self.write_file(custom::LAYOUT_FILE, &bytes, "Footswitch layout not saved");
         }
