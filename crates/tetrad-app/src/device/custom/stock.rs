@@ -146,7 +146,12 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
         // to the stock data ([`store`]); one the stock data has already shows once.
         // A leading field bypass that the stock data already holds (a layout from before) shows
         // once; after another action, the same bypass is a step of its own.
-        let mut leading = true;
+        // [`store`] keeps such a bypass in the field only after a stock Send MIDI: then it is a
+        // step of its own too.
+        let midi = actions
+            .iter()
+            .any(|act| act.action == StoredAction::SendMidi);
+        let mut leading = !midi;
         binding.actions.retain(|act| {
             leading &= stock_bypass(act);
             let stocked = leading

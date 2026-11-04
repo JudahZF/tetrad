@@ -765,3 +765,31 @@ fn a_bypass_after_send_midi_stays_after_it() {
     assert!(matches!(actions[1], SlotAction::Block { .. }));
     assert!(preset(&device).stomp_mode_assignments.is_empty());
 }
+
+/// A bypass, a Send MIDI with messages and the same bypass again: the MIDI list goes to the
+/// stock data, and the second bypass stays a step of its own after it.
+#[test]
+fn a_repeated_bypass_after_a_stock_send_midi_stays() {
+    let (mut device, _media) = boot();
+    let field = br#"{"format":2,"slots":[{"page":0,"slot":0,"actions":[
+        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}},
+        {"action":{"kind":"sendMidi"},"messages":[{"kind":"pc","channel":1,"values":[null,null,7]}]},
+        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}}]}]}"#;
+    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
+        Some(field.to_vec()),
+    ))));
+    settle(&mut device);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(2)),
+    }));
+    settle(&mut device);
+    assert_eq!(
+        preset_a(&device).len(),
+        3,
+        "both bypasses and the MIDI list"
+    );
+}
