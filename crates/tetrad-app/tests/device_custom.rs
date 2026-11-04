@@ -699,3 +699,40 @@ fn a_repeated_bypass_after_another_action_is_its_own_step() {
     switch_a(&mut device, 0);
     assert_eq!(bypassed(&device), start, "the two releases cancel out");
 }
+
+/// A stock momentary bypass on A of THIS PRESET and a momentary bypass of the same block on B
+/// of ALL PRESETS, both held: leaving the mode leaves the block where it started.
+#[test]
+fn leaving_the_mode_releases_stock_and_custom_holds_together() {
+    let (mut device, _media) = boot();
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+    let light = SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    edit_a(&mut device, 0, ActionEdit::Set(light.clone()));
+    edit_a(&mut device, 0, ActionEdit::Mode(ModeKind::Momentary));
+    for edit in [
+        ActionEdit::Set(light),
+        ActionEdit::Mode(ModeKind::Momentary),
+    ] {
+        device.push(Event::Custom(CustomCommand::Slot {
+            scope: LayoutScope::Global,
+            page: 0,
+            slot: 1,
+            gesture: Gesture::Press,
+            edit: SlotEdit::Action { index: 0, edit },
+        }));
+        settle(&mut device);
+    }
+    let start = bypassed(&device);
+    for element in Element::all().take(2) {
+        device.push(Event::Hal(HalEvent::Stomp { element, value: 1 }));
+        settle(&mut device);
+    }
+    assert_eq!(bypassed(&device), start, "two flips while held");
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Preset)));
+    settle(&mut device);
+    assert_eq!(bypassed(&device), start, "both releases cancel out");
+}

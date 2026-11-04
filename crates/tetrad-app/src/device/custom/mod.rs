@@ -746,6 +746,7 @@ fn release_all(state: &mut State, run: bool) -> Vec<Effect> {
 fn finish(state: &State, held: Vec<Held>) -> Vec<Effect> {
     let mut pending: Vec<(Site, bool)> = Vec::new();
     let mut effects = Vec::new();
+    let mut restores = Vec::new();
     for held in held {
         effects.extend(held.release);
         for site in held.invert {
@@ -762,10 +763,11 @@ fn finish(state: &State, held: Vec<Held>) -> Vec<Effect> {
                 bypassed: !now,
             }));
         }
-        // The stock release last, as the stock press came first: two flips of one block
-        // cancel out.
-        effects.extend(held.restore);
+        restores.push(held.restore);
     }
+    // The stock releases last, after the inversions of every held press, as each stock press
+    // came first: two flips of one block cancel out.
+    effects.extend(restores.into_iter().rev().flatten());
     effects
 }
 
