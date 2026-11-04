@@ -596,3 +596,31 @@ fn bypasses_keep_their_own_mode_and_model() {
     let f = &view.preset_slots.unwrap()[0].slots[5];
     assert_eq!(f.action, Some(bypass(3)));
 }
+
+/// An older layout with a Toggle and a Momentary bypass of one block on A keeps both: the
+/// Toggle goes to the stock data, the Momentary stays a Tetrad action.
+#[test]
+fn a_bypass_in_the_other_mode_survives_the_move_to_stock() {
+    let (mut device, _media) = boot();
+    let field = br#"{"format":2,"slots":[{"page":0,"slot":0,"actions":[
+        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}},
+        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}},
+         "mode":{"kind":"momentary","value":0.0}}]}]}"#;
+    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
+        Some(field.to_vec()),
+    ))));
+    settle(&mut device);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(2)),
+    }));
+    settle(&mut device);
+    let modes: Vec<_> = preset_a(&device)
+        .into_iter()
+        .map(|(_, mode)| mode)
+        .collect();
+    assert_eq!(modes, [Some(ModeKind::Toggle), Some(ModeKind::Momentary)]);
+}

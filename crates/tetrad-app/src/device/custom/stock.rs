@@ -128,7 +128,9 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
         // to the stock data ([`store`]); one the stock data has already shows once.
         let stocked = |act: &Act| {
             stock_bypass(act)
-                && (actions.iter()).any(|stock| stock.stock && stock.action == act.action)
+                && (actions.iter()).any(|stock| {
+                    stock.stock && stock.action == act.action && held(stock) == held(act)
+                })
         };
         binding.actions.retain(|act| !stocked(act));
         actions.append(&mut binding.actions);
