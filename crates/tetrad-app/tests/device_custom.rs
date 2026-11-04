@@ -204,3 +204,34 @@ fn old_footswitch_mappings_move_to_the_custom_mode() {
     );
     assert_eq!(preset_a(&device), [(scene, Some(ModeKind::OnPress))]);
 }
+
+/// Without the layout file, the layout of the old Custom Footswitch Mode extension (the one
+/// the old mode file names) moves to it at the start, and plays.
+#[test]
+fn the_old_extension_layout_moves_to_the_layout_file() {
+    let files = MemFiles::default();
+    let old = br#"{"format":1,"slots":[
+        {"page":0,"slot":9,"action":{"kind":"system","action":"tuner"},"label":"Tune"}
+    ]}"#;
+    let other = br#"{"format":1,"slots":[]}"#;
+    files.put(
+        "/media/p4/tetrad/footswitch-modes/A~other.json",
+        std::str::from_utf8(other).unwrap(),
+    );
+    files.put(
+        "/media/p4/tetrad/footswitch-modes/judahzf_tetrad-extensions~tetrad.custom-footswitch.json",
+        std::str::from_utf8(old).unwrap(),
+    );
+    files.put(
+        custom::ACTIVE_FILE,
+        r#"{"format":1,"active":"JudahZF/tetrad-extensions:tetrad.custom-footswitch"}"#,
+    );
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _log, _media) = boot_with_files(media, files.clone());
+    settle(&mut device);
+    let view = custom::view(device.state()).unwrap();
+    assert_eq!(view.slots[0].slots[9].label, "Tune");
+    let moved = files.get(custom::LAYOUT_FILE).expect("the layout file");
+    let moved: serde_json::Value = serde_json::from_slice(&moved).unwrap();
+    assert_eq!(moved["format"], 2);
+}

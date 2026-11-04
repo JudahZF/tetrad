@@ -2263,7 +2263,7 @@ impl Default for UiSnapshot {
             allowed_modes: vec![
                 FootswitchMode::Preset,
                 FootswitchMode::Scene,
-                FootswitchMode::Stomp,
+                FootswitchMode::Custom,
             ],
             hybrid: HybridRows::default(),
             stomps: Default::default(),

@@ -3425,18 +3425,26 @@ fn modes_configuration_drags_merge_reorder_remove_and_split() {
     assert_eq!(ui.led_state(), (false, false, true, false));
     let slot = |ui: &UiState, index| center(ui, Control::Mode(ModeControl::Slot(index)));
     let rows = ui.snapshot().hybrid;
-    let (preset, scene, stomp) = (slot(&ui, 0), slot(&ui, 1), slot(&ui, 2));
+    let (preset, scene, custom) = (slot(&ui, 0), slot(&ui, 1), slot(&ui, 2));
     assert_eq!(
         drag(&mut ui, preset, scene),
-        vec![cycle(vec![Hybrid, Stomp], Scene, Preset)]
+        vec![cycle(vec![Hybrid, FootswitchMode::Custom], Scene, Preset)]
     );
     assert_eq!(
-        drag(&mut ui, stomp, (preset.0 - 100, preset.1)),
-        vec![cycle(vec![Stomp, Preset, Scene], rows.upper, rows.lower)]
+        drag(&mut ui, custom, (preset.0 - 100, preset.1)),
+        vec![cycle(
+            vec![FootswitchMode::Custom, Preset, Scene],
+            rows.upper,
+            rows.lower
+        )]
     );
     assert_eq!(
         drag(&mut ui, preset, (700, 60)),
-        vec![cycle(vec![Scene, Stomp], rows.upper, rows.lower)]
+        vec![cycle(
+            vec![Scene, FootswitchMode::Custom],
+            rows.upper,
+            rows.lower
+        )]
     );
 
     let mut hybrid = rich();
