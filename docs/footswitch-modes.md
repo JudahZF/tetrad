@@ -166,7 +166,11 @@ Control see it:
   are stock data, and a bypass in the other mode is Tetrad data. A block can be on one of these
   switches only: for a second switch, use **Set**.
 - **Nothing** on one of these switches stops its Stomp-mode data too.
-- A bypass in **Set** mode, a second Send MIDI and every other action are Tetrad data.
+- A press plays the Stomp-mode data first. So only the first actions of a switch can be
+  Stomp-mode data. A bypass after another action stays Tetrad data, so the order of the
+  actions does not change.
+- A bypass in **Set** mode, a bypass of a block that is not there, a Send MIDI without
+  messages, a second Send MIDI and every other action are Tetrad data.
 - **Assign footswitch** in the block editor still assigns a block to a switch.
 
 The footswitch mappings of Tetrad 0.1.0-alpha.10 and earlier (a footswitch trigger on the

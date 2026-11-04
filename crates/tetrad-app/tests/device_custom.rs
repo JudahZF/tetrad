@@ -348,11 +348,11 @@ fn a_stock_switch_too_big_to_store_does_not_move() {
     );
     assert_eq!(preset(&device).stomp_mode_assignments.len(), 9);
 
-    // A bypass in Set mode leaves the stock data for the layout field: eight fit, the ninth
-    // is refused.
+    // A bypass in Set mode leaves the stock data for the layout field (from the last one, so
+    // the stock ones still run first): eight fit, the ninth is refused.
     for _ in 0..9 {
         let at = (preset_a(&device).iter())
-            .position(|(_, mode)| *mode != Some(ModeKind::Set))
+            .rposition(|(_, mode)| *mode != Some(ModeKind::Set))
             .unwrap() as u8;
         edit_a(&mut device, at, ActionEdit::Mode(ModeKind::Set));
     }
@@ -623,4 +623,46 @@ fn a_bypass_in_the_other_mode_survives_the_move_to_stock() {
         .map(|(_, mode)| mode)
         .collect();
     assert_eq!(modes, [Some(ModeKind::Toggle), Some(ModeKind::Momentary)]);
+}
+
+/// Only what stock can hold, in the order a press plays it, goes to the stock data: a new Send
+/// MIDI without messages, a bypass after another action and a bypass of a missing block stay
+/// Tetrad actions.
+#[test]
+fn only_leading_stock_actions_go_to_the_stock_data() {
+    let (mut device, _media) = boot();
+    edit_a(&mut device, 0, ActionEdit::Set(SlotAction::SendMidi));
+    assert_eq!(preset_a(&device).len(), 1, "a new Send MIDI stays");
+
+    let scene = SlotAction::System(SystemAction::Scene(1));
+    let light = SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    edit_a(&mut device, 0, ActionEdit::Set(scene.clone()));
+    edit_a(&mut device, 1, ActionEdit::Set(light.clone()));
+    let actions: Vec<_> = preset_a(&device)
+        .into_iter()
+        .map(|(action, _)| action)
+        .collect();
+    assert_eq!(actions, [scene, light], "the scene still runs first");
+    assert!(preset(&device).stomp_mode_assignments.is_empty());
+
+    let missing = br#"{"format":2,"slots":[{"page":0,"slot":1,"actions":[
+        {"action":{"kind":"block","row":2,"column":5,"target":{"kind":"bypass"}}}]}]}"#;
+    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
+        Some(missing.to_vec()),
+    ))));
+    settle(&mut device);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 7,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(2)),
+    }));
+    settle(&mut device);
+    let view = custom::view(device.state()).unwrap();
+    let b = &view.preset_slots.unwrap()[0].slots[1];
+    assert_eq!(b.actions.len(), 1, "the missing block's bypass stays");
 }

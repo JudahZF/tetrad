@@ -1539,7 +1539,10 @@ fn change(
             && slot < usize::from(stock::STOMPS)
             && gesture == Gesture::Press
     };
-    if scope == LayoutScope::Preset && stock::shared_bypass(&layout) {
+    let preset = (state.current.as_ref()).map(|current| &current.preset);
+    if let Some(preset) = preset.filter(|_| scope == LayoutScope::Preset)
+        && stock::shared_bypass(&layout, preset)
+    {
         return Err("A block can toggle on one of A–H of page 1: use Set on the other".into());
     }
     for (p, page) in layout.iter().enumerate() {
@@ -1559,9 +1562,9 @@ fn change(
             )
         });
         for (s, gesture, binding) in slots.chain(combos) {
-            let kept = match stored(p, s, gesture) {
-                true => stock::stored_count(binding),
-                false => binding.actions.len(),
+            let kept = match preset.filter(|_| stored(p, s, gesture)) {
+                Some(preset) => stock::stored_count(binding, preset),
+                None => binding.actions.len(),
             };
             if kept > MAX_ACTIONS {
                 return Err(format!("A switch runs at most {MAX_ACTIONS} actions"));

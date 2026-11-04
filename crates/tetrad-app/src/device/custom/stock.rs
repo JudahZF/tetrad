@@ -70,19 +70,34 @@ fn held(act: &Act) -> bool {
     matches!(act.mode, Some(Mode::Momentary { .. }))
 }
 
-/// Which actions of a page 1 A–H press [`store`] writes to the stock data: the bypasses in the
-/// mode of the first one (stock has one momentary flag per switch) and the first Send MIDI.
-/// The others stay in the layout field.
-fn stocked(actions: &[Act]) -> Vec<bool> {
-    let mode = actions.iter().find(|act| stock_bypass(act)).map(held);
-    let mut send = false;
+/// Which actions of a page 1 A–H press [`store`] writes to the stock data. A press plays the
+/// stock data first, so only the leading actions can go, while each is one that stock holds: a
+/// bypass of a block that is there, in the mode of the first one (stock has one momentary flag
+/// per switch), and one Send MIDI with messages. The others stay in the layout field.
+fn stocked(actions: &[Act], preset: &Preset) -> Vec<bool> {
+    let block = |row: u8, column: u8| {
+        let slot = tetrad_preset::Slot {
+            row: usize::from(row),
+            column: usize::from(column),
+        };
+        preset.block(slot).ok().flatten().is_some()
+    };
+    let (mut mode, mut send, mut leading) = (None, false, true);
     (actions.iter())
-        .map(|act| match act.action {
-            StoredAction::SendMidi if !send => {
-                send = true;
-                true
-            }
-            _ => stock_bypass(act) && Some(held(act)) == mode,
+        .map(|act| {
+            let stock = leading
+                && match act.action {
+                    StoredAction::SendMidi => !send && !act.messages.is_empty(),
+                    StoredAction::Block { row, column, .. } => {
+                        stock_bypass(act)
+                            && block(row, column)
+                            && *mode.get_or_insert(held(act)) == held(act)
+                    }
+                    _ => false,
+                };
+            send |= stock && act.action == StoredAction::SendMidi;
+            leading &= stock;
+            stock
         })
         .collect()
 }
@@ -174,8 +189,8 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
 
 /// The actions of a page 1 A–H press that [`store`] keeps in the layout field: all but the
 /// bypasses in Toggle or Momentary and the first Send MIDI, which go to the stock data.
-pub(super) fn stored_count(binding: &Binding) -> usize {
-    stocked(&binding.actions)
+pub(super) fn stored_count(binding: &Binding, preset: &Preset) -> usize {
+    stocked(&binding.actions, preset)
         .iter()
         .filter(|stock| !**stock)
         .count()
@@ -183,11 +198,11 @@ pub(super) fn stored_count(binding: &Binding) -> usize {
 
 /// A block's bypass in Toggle or Momentary is on two of page 1's A–H: the stock data holds a
 /// block on one switch only.
-pub(super) fn shared_bypass(layout: &[Page]) -> bool {
+pub(super) fn shared_bypass(layout: &[Page], preset: &Preset) -> bool {
     let mut seen = Vec::new();
     for slot in layout[0].slots.iter().take(usize::from(STOMPS)) {
         let actions = &slot.press.actions;
-        let stock = stocked(actions);
+        let stock = stocked(actions, preset);
         for (act, _) in actions.iter().zip(stock).filter(|(_, stock)| *stock) {
             if let StoredAction::Block { row, column, .. } = act.action {
                 if seen.contains(&(row, column)) {
@@ -232,7 +247,7 @@ pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
         let mut send = None;
         let mut bypasses = Vec::new();
         let mut held = false;
-        let mut stock = stocked(&binding.actions).into_iter();
+        let mut stock = stocked(&binding.actions, preset).into_iter();
         binding
             .actions
             .retain(|act| match (stock.next() == Some(true), &act.action) {
