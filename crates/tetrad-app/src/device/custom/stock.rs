@@ -71,9 +71,10 @@ fn held(act: &Act) -> bool {
 }
 
 /// Which actions of a page 1 A–H press [`store`] writes to the stock data. A press plays the
-/// stock data first, so only the leading actions can go, while each is one that stock holds: a
-/// bypass of a block that is there, in the mode of the first one (stock has one momentary flag
-/// per switch), and one Send MIDI with messages. The others stay in the layout field.
+/// stock data first (the bypasses, then the MIDI list), so only the leading actions in that
+/// order can go, while each is one that stock holds: a bypass of a block that is there, in the
+/// mode of the first one (stock has one momentary flag per switch), then one Send MIDI with
+/// messages. The others stay in the layout field.
 fn stocked(actions: &[Act], preset: &Preset) -> Vec<bool> {
     let block = |row: u8, column: u8| {
         let slot = tetrad_preset::Slot {
@@ -88,8 +89,10 @@ fn stocked(actions: &[Act], preset: &Preset) -> Vec<bool> {
             let stock = leading
                 && match act.action {
                     StoredAction::SendMidi => !send && !act.messages.is_empty(),
+                    // Stock toggles the blocks before it sends the MIDI list.
                     StoredAction::Block { row, column, .. } => {
-                        stock_bypass(act)
+                        !send
+                            && stock_bypass(act)
                             && block(row, column)
                             && *mode.get_or_insert(held(act)) == held(act)
                     }

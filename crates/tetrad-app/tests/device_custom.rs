@@ -736,3 +736,32 @@ fn leaving_the_mode_releases_stock_and_custom_holds_together() {
     settle(&mut device);
     assert_eq!(bypassed(&device), start, "both releases cancel out");
 }
+
+/// Stock sends the MIDI list after it toggles the blocks: a bypass after a Send MIDI stays a
+/// Tetrad action, so the order does not change.
+#[test]
+fn a_bypass_after_send_midi_stays_after_it() {
+    let (mut device, _media) = boot();
+    let field = br#"{"format":2,"slots":[{"page":0,"slot":0,"actions":[
+        {"action":{"kind":"sendMidi"},"messages":[{"kind":"pc","channel":1,"values":[null,null,7]}]},
+        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}}]}]}"#;
+    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
+        Some(field.to_vec()),
+    ))));
+    settle(&mut device);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(2)),
+    }));
+    settle(&mut device);
+    let actions: Vec<_> = preset_a(&device)
+        .into_iter()
+        .map(|(action, _)| action)
+        .collect();
+    assert_eq!(actions[0], SlotAction::SendMidi);
+    assert!(matches!(actions[1], SlotAction::Block { .. }));
+    assert!(preset(&device).stomp_mode_assignments.is_empty());
+}
