@@ -534,3 +534,65 @@ fn midi_cc_holds_a_momentary_stock_stomp() {
     cc35(&mut device);
     assert_eq!(bypassed(&device), start, "released");
 }
+
+/// Stock holds one momentary flag per switch: a second bypass in another mode stays a Tetrad
+/// action and keeps its mode. A bypass from an old mapping keeps its block model guard.
+#[test]
+fn bypasses_keep_their_own_mode_and_model() {
+    use tetrad_preset::{Model, ParamValue};
+    let specs = STOCK.specs();
+    let catalog = tetrad_app::device::preset::SpecsCatalog(&specs);
+    let mut stored = light_preset(&specs, 2);
+    let block = Model::block(1, [ParamValue::Float(0.5), ParamValue::Float(0.0)]);
+    let slot = tetrad_preset::Slot { row: 0, column: 3 };
+    stored.insert_block(slot, block, &catalog).unwrap();
+    let media = Media::new([("Two", stored)]);
+    let (mut device, _log, _media) = boot_with_files(media, MemFiles::default());
+    settle(&mut device);
+    let bypass = |column| SlotAction::Block {
+        position: GridPosition::new(0, column).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    edit_a(&mut device, 0, ActionEdit::Set(bypass(2)));
+    edit_a(&mut device, 1, ActionEdit::Set(bypass(3)));
+    edit_a(&mut device, 1, ActionEdit::Mode(ModeKind::Momentary));
+    assert_eq!(
+        preset_a(&device),
+        [
+            (bypass(2), Some(ModeKind::Toggle)),
+            (bypass(3), Some(ModeKind::Momentary)),
+        ]
+    );
+    let assigned: Vec<_> = (preset(&device).stomp_mode_assignments.iter())
+        .map(|a| (a.column, a.stomp_index))
+        .collect();
+    assert_eq!(assigned, [(2, 0)], "only the Toggle bypass is stock");
+    assert_ne!(
+        preset(&device).stomp_is_momentary.get(0).copied(),
+        Some(true)
+    );
+
+    // An old mapping's bypass names its block model: it stays a Tetrad action.
+    let old = br#"{"format":1,"mappings":[{"trigger":{"kind":"stomp","stomp":5},
+        "action":{"kind":"block","row":0,"column":3,"model":1,"target":{"kind":"bypass"}}}]}"#;
+    device.push(Event::Action(Action::PresetEdit(PresetEdit::Mappings(
+        Some(old.to_vec()),
+    ))));
+    settle(&mut device);
+    edit_a(&mut device, 0, ActionEdit::Mode(ModeKind::Toggle));
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(2)),
+    }));
+    settle(&mut device);
+    let stomps: Vec<_> = (preset(&device).stomp_mode_assignments.iter())
+        .map(|a| a.stomp_index)
+        .collect();
+    assert_eq!(stomps, [0], "no assignment for F");
+    let view = custom::view(device.state()).unwrap();
+    let f = &view.preset_slots.unwrap()[0].slots[5];
+    assert_eq!(f.action, Some(bypass(3)));
+}

@@ -50,11 +50,13 @@ fn midi(midi: &PresetMidiView, stomp: u8) -> &[MidiOutMessage] {
     ))
 }
 
-/// A bypass action in a mode stock can hold: Toggle or Momentary.
+/// A bypass action that stock can hold: of any block at its position (no model guard), in
+/// Toggle or Momentary.
 fn stock_bypass(act: &Act) -> bool {
     matches!(
         act.action,
         StoredAction::Block {
+            model: None,
             target: StoredTarget::Bypass,
             ..
         }
@@ -62,6 +64,27 @@ fn stock_bypass(act: &Act) -> bool {
         act.mode,
         None | Some(Mode::Toggle { .. } | Mode::Momentary { .. })
     )
+}
+
+fn held(act: &Act) -> bool {
+    matches!(act.mode, Some(Mode::Momentary { .. }))
+}
+
+/// Which actions of a page 1 A–H press [`store`] writes to the stock data: the bypasses in the
+/// mode of the first one (stock has one momentary flag per switch) and the first Send MIDI.
+/// The others stay in the layout field.
+fn stocked(actions: &[Act]) -> Vec<bool> {
+    let mode = actions.iter().find(|act| stock_bypass(act)).map(held);
+    let mut send = false;
+    (actions.iter())
+        .map(|act| match act.action {
+            StoredAction::SendMidi if !send => {
+                send = true;
+                true
+            }
+            _ => stock_bypass(act) && Some(held(act)) == mode,
+        })
+        .collect()
 }
 
 /// The actions of switch `stomp`'s stock data.
@@ -150,16 +173,9 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
 /// The actions of a page 1 A–H press that [`store`] keeps in the layout field: all but the
 /// bypasses in Toggle or Momentary and the first Send MIDI, which go to the stock data.
 pub(super) fn stored_count(binding: &Binding) -> usize {
-    let mut send = false;
-    (binding.actions.iter())
-        .filter(|act| match act.action {
-            StoredAction::Block { .. } if stock_bypass(act) => false,
-            StoredAction::SendMidi if !send => {
-                send = true;
-                false
-            }
-            _ => true,
-        })
+    stocked(&binding.actions)
+        .iter()
+        .filter(|stock| !**stock)
         .count()
 }
 
@@ -168,7 +184,9 @@ pub(super) fn stored_count(binding: &Binding) -> usize {
 pub(super) fn shared_bypass(layout: &[Page]) -> bool {
     let mut seen = Vec::new();
     for slot in layout[0].slots.iter().take(usize::from(STOMPS)) {
-        for act in slot.press.actions.iter().filter(|act| stock_bypass(act)) {
+        let actions = &slot.press.actions;
+        let stock = stocked(actions);
+        for (act, _) in actions.iter().zip(stock).filter(|(_, stock)| *stock) {
             if let StoredAction::Block { row, column, .. } = act.action {
                 if seen.contains(&(row, column)) {
                     return true;
@@ -212,18 +230,21 @@ pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
         let mut send = None;
         let mut bypasses = Vec::new();
         let mut held = false;
-        binding.actions.retain(|act| match &act.action {
-            StoredAction::Block { row, column, .. } if stock_bypass(act) => {
-                held |= matches!(act.mode, Some(Mode::Momentary { .. }));
-                bypasses.push((*row, *column));
-                false
-            }
-            StoredAction::SendMidi if send.is_none() => {
-                send = Some(act.messages.iter().map(ui_message).collect::<Vec<_>>());
-                false
-            }
-            _ => true,
-        });
+        let mut stock = stocked(&binding.actions).into_iter();
+        binding
+            .actions
+            .retain(|act| match (stock.next() == Some(true), &act.action) {
+                (true, StoredAction::Block { row, column, .. }) => {
+                    held = self::held(act);
+                    bypasses.push((*row, *column));
+                    false
+                }
+                (true, StoredAction::SendMidi) => {
+                    send = Some(act.messages.iter().map(ui_message).collect::<Vec<_>>());
+                    false
+                }
+                _ => true,
+            });
         let before = assigned(preset, stomp);
         let slot = |(row, column)| mappings::position(row, column).and_then(mappings::engine_slot);
         for &gone in before.iter().filter(|at| !bypasses.contains(at)) {
