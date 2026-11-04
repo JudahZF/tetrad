@@ -748,7 +748,6 @@ fn finish(state: &State, held: Vec<Held>) -> Vec<Effect> {
     let mut effects = Vec::new();
     for held in held {
         effects.extend(held.release);
-        effects.extend(held.restore);
         for site in held.invert {
             let now = (pending.iter().find(|(at, _)| *at == site))
                 .map(|(_, bypassed)| *bypassed)
@@ -763,6 +762,9 @@ fn finish(state: &State, held: Vec<Held>) -> Vec<Effect> {
                 bypassed: !now,
             }));
         }
+        // The stock release last, as the stock press came first: two flips of one block
+        // cancel out.
+        effects.extend(held.restore);
     }
     effects
 }

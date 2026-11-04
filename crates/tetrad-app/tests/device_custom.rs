@@ -666,3 +666,36 @@ fn only_leading_stock_actions_go_to_the_stock_data() {
     let b = &view.preset_slots.unwrap()[0].slots[1];
     assert_eq!(b.actions.len(), 1, "the missing block's bypass stays");
 }
+
+/// A bypass of one block before and after another action is two steps: both stay, and a
+/// release of the momentary pair leaves the block where it started (the stock release runs
+/// last, as the stock press ran first).
+#[test]
+fn a_repeated_bypass_after_another_action_is_its_own_step() {
+    let (mut device, _media) = boot();
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+    let light = SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    edit_a(&mut device, 0, ActionEdit::Set(light.clone()));
+    edit_a(&mut device, 0, ActionEdit::Mode(ModeKind::Momentary));
+    edit_a(&mut device, 1, ActionEdit::Set(SlotAction::SendMidi));
+    edit_a(&mut device, 2, ActionEdit::Set(light.clone()));
+    edit_a(&mut device, 2, ActionEdit::Mode(ModeKind::Momentary));
+    let momentary = Some(ModeKind::Momentary);
+    assert_eq!(
+        preset_a(&device),
+        [
+            (light.clone(), momentary),
+            (SlotAction::SendMidi, Some(ModeKind::OnPress)),
+            (light, momentary),
+        ]
+    );
+    let start = bypassed(&device);
+    switch_a(&mut device, 1);
+    assert_eq!(bypassed(&device), start, "two flips while held");
+    switch_a(&mut device, 0);
+    assert_eq!(bypassed(&device), start, "the two releases cancel out");
+}

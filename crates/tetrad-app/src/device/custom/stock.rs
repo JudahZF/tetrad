@@ -141,13 +141,17 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
         let mut actions = stock_acts(preset, &list, stomp);
         // A bypass in the layout field (a layout from before) stays until the next edit moves it
         // to the stock data ([`store`]); one the stock data has already shows once.
-        let stocked = |act: &Act| {
-            stock_bypass(act)
+        // A leading field bypass that the stock data already holds (a layout from before) shows
+        // once; after another action, the same bypass is a step of its own.
+        let mut leading = true;
+        binding.actions.retain(|act| {
+            leading &= stock_bypass(act);
+            let stocked = leading
                 && (actions.iter()).any(|stock| {
                     stock.stock && stock.action == act.action && held(stock) == held(act)
-                })
-        };
-        binding.actions.retain(|act| !stocked(act));
+                });
+            !stocked
+        });
         actions.append(&mut binding.actions);
         let moved = (old.iter())
             .filter(|row| row.stomp == stomp)
