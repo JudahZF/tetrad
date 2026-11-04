@@ -172,6 +172,13 @@ pub enum Action {
         epoch: u32,
         origin: super::custom::Origin,
     },
+    /// (O) Action `index` of the press that Custom mode switch `slot` holds
+    /// (`custom::act`): it runs after the effects of the actions before it, so it reads the
+    /// scene, page and bypass that they left.
+    CustomAct {
+        slot: u8,
+        index: u8,
+    },
     /// Scoped tempo in BPM, clamped to 40..=240, then `0x16` TempoChange (`0x875a48`).
     SetTempo(f32),
     /// A normalized metronome/tempo slot (`0x513410`): UI settings, tap tempo, Cortex.
@@ -867,6 +874,7 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
             epoch,
             origin,
         } => effects.extend(super::custom::fired(state, slot, gesture, epoch, origin)),
+        Action::CustomAct { slot, index } => effects.extend(super::custom::act(state, slot, index)),
         Action::SetConnector { id, value } => {
             effects.extend(super::jacks::set(state, id, value)?);
         }

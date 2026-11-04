@@ -54,9 +54,9 @@ pub const ACTIVE_FILE: &str = "/media/p4/tetrad/footswitch-mode.json";
 /// One layout per installation: `<install key file stem>.json`.
 pub const LAYOUT_DIR: &str = "/media/p4/tetrad/footswitch-modes";
 /// Largest layout or active file. Read them with `read_bounded(.., MAX_FILE)`. A full layout
-/// (four pages of presses, double presses and all 13 combos, each with one action of 12
-/// messages and a 16-character label) is about 290 KB.
-pub const MAX_FILE: u64 = 1024 * 1024;
+/// (four pages of presses, double presses and all 13 combos, each with eight actions of 12
+/// messages and a 16-character label) is about 2.7 MB.
+pub const MAX_FILE: u64 = 4 * 1024 * 1024;
 /// Format 2 gives each press, double press and combo a list of actions with Mappings modes;
 /// format 1 (one action, a percent value, a momentary flag) is read and written as format 2.
 const LAYOUT_FORMAT: u32 = 2;
@@ -423,9 +423,14 @@ struct Held {
     /// A combo is held on its lower switch; the first release of its two switches ends it.
     gesture: Gesture,
     release: Vec<Effect>,
+    /// What the release sets in the loaded preset's blocks: momentary parameters' values from
+    /// before the press. A preset load drops it.
+    restore: Vec<Effect>,
     /// Momentary bypasses: the release inverts these blocks' bypass as it is then, as a stock
     /// momentary release does, so overlapping presses of one block end where they started.
     invert: Vec<Site>,
+    /// The actions of the press, as they were at the press; each runs as [`act`].
+    actions: Vec<Act>,
 }
 
 /// What a command asks the device to do.
@@ -767,6 +772,7 @@ fn finish(state: &State, held: Vec<Held>) -> Vec<Effect> {
     let mut effects = Vec::new();
     for held in held {
         effects.extend(held.release);
+        effects.extend(held.restore);
         for site in held.invert {
             let now = (pending.iter().find(|(at, _)| *at == site))
                 .map(|(_, bypassed)| *bypassed)
@@ -804,11 +810,12 @@ pub fn held_bypass_slots(state: &State) -> Vec<tetrad_engine::Slot> {
         .collect()
 }
 
-/// A preset finished loading: the held momentary bypasses belonged to the old preset's blocks;
-/// the other releases (Looper buttons) still run.
+/// A preset finished loading: the held momentary bypasses and parameters belonged to the old
+/// preset's blocks; the other releases (Looper buttons, screens) still run.
 pub fn preset_loaded(state: &mut State) {
     for held in state.custom.held.iter_mut().flatten() {
         held.invert.clear();
+        held.restore.clear();
     }
     state.custom.toggled = Default::default();
     state.custom.gestures.clear();
@@ -930,22 +937,44 @@ fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Optio
     let binding = (state.custom.playing().get(usize::from(page)))
         .and_then(|data| data.binding(slot, gesture))?
         .clone();
-    let (mut effects, mut release, mut invert) = (Vec::new(), Vec::new(), Vec::new());
-    for (at, act) in (0..).zip(&binding.actions) {
-        let ran = run(state, (page, slot, gesture, at), act);
-        effects.extend(ran.press);
-        // The releases run in the opposite order of the presses.
-        release.splice(0..0, ran.release);
-        invert.extend(ran.invert);
-    }
+    // Each action runs after the effects of the ones before ([`act`]).
+    let effects = (0..binding.actions.len() as u8)
+        .map(|at| Effect::Action(Action::CustomAct { slot, index: at }))
+        .collect();
     state.custom.held[index] = Some(Held {
         origin,
         page,
         gesture,
-        release,
-        invert,
+        release: Vec::new(),
+        restore: Vec::new(),
+        invert: Vec::new(),
+        actions: binding.actions,
     });
     Some(effects)
+}
+
+/// Runs action `index` of the press that `slot` holds, and keeps what its release owes. The
+/// releases run in the opposite order of the presses. Nothing runs when the press has ended
+/// (an action before it left the mode).
+pub fn act(state: &mut State, slot: u8, index: u8) -> Vec<Effect> {
+    let Some(held) = state
+        .custom
+        .held
+        .get(usize::from(slot))
+        .and_then(Option::as_ref)
+    else {
+        return Vec::new();
+    };
+    let Some(action) = held.actions.get(usize::from(index)).cloned() else {
+        return Vec::new();
+    };
+    let ran = run(state, (held.page, slot, held.gesture, index), &action);
+    if let Some(held) = state.custom.held[usize::from(slot)].as_mut() {
+        held.release.splice(0..0, ran.release);
+        held.restore.splice(0..0, ran.restore);
+        held.invert.extend(ran.invert);
+    }
+    ran.press
 }
 
 /// Ends what `slot` holds: its own press, or a combo held on its partner.
@@ -966,6 +995,8 @@ fn end(state: &mut State, slot: u8, origin: Origin) -> Option<Vec<Effect>> {
 struct Ran {
     press: Vec<Effect>,
     release: Vec<Effect>,
+    /// [`Held::restore`].
+    restore: Vec<Effect>,
     /// The block of a momentary bypass ([`Held::invert`]).
     invert: Option<Site>,
 }
@@ -1000,7 +1031,7 @@ fn run(state: &mut State, key: (u8, u8, Gesture, u8), act: &Act) -> Ran {
                 true => Ran {
                     press: vec![edge(true)],
                     release: vec![edge(false)],
-                    invert: None,
+                    ..Ran::default()
                 },
                 false => Ran::press(vec![edge(true), edge(false)]),
             }
@@ -1023,7 +1054,7 @@ fn run(state: &mut State, key: (u8, u8, Gesture, u8), act: &Act) -> Ran {
                     true => act_on(vec![show(on)]),
                     false => Vec::new(),
                 },
-                invert: None,
+                ..Ran::default()
             }
         }
         StoredAction::System { action } => {
@@ -1112,8 +1143,8 @@ fn block_press(
                 site,
                 bypassed: !instance.bypass.at(current.deployment.scene()),
             }),
-            release: Vec::new(),
             invert: Some(site),
+            ..Ran::default()
         },
         (StoredTarget::Bypass, mode) => {
             let engaged = !instance.bypass.at(current.deployment.scene());
@@ -1132,11 +1163,11 @@ fn block_press(
             let set = |value| Action::SetParameter { site, index, value };
             Ran {
                 press: act(set(value)),
-                release: match mode {
+                restore: match mode {
                     Mode::Momentary { .. } => act(set(param.current)),
                     _ => Vec::new(),
                 },
-                invert: None,
+                ..Ran::default()
             }
         }
     })

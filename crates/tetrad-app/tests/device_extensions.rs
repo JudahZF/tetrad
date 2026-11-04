@@ -1420,6 +1420,28 @@ fn a_custom_switch_runs_several_actions_in_their_modes() {
     switch(&mut device, 1);
     switch(&mut device, 0);
     assert_eq!(block(&device), (bypassed, start), "the next press sets A");
+
+    // Each action reads what the one before left: two momentary bypasses of one block flip it
+    // twice, and the release leaves it where it started.
+    let bypass = SlotAction::Block {
+        position: light,
+        target: BlockTarget::Bypass,
+    };
+    for command in [
+        action(1, ActionEdit::Set(bypass)),
+        action(1, ActionEdit::Mode(ModeKind::Momentary)),
+    ] {
+        device.push(Event::Custom(command));
+        assert!(device.step().is_none());
+    }
+    switch(&mut device, 1);
+    assert_eq!(block(&device).0, bypassed, "flipped twice while held");
+    switch(&mut device, 0);
+    assert_eq!(
+        block(&device).0,
+        bypassed,
+        "and where it started after the release"
+    );
 }
 
 /// Footswitch presses of a switch with a double press wait for a second press, and two
