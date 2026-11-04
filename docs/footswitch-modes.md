@@ -162,7 +162,9 @@ the Scene Bypass Behaviour). An edit goes back to the stock data, so stock CorOS
 Control see it:
 
 - A bypass action in Toggle or Momentary on A–H of page 1 assigns its block to the switch. The
-  bypasses of one switch share Toggle or Momentary, as in Stomp mode.
+  bypasses of one switch share Toggle or Momentary, as in Stomp mode. A block can be on one of
+  these switches only: for a second switch, use **Set**.
+- **Nothing** on one of these switches stops its Stomp-mode data too.
 - A bypass in **Set** mode, a second Send MIDI and every other action are Tetrad data.
 - **Assign footswitch** in the block editor still assigns a block to a switch.
 

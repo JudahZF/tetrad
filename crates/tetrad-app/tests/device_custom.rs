@@ -274,7 +274,16 @@ fn stock_bypasses_move_and_older_layouts_keep_theirs() {
     settle(&mut device);
     assert_eq!(assignments(&device), [(0, 2, 0)]);
 
-    // An older layout field with a bypass on C: it shows and plays as a Custom action.
+    // An older layout field with a bypass on C: it shows and plays as a Custom action. (A
+    // lets the block go first: stock holds a block on one switch.)
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 0,
+        gesture: Gesture::Press,
+        edit: SlotEdit::Clear,
+    }));
+    settle(&mut device);
     let old = br#"{"format":2,"slots":[{"page":0,"slot":2,"actions":[
         {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}}]}]}"#;
     device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
@@ -354,4 +363,118 @@ fn a_stock_switch_too_big_to_store_does_not_move() {
     );
     assert_eq!(preset(&device).stomp_mode_assignments.len(), 1);
     assert_eq!(preset_a(&device).len(), 9, "nothing is lost");
+}
+
+/// A copy that puts one block's toggle on two of A–H is refused (stock holds a block on one
+/// switch), and Nothing stops a switch whose only stock data is a secondary assignment.
+#[test]
+fn stock_limits_copies_and_nothing_stops_hidden_stock_data() {
+    use tetrad_preset::{StompAssignment, StompRole};
+    let mut stored = light_preset(&STOCK.specs(), 2);
+    stored.stomp_mode_assignments.push(StompAssignment {
+        row: 0,
+        column: 2,
+        stomp_index: 1,
+        role: Some(StompRole::Secondary),
+        ..StompAssignment::default()
+    });
+    let media = Media::new([("Light", stored)]);
+    let (mut device, _log, _media) = boot_with_files(media, MemFiles::default());
+    settle(&mut device);
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+    let slot = |slot, edit| {
+        Event::Custom(CustomCommand::Slot {
+            scope: LayoutScope::Preset,
+            page: 0,
+            slot,
+            gesture: Gesture::Press,
+            edit,
+        })
+    };
+    let bypass = SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    let set = |action| SlotEdit::Action {
+        index: 0,
+        edit: ActionEdit::Set(action),
+    };
+    device.push(slot(0, set(bypass)));
+    settle(&mut device);
+    device.push(slot(0, SlotEdit::CopyTo { page: 0, slot: 3 }));
+    settle(&mut device);
+    let view = custom::view(device.state()).unwrap();
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("A block can toggle on one of A–H of page 1: use Set on the other")
+    );
+}
+
+/// Nothing stops the stock data of a switch, which a press would play otherwise.
+#[test]
+fn nothing_stops_the_stock_data() {
+    let (mut device, _media) = boot();
+    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
+    settle(&mut device);
+    let bypass = SlotAction::Block {
+        position: GridPosition::new(0, 2).unwrap(),
+        target: BlockTarget::Bypass,
+    };
+    edit_a(&mut device, 0, ActionEdit::Set(bypass));
+    edit_a(&mut device, 1, ActionEdit::Set(SlotAction::Nothing));
+    let start = bypassed(&device);
+    switch_a(&mut device, 1);
+    switch_a(&mut device, 0);
+    assert_eq!(bypassed(&device), start, "Nothing plays nothing");
+}
+
+/// An old footswitch mapping on a switch whose layout field is full shows as a ninth action;
+/// edits are refused until one goes, so neither is lost.
+#[test]
+fn old_mappings_over_the_limit_are_kept() {
+    let (mut device, _media) = boot();
+    let tuner = r#"{"action":{"kind":"system","action":"tuner"}}"#;
+    let field = format!(
+        r#"{{"format":2,"slots":[{{"page":0,"slot":0,"actions":[{}]}}]}}"#,
+        [tuner; 8].join(",")
+    );
+    let old = br#"{"format":1,"mappings":[
+        {"trigger":{"kind":"stomp","stomp":0},"action":{"kind":"system","action":{"scene":3}}}
+    ]}"#;
+    for edit in [
+        PresetEdit::CustomLayout(Some(field.into_bytes())),
+        PresetEdit::Mappings(Some(old.to_vec())),
+    ] {
+        device.push(Event::Action(Action::PresetEdit(edit)));
+        settle(&mut device);
+    }
+    assert_eq!(preset_a(&device).len(), 9);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(2)),
+    }));
+    settle(&mut device);
+    let view = custom::view(device.state()).unwrap();
+    assert_eq!(
+        view.notice.as_deref(),
+        Some("A switch runs at most 8 actions")
+    );
+    assert!(
+        preset(&device)
+            .unknown
+            .bytes_field(TETRAD_MAPPINGS_FIELD)
+            .is_some()
+    );
+    edit_a(&mut device, 0, ActionEdit::Remove);
+    assert!(
+        preset(&device)
+            .unknown
+            .bytes_field(TETRAD_MAPPINGS_FIELD)
+            .is_none()
+    );
+    assert_eq!(preset_a(&device).len(), 8);
 }

@@ -129,18 +129,16 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
                 })
             });
         actions.extend(moved);
-        // The stock actions are not cut: the stock data behind them is written back whole. The
-        // others go to the layout field, which holds `MAX_ACTIONS` per switch.
-        let mut own = 0;
-        actions.retain(|act| {
-            own += usize::from(!act.stock);
-            act.stock || own <= tetrad_ui::MAX_ACTIONS
-        });
+        // Nothing is cut: the stock data and the old mappings behind these actions are written
+        // back whole. A switch with more than a layout field holds refuses edits
+        // (`custom::change`) until actions are removed.
         binding.actions = actions;
-        // Secondary assignments run on a press too, though no action shows them.
-        binding.stock = (preset.stomp_mode_assignments.iter())
-            .any(|a| a.stomp_index == u32::from(stomp))
-            || binding.actions.iter().any(|act| act.stock);
+        // Secondary assignments run on a press too, though no action shows them; Nothing stops
+        // them.
+        let nothing = (binding.actions.iter()).any(|act| act.action == StoredAction::Nothing);
+        binding.stock = !nothing
+            && ((preset.stomp_mode_assignments.iter()).any(|a| a.stomp_index == u32::from(stomp))
+                || binding.actions.iter().any(|act| act.stock));
         let label = preset.single_stomp_labels.get(u32::from(stomp));
         if binding.label.is_none() {
             binding.label = label.filter(|label| !label.is_empty()).cloned();
@@ -163,6 +161,23 @@ pub(super) fn stored_count(binding: &Binding) -> usize {
             _ => true,
         })
         .count()
+}
+
+/// A block's bypass in Toggle or Momentary is on two of page 1's A–H: the stock data holds a
+/// block on one switch only.
+pub(super) fn shared_bypass(layout: &[Page]) -> bool {
+    let mut seen = Vec::new();
+    for slot in layout[0].slots.iter().take(usize::from(STOMPS)) {
+        for act in slot.press.actions.iter().filter(|act| stock_bypass(act)) {
+            if let StoredAction::Block { row, column, .. } = act.action {
+                if seen.contains(&(row, column)) {
+                    return true;
+                }
+                seen.push((row, column));
+            }
+        }
+    }
+    false
 }
 
 /// The stock stomp press or release of switch `stomp` (A–H on page 1 of the preset's

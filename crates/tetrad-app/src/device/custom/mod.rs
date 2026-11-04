@@ -429,8 +429,8 @@ struct Held {
     /// A combo is held on its lower switch; the first release of its two switches ends it.
     gesture: Gesture,
     release: Vec<Effect>,
-    /// What the release sets in the loaded preset's blocks: momentary parameters' values from
-    /// before the press. A preset load drops it.
+    /// What the release does to the loaded preset: momentary parameters' values from before the
+    /// press and the stock stomp release. A preset load drops it.
     restore: Vec<Effect>,
     /// Momentary bypasses: the release inverts these blocks' bypass as it is then, as a stock
     /// momentary release does, so overlapping presses of one block end where they started.
@@ -779,8 +779,13 @@ pub fn preset_loaded(state: &mut State) {
     for held in state.custom.held.iter_mut().flatten() {
         held.invert.clear();
         held.restore.clear();
-        // The stock release stays: stock skips it after a load (`perform.preset_loaded`).
-        held.stomp = None;
+        // The stock release goes with the restores: the stomp is no longer held.
+        if let Some(stomp) = held.stomp.take() {
+            let index = tetrad_core::performance::stomp::StompIndex::new(u32::from(stomp));
+            if let Some(index) = index {
+                state.perform.held.remove(&index);
+            }
+        }
     }
     state.custom.toggled = Default::default();
     state.custom.gestures.clear();
@@ -907,7 +912,8 @@ fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Optio
             stock::press(state, &binding, stomp, pressed)
         })
     };
-    let (mut effects, release) = (stocked(true), stocked(false));
+    // The stock release is the preset's: a preset load drops it ([`preset_loaded`]).
+    let (mut effects, stock_release) = (stocked(true), stocked(false));
     let stomp = stomp.filter(|_| !effects.is_empty());
     // Each action runs after the effects of the ones before ([`act`]).
     effects.extend(
@@ -918,8 +924,8 @@ fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Optio
         origin,
         page,
         gesture,
-        release,
-        restore: Vec::new(),
+        release: Vec::new(),
+        restore: stock_release,
         invert: Vec::new(),
         actions: binding.actions,
         stomp,
@@ -1513,6 +1519,9 @@ fn change(
             && slot < usize::from(stock::STOMPS)
             && gesture == Gesture::Press
     };
+    if scope == LayoutScope::Preset && stock::shared_bypass(&layout) {
+        return Err("A block can toggle on one of A–H of page 1: use Set on the other".into());
+    }
     for (p, page) in layout.iter().enumerate() {
         let slots = page.slots.iter().enumerate().flat_map(|(s, slot)| {
             let press = std::iter::once((s, Gesture::Press, &slot.press));
