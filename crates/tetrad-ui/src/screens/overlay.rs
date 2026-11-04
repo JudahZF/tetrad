@@ -1055,7 +1055,7 @@ fn assign_stomp(ui: &UiState, l: &mut Layout, position: GridPosition) {
     let s = &ui.snapshot;
     let letter = |tile: usize| char::from(b'A' + tile as u8);
     let stomps: Vec<usize> = (0..FOOTSWITCH_COUNT)
-        .filter(|tile| ui.tile_mode(*tile) == FootswitchMode::Stomp)
+        .filter(|tile| ui.assignable_tile(*tile))
         .collect();
     let body = match (stomps.first(), stomps.last()) {
         (Some(first), Some(last)) if stomps.len() < FOOTSWITCH_COUNT => format!(
@@ -1525,10 +1525,11 @@ const MAX_SLOTS: usize = 3;
 /// stay fixed under themes.
 const ROW_UPPER: Rgb = block::PITCH;
 const ROW_LOWER: Rgb = block::CAB;
+/// (O) Custom takes the place of stock Stomp mode (it is stored as Stomp).
 const SINGLE_MODES: [FootswitchMode; 3] = [
     FootswitchMode::Preset,
     FootswitchMode::Scene,
-    FootswitchMode::Stomp,
+    FootswitchMode::Custom,
 ];
 
 /// Remove target while a slot is dragged: "Drag Modes to the top-right corner to remove
@@ -1584,14 +1585,15 @@ impl Cycle {
     }
 
     /// Drop slot `from` on slot `onto`: two single modes become one hybrid slot at
-    /// `onto`; `onto` takes the first row (inferred).
+    /// `onto`; `onto` takes the first row (inferred). Custom has no hybrid (O).
     fn merge(&mut self, from: usize, onto: usize) -> bool {
         let (Some(&first), Some(&second)) = (self.modes.get(onto), self.modes.get(from)) else {
             return false;
         };
+        let single = |mode| matches!(mode, FootswitchMode::Preset | FootswitchMode::Scene);
         if from == onto
-            || first == FootswitchMode::Hybrid
-            || second == FootswitchMode::Hybrid
+            || !single(first)
+            || !single(second)
             || self.modes.contains(&FootswitchMode::Hybrid)
         {
             return false;
@@ -1651,7 +1653,7 @@ fn cycle_row(cycle: &Cycle) -> (Vec<Rect>, Option<Rect>) {
 /// [`UiState::drop_mode`] and [`UiState::modes_config`].
 /// Modes configuration ⓘ text (`0xa25f64`, a "MIDI" dialog with OK, `0x2d4f00`).
 const MODES_INFO: &str = "Mode Slot 1: CC#47 value 0\nMode Slot 2: CC#47 value 1\nMode Slot 3: \
-     CC#47 value 2\n\nThe default order for the slots is Preset Mode,\nScene Mode, Stomp \
+     CC#47 value 2\n\nThe default order for the slots is Preset Mode,\nScene Mode, Custom \
      Mode.\n\nIf a slot is empty, MIDI will not recall any mode.";
 
 fn modes(ui: &UiState, l: &mut Layout) {

@@ -259,38 +259,15 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         l.text(bounds, text, BODY_BOLD, ink, Align::Center);
     }
     let Some(layout) = custom.layout(edit.scope) else {
-        // THIS PRESET without a layout of its own.
+        // THIS PRESET without a loaded preset.
         let panel = Rect::new(8, 108, 784, 364);
         l.panel(panel, p.panel, 8.0, None);
-        let text = format!(
-            "{} uses the layout of all presets.",
-            if custom.preset.is_empty() {
-                "This preset"
-            } else {
-                custom.preset.as_str()
-            }
-        );
         l.text(
-            Rect::new(panel.x, panel.y + 110, panel.width, 32),
-            fit(&text, MEDIUM, (panel.width - 32) as f32),
+            panel,
+            "No preset is loaded.",
             MEDIUM,
-            p.text,
-            Align::Center,
-        );
-        l.text(
-            Rect::new(panel.x, panel.y + 142, panel.width, 28),
-            "Its own layout is saved in the preset and plays while it is loaded.",
-            CAPTION,
             p.muted,
             Align::Center,
-        );
-        l.button_in(
-            Rect::new(panel.x + 242, panel.y + 196, 300, 48),
-            Control::Custom(CustomControl::PresetLayout(true)),
-            !custom.preset.is_empty(),
-            "GIVE IT ITS OWN LAYOUT",
-            ButtonStyle::Primary,
-            BODY,
         );
         return;
     };
@@ -411,24 +388,35 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         },
         CAPTION,
     );
-    if edit.scope == LayoutScope::Preset {
-        l.button_in(
-            Rect::new(688, 58, 104, 42),
-            Control::Custom(CustomControl::PresetLayout(false)),
-            true,
-            "REMOVE",
-            ButtonStyle::Danger,
-            CAPTION,
-        );
-    }
     let Some(page) = layout.get(usize::from(edit.page)) else {
         return;
     };
     let bounds = |index: usize| tile_bounds(index, EDIT_TOP, EDIT_TILE, 94);
+    // A switch of THIS PRESET without actions plays the ALL PRESETS switch: it shows dimmed.
+    let global = (edit.scope == LayoutScope::Preset)
+        .then(|| custom.slots.get(usize::from(edit.page)))
+        .flatten();
     for (index, slot) in page.slots.iter().enumerate() {
         let switch = index as u8;
         let current = switch == edit.slot || edit.gesture == Gesture::Combo(switch);
-        tile(l, bounds(index), slot, SLOT_NAMES[index], false, current);
+        let inherited = global
+            .map(|global| &global.slots[index])
+            .filter(|_| slot.action.is_none() && slot.double.is_none());
+        tile(
+            l,
+            bounds(index),
+            inherited.unwrap_or(slot),
+            SLOT_NAMES[index],
+            false,
+            current,
+        );
+        if inherited.is_some_and(|global| global.action.is_some()) {
+            let veil = Look::Veil {
+                color: p.canvas,
+                alpha: 150,
+            };
+            l.push(bounds(index), "", veil);
+        }
         let control = Control::Custom(CustomControl::Select(switch));
         l.control(bounds(index), control, true, SLOT_NAMES[index], Look::Area);
         // A combo pairs only neighbours: the others dim.
@@ -508,9 +496,10 @@ fn clamped(edit: CustomEdit, custom: &CustomModeView) -> CustomEdit {
     };
     let actions = (custom.binding(edit.scope, edit.page, edit.slot, edit.gesture))
         .map_or(&[][..], |binding| &binding.actions);
-    let action = edit
-        .action
-        .filter(|&index| usize::from(index) <= actions.len().min(MAX_ACTIONS - 1));
+    let action = edit.action.filter(|&index| {
+        let index = usize::from(index);
+        index < actions.len() || (index == actions.len() && index < MAX_ACTIONS)
+    });
     let fields = action
         .and_then(|index| actions.get(usize::from(index)))
         .map_or(0, |action| action.fields.len());
@@ -877,6 +866,7 @@ fn action_icon(action: &SlotAction) -> Icon {
         SlotAction::LoadPreset | SlotAction::PresetSlot(_) => Icon::SaveArrow,
         SlotAction::SendMidi => Icon::Midi,
         SlotAction::Command { .. } => Icon::Plugin,
+        SlotAction::Nothing => Icon::Close,
     }
 }
 
@@ -1015,10 +1005,6 @@ impl UiState {
                 });
                 self.custom_edit.pending = (!same).then_some(wanted);
                 Vec::new()
-            }
-            C::PresetLayout(own) => {
-                self.custom_edit.pending = None;
-                vec![UiCommand::Custom(CustomCommand::PresetLayout(own))]
             }
             // A new action opens its editor with the action menu over it.
             C::OpenAction(index) => {
@@ -1300,13 +1286,15 @@ pub(crate) mod tests {
             slots: page,
             combos: Vec::new(),
         };
+        let slots = vec![Default::default(), page];
         CustomModeView {
             name: "Custom".into(),
-            extension: "Custom Footswitch Mode".into(),
+            extension: "Tetrad".into(),
             pages: 2,
             page: 0,
             active,
-            slots: vec![Default::default(), page],
+            playing: slots.clone(),
+            slots,
             preset_slots: None,
             preset: "Studio Crunch".into(),
             commands: Vec::new(),
@@ -1490,36 +1478,33 @@ pub(crate) mod tests {
         );
     }
 
-    /// THIS PRESET without a layout offers one; with one, its edits name that layout.
+    /// THIS PRESET edits name its layout; its empty switches show the ALL PRESETS ones, and its
+    /// action menu offers Nothing.
     #[test]
-    fn this_preset_gets_and_edits_its_own_layout() {
+    fn this_preset_edits_its_own_layout() {
         let mut ui = open(Screen::CustomMode, false);
-        activate(&mut ui, custom(CustomControl::Scope(LayoutScope::Preset)));
-        assert_eq!(
-            activate(&mut ui, custom(CustomControl::PresetLayout(true))),
-            sent(CustomCommand::PresetLayout(true))
-        );
         let mut own = view(false);
-        own.preset_slots = Some(own.slots.clone());
+        own.preset_slots = Some(vec![Default::default(); 2]);
         let snapshot = UiSnapshot {
             custom: Some(own),
             ..ui.snapshot().clone()
         };
         ui.set_snapshot(snapshot).expect("valid snapshot");
+        activate(&mut ui, custom(CustomControl::Scope(LayoutScope::Preset)));
         activate(&mut ui, custom(CustomControl::Tab(1)));
+        // A of page 2 shows the ALL PRESETS Green Drive under a veil.
+        let shown = ui.hit_regions();
+        assert!(shown.iter().any(|region| region.label == "A"));
+        activate(&mut ui, custom(CustomControl::OpenAction(0)));
         assert_eq!(
-            activate(&mut ui, custom(CustomControl::Clear)),
+            pick(&mut ui, "Nothing"),
             sent(CustomCommand::Slot {
                 scope: LayoutScope::Preset,
                 page: 1,
                 slot: 0,
                 gesture: Gesture::Press,
-                edit: SlotEdit::Clear,
+                edit: set(0, SlotAction::Nothing),
             })
-        );
-        assert_eq!(
-            activate(&mut ui, custom(CustomControl::PresetLayout(false))),
-            sent(CustomCommand::PresetLayout(false))
         );
     }
 
@@ -1599,6 +1584,7 @@ pub(crate) mod tests {
             label: "Tuner".into(),
             ..CustomSlotView::default()
         }));
+        only_double.playing = only_double.slots.clone();
         let mut ui = open(Screen::Gig, true);
         let snapshot = UiSnapshot {
             custom: Some(only_double),

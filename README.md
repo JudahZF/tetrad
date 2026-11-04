@@ -53,11 +53,12 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Mappings.** One page (⋮ → Mappings) for what footswitches, pedals, MIDI messages and
   extensions do: scenes, presets, tuner, tap tempo, Looper, block bypass and parameters, and
   Send MIDI. See [docs/mappings.md](docs/mappings.md).
-- **Custom footswitch mode.** Install the Custom Footswitch Mode extension for a fourth
-  footswitch mode: four pages of ten switches (A–D, Down, E–H, Tap). Each switch runs a press,
-  and it can also run a double press and a combo with a switch next to it. An action is a
-  scene, preset, block, MIDI message, system command, page change or extension command. You
-  set them on the unit. See [docs/footswitch-modes.md](docs/footswitch-modes.md).
+- **Custom footswitch mode.** Custom takes the place of Stomp mode: four pages of ten switches
+  (A–D, Down, E–H, Tap). Each switch runs up to eight actions on a press, and it can also run a
+  double press and a combo with a switch next to it. An action is a scene, preset, block, MIDI
+  message, system command, page change or extension command, with a mode as on the Mappings
+  page. Page 1 plays the preset's Stomp assignments, so stock presets work as before. See
+  [docs/footswitch-modes.md](docs/footswitch-modes.md).
 - **Themes.** Choose the colours of the UI in Settings → Tetrad → Appearance: Stock, Stage
   High Contrast, Slate, Ember, or your own theme files and extension themes. See
   [docs/themes.md](docs/themes.md).

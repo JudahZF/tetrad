@@ -199,7 +199,6 @@ export interface MappingsView {
 }
 export type MappingTriggerView =
   | { kind: "presetLoaded" }
-  | { kind: "stomp"; stomp: number }
   | { kind: "expression"; pedal: number }
   | { kind: "cc"; number: number }
   | { kind: "note"; number: number }
@@ -242,7 +241,7 @@ export interface MappingRow {
   } | null;
 }
 export type TriggerChoice =
-  | { kind: "presetLoaded" | "stomp" | "expression" | "midi"; label: string }
+  | { kind: "presetLoaded" | "expression" | "midi"; label: string }
   | { kind: "extension"; key: string; trigger: string; label: string };
 export interface ActionGroup {
   label: string;
@@ -250,7 +249,6 @@ export interface ActionGroup {
 }
 export type MappingTriggerInput =
   | { kind: "presetLoaded" }
-  | { kind: "stomp"; stomp: number }
   | { kind: "expression"; pedal: number }
   | { kind: "cc"; number: number }
   | { kind: "note"; number: number }
@@ -287,7 +285,9 @@ export type SlotActionView =
   | { kind: "block"; row: number; column: number; parameter: number | null }
   | { kind: "loadPreset" }
   | { kind: "sendMidi" }
-  | { kind: "command"; key: string; command: string };
+  | { kind: "command"; key: string; command: string }
+  /** THIS PRESET only: the switch plays nothing, not the ALL PRESETS switch. */
+  | { kind: "nothing" };
 /** One action of a switch, with a mode and values as a Mappings row has. */
 export interface SlotActionRow {
   action: SlotActionView;
@@ -329,12 +329,15 @@ export interface FootswitchBlock {
   location: string;
   parameters: { index: number; name: string }[];
 }
-export interface FootswitchMode {
+/** The Custom mode is part of Tetrad: `mode` is always there ("Custom", extension "Tetrad"). */
+export interface FootswitchView {
   mode: { name: string; extension: string; pages: number; page: number; active: boolean };
   preset: string;
   presetLoaded: boolean;
   /** 8 LED colours. */
   colours: string[];
+  /** `preset` is null only when no preset is loaded. A THIS PRESET press, double press or combo
+   *  without actions plays the ALL PRESETS one ("switch by switch"). */
   layouts: { global: LayoutPage[]; preset: LayoutPage[] | null };
   systems: { group: SystemGroup; label: string; action: SystemAction }[];
   blocks: FootswitchBlock[];
@@ -342,14 +345,14 @@ export interface FootswitchMode {
   setlists: string[];
   presets?: { setlist: string; slots: { slot: number; label: string }[] };
 }
-export type FootswitchView = { mode: null } | FootswitchMode;
 export type SlotActionInput =
   | { kind: "system"; action: SystemAction }
   | { kind: "block"; row: number; column: number; parameter?: number | null }
   | { kind: "loadPreset" }
   | { kind: "preset"; setlist: string; slot: number }
   | { kind: "sendMidi" }
-  | { kind: "command"; key: string; command: string };
+  | { kind: "command"; key: string; command: string }
+  | { kind: "nothing" };
 /** `index` names an action of the slot (0 without it); `action` at the number of actions adds one. */
 export type SlotEdit =
   | { kind: "action"; index?: number; action: SlotActionInput }
@@ -366,7 +369,6 @@ export type SlotEdit =
 export type FootswitchCommand =
   | { op: "slot"; scope: LayoutScope; page: number; slot: number; edit: SlotEdit }
   | { op: "copyPage"; scope: LayoutScope; from: number; to: number }
-  | { op: "presetLayout"; own: boolean }
   | { op: "presets"; setlist: string };
 
 /** The most actions a switch runs. */

@@ -123,15 +123,19 @@ the loaded preset leaves with the old catalog and is recalled with the new one.
 
 ## Custom footswitch mode
 
-An extension manifest can declare a footswitch mode (`footswitchMode`, API 4). Tetrad runs it:
-`tetrad-core` `FootswitchContext::custom` turns the ten switches into slot presses and Bank Up
-into the mode switch, and `tetrad-app` `device/custom.rs` keeps the layout, the page and the
-held presses in `State::custom`. A press runs through the action reducer
-(`Action::CustomSlot`) and reuses the Mappings system and block actions; its release effects
-are captured at the press. A preset can carry its own layout in the preset field 7003
-(`TETRAD_FOOTSWITCH_FIELD`); `custom::sync` decodes it again at each change of the preset, and
-it plays instead of the device layout. The mode is a layer over the stored stock mode, so the stock INI,
-Cortex Control and MIDI CC#47 never see it. See [footswitch-modes.md](footswitch-modes.md).
+Custom plays in the place of stock Stomp mode: it is on while the stored mode is Stomp, or a
+stored Stomp hybrid that Tetrad no longer offers (`custom::plays_custom`, followed by the
+settings mirror). The stock INI, Cortex Control and MIDI CC#47 keep the stored value: Stomp,
+or that hybrid. `tetrad-core` `FootswitchContext::custom` turns the ten switches into slot
+presses and Bank Up into the mode switch, and `tetrad-app` `device/custom/` keeps the layout,
+the page and the held presses in `State::custom`. A press runs each of its actions as an
+`Action::CustomAct`, after the effects of the one before, with the Mappings mode rules
+(`mappings/mode.rs`); its release effects are captured at the press. A preset can carry its own
+layout in the preset field 7003 (`TETRAD_FOOTSWITCH_FIELD`); `custom::sync` decodes it again at
+each change of the preset and merges the preset's stock Stomp data into page 1's A–H
+(`custom/stock.rs`). Each switch of it with actions plays instead of the device layout's. A
+press of a stock switch runs the stock stomp path (`input::stock_stomp`), and an edit writes the
+stock data back. See [footswitch-modes.md](footswitch-modes.md).
 
 ## Wi-Fi recovery
 

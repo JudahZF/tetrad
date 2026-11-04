@@ -17,6 +17,25 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Changed
 
+- The Custom footswitch mode is part of Tetrad and takes the place of Stomp mode: the cycle is
+  Preset → Scene → Custom, and the unit stores it as Stomp mode, so stock CorOS and Cortex
+  Control show Stomp mode. You do not need the Custom Footswitch Mode extension; its switches
+  move to `/media/p4/tetrad/footswitch-layout.json` at the first start
+  ([docs/footswitch-modes.md](docs/footswitch-modes.md)).
+  - Page 1's A–H of each preset play its Stomp-mode assignments, footswitch Preset MIDI Out
+    lists and Stomp labels through the stock Stomp path, and edits there go back to that stock
+    data. **Assign footswitch** in the block editor still works.
+  - THIS PRESET plays switch by switch: a preset switch with actions plays them, an empty one
+    plays the ALL PRESETS switch. The new **Nothing** action keeps a switch empty in one preset.
+    GIVE IT ITS OWN LAYOUT and REMOVE are gone.
+  - Hybrid modes with Stomp are gone (Preset and Scene hybrids stay); a stored one plays the
+    Custom mode. The Gig View stomp tiles and EDIT STOMP give way to the Custom tiles.
+  - Mappings has no footswitch trigger. Its **Footswitches** row opens the Custom mode, where
+    the footswitch mappings of a preset show and move with its next edit.
+  - A Cortex Control Gig View stomp tile presses that switch of the current page.
+  - The Remote Footswitch page and the phone app follow: no `presetLayout` command, and a
+    `nothing` action.
+
 - Extension programs (API 7) no longer run as root. A program runs as its own user (ID 2000)
   with no new privileges, in its data folder (`/media/p4/tetrad/program-data/<id>/`): it can
   write only there and in its own empty `/tmp` and `/dev/shm`, can read the unit's files (the

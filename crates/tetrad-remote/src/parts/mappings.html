@@ -1,6 +1,6 @@
 <section id="mappings" data-tab="Mappings" data-group="Controls">
   <h2>Mappings</h2>
-  <p class="lead">What a footswitch, a pedal, a MIDI message or an extension does. These are the lists of Mappings on the unit (Grid ⋮ → Mappings): an edit here shows there at once.</p>
+  <p class="lead">What a pedal, a MIDI message, a preset load or an extension does. These are the lists of Mappings on the unit (Grid ⋮ → Mappings): an edit here shows there at once. The footswitches are on the Footswitch page.</p>
   <div class="map-bar">
     <div class="map-tabs" role="tablist">
       <button type="button" class="small" role="tab" data-scope="preset">This preset</button>
@@ -59,7 +59,6 @@
 // again every second.
 {
   $("panes").append($("mappings"));
-  const STOMPS = ["Stomp A", "Stomp B", "Stomp C", "Stomp D", "Stomp E", "Stomp F", "Stomp G", "Stomp H"];
   const NOTES = {
     preset: "Saved in this preset: save the preset on the unit to keep it. Block actions are always per preset.",
     global: "Saved on the unit for all presets. A preset mapping with the same trigger wins.",
@@ -180,7 +179,7 @@
     const trigger = (next) => command("trigger", { trigger: next });
     const learning = !!data.learning && data.learning.scope === scope && data.learning.id === row.id;
 
-    // Type: a new type starts as on the unit: footswitch A, EXP 1, CC 20, or an extension
+    // Type: a new type starts as on the unit: EXP 1, CC 20, or an extension
     // trigger that waits for LEARN.
     const kinds = data.triggers[scope];
     const t = row.trigger;
@@ -192,7 +191,6 @@
       const k = kinds[Number(value)];
       const first = {
         presetLoaded: { kind: "presetLoaded" },
-        stomp: { kind: "stomp", stomp: 0 },
         expression: { kind: "expression", pedal: 1 },
         midi: { kind: "cc", number: 20 },
         extension: { kind: "extension", key: k.key, trigger: k.trigger },
@@ -202,10 +200,6 @@
 
     let source = [];
     if (t.kind === "presetLoaded") source = ["When", el("small", { textContent: "Each time this preset loads" })];
-    if (t.kind === "stomp") {
-      source = ["Footswitch", select(STOMPS.map((label, i) => ({ value: String(i), label })), String(t.stomp),
-        (value) => trigger({ kind: "stomp", stomp: Number(value) }))];
-    }
     if (t.kind === "expression") {
       source = ["Pedal", select([{ value: "1", label: "EXP 1" }, { value: "2", label: "EXP 2" }], String(t.pedal),
         (value) => trigger({ kind: "expression", pedal: Number(value) }))];

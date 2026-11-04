@@ -2160,14 +2160,14 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 "modes" => vec![
                     FootswitchMode::Preset,
                     FootswitchMode::Scene,
-                    FootswitchMode::Stomp,
+                    FootswitchMode::Custom,
                 ],
                 "modes-hybrid" => vec![FootswitchMode::Preset, FootswitchMode::Hybrid],
                 _ => vec![FootswitchMode::Scene],
             };
             snapshot.hybrid = HybridRows {
                 upper: FootswitchMode::Scene,
-                lower: FootswitchMode::Stomp,
+                lower: FootswitchMode::Preset,
             };
             ui.set_snapshot(snapshot)?;
             activate(&mut ui, Control::OpenMainMenu);
@@ -3285,19 +3285,42 @@ fn custom_fixture() -> Result<CustomModeView, UiError> {
         slots: first,
         combos: vec![lead],
     };
-    Ok(CustomModeView {
-        name: "Custom".into(),
-        extension: "Custom Footswitch Mode".into(),
-        pages: 4,
-        page: 0,
-        active: true,
-        slots: vec![
+    // THIS PRESET plays its own E (a scene) and Nothing on H; the other switches are the ALL
+    // PRESETS ones.
+    let mut own = <[CustomSlotView; CUSTOM_SLOTS]>::default();
+    own[4] = slot("Verse", "Scene", [0x0a, 0x74, 0xe0], false, scene(1));
+    own[7] = slot(
+        "Nothing",
+        "Not the switch of all presets",
+        [0x3a; 3],
+        false,
+        SlotAction::Nothing,
+    );
+    let mut playing = first.clone();
+    playing.slots[4] = own[4].clone();
+    playing.slots[7] = own[7].clone();
+    let own = CustomPageView {
+        slots: own,
+        combos: Vec::new(),
+    };
+    let pages = |first| {
+        vec![
             first,
             Default::default(),
             Default::default(),
             Default::default(),
-        ],
-        preset_slots: None,
+        ]
+    };
+    let slots = pages(first);
+    Ok(CustomModeView {
+        name: "Custom".into(),
+        extension: "Tetrad".into(),
+        pages: 4,
+        page: 0,
+        active: true,
+        playing: pages(playing),
+        slots,
+        preset_slots: Some(pages(own)),
         preset: "Studio Crunch".into(),
         commands: vec![CommandChoice {
             key: "tetrad-dev/extensions:control-macro".into(),

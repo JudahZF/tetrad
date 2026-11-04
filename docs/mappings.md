@@ -1,8 +1,9 @@
 # Mappings
 
-Mappings is one page for everything that a footswitch, a pedal, a MIDI message or an extension
-does on your Quad Cortex. Open it from the Grid: **⋮ → Mappings**. In Tetrad it replaces the
-stock **Preset MIDI Out** item.
+Mappings is one page for everything that a pedal, a MIDI message or an extension does on your
+Quad Cortex. Open it from the Grid: **⋮ → Mappings**. In Tetrad it replaces the stock **Preset
+MIDI Out** item. The footswitches are on the [Custom mode](footswitch-modes.md) page: the
+**Footswitches** row at the top of THIS PRESET opens it.
 
 <p align="center">
   <img src="images/mappings.png" width="600" alt="The Mappings page: the footswitch and expression pedal assignments of a preset">
@@ -16,7 +17,7 @@ The page has two tabs:
 
 | Tab | Saved in | Triggers | Actions |
 | --- | --- | --- | --- |
-| **THIS PRESET** | The loaded preset | Preset loaded, footswitches A–H, EXP 1 and 2, MIDI, extension triggers | System, blocks, Send MIDI |
+| **THIS PRESET** | The loaded preset | Preset loaded, EXP 1 and 2, MIDI, extension triggers | System, blocks, Send MIDI |
 | **GLOBAL** | The unit (`/media/p4/tetrad/mappings.json`) | MIDI, extension triggers | System |
 
 - Block actions are always saved in the preset, because each preset has its own blocks.
@@ -27,14 +28,14 @@ The page has two tabs:
 ## Add or change a mapping
 
 1. Tap **+**, or tap a row.
-2. Choose the **Type** of the trigger and its details (a footswitch letter, a pedal, a MIDI
-   message or an extension source). For MIDI and extension triggers, tap **LEARN** and send the
+2. Choose the **Type** of the trigger and its details (a pedal, a MIDI message or an extension
+   source). For MIDI and extension triggers, tap **LEARN** and send the
    message: the next free message becomes the trigger.
 3. Tap the **Action** row. The action menu has three parts:
    - **SYSTEM**: next or previous preset, a scene (or next/previous scene), the tuner, tap
-     tempo, a footswitch mode, Gig View, and the Looper buttons. With the
-     [Custom footswitch mode](footswitch-modes.md#control-it-with-midi) installed, also its
-     pages and a press of each of its switches.
+     tempo, a footswitch mode, Gig View, and the Looper buttons, and the
+     [Custom mode](footswitch-modes.md#control-it-with-midi)'s pages and a press of each of its
+     switches.
    - **BLOCKS** (This preset only): a block of the preset, then its bypass or one of its
      parameters.
    - **MIDI OUT** (This preset only): Send MIDI. Tap **Edit messages** to set the messages in
@@ -62,10 +63,11 @@ that fit the trigger and the action. A new mapping starts in the first one.
 
 - Values show in the parameter's own units ("12.0 dB", "Plate"). The − and + buttons move by
   the parameter's own step.
-- Follow and Relative are for CC triggers. Footswitches, notes and extension presses use Set,
-  Toggle, Momentary and Step. Preset loaded uses Set, or Toggle for bypass, tuner and Gig View.
-- A footswitch releases when you lift it and a note releases on its note-off. Extensions say
-  when a press ends (MIDI Mapper 0.3.0 and later does).
+- Follow and Relative are for CC triggers. Notes and extension presses use Set, Toggle,
+  Momentary and Step. Preset loaded uses Set, or Toggle for bypass, tuner and Gig View. The
+  switches of the Custom mode use the same modes.
+- A note releases on its note-off. Extensions say when a press ends (MIDI Mapper 0.3.0 and
+  later does).
 - **On press** runs an action once on each press: scene, preset, mode and tap tempo actions
   always, a Looper button as a tap. A Looper button can also be **Momentary** (held while you
   hold).
@@ -105,11 +107,13 @@ a scene change or a touch edit, the knob waits again.
 Some rows are stock preset data. Tetrad shows them in the list and edits the stock data, so
 stock CorOS still reads them:
 
-- **Footswitch → block bypass** is the preset's Stomp-mode assignment. Its Toggle or Momentary
-  mode is the footswitch's stock momentary setting, for every block on that footswitch. Set is
-  not stock: it makes the row a Tetrad mapping.
 - **EXP 1 or 2 → block** is the block's expression link.
-- **Preset loaded, footswitch or EXP → Send MIDI** is the preset's Preset MIDI Out list.
+- **Preset loaded or EXP → Send MIDI** is the preset's Preset MIDI Out list.
+
+The preset's Stomp-mode assignments and the footswitch MIDI Out lists show on page 1 of the
+[Custom mode](footswitch-modes.md#stomp-mode-data-on-page-1). A footswitch mapping from Tetrad
+0.1.0-alpha.10 or earlier shows there too, and moves to the Custom mode with the next edit of
+the preset's switches.
 
 Every other mapping is Tetrad data. In a preset it is kept in one extra field that stock CorOS
 ignores and keeps when it saves the preset.

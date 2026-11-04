@@ -327,7 +327,9 @@ fn list(ui: &UiState, l: &mut Layout) {
         );
     }
     l.panel(LIST, p.panel, 8.0, None);
-    if rows.is_empty() {
+    // (O) The footswitches are the Custom mode's: THIS PRESET opens with a row that goes there.
+    let link = tab == MappingScope::Preset;
+    if rows.is_empty() && !link {
         l.text(
             LIST,
             "Tap + to add a mapping.",
@@ -337,11 +339,32 @@ fn list(ui: &UiState, l: &mut Layout) {
         );
         return;
     }
-    let content = rows.len() as u32 * ROW;
+    let first = i32::from(link) * ROW as i32;
+    let content = (rows.len() as u32 + u32::from(link)) * ROW;
     let offset = ui.offset(ListId::Mappings);
     l.scroll(ListId::Mappings, LIST, content, offset, |l, top| {
+        if link {
+            let bounds = Rect::new(LIST.x, top, LIST.width, ROW);
+            let open = Control::Custom(CustomControl::Edit);
+            l.control(bounds, open, true, "FOOTSWITCHES", Look::Area);
+            let icon = Rect::new(bounds.x + 12, bounds.y, 40, ROW);
+            glyph(l, icon, Icon::Footswitch, IconSize::Medium, p.accent);
+            let text = ("Footswitches", "Their actions are on the Custom mode page");
+            lines(
+                l,
+                bounds,
+                (bounds.x + 52, bounds.right() - 48),
+                text,
+                p.accent,
+            );
+            chevron(l, bounds);
+            if !rows.is_empty() {
+                divider(l, bounds);
+            }
+        }
         for (index, row) in rows.iter().enumerate() {
-            let bounds = Rect::new(LIST.x, top + (index as u32 * ROW) as i32, LIST.width, ROW);
+            let y = top + first + (index as u32 * ROW) as i32;
+            let bounds = Rect::new(LIST.x, y, LIST.width, ROW);
             list_row(ui, l, bounds, index as u16, row);
         }
     });
@@ -817,16 +840,11 @@ impl<'a> Kind<'a> {
     }
 }
 
-/// The Type dropdown of a scope: Preset loaded, footswitches and pedals only in a preset;
-/// then MIDI on the QC channel and the extensions' triggers.
+/// The Type dropdown of a scope: Preset loaded and pedals only in a preset; then MIDI on the
+/// QC channel and the extensions' triggers. The footswitches are the Custom mode's (O).
 fn kinds(view: &MappingsView, scope: MappingScope) -> Vec<Kind<'_>> {
     let own: &[Kind] = match scope {
-        MappingScope::Preset => &[
-            Kind::PresetLoaded,
-            Kind::Stomp,
-            Kind::Expression,
-            Kind::Midi,
-        ],
+        MappingScope::Preset => &[Kind::PresetLoaded, Kind::Expression, Kind::Midi],
         MappingScope::Global => &[Kind::Midi],
     };
     let extensions = view.extension_triggers.iter().map(Kind::Extension);
@@ -924,7 +942,10 @@ fn mapping_action(action: SlotAction) -> Option<MappingAction> {
         SlotAction::System(action) => MappingAction::System(action),
         SlotAction::Block { position, target } => MappingAction::Block { position, target },
         SlotAction::SendMidi => MappingAction::SendMidi,
-        SlotAction::LoadPreset | SlotAction::PresetSlot(_) | SlotAction::Command { .. } => {
+        SlotAction::LoadPreset
+        | SlotAction::PresetSlot(_)
+        | SlotAction::Command { .. }
+        | SlotAction::Nothing => {
             return None;
         }
     })
@@ -1017,6 +1038,11 @@ pub(super) fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
                 entries.push(Entry::Header("EXTENSIONS"));
                 entries.push(open(Icon::Plugin, "Commands", ActionMenu::Extensions));
             }
+            // A switch of THIS PRESET can play nothing instead of the ALL PRESETS switch.
+            if slot && ui.custom_edit.scope == LayoutScope::Preset {
+                entries.push(Entry::Header("THIS PRESET"));
+                entries.push(set(Icon::Close, "Nothing", SlotAction::Nothing));
+            }
             entries
         }
         ActionMenu::Preset => {
@@ -1095,11 +1121,10 @@ pub(super) fn entries(ui: &UiState, menu: ActionMenu) -> Vec<Entry<'_>> {
             [
                 ("Preset mode", S::Mode(ModeChoice::Preset)),
                 ("Scene mode", S::Mode(ModeChoice::Scene)),
-                ("Stomp mode", S::Mode(ModeChoice::Stomp)),
-            ]
-            .into_iter()
-            .chain(custom.map(|_| ("Custom mode", S::Mode(ModeChoice::Custom))))
-            .chain([("Next mode", S::NextMode)]),
+                // Custom plays in the place of Stomp mode.
+                ("Custom mode", S::Mode(ModeChoice::Custom)),
+                ("Next mode", S::NextMode),
+            ],
         ),
         ActionMenu::Custom => {
             let Some(custom) = custom else {
@@ -1890,14 +1915,15 @@ pub(crate) mod tests {
             activate(&mut ui, Control::Choose(2)),
             set(Trigger::Stomp(2))
         );
+        // Preset loaded, Expression pedal, MIDI, then the extensions: no footswitches.
         activate(&mut ui, map(MappingControl::Choice(MappingChoice::Kind)));
         assert_eq!(
-            activate(&mut ui, Control::Choose(3)),
+            activate(&mut ui, Control::Choose(2)),
             set(Trigger::Midi(MidiInput::Cc(FIRST_FREE_CC)))
         );
         activate(&mut ui, map(MappingControl::Choice(MappingChoice::Kind)));
         assert_eq!(
-            activate(&mut ui, Control::Choose(4)),
+            activate(&mut ui, Control::Choose(3)),
             set(Trigger::Extension {
                 key: MAPPER.into(),
                 trigger: "midi".into(),

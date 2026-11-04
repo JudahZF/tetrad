@@ -1,40 +1,41 @@
 # Custom footswitch mode
 
-The **Custom Footswitch Mode** extension adds a fourth footswitch mode next to Preset, Scene and
-Stomp. The mode has four pages. On each page, ten footswitches are yours: A, B, C, D and Down
-on the top row, and E, F, G, H and Tap on the bottom row. Each footswitch runs up to eight
-actions that you choose, such as a scene, a preset, a block, MIDI, a system action, a page
-change or a command of another extension. Each action has a mode, as on the
-[Mappings](mappings.md#modes) page.
+Tetrad's **Custom** mode takes the place of stock Stomp mode, next to Preset and Scene. The
+mode has four pages. On each page, ten footswitches are yours: A, B, C, D and Down on the top
+row, and E, F, G, H and Tap on the bottom row. Each footswitch runs up to eight actions that
+you choose, such as a scene, a preset, a block, MIDI, a system action, a page change or a
+command of an extension. Each action has a mode, as on the [Mappings](mappings.md#modes) page.
 
-Tetrad runs the mode itself. The extension only adds it, so it runs no code, and a footswitch
-press never waits for an extension.
+Page 1 of each preset plays the preset's Stomp-mode assignments on A–H, so your presets work as
+they did in Stomp mode ([Stomp-mode data on page 1](#stomp-mode-data-on-page-1)).
 
 - [Turn it on](#turn-it-on)
 - [Choose the actions](#choose-the-actions)
 - [Copy and move switches](#copy-and-move-switches)
-- [A layout for one preset](#a-layout-for-one-preset)
+- [Switches for one preset](#switches-for-one-preset)
+- [Stomp-mode data on page 1](#stomp-mode-data-on-page-1)
 - [Bank Up and the other switches](#bank-up-and-the-other-switches)
 - [Control it with MIDI](#control-it-with-midi)
 - [Where it is saved](#where-it-is-saved)
-- [Add a footswitch mode to your extension](#add-a-footswitch-mode-to-your-extension)
 
 ## Turn it on
 
-1. Install **Custom Footswitch Mode** (Settings → Tetrad → Extensions, see
-   [extensions.md](extensions.md#install)).
-2. Go to the next mode until the mode button shows **CUSTOM**: tap the mode button of the Grid
-   or Gig View, or press **Down** and **Tap** together. The mode comes after the stock modes in
-   the cycle: Preset → Scene → Stomp → Custom → Preset. In the Custom mode, **Bank Up** goes to
-   the next mode.
+Go to the next mode until the mode button shows **CUSTOM**: tap the mode button of the Grid or
+Gig View, or press **Down** and **Tap** together. The cycle is Preset → Scene → Custom → Preset
+(Settings › Modes changes it, as in stock). In the Custom mode, **Bank Up** goes to the next
+mode.
 
-The mode starts on page 1. When you restart the unit in the Custom mode, it comes back in the
-Custom mode.
+The unit stores the mode as Stomp mode, so stock CorOS and Cortex Control show Stomp mode. The
+mode starts on page 1. Tetrad has no hybrid mode with Custom: a unit that had a Stomp hybrid
+(such as Scene over Stomp) plays the Custom mode instead. Hybrids of Preset and Scene stay.
+
+You do not need the Custom Footswitch Mode extension of Tetrad 0.1.0-alpha.10 and earlier. Its
+switches move to Tetrad the first time Tetrad starts, and you can remove the extension.
 
 ## Choose the actions
 
-Open the editor with **EDIT** in Gig View, or with **EDIT** under "Footswitch mode" on the
-extension's page.
+Open the editor with **EDIT** in Gig View, or with the **Footswitches** row of the
+[Mappings](mappings.md) page.
 
 <p align="center">
   <img src="images/custom-edit.png" width="600" alt="The editor of the Custom mode: four page tabs, PRESS, DOUBLE and COMBO, the ten switches of page 1, and the label, colour and two actions of switch D">
@@ -107,8 +108,10 @@ release the switch, so Momentary still works.
 
 Only the footswitches do double presses and combos. MIDI CC#35 to 42 press the switches too: two
 messages for one switch within the double press time are a double press. They cannot make a
-combo, because each message presses and releases its switch at once. A Gig View tap and the
-**Press** actions of Mappings run the press at once. A page change drops a press that waits.
+combo, because each message presses and releases its switch at once. One exception: on page
+1, a switch that plays the preset's Stomp-mode data in Momentary gets the press from one
+message and the release from the next, as in Stomp mode. A Gig View tap and the **Press**
+actions of Mappings run the press at once. A page change drops a press that waits.
 
 The trash button clears the action that shows. In PRESS, it clears the whole switch, its double
 press too. COPY and MOVE take the whole switch (its press, double press and colour); combos
@@ -124,23 +127,57 @@ stay where they are. COPY PAGE copies the combos of the page too.
 To put a switch on another page, tap COPY or MOVE, then the page tab, then the switch. Tap the
 button again, or ✓, to cancel.
 
-### A layout for one preset
+### Switches for one preset
 
-The **ALL PRESETS** layout plays in every preset. A preset can have its own layout instead:
+The **ALL PRESETS** layout plays in every preset. **THIS PRESET** holds the loaded preset's own
+switches, and they play instead, switch by switch:
 
-1. Load the preset and open the editor.
-2. Tap **THIS PRESET**, then **GIVE IT ITS OWN LAYOUT**. The preset gets a copy of the ALL
-   PRESETS layout.
-3. Change the switches as for ALL PRESETS.
-4. Save the preset to keep its layout, as for any other edit of the preset.
+- A switch of THIS PRESET with actions plays them. A switch without actions plays the ALL
+  PRESETS switch. The editor shows that one dimmed.
+- To make a switch play nothing in this preset, give it the **Nothing** action (THIS PRESET in
+  the action menu).
+- The same rule applies to a double press and to a combo.
 
-While that preset is loaded, its own layout plays. **REMOVE** (in THIS PRESET) deletes it, and
-the preset plays the ALL PRESETS layout again. Stock CorOS ignores the layout and keeps it when it
-saves the preset.
+Save the preset to keep its switches, as for any other edit of the preset. Stock CorOS ignores
+them and keeps them when it saves the preset.
+
+<p align="center">
+  <img src="images/custom-preset.png" width="600" alt="THIS PRESET: E plays a scene and H plays nothing in this preset; the other switches are the ALL PRESETS ones, dimmed">
+</p>
 
 A block action is for the block in that grid position, in each preset. If a preset has no block
 there, the switch does nothing in that preset. A parameter action also needs the same block
 model as when you chose it.
+
+### Stomp-mode data on page 1
+
+Switches A–H on page 1 of THIS PRESET show the preset's Stomp-mode data, which stock CorOS
+reads:
+
+- each block that the switch toggles in Stomp mode, as a bypass action: **Toggle**, or
+  **Momentary** when the switch is momentary in Stomp mode;
+- the switch's Preset MIDI Out list, as a **Send MIDI** action;
+- the switch's Stomp label, as its label.
+
+A press of the switch runs them as stock Stomp mode does (with the secondary block toggles and
+the Scene Bypass Behaviour). An edit goes back to the stock data, so stock CorOS and Cortex
+Control see it:
+
+- A bypass action in Toggle or Momentary on A–H of page 1 assigns its block to the switch.
+  Stock has one Toggle or Momentary for each switch: the bypasses in the mode of the first one
+  are stock data, and a bypass in the other mode is Tetrad data. A block can be on one of these
+  switches only: for a second switch, use **Set**.
+- **Nothing** on one of these switches stops its Stomp-mode data too.
+- A press plays the Stomp-mode data first. So only the first actions of a switch can be
+  Stomp-mode data. A bypass after another action stays Tetrad data, so the order of the
+  actions does not change.
+- A bypass in **Set** mode, a bypass of a block that is not there, a Send MIDI without
+  messages, a second Send MIDI and every other action are Tetrad data.
+- **Assign footswitch** in the block editor still assigns a block to a switch.
+
+The footswitch mappings of Tetrad 0.1.0-alpha.10 and earlier (a footswitch trigger on the
+Mappings page) show here too, after the Stomp-mode data. The next edit of the preset's switches
+moves them from the Mappings data to the preset's switches.
 
 ### LEDs and Gig View
 
@@ -178,39 +215,13 @@ These actions do nothing while the Custom mode is off.
 
 ## Where it is saved
 
-- The ALL PRESETS switches: `/media/p4/tetrad/footswitch-modes/<repository>~<extension>.json`.
-  When you remove the extension, the file stays, so a new install keeps your switches.
-- The layout of one preset: in the preset (a Tetrad field that stock CorOS keeps).
+- The ALL PRESETS switches: `/media/p4/tetrad/footswitch-layout.json`. When the file is missing,
+  Tetrad reads the switches of the Custom Footswitch Mode extension of Tetrad 0.1.0-alpha.10
+  and earlier (`/media/p4/tetrad/footswitch-modes/`) once and writes them there.
+- The switches of one preset: in the preset (a Tetrad field that stock CorOS keeps), with the
+  Stomp-mode data in the stock fields.
 - A layout from Tetrad 0.1.0-alpha.10 or earlier (one action per switch) reads as before: a
   parameter's value becomes Set, a momentary bypass and a Looper button become Momentary. Tetrad
   writes it in the new format, which older Tetrad builds do not read.
-- Whether the mode is on, and the double press and combo times:
-  `/media/p4/tetrad/footswitch-mode.json`.
-
-Stock CorOS does not read these files. Cortex Control and MIDI CC#47 see the stock mode under
-the Custom mode.
-
-## Add a footswitch mode to your extension
-
-An extension with manifest API 4 can add a footswitch mode:
-
-```json
-{
-  "id": "my.footswitches",
-  "name": "My Footswitches",
-  "version": "0.1.0",
-  "api": 4,
-  "footswitchMode": { "name": "Custom", "pages": 4 }
-}
-```
-
-- `name`: 1 to 16 characters. The mode button shows it in capitals.
-- `pages`: 1 to 4.
-
-A manifest with only a footswitch mode is data only: it needs no `src/` and no build, and
-`tetrad-ext package` packs it without a module. An extension with code can add a mode too, and
-its commands can be switch actions.
-
-Only one footswitch mode can be on. When two enabled extensions add one, the mode of the first
-by its install key is used, and the page of the other says so. Tetrad builds before API 4 do not
-show the package in the catalog.
+- The double press and combo times: `/media/p4/tetrad/footswitch-mode.json`.
+- The mode: the stock footswitch mode setting (Stomp).

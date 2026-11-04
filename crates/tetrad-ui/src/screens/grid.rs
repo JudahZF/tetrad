@@ -1447,8 +1447,7 @@ fn parameter_panel(ui: &UiState, l: &mut Layout, position: GridPosition) {
     );
     // FOOTSWITCH ASSIGNMENT (shot 058) while any tile is a stomp: footswitch glyph and
     // the tile letter, or "?" unassigned. Stock (`b4-stock1`) has no divider here.
-    let stomp_button =
-        (0..FOOTSWITCH_COUNT).any(|tile| ui.tile_mode(tile) == FootswitchMode::Stomp);
+    let stomp_button = (0..FOOTSWITCH_COUNT).any(|tile| ui.assignable_tile(tile));
     let left_of_scenes = if stomp_button { 422 } else { 494 };
     let tabs_right = left_of_scenes - 8;
     let name_right = tab_bar(ui, l, tabs_right, header);

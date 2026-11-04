@@ -364,12 +364,6 @@ pub enum Effect {
     ExtensionMidi(tetrad_midi::MidiMessage),
     /// A native-channel message the stock MIDI map gives no job (`mappings::Mappings::on_midi`).
     MappingMidi(tetrad_midi::MidiMessage),
-    /// A Stomp-mode footswitch press or release, 0..=7, for the preset's mappings
-    /// (`mappings::Mappings::on_stomp`).
-    MappingStomp {
-        stomp: u8,
-        pressed: bool,
-    },
     /// MIDI output an extension or a Custom mode slot sent, through the controller's
     /// transmit path.
     ExtensionMidiOut(tetrad_midi::MidiMessage),
@@ -890,7 +884,7 @@ impl State {
                 scene_copy: false,
                 gig_view_access: stored.general.gig_view_stomp_access,
                 bank_size: input::bank_size(platform, &stored.mode),
-                custom: false,
+                custom: custom::plays_custom(stored.mode.mode()),
             },
             tap: TapTempo::default(),
             held: 0,
@@ -2630,12 +2624,6 @@ impl<P: Platform> Device<P> {
                 self.apply(Ok::<_, DeviceError>(effects));
                 Ok(())
             }
-            Effect::MappingStomp { stomp, pressed } => {
-                let effects =
-                    (self.bridges.mappings).on_stomp(stomp, pressed, &self.state, self.clock.now());
-                self.apply(Ok::<_, DeviceError>(effects));
-                Ok(())
-            }
             Effect::ExtensionMidiOut(message) => {
                 let effects = self.bridges.midi.transmit(&message, &self.state);
                 self.apply(effects);
@@ -2653,8 +2641,7 @@ impl<P: Platform> Device<P> {
                 Ok(())
             }
             Effect::CustomModeChanged => {
-                let bytes =
-                    (self.state.custom).active_file(self.state.performance.footswitch.custom);
+                let bytes = self.state.custom.active_file();
                 self.write_file(custom::ACTIVE_FILE, &bytes, "Footswitch mode not saved");
                 Ok(())
             }
@@ -3331,7 +3318,9 @@ impl<P: Platform> Device<P> {
         }
     }
 
-    /// Reads the Custom mode's stored state ([`custom::ACTIVE_FILE`]) at start-up.
+    /// Reads the Custom mode's stored state at start-up: the times ([`custom::ACTIVE_FILE`]) and
+    /// the ALL PRESETS layout ([`custom::LAYOUT_FILE`]). Without the layout file, the layout of
+    /// the extension that added the mode before (Tetrad 0.1.0-alpha.10 and earlier) moves to it.
     fn load_custom(&mut self) {
         use tetrad_services::exec::Files;
         let files = self.platform.services().files();
@@ -3343,37 +3332,53 @@ impl<P: Platform> Device<P> {
         if let Some(problem) = problem {
             self.notice(Subsystem::Extensions, format!("Footswitch mode: {problem}"));
         }
+        let read =
+            |files: &mut dyn Files, path: &Path| match files.read_bounded(path, custom::MAX_FILE) {
+                Ok(None) => None,
+                Ok(Some(bytes)) if bytes.len() as u64 > custom::MAX_FILE => {
+                    Some(Err("the file is too large".to_owned()))
+                }
+                Ok(Some(bytes)) => Some(Ok(bytes)),
+                Err(error) => Some(Err(error.to_string())),
+            };
+        let files = self.platform.services().files();
+        let mut layout = read(files, Path::new(custom::LAYOUT_FILE));
+        let mut moved = false;
+        if layout.is_none() {
+            let dir = Path::new(custom::OLD_LAYOUT_DIR);
+            let named = self
+                .state
+                .custom
+                .old_layout_stem()
+                .map(|stem| format!("{stem}.json"));
+            let mut names: Vec<String> = (files.list_dir(dir).ok().flatten().unwrap_or_default())
+                .into_iter()
+                .map(|entry| entry.name)
+                .filter(|name| name.ends_with(".json"))
+                .collect();
+            names.sort();
+            let name = named
+                .filter(|named| names.contains(named))
+                .or(names.into_iter().next());
+            if let Some(name) = name {
+                layout = read(files, &dir.join(name));
+                moved = true;
+            }
+        }
+        let (effects, decoded) = custom::load_layout(&mut self.state, layout);
+        self.apply(Ok::<_, DeviceError>(effects));
+        // An old layout that does not decode stays where it is, to be read again.
+        if moved && decoded {
+            let bytes = self.state.custom.layout_file();
+            self.write_file(custom::LAYOUT_FILE, &bytes, "Footswitch layout not saved");
+        }
     }
 
-    /// The installation that provides the Custom mode, after any extension change: a new one
-    /// brings its stored layout.
+    /// The commands of the running extensions, for the Command action of the Custom mode.
     pub(in crate::device) fn sync_custom(&mut self) {
-        use tetrad_services::exec::Files;
-        let provider = self.bridges.extensions.footswitch_mode();
         self.state
             .custom
             .set_commands(self.bridges.extensions.command_choices());
-        let changed =
-            (self.state.custom.provider()).map(|p| &p.key) != provider.as_ref().map(|p| &p.key);
-        let layout = (provider.as_ref())
-            .filter(|_| changed)
-            .and_then(|provider| {
-                let files = self.platform.services().files();
-                let path = provider.layout_path();
-                match files.read_bounded(Path::new(&path), custom::MAX_FILE) {
-                    Ok(None) => None,
-                    Ok(Some(bytes)) if bytes.len() as u64 > custom::MAX_FILE => {
-                        Some(Err("the file is too large".to_owned()))
-                    }
-                    Ok(Some(bytes)) => Some(Ok(bytes)),
-                    Err(error) => Some(Err(error.to_string())),
-                }
-            });
-        let effects = custom::set_provider(&mut self.state, provider, layout);
-        if !effects.is_empty() {
-            self.present = true;
-        }
-        self.apply(Ok::<_, DeviceError>(effects));
     }
 
     fn custom_command(&mut self, command: tetrad_ui::CustomCommand) -> Vec<Effect> {

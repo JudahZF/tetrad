@@ -3,11 +3,11 @@
 
 use std::time::Duration;
 
+use tetrad_app::device::custom::Origin;
 use tetrad_app::device::input::{Input, POWER_LONG_PRESS, VOLUME_REPEAT};
 use tetrad_app::device::midi::Trigger;
 use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Action, DspCommand, Effect, PowerAction, PresetRef, State, Timer};
-use tetrad_core::performance::StompIndex;
 use tetrad_core::performance::footswitch::BankOverlay;
 use tetrad_dsp_protocol::requests::Request;
 use tetrad_engine::SceneIndex;
@@ -110,18 +110,22 @@ fn scene_press_selects_its_scene() {
     );
 }
 
-/// Stomp mode on the full-size QC: the press toggles and sends the switch's Preset MIDI Out
-/// (`0x00332064` gate: no tuner, no overlay); the release may undo a momentary stomp.
+/// Stored Stomp mode plays as the Custom mode: a press and a release are a switch of its
+/// current page (the stock stomp path runs from page 1's A–H, `custom::stock`).
 #[test]
-fn stomp_press_toggles_and_sends_preset_midi_on_press() {
+fn stomp_mode_presses_are_custom_switches() {
     let (mut input, mut state) = (Input::new(), qc(FootswitchMode::Stomp));
-    let stomp_a = StompIndex::new(0).unwrap();
-    let effects = stomp(&mut input, &mut state, A, 1);
-    assert_eq!(actions(&effects), [&Action::ToggleStomp(stomp_a)]);
-    assert!(effects.contains(&Effect::PresetMidiOut(Trigger::Footswitch(0))));
-    let effects = stomp(&mut input, &mut state, A, 0);
-    assert_eq!(actions(&effects), [&Action::ReleaseStomp(stomp_a)]);
-    assert!(!effects.contains(&Effect::PresetMidiOut(Trigger::Footswitch(0))));
+    assert!(state.performance.footswitch.custom);
+    let slot = |pressed| Action::CustomSlot {
+        slot: 0,
+        pressed,
+        origin: Origin::Footswitch,
+    };
+    assert_eq!(actions(&stomp(&mut input, &mut state, A, 1)), [&slot(true)]);
+    assert_eq!(
+        actions(&stomp(&mut input, &mut state, A, 0)),
+        [&slot(false)]
+    );
 }
 
 /// DOWN + TEMPO cycles the mode once, cancels the hold, and both releases are quiet.
@@ -227,14 +231,14 @@ fn knob_steps_drive_the_editor_knob_of_the_same_letter() {
 }
 
 /// `0x58b968`: a cycle with a hybrid-with-PRESET mode gives banks of four. The preset half
-/// (E–H in mode 7) loads `bank·4 + slot`, and BANK UP steps banks of four.
+/// (E–H in mode 5) loads `bank·4 + slot`, and BANK UP steps banks of four.
 #[test]
 fn split_mode_cycle_gives_the_footswitches_banks_of_four() {
     let (mut settings, _) = DeviceSettings::load(&NoFiles, Hardware::QuadCortex).unwrap();
     settings.update(|settings| {
-        let modes = vec![FootswitchMode::Preset, FootswitchMode::StompPreset];
+        let modes = vec![FootswitchMode::Preset, FootswitchMode::ScenePreset];
         settings.mode.set_available(modes).unwrap();
-        settings.mode.set_mode(FootswitchMode::StompPreset).unwrap();
+        settings.mode.set_mode(FootswitchMode::ScenePreset).unwrap();
     });
     let mut state = State::new(Product::QuadCortex, HalPlatform::QcOriginal, settings);
     assert_eq!(state.performance.footswitch.bank_size.get(), 4);
@@ -806,9 +810,8 @@ fn scene_copy_mode_pastes_the_source_into_the_pressed_scene() {
 }
 
 /// Cortex Control Gig View buttons (`0x109ab4`, r16-control MR 5): a preset tile loads its
-/// slot on the release without a forced reload (`0x65ffdc`); a stomp tile toggles on the
-/// press and releases on the release, with the driver hooks and no Preset MIDI Out; tile 8
-/// is out of range.
+/// slot on the release without a forced reload (`0x65ffdc`); in Stomp mode (the Custom mode) a
+/// tile presses and releases that switch; tile 8 is out of range.
 #[test]
 fn gig_view_buttons_follow_the_tile_page() {
     let (mut input, state) = (Input::new(), qc(FootswitchMode::Preset));
@@ -826,21 +829,20 @@ fn gig_view_buttons_follow_the_tile_page() {
     );
     assert!(input.gig_view_button(8, false, &state, false).is_empty());
 
+    // Stomp mode plays as Custom: a stomp tile presses that switch of the page.
     let state = qc(FootswitchMode::Stomp);
-    let stomp = StompIndex::new(3).unwrap();
+    let slot = |pressed| Action::CustomSlot {
+        slot: 3,
+        pressed,
+        origin: Origin::Touch,
+    };
     assert_eq!(
-        input.gig_view_button(3, true, &state, false),
-        [
-            Effect::Action(Action::ToggleStomp(stomp)),
-            Effect::Dsp(DspCommand::Footswitch {
-                stomp,
-                pressed: true
-            })
-        ]
+        actions(&input.gig_view_button(3, true, &state, false)),
+        [&slot(true)]
     );
     assert_eq!(
         actions(&input.gig_view_button(3, false, &state, false)),
-        [&Action::ReleaseStomp(stomp)]
+        [&slot(false)]
     );
 }
 

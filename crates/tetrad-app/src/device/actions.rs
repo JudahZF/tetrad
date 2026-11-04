@@ -153,8 +153,6 @@ pub enum Action {
     CycleMode,
     /// MIDI CC#47 `setModeWithIndex(slot)`: entry `slot` of the allowed list (inferred).
     ModeSlot(u8),
-    /// (O) The Custom footswitch mode of an extension on or off ([`super::custom`]).
-    SetCustomMode(bool),
     /// (O) A page change of the Custom mode, while it is on.
     CustomPage(tetrad_ui::PageStep),
     /// (O) A press or release of slot 0..=9 of the Custom mode's current page.
@@ -856,12 +854,8 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
                 .insert(stomp, label);
         }
         Action::ChangeSetting { id, value } => effects.extend(change_setting(state, id, value)?),
-        // A refused mode keeps the Custom mode and its held switches.
-        Action::SetMode(mode) => {
-            effects.extend(set_mode(state, mode)?);
-            effects.extend(super::custom::set_active(state, false));
-        }
-        Action::SetCustomMode(active) => effects.extend(super::custom::set_active(state, active)),
+        // The settings mirror turns the Custom mode on and off (`custom::follow_mode`).
+        Action::SetMode(mode) => effects.extend(set_mode(state, mode)?),
         Action::CustomPage(step) => effects.extend(super::custom::turn(state, step)),
         Action::CustomSlot {
             slot,
@@ -943,27 +937,21 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
                 }
             }));
             result?;
-            effects.extend(super::custom::set_active(state, false));
         }
-        // (O) A Custom mode comes after the allowed stock modes, then the cycle starts again.
         Action::CycleMode => {
             let mode = &state.settings.settings().mode;
             let available = mode.available();
             let position = (available.iter()).position(|candidate| *candidate == mode.mode());
-            let last = position.is_none_or(|index| index + 1 >= available.len());
-            if !state.performance.footswitch.custom && last && state.custom.provider().is_some() {
-                effects.extend(super::custom::set_active(state, true));
-                return Ok(effects);
-            }
-            let next = match state.performance.footswitch.custom {
-                true => 0,
-                false => position.map_or(0, |index| (index + 1) % available.len().max(1)),
-            };
+            // Stomp and a stored Stomp hybrid both play Custom: the cycle passes one Custom.
+            let custom = super::custom::plays_custom(mode.mode());
+            let next = (1..=available.len())
+                .map(|step| position.map_or(0, |index| (index + step) % available.len()))
+                .find(|&at| !(custom && super::custom::plays_custom(available[at])))
+                .unwrap_or(0);
             let next = *available
                 .get(next)
                 .ok_or(ActionError::Unavailable("an allowed footswitch mode"))?;
             effects.extend(set_mode(state, next)?);
-            effects.extend(super::custom::set_active(state, false));
         }
         Action::ModeSlot(slot) => {
             let mode = *state
@@ -974,7 +962,6 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
                 .get(usize::from(slot))
                 .ok_or(ActionError::Unavailable("that mode slot"))?;
             effects.extend(set_mode(state, mode)?);
-            effects.extend(super::custom::set_active(state, false));
         }
         Action::SetTempo(bpm) => {
             let bpm = bpm.clamp(TEMPO_BPM.0, TEMPO_BPM.1);
@@ -1967,7 +1954,9 @@ fn mirror_settings(state: &mut State, events: Vec<SettingsEvent>) -> Vec<Effect>
             _ => {}
         }
     }
-    events.into_iter().map(Effect::SettingsChanged).collect()
+    let mut effects = super::custom::follow_mode(state);
+    effects.extend(events.into_iter().map(Effect::SettingsChanged));
+    effects
 }
 
 /// `Mode/mode` as the tetrad-core mode (both enums use the stock numbers 0..=8).

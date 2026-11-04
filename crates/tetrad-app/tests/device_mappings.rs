@@ -1,5 +1,6 @@
 //! Mappings end to end on the simulated device: commands as the Mappings page sends them, MIDI
-//! on the QC channel, Stomp-mode presses, the global file and the preset field.
+//! on the QC channel, the global file and the preset field. The footswitches are the Custom
+//! mode's (`device_custom.rs`).
 
 mod common;
 
@@ -10,14 +11,11 @@ use tetrad_app::device::mappings::GLOBAL_FILE;
 use tetrad_app::device::platform::Input;
 use tetrad_app::device::{Action, Device, Event};
 use tetrad_engine::{Column, Row, Site, Slot};
-use tetrad_hal::hal::Event as HalEvent;
-use tetrad_hal::node::Element;
 use tetrad_preset::model::TETRAD_MAPPINGS_FIELD;
 use tetrad_services::fake::MemFiles;
-use tetrad_settings::controls::FootswitchMode;
 use tetrad_ui::{
     BlockTarget, FieldId, GridPosition, MappingAction, MappingCommand, MappingId, MappingScope,
-    MappingsView, MidiInput, ModeChoice, ModeKind, SystemAction, Trigger,
+    MappingsView, MidiInput, ModeKind, SystemAction, Trigger,
 };
 
 /// The Light block of [`light_preset`] at column 2: GAIN is parameter 0.
@@ -230,87 +228,6 @@ fn preset_mappings_live_in_the_preset_and_win_over_global() {
     );
 }
 
-/// Stomp → block bypass is the stock Stomp-mode assignment: the row moves to the stock data
-/// and back when its trigger changes.
-#[test]
-fn a_stomp_bypass_mapping_is_the_stock_stomp_assignment() {
-    let (mut device, _media) = boot(media(), &MemFiles::default());
-    let scope = MappingScope::Preset;
-    let (_, id) = send(&mut device, MappingCommand::Add(scope)).unwrap();
-    let bypass = MappingAction::Block {
-        position: light(),
-        target: BlockTarget::Bypass,
-    };
-    let (_, id) = send(
-        &mut device,
-        MappingCommand::SetAction {
-            scope,
-            id,
-            action: bypass,
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        id,
-        MappingId::Stomp {
-            stomp: 0,
-            position: light()
-        }
-    );
-    let assignments = |device: &Device<Sim>| {
-        let preset = &device.state().current.as_ref().unwrap().preset;
-        (preset.stomp_mode_assignments.iter())
-            .map(|a| (a.row, a.column, a.stomp_index))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(assignments(&device), [(0, 2, 0)]);
-
-    let cc = Trigger::Midi(MidiInput::Cc(23));
-    let (_, id) = send(
-        &mut device,
-        MappingCommand::SetTrigger {
-            scope,
-            id,
-            trigger: cc,
-        },
-    )
-    .unwrap();
-    assert_eq!(id, MappingId::Tetrad(0));
-    assert!(assignments(&device).is_empty());
-    midi(&mut device, &[0xb0, 23, 0]);
-    let current = device.state().current.as_ref().unwrap();
-    let light = current.deployment.layout().instance(Site::Slot(Slot {
-        row: Row::new(0).unwrap(),
-        column: Column::new(2).unwrap(),
-    }));
-    assert!(
-        light.unwrap().bypass.at(current.deployment.scene()),
-        "CC 23 = 0 bypasses"
-    );
-
-    send(&mut device, MappingCommand::Remove { scope, id });
-    assert!(view(&device).preset.is_empty());
-}
-
-/// A Stomp-mode press runs the preset's Tetrad mapping for that footswitch (here pressed by
-/// MIDI CC#35, which takes the same footswitch path).
-#[test]
-fn a_stomp_press_runs_its_preset_mapping() {
-    let (mut device, _media) = boot(media(), &MemFiles::default());
-    let scope = MappingScope::Preset;
-    let (_, id) = send(&mut device, MappingCommand::Add(scope)).unwrap();
-    assert_eq!(
-        view(&device).row(scope, &id).unwrap().trigger,
-        Trigger::Stomp(0)
-    );
-    let action = MappingAction::System(SystemAction::Scene(3));
-    send(&mut device, MappingCommand::SetAction { scope, id, action });
-    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
-    settle(&mut device);
-    midi(&mut device, &[0xb0, 35, 127]);
-    assert_eq!(scene(&device), 3);
-}
-
 /// The press modes on a parameter, from a note: note-on presses, note-off releases.
 #[test]
 fn press_modes_drive_a_parameter_from_a_note() {
@@ -465,114 +382,4 @@ fn cc_windows_make_buttons_and_value_maps() {
     assert!(gain(&device) < start);
     midi(&mut device, &[0xb0, 24, 127]);
     assert!(gain(&device) > start);
-}
-
-/// A footswitch release reaches a Tetrad mapping (Momentary restores), and on a stock Stomp →
-/// bypass row Momentary is the footswitch's stock momentary flag.
-#[test]
-fn footswitch_releases_and_the_stock_momentary_flag() {
-    let (mut device, _media) = boot(media(), &MemFiles::default());
-    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
-    settle(&mut device);
-    let scope = MappingScope::Preset;
-    let id = map(&mut device, Trigger::Stomp(1), gain_action());
-    set_mode(&mut device, &id, ModeKind::Momentary);
-    let switch_b = Element::all().nth(1).unwrap();
-    let start = gain(&device);
-    device.push(Event::Hal(HalEvent::Stomp {
-        element: switch_b,
-        value: 1,
-    }));
-    settle(&mut device);
-    assert_ne!(gain(&device), start, "held");
-    device.push(Event::Hal(HalEvent::Stomp {
-        element: switch_b,
-        value: 0,
-    }));
-    settle(&mut device);
-    assert_eq!(gain(&device), start, "released");
-
-    // A press that also leaves Stomp mode still releases its Momentary.
-    let leave = MappingAction::System(SystemAction::Mode(ModeChoice::Scene));
-    let mode_row = map(&mut device, Trigger::Stomp(1), leave);
-    device.push(Event::Hal(HalEvent::Stomp {
-        element: switch_b,
-        value: 1,
-    }));
-    settle(&mut device);
-    assert_ne!(gain(&device), start, "held");
-    device.push(Event::Hal(HalEvent::Stomp {
-        element: switch_b,
-        value: 0,
-    }));
-    settle(&mut device);
-    assert_eq!(gain(&device), start, "released in Scene mode");
-    send(
-        &mut device,
-        MappingCommand::Remove {
-            scope,
-            id: mode_row,
-        },
-    );
-    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
-    settle(&mut device);
-
-    let bypass = MappingAction::Block {
-        position: light(),
-        target: BlockTarget::Bypass,
-    };
-    let stock = map(&mut device, Trigger::Stomp(0), bypass);
-    assert!(matches!(stock, MappingId::Stomp { stomp: 0, .. }));
-    let momentary = |device: &Device<Sim>| {
-        let preset = &device.state().current.as_ref().unwrap().preset;
-        preset.stomp_is_momentary.get(0).copied().unwrap_or(false)
-    };
-    set_mode(&mut device, &stock, ModeKind::Momentary);
-    assert!(momentary(&device));
-    let row = view(&device).row(scope, &stock).cloned().unwrap();
-    assert_eq!(row.mode.unwrap().kind, ModeKind::Momentary);
-
-    // A new trigger takes the stock Momentary along: a note holds the bypass while down.
-    let note_trigger = Trigger::Midi(MidiInput::Note(61));
-    let command = MappingCommand::SetTrigger {
-        scope,
-        id: stock.clone(),
-        trigger: note_trigger,
-    };
-    let (_, moved) = send(&mut device, command).unwrap();
-    let row = view(&device).row(scope, &moved).cloned().unwrap();
-    assert_eq!(row.mode.unwrap().kind, ModeKind::Momentary);
-    let engaged = !bypassed(&device);
-    note(&mut device, 61, true);
-    assert_eq!(bypassed(&device), engaged);
-    note(&mut device, 61, false);
-    assert_eq!(bypassed(&device), !engaged);
-    let command = MappingCommand::SetTrigger {
-        scope,
-        id: moved,
-        trigger: Trigger::Stomp(0),
-    };
-    let (_, stock) = send(&mut device, command).unwrap();
-    assert!(
-        matches!(stock, MappingId::Stomp { stomp: 0, .. }),
-        "{stock:?}"
-    );
-
-    // Set is not stock data: the row moves to the Tetrad list.
-    set_mode(&mut device, &stock, ModeKind::Set);
-    let (_, moved) = view(&device).focus.unwrap();
-    assert!(matches!(moved, MappingId::Tetrad(_)), "{moved:?}");
-    let preset = &device.state().current.as_ref().unwrap().preset;
-    assert!(preset.stomp_mode_assignments.is_empty());
-
-    // Toggle takes it back to stock data and clears the flag; Momentary sets it again.
-    set_mode(&mut device, &moved, ModeKind::Toggle);
-    let (_, back) = view(&device).focus.unwrap();
-    assert!(
-        matches!(back, MappingId::Stomp { stomp: 0, .. }),
-        "{back:?}"
-    );
-    assert!(!momentary(&device));
-    set_mode(&mut device, &back, ModeKind::Momentary);
-    assert!(momentary(&device));
 }

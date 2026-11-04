@@ -1,10 +1,6 @@
 <section id="footswitch" data-tab="Footswitch" data-group="Controls">
   <h2>Footswitch</h2>
   <p class="lead">Choose what each footswitch does in the Custom footswitch mode, as EDIT in Gig View does on the unit. Each change is saved at once.</p>
-  <div id="fs-none" hidden>
-    <p>No extension adds a Custom footswitch mode. Install <b>Custom Footswitch Mode</b> under Extensions → Manage, then come back to this page.</p>
-    <button type="button" class="small primary" id="fs-manage">Open Manage</button>
-  </div>
   <div id="fs-main" hidden>
     <p class="fs-meta" id="fs-meta"></p>
     <div class="fs-bar" id="fs-scopes" role="tablist" aria-label="Layout"></div>
@@ -21,7 +17,6 @@
 #footswitch .fs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
 #footswitch .fs-bar button[aria-selected=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
 #footswitch .fs-bar select { min-height: 0; padding: 5px 10px; font-size: 14px; margin-left: auto; }
-#footswitch .fs-playing { font-size: 11px; color: var(--good); margin-left: 4px; }
 #footswitch .fs-own { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
 #footswitch .fs-own p { margin: 0 0 12px; }
 #footswitch .fs-own p:last-child { margin-bottom: 0; }
@@ -44,6 +39,8 @@
 #footswitch .fs-tile strong { font-size: 16px; line-height: 1.2; overflow-wrap: anywhere; }
 #footswitch .fs-tile small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #footswitch .fs-tile.gone strong { text-decoration: line-through; color: var(--muted); }
+#footswitch .fs-tile.inherited { opacity: .55; border-style: dashed; }
+#footswitch .fs-tile .from { font-size: 11px; color: var(--muted); }
 #footswitch .fs-edit { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
 #footswitch .fs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 4px; }
 #footswitch .fs-head strong { font-size: 18px; }
@@ -83,14 +80,15 @@
 // (EDIT in Gig View) on a big screen. Every command answers with the new view. Pages are
 // 0-based; slots 0..=7 are A–H, 8 Down and 9 Tap. A switch has a press, can have a double press,
 // and two adjacent switches can have a combo. Each of them runs up to 8 actions in order; an
-// action has a mode and values as a Mappings row has (parts/mappings.html).
+// action has a mode and values as a Mappings row has (parts/mappings.html). THIS PRESET plays
+// switch by switch: a press, double press or combo without actions plays the ALL PRESETS one.
 {
   $("panes").append($("footswitch"));
   const NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"];
   /** The slots in the order of the unit: A–D and Down on top, E–H and Tap below. */
   const ORDER = [0, 1, 2, 3, 8, 4, 5, 6, 7, 9];
   const KINDS = [["system", "System"], ["block", "Block"], ["preset", "Load a preset"],
-    ["sendMidi", "Send MIDI"], ["command", "Extension command"]];
+    ["sendMidi", "Send MIDI"], ["command", "Extension command"], ["nothing", "Nothing"]];
   const MIDI = {
     cc: ["CC", ["CC#", "Value"]],
     ccToggle: ["CC Toggle", ["CC#", "Min", "Max"]],
@@ -204,22 +202,17 @@
     // A list or a field in use keeps what the user picks or types: the next refresh draws.
     const active = document.activeElement;
     if (!force && active && $("footswitch").contains(active) && active.matches("input, select")) return;
-    const none = view.mode === null;
-    $("fs-none").hidden = !none;
-    $("fs-main").hidden = none;
-    if (none) return;
+    $("fs-main").hidden = false;
     const mode = view.mode;
     page = Math.min(page, mode.pages - 1);
-    const playing = view.layouts.preset ? "preset" : "global";
     $("fs-meta").replaceChildren(
-      el("b", { textContent: mode.name }), " from " + mode.extension + " · ",
+      el("b", { textContent: mode.name }), " · ",
       mode.active ? "on, page " + (mode.page + 1) + " plays" : "off (choose it with the mode button on the unit)",
       view.preset ? " · Preset: " + view.preset : "");
     const scopes = [["global", "ALL PRESETS"], ["preset", "THIS PRESET"]].map(([id, text]) => {
       const tab = button(text, "", () => { scope = id; unpick(); render(view, true); });
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-selected", String(scope === id));
-      if (playing === id) tab.append(el("span", { className: "fs-playing", textContent: "● plays" }));
       return tab;
     });
     $("fs-scopes").replaceChildren(...scopes);
@@ -251,41 +244,36 @@
     drawEditor();
   }
 
-  /** THIS PRESET: give the loaded preset its own layout, or remove it. */
+  /** THIS PRESET: what its switches are, or that no preset is loaded. */
   function drawOwn() {
     const box = $("fs-own");
     box.hidden = scope !== "preset";
     if (box.hidden) return;
-    if (!view.presetLoaded) return box.replaceChildren(el("p", { textContent: "No preset is loaded." }));
-    if (!view.layouts.preset) {
-      return box.replaceChildren(
-        el("p", { textContent: (view.preset || "This preset") + " plays the ALL PRESETS layout. Its own layout starts as a copy of it, and plays while the preset is loaded." }),
-        button("Give this preset its own layout", "primary", () => send({ op: "presetLayout", own: true })));
-    }
+    if (!view.layouts.preset) return box.replaceChildren(el("p", { textContent: "No preset is loaded." }));
     box.replaceChildren(
-      el("p", { textContent: "Changes here are changes of " + (view.preset || "the preset") + ": save the preset on the unit to keep them." }),
-      button("Remove it", "danger", () => {
-        if (confirm("Remove the own layout of " + (view.preset || "this preset") + "? It plays the ALL PRESETS layout again.")) {
-          send({ op: "presetLayout", own: false });
-        }
-      }));
+      el("p", { textContent: "A switch with actions here plays in the place of the ALL PRESETS switch. A switch without actions plays the ALL PRESETS switch. Page 1 A–H are the stomp switches of " + (view.preset || "the preset") + "." }),
+      el("p", { textContent: "Changes here are changes of " + (view.preset || "the preset") + ": save the preset on the unit to keep them." }));
   }
 
   function tile(data, index) {
-    const slot = data.slots[index];
+    const own = data.slots[index];
+    // THIS PRESET plays switch by switch: a press without actions plays the ALL PRESETS one.
+    const inherited = scope === "preset" && own.action === null;
+    const slot = inherited ? view.layouts.global[page].slots[index] : own;
     const assigned = slot.action !== null;
     const partners = data.combos.filter((c) => c.switches.includes(index))
       .map((c) => (c.switches[0] === index ? c.switches[1] : c.switches[0]));
-    const marks = (slot.double ? "2×" : "") + partners.map((p) => " +" + NAMES[p]).join("");
+    const marks = (own.double ? "2×" : "") + partners.map((p) => " +" + NAMES[p]).join("");
     const node = el("button", {
       type: "button",
       className: "fs-tile" + (assigned ? "" : " empty") + (assigned && slot.engaged && slot.available ? " on" : "") +
-        (slot.available ? "" : " gone") + (index === selected ? " sel" : ""),
-      title: NAMES[index] + (assigned ? ": " + slot.label + " · " + slot.detail : ": empty"),
+        (slot.available ? "" : " gone") + (inherited && assigned ? " inherited" : "") + (index === selected ? " sel" : ""),
+      title: NAMES[index] + (assigned ? ": " + slot.label + " · " + slot.detail : ": empty") + (inherited && assigned ? " (All presets)" : ""),
     },
     el("span", { className: "name", textContent: NAMES[index] }),
     marks ? el("span", { className: "marks", textContent: marks.trim(), title: "Double press and combos" }) : null,
     el("span", { className: "led" }),
+    inherited && assigned ? el("span", { className: "from", textContent: "All presets" }) : null,
     el("strong", { textContent: assigned ? slot.label : "—" }),
     assigned ? el("small", { textContent: slot.detail }) : null);
     node.style.setProperty("--c", slot.colour);
@@ -323,6 +311,7 @@
       : data.combos.some((c) => c.switches.includes(selected)) ? "The press waits " + view.timing.combo + " ms for its combo partner." : "";
     const hint = press ? wait : gesture === "double" ? "Runs when " + name + " is pressed twice within " + view.timing.double + " ms."
       : "Runs when both switches are pressed within " + view.timing.combo + " ms of each other.";
+    const fallback = scope === "preset" && !slot.actions.length ? allPresets() : null;
     const parts = [
       el("div", { className: "fs-head" },
         el("strong", { textContent: title + " · Page " + (page + 1) + " · " + (scope === "global" ? "ALL PRESETS" : "THIS PRESET") }),
@@ -332,6 +321,7 @@
         ...neighbours(selected).map((other) =>
           runs(other, "Combo with " + NAMES[other] + (comboOf(data, selected, other) ? " ●" : ""))),
         hint ? el("small", { textContent: hint }) : null)),
+      fallback ? el("p", { className: "fs-add" }, el("small", { textContent: fallback })) : null,
       ...slot.actions.map((item, index) => actionItem(item, index)),
       addAction(slot.actions.length),
     ];
@@ -342,7 +332,16 @@
       if (press) parts.push(row("Colour", ...swatches(slot)));
     }
     if (press && (slot.action || slot.double)) parts.push(row("Copy or swap", ...copyMove()));
-    panel.replaceChildren(...parts);
+    panel.replaceChildren(...parts.filter(Boolean));
+  }
+
+  /** What an empty THIS PRESET binding plays: the same binding of ALL PRESETS. */
+  function allPresets() {
+    const data = view.layouts.global[page];
+    const slot = data.slots[selected];
+    const other = gesture === "press" ? slot : gesture === "double" ? slot.double : comboOf(data, selected, gesture);
+    const plays = other && other.action ? "it plays the ALL PRESETS one: " + other.label : "the ALL PRESETS one is empty too";
+    return "No actions here, so " + plays + ". Choose Nothing to play nothing.";
   }
 
   /** One action of the binding, as a Mappings row: what it does, its mode and its values. */
@@ -390,9 +389,11 @@
   function chooser(index, item) {
     const mine = pick && pick.index === index;
     const kind = mine ? pick.kind : kindOf(item && item.action);
+    // Nothing only stands in for an ALL PRESETS switch, so only THIS PRESET offers it.
     const kinds = select([option("", "Choose…", true),
-      ...KINDS.map(([value, text]) => option(value, text, value === "command" && !view.commands.length))], kind, (value) => {
-      if (value === "sendMidi") return setAction(index, { kind: "sendMidi" });
+      ...KINDS.filter(([value]) => value !== "nothing" || scope === "preset" || kind === "nothing")
+        .map(([value, text]) => option(value, text, value === "command" && !view.commands.length))], kind, (value) => {
+      if (value === "sendMidi" || value === "nothing") return setAction(index, { kind: value });
       pick = { index, kind: value, setlist: null };
       adding = !item;
       drawEditor();
@@ -561,11 +562,6 @@
     return [to, copy, move];
   }
 
-  $("fs-manage").addEventListener("click", () => {
-    // `currentTab` and `syncTabs` belong to page.html.
-    currentTab = "Manage";
-    syncTabs();
-  });
   parts.push({
     connect: load,
     disconnect() {
@@ -574,7 +570,6 @@
       gesture = "press";
       unpick();
       presets.clear();
-      $("fs-none").hidden = true;
       $("fs-main").hidden = true;
       say("");
     },

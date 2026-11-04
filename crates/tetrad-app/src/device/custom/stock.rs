@@ -1,0 +1,324 @@
+//! The loaded preset's stock Stomp data as Custom mode actions (owned, Tetrad). Custom plays in
+//! the place of stock Stomp mode, so switches A–H on page 1 of THIS PRESET show the preset's
+//! Stomp-mode data: one bypass action per assigned block (Toggle, or Momentary when the
+//! switch's stock momentary flag is on), a Send MIDI action with the footswitch's Preset MIDI
+//! Out list, and the switch's stomp label.
+//!
+//! Stock CorOS reads that data, so it stays stock: an edit of these switches writes it back
+//! ([`store`]), and a press plays it through the stock stomp path ([`press`]: the toggle of the
+//! assigned blocks, secondary toggles, the driver hooks and the MIDI Out list). Only what stock
+//! cannot hold (another action, a bypass in Set mode, a second Send MIDI) goes to the preset's
+//! own layout field.
+//!
+//! The preset's old footswitch mappings (Tetrad 0.1.0-alpha.10 and earlier) show as ordinary
+//! actions after the stock ones, and move to the preset's layout with its next edit.
+
+use tetrad_core::performance::stomp::StompIndex;
+use tetrad_preset::StompRole;
+use tetrad_preset::model::Preset;
+use tetrad_ui::{Footswitch, MidiOutMessage, MidiOutTarget, PresetMidiView};
+
+use super::{Act, Binding, Page, StoredAction, empty_layout, encode, stored_message, ui_message};
+use crate::device::mappings::mode::Mode;
+use crate::device::mappings::{self, FootswitchAction, StoredTarget};
+use crate::device::preset::PresetEdit;
+use crate::device::{Action, Effect, State};
+
+/// The stock switches: A–H on page 1.
+pub(super) const STOMPS: u8 = 8;
+
+/// Positions of the blocks that switch `stomp` toggles (primary assignments; stock reads no
+/// role as primary), in stored order.
+fn assigned(preset: &Preset, stomp: u8) -> Vec<(u8, u8)> {
+    (preset.stomp_mode_assignments.iter())
+        .filter(|a| a.stomp_index == u32::from(stomp))
+        .filter(|a| matches!(a.role, None | Some(StompRole::Primary)))
+        .filter_map(|a| Some((u8::try_from(a.row).ok()?, u8::try_from(a.column).ok()?)))
+        .filter(|&(row, column)| mappings::position(row, column).is_some())
+        .collect()
+}
+
+fn momentary(preset: &Preset, stomp: u8) -> bool {
+    (preset.stomp_is_momentary.get(u32::from(stomp)))
+        .copied()
+        .unwrap_or(false)
+}
+
+fn midi(midi: &PresetMidiView, stomp: u8) -> &[MidiOutMessage] {
+    midi.messages(MidiOutTarget::Footswitch(
+        Footswitch::TILES[usize::from(stomp)],
+    ))
+}
+
+/// A bypass action that stock can hold: of any block at its position (no model guard), in
+/// Toggle or Momentary.
+fn stock_bypass(act: &Act) -> bool {
+    matches!(
+        act.action,
+        StoredAction::Block {
+            model: None,
+            target: StoredTarget::Bypass,
+            ..
+        }
+    ) && matches!(
+        act.mode,
+        None | Some(Mode::Toggle { .. } | Mode::Momentary { .. })
+    )
+}
+
+fn held(act: &Act) -> bool {
+    matches!(act.mode, Some(Mode::Momentary { .. }))
+}
+
+/// Which actions of a page 1 A–H press [`store`] writes to the stock data. A press plays the
+/// stock data first (the bypasses, then the MIDI list), so only the leading actions in that
+/// order can go, while each is one that stock holds: a bypass of a block that is there, in the
+/// mode of the first one (stock has one momentary flag per switch), then one Send MIDI with
+/// messages. The others stay in the layout field.
+fn stocked(actions: &[Act], preset: &Preset) -> Vec<bool> {
+    let block = |row: u8, column: u8| {
+        let slot = tetrad_preset::Slot {
+            row: usize::from(row),
+            column: usize::from(column),
+        };
+        preset.block(slot).ok().flatten().is_some()
+    };
+    let (mut mode, mut send, mut leading) = (None, false, true);
+    (actions.iter())
+        .map(|act| {
+            let stock = leading
+                && match act.action {
+                    StoredAction::SendMidi => !send && !act.messages.is_empty(),
+                    // Stock toggles the blocks before it sends the MIDI list.
+                    StoredAction::Block { row, column, .. } => {
+                        !send
+                            && stock_bypass(act)
+                            && block(row, column)
+                            && *mode.get_or_insert(held(act)) == held(act)
+                    }
+                    _ => false,
+                };
+            send |= stock && act.action == StoredAction::SendMidi;
+            leading &= stock;
+            stock
+        })
+        .collect()
+}
+
+/// The actions of switch `stomp`'s stock data.
+fn stock_acts(preset: &Preset, list: &PresetMidiView, stomp: u8) -> Vec<Act> {
+    let mode = match momentary(preset, stomp) {
+        true => Mode::Momentary { value: 0.0 },
+        false => Mode::Toggle { a: 1.0, b: 0.0 },
+    };
+    let bypasses = assigned(preset, stomp)
+        .into_iter()
+        .map(|(row, column)| Act {
+            mode: Some(mode),
+            stock: true,
+            ..Act::new(StoredAction::Block {
+                row,
+                column,
+                model: None,
+                target: StoredTarget::Bypass,
+            })
+        });
+    let messages = midi(list, stomp);
+    let send = (!messages.is_empty()).then(|| Act {
+        messages: messages.iter().map(stored_message).collect(),
+        stock: true,
+        ..Act::new(StoredAction::SendMidi)
+    });
+    bypasses.chain(send).collect()
+}
+
+/// The loaded preset's own layout (`own`, its layout field) with its stock Stomp data and its
+/// old footswitch mappings on page 1; `None` without a loaded preset.
+pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>> {
+    let preset = &state.current.as_ref()?.preset;
+    let list = crate::device::ui::project::preset_midi(preset);
+    let mut layout = own.unwrap_or_else(empty_layout);
+    let old = mappings::footswitch_rows(state);
+    for stomp in 0..STOMPS {
+        let binding = &mut layout[0].slots[usize::from(stomp)].press;
+        let mut actions = stock_acts(preset, &list, stomp);
+        // A bypass in the layout field (a layout from before) stays until the next edit moves it
+        // to the stock data ([`store`]); one the stock data has already shows once.
+        // A leading field bypass that the stock data already holds (a layout from before) shows
+        // once; after another action, the same bypass is a step of its own.
+        // [`store`] keeps such a bypass in the field only after a stock Send MIDI: then it is a
+        // step of its own too.
+        let midi = actions
+            .iter()
+            .any(|act| act.action == StoredAction::SendMidi);
+        let mut leading = !midi;
+        binding.actions.retain(|act| {
+            leading &= stock_bypass(act);
+            let stocked = leading
+                && (actions.iter()).any(|stock| {
+                    stock.stock && stock.action == act.action && held(stock) == held(act)
+                });
+            !stocked
+        });
+        actions.append(&mut binding.actions);
+        let moved = (old.iter())
+            .filter(|row| row.stomp == stomp)
+            .map(|row| Act {
+                mode: row.mode,
+                ..Act::new(match row.action {
+                    FootswitchAction::System(action) => StoredAction::System { action },
+                    FootswitchAction::Block {
+                        row,
+                        column,
+                        model,
+                        target,
+                    } => StoredAction::Block {
+                        row,
+                        column,
+                        model: Some(model),
+                        target,
+                    },
+                })
+            });
+        actions.extend(moved);
+        // Nothing is cut: the stock data and the old mappings behind these actions are written
+        // back whole. A switch with more than a layout field holds refuses edits
+        // (`custom::change`) until actions are removed.
+        binding.actions = actions;
+        // Secondary assignments run on a press too, though no action shows them; Nothing stops
+        // them.
+        let nothing = (binding.actions.iter()).any(|act| act.action == StoredAction::Nothing);
+        binding.stock = !nothing
+            && ((preset.stomp_mode_assignments.iter()).any(|a| a.stomp_index == u32::from(stomp))
+                || binding.actions.iter().any(|act| act.stock));
+        let label = preset.single_stomp_labels.get(u32::from(stomp));
+        if binding.label.is_none() {
+            binding.label = label.filter(|label| !label.is_empty()).cloned();
+        }
+    }
+    Some(layout)
+}
+
+/// The actions of a page 1 A–H press that [`store`] keeps in the layout field: all but the
+/// bypasses in Toggle or Momentary and the first Send MIDI, which go to the stock data.
+pub(super) fn stored_count(binding: &Binding, preset: &Preset) -> usize {
+    stocked(&binding.actions, preset)
+        .iter()
+        .filter(|stock| !**stock)
+        .count()
+}
+
+/// A block's bypass in Toggle or Momentary is on two of page 1's A–H: the stock data holds a
+/// block on one switch only.
+pub(super) fn shared_bypass(layout: &[Page], preset: &Preset) -> bool {
+    let mut seen = Vec::new();
+    for slot in layout[0].slots.iter().take(usize::from(STOMPS)) {
+        let actions = &slot.press.actions;
+        let stock = stocked(actions, preset);
+        for (act, _) in actions.iter().zip(stock).filter(|(_, stock)| *stock) {
+            if let StoredAction::Block { row, column, .. } = act.action {
+                if seen.contains(&(row, column)) {
+                    return true;
+                }
+                seen.push((row, column));
+            }
+        }
+    }
+    false
+}
+
+/// The stock stomp press or release of switch `stomp` (A–H on page 1 of the preset's
+/// layout), when the preset has stock data for it.
+pub(super) fn press(state: &State, binding: &Binding, stomp: u8, pressed: bool) -> Vec<Effect> {
+    let Some(index) = StompIndex::new(u32::from(stomp)) else {
+        return Vec::new();
+    };
+    if !binding.stock {
+        return Vec::new();
+    }
+    crate::device::input::stock_stomp(state, index, pressed)
+}
+
+/// The edits that store the preset's own `layout`: switches A–H on page 1 keep their stock
+/// part (bypasses in Toggle or Momentary, the first Send MIDI, the label) in the stock data,
+/// the rest goes to the layout field. The old footswitch mappings leave the Mappings field.
+pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
+    let Some(current) = state.current.as_ref() else {
+        return Vec::new();
+    };
+    let preset = &current.preset;
+    let list = crate::device::ui::project::preset_midi(preset);
+    let mut own = layout.to_vec();
+    let mut effects = Vec::new();
+    // Every unassignment goes before every assignment: a block that moves from one switch to
+    // another stays assigned.
+    let (mut unassign, mut assign) = (Vec::new(), Vec::new());
+    let edit = |edit| Effect::Action(Action::PresetEdit(edit));
+    for stomp in 0..STOMPS {
+        let binding = &mut own[0].slots[usize::from(stomp)].press;
+        let mut send = None;
+        let mut bypasses = Vec::new();
+        let mut held = false;
+        let mut stock = stocked(&binding.actions, preset).into_iter();
+        binding
+            .actions
+            .retain(|act| match (stock.next() == Some(true), &act.action) {
+                (true, StoredAction::Block { row, column, .. }) => {
+                    held = self::held(act);
+                    bypasses.push((*row, *column));
+                    false
+                }
+                (true, StoredAction::SendMidi) => {
+                    send = Some(act.messages.iter().map(ui_message).collect::<Vec<_>>());
+                    false
+                }
+                _ => true,
+            });
+        let before = assigned(preset, stomp);
+        let slot = |(row, column)| mappings::position(row, column).and_then(mappings::engine_slot);
+        for &gone in before.iter().filter(|at| !bypasses.contains(at)) {
+            if let Some(slot) = slot(gone) {
+                unassign.push(edit(PresetEdit::Stomp {
+                    slot,
+                    assignment: None,
+                }));
+            }
+        }
+        for &new in bypasses.iter().filter(|at| !before.contains(at)) {
+            if let Some(slot) = slot(new) {
+                assign.push(edit(PresetEdit::Stomp {
+                    slot,
+                    assignment: Some((u32::from(stomp), StompRole::Primary)),
+                }));
+            }
+        }
+        if !bypasses.is_empty() && held != momentary(preset, stomp) {
+            effects.push(edit(PresetEdit::Momentary {
+                stomp: u32::from(stomp),
+                momentary: held,
+            }));
+        }
+        let messages = send.unwrap_or_default();
+        if messages.as_slice() != midi(&list, stomp) {
+            effects.push(Effect::Action(Action::SetPresetMidi {
+                target: MidiOutTarget::Footswitch(Footswitch::TILES[usize::from(stomp)]),
+                messages,
+            }));
+        }
+        let label = binding.label.take().unwrap_or_default();
+        let stored = preset.single_stomp_labels.get(u32::from(stomp));
+        if stored.map_or("", String::as_str) != label {
+            effects.push(Effect::Action(Action::StompLabel {
+                stomp: u32::from(stomp),
+                label,
+            }));
+        }
+    }
+    let mut effects = [unassign, assign, effects].concat();
+    let empty = own.iter().all(|page| *page == Page::default());
+    effects.push(edit(PresetEdit::CustomLayout(
+        (!empty).then(|| encode(&own)),
+    )));
+    effects.extend(mappings::without_footswitch_rows(state).map(edit));
+    effects
+}

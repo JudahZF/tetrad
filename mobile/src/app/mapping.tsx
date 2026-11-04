@@ -68,17 +68,11 @@ export default function MappingEditor() {
           // The defaults the Remote page sends when the type changes.
           if (choice.kind === "extension") setTrigger({ kind: "extension", key: choice.key, trigger: choice.trigger });
           else if (choice.kind === "midi") setTrigger({ kind: "cc", number: 20 });
-          else if (choice.kind === "stomp") setTrigger({ kind: "stomp", stomp: 0 });
           else if (choice.kind === "expression") setTrigger({ kind: "expression", pedal: 1 });
           else setTrigger({ kind: "presetLoaded" });
         }}
       />
       <Rows>
-        {t.kind === "stomp" && (
-          <View style={{ padding: 14 }}>
-            <Chips options={[..."ABCDEFGH"].map((s, i) => ({ key: i, label: s }))} value={t.stomp} onChange={(stomp) => setTrigger({ kind: "stomp", stomp })} />
-          </View>
-        )}
         {t.kind === "expression" && (
           <View style={{ padding: 14 }}>
             <Chips options={[{ key: 1, label: "EXP 1" }, { key: 2, label: "EXP 2" }]} value={t.pedal} onChange={(pedal) => setTrigger({ kind: "expression", pedal })} />

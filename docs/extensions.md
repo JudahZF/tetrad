@@ -14,8 +14,6 @@ Tetrad itself compiles for the DSP: a package never brings DSP machine code.
 - **Neural Amp Modeler A2** plays NAM A2 models (A2-Lite) as amp blocks.
 - **Sweep Synth** adds two synth blocks, one for guitar and one for bass, with a filter that
   sweeps on each note.
-- **Custom Footswitch Mode** adds a fourth footswitch mode: four pages of ten switches, each
-  with an action that you choose. See [footswitch-modes.md](footswitch-modes.md).
 - **DOOM** plays the shareware episode of DOOM on the screen. The footswitches are the
   controls. See [DOOM](#doom).
 
@@ -245,8 +243,8 @@ tetrad-ext package --out ../packages .
 Capabilities: `midiReceive`, `midiSend`, `controlsRead`, `controlsEdit`, `storage`,
 `triggers`, `usb`, `remote` and `blocks`. The host refuses every call that needs a capability the
 manifest does not list. API 2 adds `blocks` ([Write a DSP block](#write-a-dsp-block)); API 3 adds
-`pressed` on trigger firings (see below); API 4 adds `footswitchMode`
-([a footswitch mode](footswitch-modes.md#add-a-footswitch-mode-to-your-extension)); API 5 adds
+`pressed` on trigger firings (see below); API 4 adds `footswitchMode` (a footswitch mode; the
+Custom mode is part of Tetrad now, so the field has no effect); API 5 adds
 the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)); API 6 adds `remote`
 ([a tab on the Remote page](#add-a-tab-to-the-remote-page)); API 8 adds `ble`
 ([answer the Tetrad app](#answer-the-tetrad-app)); API 7 adds `app`
@@ -383,7 +381,7 @@ An extension can add up to 8 [themes](themes.md) to Settings → Appearance. Lis
 }
 ```
 
-A manifest with themes (or a footswitch mode) and no capabilities, settings or commands is
+A manifest with themes and no capabilities, settings or commands is
 **data only**:
 
 - It needs no `src/` and no build. `tetrad-ext package` packs it without a module.
