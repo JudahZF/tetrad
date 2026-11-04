@@ -41,6 +41,12 @@ All notable changes to Tetrad are in this file. The version numbers follow
   preset, with **Scene A** under it. A scene without a name shows **Scene A**, as before. A
   label that you type still comes first.
 
+### Fixed
+
+- Extensions (`controls.list`), the Mappings pages and Custom mode switch labels named every
+  Neural Capture block "Eltron 30", the catalog name of the capture player. They now show the
+  capture name, as the Grid does. A Stomp switch with no label also shows the capture name.
+
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
 ### Added

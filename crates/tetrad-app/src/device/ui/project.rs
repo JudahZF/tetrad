@@ -315,7 +315,7 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
                 &local.capture_devices,
                 &local.media,
             );
-            project_stomps(&mut snapshot, current, layout, scene, state.specs.as_ref());
+            project_stomps(&mut snapshot, current, layout, scene);
             snapshot.selected_block = local
                 .selected
                 .filter(|&position| instance(layout, position).is_some());
@@ -591,32 +591,55 @@ fn project_captures(
     devices: &BTreeMap<String, tetrad_ui::CaptureDevice>,
     media: &[MediaEntry],
 ) {
-    use tetrad_dsp_host::setup::drivers::capture::FILE_NAME;
     for (row, lane) in layout.lanes.iter().enumerate() {
         for (column, block) in lane.slots.iter().enumerate() {
             let Some(block) = block else { continue };
-            if ModelCategory::of_model(block.model.0) != Some(ModelCategory::NeuralCapture) {
+            let Some(value) = capture_file_name(block, scene) else {
                 continue;
-            }
+            };
             let cell = row * GRID_COLUMNS + column;
             snapshot.captures[cell] = (block.texts.iter())
                 .filter_map(|text| text.scenes.get(scene.index())?.as_deref())
                 .find_map(|value| devices.get(value).copied());
-            let value = (block.texts.iter())
-                .find(|text| text.index == FILE_NAME)
-                .and_then(|text| text.scenes.get(scene.index())?.as_deref())
-                .unwrap_or_default();
-            if let Some(name) = capture_name(value, media) {
+            if let Some(name) = capture_name(value, |key| media_capture(media, key)) {
                 snapshot.grid[cell].label = name;
             }
         }
     }
 }
 
+/// The name a block shows outside the Grid (Mappings, Custom mode, extensions), the same as
+/// its Grid label: the capture name of a capture block, else the catalog name. `library` is
+/// the "My Captures" names by key (`State::capture_names`). `None` for a model the catalog
+/// does not hold.
+pub(in crate::device) fn block_name(
+    block: &Instance,
+    scene: EngineScene,
+    specs: Option<&Specs>,
+    library: &BTreeMap<String, String>,
+) -> Option<String> {
+    (capture_file_name(block, scene))
+        .and_then(|value| capture_name(value, |key| library.get(key).cloned()))
+        .or_else(|| Some(specs?.model(block.model.0)?.name.clone()))
+}
+
+/// The stored `file_name` of a capture block in `scene` ("" when it stores none); `None` for
+/// other blocks.
+fn capture_file_name(block: &Instance, scene: EngineScene) -> Option<&str> {
+    use tetrad_dsp_host::setup::drivers::capture::FILE_NAME;
+    if ModelCategory::of_model(block.model.0) != Some(ModelCategory::NeuralCapture) {
+        return None;
+    }
+    let value = (block.texts.iter())
+        .find(|text| text.index == FILE_NAME)
+        .and_then(|text| text.scenes.get(scene.index())?.as_deref());
+    Some(value.unwrap_or_default())
+}
+
 /// The name in a capture `file_name` (the key, then the name, `0x6f7018`): the text after the
-/// 64-unit key, else the "My Captures" name of the key, else the stored text. `None` when
+/// 64-unit key, else the `library` name of the key, else the stored text. `None` when
 /// nothing is stored.
-fn capture_name(value: &str, media: &[MediaEntry]) -> Option<String> {
+fn capture_name(value: &str, library: impl FnOnce(&str) -> Option<String>) -> Option<String> {
     if value.is_empty() {
         return None;
     }
@@ -625,19 +648,24 @@ fn capture_name(value: &str, media: &[MediaEntry]) -> Option<String> {
     if !name.is_empty() {
         return Some(name.to_owned());
     }
-    let entry = (media.iter())
-        .find(|entry| entry.folder.kind() == MediaKind::Capture && entry.value == key);
-    Some(entry.map_or_else(|| value.to_owned(), |entry| entry.name.clone()))
+    Some(library(key).unwrap_or_else(|| value.to_owned()))
+}
+
+/// The media listing name of a capture key.
+fn media_capture(media: &[MediaEntry], key: &str) -> Option<String> {
+    (media.iter())
+        .find(|entry| entry.folder.kind() == MediaKind::Capture && entry.value == key)
+        .map(|entry| entry.name.clone())
 }
 
 /// Stomp tiles from `stomp_mode_assignments` (one switch may toggle several blocks).
-/// Labels: the single-stomp label, then the stomp label, then the first block's model name.
+/// Labels: the single-stomp label, then the stomp label, then the first block's Grid label
+/// (so a capture shows its capture name). Runs after [`project_captures`].
 fn project_stomps(
     snapshot: &mut UiSnapshot,
     current: &super::super::Current,
     layout: &Layout,
     scene: EngineScene,
-    specs: Option<&Specs>,
 ) {
     let preset = &current.preset;
     for (switch, view) in snapshot.stomps.iter_mut().enumerate() {
@@ -660,7 +688,10 @@ fn project_stomps(
                 .get(key)
                 .or_else(|| preset.stomp_labels.get(key))
                 .cloned()
-                .unwrap_or_else(|| model_name(specs, first.model.0)),
+                .unwrap_or_else(|| {
+                    let cell = slot.row.index() * GRID_COLUMNS + slot.column.index();
+                    snapshot.grid[cell].label.clone()
+                }),
             engaged: !first.bypass.at(scene),
             category: ModelCategory::of_model(first.model.0),
             multiple: blocks.len() > 1,
@@ -906,7 +937,7 @@ fn media_value(
         return "-".into();
     }
     if kind == MediaKind::Capture {
-        return capture_name(&value, media).unwrap_or(value);
+        return capture_name(&value, |key| media_capture(media, key)).unwrap_or(value);
     }
     let base = model.clones.first().copied().unwrap_or(model.id);
     match IrReference::classify(&value) {

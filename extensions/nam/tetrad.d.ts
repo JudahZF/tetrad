@@ -63,6 +63,7 @@ export type Parameter = {
 /** One block of the loaded preset, as `controls.list` returns it. */
 export type Block = Site & {
   readonly model: number;
+  /** The name the Grid shows: the capture name of a Neural Capture block, else the model name. */
   readonly name: string;
   readonly bypassed: boolean;
   readonly parameters: readonly Parameter[];
