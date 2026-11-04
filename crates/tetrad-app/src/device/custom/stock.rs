@@ -100,9 +100,14 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
     let old = mappings::footswitch_rows(state);
     for stomp in 0..STOMPS {
         let binding = &mut layout[0].slots[usize::from(stomp)].press;
-        // The layout field never holds stock data; a field written elsewhere might.
-        binding.actions.retain(|act| !stock_bypass(act));
         let mut actions = stock_acts(preset, &list, stomp);
+        // A bypass in the layout field (a layout from before) stays until the next edit moves it
+        // to the stock data ([`store`]); one the stock data has already shows once.
+        let stocked = |act: &Act| {
+            stock_bypass(act)
+                && (actions.iter()).any(|stock| stock.stock && stock.action == act.action)
+        };
+        binding.actions.retain(|act| !stocked(act));
         actions.append(&mut binding.actions);
         let moved = (old.iter())
             .filter(|row| row.stomp == stomp)
@@ -124,8 +129,18 @@ pub(super) fn merged(state: &State, own: Option<Vec<Page>>) -> Option<Vec<Page>>
                 })
             });
         actions.extend(moved);
-        actions.truncate(tetrad_ui::MAX_ACTIONS);
+        // The stock actions are not cut: the stock data behind them is written back whole. The
+        // others go to the layout field, which holds `MAX_ACTIONS` per switch.
+        let mut own = 0;
+        actions.retain(|act| {
+            own += usize::from(!act.stock);
+            act.stock || own <= tetrad_ui::MAX_ACTIONS
+        });
         binding.actions = actions;
+        // Secondary assignments run on a press too, though no action shows them.
+        binding.stock = (preset.stomp_mode_assignments.iter())
+            .any(|a| a.stomp_index == u32::from(stomp))
+            || binding.actions.iter().any(|act| act.stock);
         let label = preset.single_stomp_labels.get(u32::from(stomp));
         if binding.label.is_none() {
             binding.label = label.filter(|label| !label.is_empty()).cloned();
@@ -140,7 +155,7 @@ pub(super) fn press(state: &State, binding: &Binding, stomp: u8, pressed: bool) 
     let Some(index) = StompIndex::new(u32::from(stomp)) else {
         return Vec::new();
     };
-    if !binding.actions.iter().any(|act| act.stock) {
+    if !binding.stock {
         return Vec::new();
     }
     crate::device::input::stock_stomp(state, index, pressed)
@@ -157,6 +172,9 @@ pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
     let list = crate::device::ui::project::preset_midi(preset);
     let mut own = layout.to_vec();
     let mut effects = Vec::new();
+    // Every unassignment goes before every assignment: a block that moves from one switch to
+    // another stays assigned.
+    let (mut unassign, mut assign) = (Vec::new(), Vec::new());
     let edit = |edit| Effect::Action(Action::PresetEdit(edit));
     for stomp in 0..STOMPS {
         let binding = &mut own[0].slots[usize::from(stomp)].press;
@@ -179,7 +197,7 @@ pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
         let slot = |(row, column)| mappings::position(row, column).and_then(mappings::engine_slot);
         for &gone in before.iter().filter(|at| !bypasses.contains(at)) {
             if let Some(slot) = slot(gone) {
-                effects.push(edit(PresetEdit::Stomp {
+                unassign.push(edit(PresetEdit::Stomp {
                     slot,
                     assignment: None,
                 }));
@@ -187,7 +205,7 @@ pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
         }
         for &new in bypasses.iter().filter(|at| !before.contains(at)) {
             if let Some(slot) = slot(new) {
-                effects.push(edit(PresetEdit::Stomp {
+                assign.push(edit(PresetEdit::Stomp {
                     slot,
                     assignment: Some((u32::from(stomp), StompRole::Primary)),
                 }));
@@ -215,6 +233,7 @@ pub(super) fn store(state: &State, layout: &[Page]) -> Vec<Effect> {
             }));
         }
     }
+    let mut effects = [unassign, assign, effects].concat();
     let empty = own.iter().all(|page| *page == Page::default());
     effects.push(edit(PresetEdit::CustomLayout(
         (!empty).then(|| encode(&own)),

@@ -235,3 +235,62 @@ fn the_old_extension_layout_moves_to_the_layout_file() {
     let moved: serde_json::Value = serde_json::from_slice(&moved).unwrap();
     assert_eq!(moved["format"], 2);
 }
+
+/// A bypass that moves from B to A stays assigned (the old switch's unassignment goes first),
+/// and a page 1 bypass from an older layout field plays and moves to the stock data with the
+/// next edit.
+#[test]
+fn stock_bypasses_move_and_older_layouts_keep_theirs() {
+    let (mut device, _media) = boot();
+    let light = GridPosition::new(0, 2).unwrap();
+    let bypass = SlotAction::Block {
+        position: light,
+        target: BlockTarget::Bypass,
+    };
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::Action {
+            index: 0,
+            edit: ActionEdit::Set(bypass.clone()),
+        },
+    }));
+    settle(&mut device);
+    let assignments = |device: &Device<Sim>| {
+        (preset(device).stomp_mode_assignments.iter())
+            .map(|a| (a.row, a.column, a.stomp_index))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(assignments(&device), [(0, 2, 1)]);
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 1,
+        gesture: Gesture::Press,
+        edit: SlotEdit::MoveTo { page: 0, slot: 0 },
+    }));
+    settle(&mut device);
+    assert_eq!(assignments(&device), [(0, 2, 0)]);
+
+    // An older layout field with a bypass on C: it shows and plays as a Custom action.
+    let old = br#"{"format":2,"slots":[{"page":0,"slot":2,"actions":[
+        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}}]}]}"#;
+    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
+        Some(old.to_vec()),
+    ))));
+    settle(&mut device);
+    let view = custom::view(device.state()).unwrap();
+    let c = &view.preset_slots.unwrap()[0].slots[2];
+    assert_eq!(c.action, Some(bypass));
+    device.push(Event::Custom(CustomCommand::Slot {
+        scope: LayoutScope::Preset,
+        page: 0,
+        slot: 2,
+        gesture: Gesture::Press,
+        edit: SlotEdit::SetColour(Some(1)),
+    }));
+    settle(&mut device);
+    assert_eq!(assignments(&device), [(0, 2, 2)], "moved to the stock data");
+}

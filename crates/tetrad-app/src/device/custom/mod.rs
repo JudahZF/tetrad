@@ -199,6 +199,10 @@ impl Act {
 struct Binding {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     actions: Vec<Act>,
+    /// Page 1's A–H of the loaded preset: the preset has stock Stomp data for the switch
+    /// ([`stock`]), which a press plays even when no action shows it (a secondary assignment).
+    #[serde(skip)]
+    stock: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     label: Option<String>,
     /// Format 1, read only ([`Binding::upgrade`]): one action, a parameter's percent and a
@@ -531,7 +535,7 @@ impl CustomMode {
             return playing;
         };
         for (slot, mine) in playing.slots.iter_mut().zip(&own.slots) {
-            if !mine.press.actions.is_empty() {
+            if !mine.press.actions.is_empty() || mine.press.stock {
                 (slot.press, slot.colour) = (mine.press.clone(), mine.colour);
             }
             if (mine.double.as_ref()).is_some_and(|double| !double.actions.is_empty()) {
@@ -775,6 +779,8 @@ pub fn preset_loaded(state: &mut State) {
     for held in state.custom.held.iter_mut().flatten() {
         held.invert.clear();
         held.restore.clear();
+        // The stock release stays: stock skips it after a load (`perform.preset_loaded`).
+        held.stomp = None;
     }
     state.custom.toggled = Default::default();
     state.custom.gestures.clear();
