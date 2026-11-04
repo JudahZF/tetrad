@@ -453,6 +453,11 @@ pub(crate) struct CustomEdit {
     pub slot: u8,
     pub gesture: crate::Gesture,
     pub pending: Option<CustomPending>,
+    /// The action editor of action `n` of the selected binding (the number of actions: a new
+    /// one), over the switches.
+    pub action: Option<u8>,
+    /// The action editor's Values page.
+    pub values: bool,
 }
 
 /// A Custom mode editor action that waits for a tap on its target.
@@ -2485,8 +2490,13 @@ impl UiState {
         {
             return Vec::new();
         }
-        // A copy or move that waits for its target ends first.
-        if self.screen() == Screen::CustomMode && self.custom_edit.pending.take().is_some() {
+        // A copy or move that waits for its target ends first; the action editor's Values page
+        // goes back to the action editor, the action editor to the switches.
+        if self.screen() == Screen::CustomMode
+            && (self.custom_edit.pending.take().is_some()
+                || std::mem::take(&mut self.custom_edit.values)
+                || self.custom_edit.action.take().is_some())
+        {
             return Vec::new();
         }
         // A mapping's Values page goes back to its detail page, the detail page to the list.

@@ -229,9 +229,11 @@ fn messages(ui: &UiState, target: MidiOutTarget) -> &[MidiOutMessage] {
             page,
             slot,
             gesture,
+            action,
         } => (ui.snapshot.custom.as_ref())
             .and_then(|custom| custom.binding(scope, page, slot, gesture))
-            .map_or(&[][..], |slot| &slot.messages),
+            .and_then(|slot| slot.actions.get(usize::from(action)))
+            .map_or(&[][..], |action| &action.messages),
         target => ui.snapshot.preset_midi.messages(target),
     }
 }
@@ -501,13 +503,17 @@ impl UiState {
                 page,
                 slot,
                 gesture,
+                action,
             } => {
                 vec![UiCommand::Custom(crate::CustomCommand::Slot {
                     scope,
                     page,
                     slot,
                     gesture,
-                    edit: crate::SlotEdit::SetMessages(messages),
+                    edit: crate::SlotEdit::Action {
+                        index: action,
+                        edit: crate::ActionEdit::Messages(messages),
+                    },
                 })]
             }
             target => vec![UiCommand::SetPresetMidi { target, messages }],

@@ -289,7 +289,7 @@ fn an_edit_from_the_page_writes_the_same_layout_as_the_touch() {
     };
     for edit in [
         SlotEdit::Clear,
-        SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(2))),
+        first_action(SlotAction::System(SystemAction::Scene(2))),
         SlotEdit::SetLabel("Lead".into()),
         SlotEdit::SetColour(Some(3)),
     ] {
@@ -340,7 +340,41 @@ fn copy_and_move_a_slot() {
     assert_eq!(global[1]["slots"][9]["action"], tuner);
     assert_eq!(global[0]["slots"][2]["action"], tuner);
     assert_eq!(global[0]["slots"][0]["action"], bypass);
-    assert_eq!(global[0]["slots"][0]["momentary"], false);
+    // A bypass toggles until another mode is chosen; a second action runs after it.
+    let moved = &global[0]["slots"][0]["actions"][0];
+    assert_eq!(moved["mode"]["kind"], "toggle");
+    let kinds: Vec<_> = (moved["modes"].as_array().unwrap().iter())
+        .map(|mode| mode["kind"].clone())
+        .collect();
+    assert_eq!(kinds, ["toggle", "momentary", "set"]);
+    applied(
+        &mut device,
+        edit(
+            "global",
+            0,
+            0,
+            json!({ "kind": "mode", "mode": "momentary" }),
+        ),
+    );
+    let view = applied(
+        &mut device,
+        edit(
+            "global",
+            0,
+            0,
+            json!({ "kind": "action", "index": 1, "action": tuner }),
+        ),
+    );
+    let actions = &view["layouts"]["global"][0]["slots"][0]["actions"];
+    assert_eq!(actions[0]["mode"]["kind"], "momentary");
+    assert_eq!(actions[1]["action"], tuner);
+    let view = applied(
+        &mut device,
+        edit("global", 0, 0, json!({ "kind": "remove", "index": 0 })),
+    );
+    let actions = &view["layouts"]["global"][0]["slots"][0]["actions"];
+    assert_eq!(actions.as_array().map(Vec::len), Some(1));
+    assert_eq!(actions[0]["action"], tuner);
 }
 
 /// THIS PRESET starts as a copy of ALL PRESETS, takes its own edits as a preset edit, and goes
@@ -476,8 +510,8 @@ fn a_bad_command_is_refused_and_writes_nothing() {
             "That extension command is not running",
         ),
         (
-            edit("global", 0, 0, json!({ "kind": "value", "value": 50 })),
-            "Only a parameter action has a value",
+            edit("global", 0, 0, json!({ "kind": "mode", "mode": "toggle" })),
+            "There is no action 1",
         ),
         (
             edit(
@@ -564,4 +598,12 @@ fn double_presses_and_combos_are_edited_from_the_page() {
         gesture(json!({ "combo": 2 }), json!({ "kind": "clear" })),
     );
     assert_eq!(view["layouts"]["global"][0]["combos"], json!([]));
+}
+
+/// The first action of a slot.
+fn first_action(action: tetrad_ui::SlotAction) -> tetrad_ui::SlotEdit {
+    tetrad_ui::SlotEdit::Action {
+        index: 0,
+        edit: tetrad_ui::ActionEdit::Set(action),
+    }
 }

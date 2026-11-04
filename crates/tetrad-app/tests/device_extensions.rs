@@ -1137,20 +1137,28 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         target: BlockTarget::Bypass,
     };
     for command in [
-        edit(all, 0, 0, SlotEdit::SetAction(bypass.clone())),
-        edit(all, 0, 0, SlotEdit::SetMomentary(true)),
+        edit(all, 0, 0, first_action(bypass.clone())),
+        edit(
+            all,
+            0,
+            0,
+            SlotEdit::Action {
+                index: 0,
+                edit: tetrad_ui::ActionEdit::Mode(tetrad_ui::ModeKind::Momentary),
+            },
+        ),
         edit(all, 0, 0, SlotEdit::CopyTo { page: 0, slot: 1 }),
         edit(
             all,
             0,
             8,
-            SlotEdit::SetAction(SlotAction::System(SystemAction::CustomPage(PageStep::Next))),
+            first_action(SlotAction::System(SystemAction::CustomPage(PageStep::Next))),
         ),
         edit(
             all,
             1,
             0,
-            SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(2))),
+            first_action(SlotAction::System(SystemAction::Scene(2))),
         ),
     ] {
         device.push(Event::Custom(command));
@@ -1273,7 +1281,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
             LayoutScope::Preset,
             0,
             0,
-            SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(3))),
+            first_action(SlotAction::System(SystemAction::Scene(3))),
         ),
     );
     switch(&mut device, 0, 1);
@@ -1290,7 +1298,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     // Choose a preset: a slot of the browsed setlist becomes a Load preset action.
     send(
         &mut device,
-        edit(all, 0, 9, SlotEdit::SetAction(SlotAction::PresetSlot(0))),
+        edit(all, 0, 9, first_action(SlotAction::PresetSlot(0))),
     );
     let view = custom::view(device.state()).unwrap();
     let tap = &view.slots[0].slots[9];
@@ -1311,6 +1319,129 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     }));
     assert!(device.step().is_none());
     assert_eq!(scene_text(&device), ("Lead".into(), "Scene C".into()));
+}
+
+/// A switch runs its actions in order, each in its Mappings mode: a momentary bypass comes
+/// back on the release, and a parameter in Toggle swaps between its A and B on each press.
+#[test]
+fn a_custom_switch_runs_several_actions_in_their_modes() {
+    use tetrad_app::device::Action;
+    use tetrad_app::device::custom;
+    use tetrad_ui::{
+        ActionEdit, BlockTarget, CustomCommand, FieldId, Gesture, LayoutScope, ModeKind,
+        SlotAction, SlotEdit,
+    };
+
+    let web = repository_of(
+        json!({
+            "id": "test.mapper", "name": "Test Mapper", "version": "1.0.0",
+            "description": "Maps CC to gain.", "api": 4,
+            "footswitchMode": { "name": "Custom", "pages": 1 }
+        }),
+        None,
+    );
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
+    let (mut device, _media) = boot_over(media, web, MemFiles::default());
+    install(&mut device);
+    pump(&mut device, "the provider", |d| {
+        d.state().custom.provider().is_some()
+    });
+    let light = GridPosition::new(0, 2).unwrap();
+    let action = |index, edit| CustomCommand::Slot {
+        scope: LayoutScope::Global,
+        page: 0,
+        slot: 0,
+        gesture: Gesture::Press,
+        edit: SlotEdit::Action { index, edit },
+    };
+    let bypass = SlotAction::Block {
+        position: light,
+        target: BlockTarget::Bypass,
+    };
+    let level = SlotAction::Block {
+        position: light,
+        target: BlockTarget::Parameter(0),
+    };
+    for command in [
+        action(0, ActionEdit::Set(bypass)),
+        action(0, ActionEdit::Mode(ModeKind::Momentary)),
+        action(1, ActionEdit::Set(level)),
+        action(1, ActionEdit::Mode(ModeKind::Toggle)),
+    ] {
+        device.push(Event::Custom(command));
+        assert!(device.step().is_none());
+    }
+    let view = custom::view(device.state()).unwrap();
+    let shown = &view.slots[0].slots[0].actions;
+    assert_eq!(shown.len(), 2);
+    let ids: Vec<_> = shown[1].fields.iter().map(|field| field.id).collect();
+    assert_eq!(ids, [FieldId::A, FieldId::B]);
+    assert_eq!(
+        shown[1].mode.as_ref().map(|mode| mode.kind),
+        Some(ModeKind::Toggle)
+    );
+
+    let site = Site::Slot(Slot {
+        row: Row::new(0).unwrap(),
+        column: Column::new(2).unwrap(),
+    });
+    let block = |d: &Device<Sim>| {
+        let current = d.state().current.as_ref().unwrap();
+        let block = current.deployment.layout().instance(site).unwrap();
+        let scene = current.deployment.scene();
+        (block.bypass.at(scene), block.params[0].at(scene))
+    };
+    let switch = |d: &mut Device<Sim>, value: i32| {
+        let element = tetrad_hal::node::Element::all().next().unwrap();
+        d.push(Event::Hal(tetrad_hal::hal::Event::Stomp { element, value }));
+        for _ in 0..4 {
+            assert!(d.step().is_none());
+        }
+    };
+    for _ in 0..3 {
+        device.push(Event::Action(Action::CycleMode));
+        assert!(device.step().is_none());
+    }
+    assert!(device.state().performance.footswitch.custom);
+    let (bypassed, start) = block(&device);
+    switch(&mut device, 1);
+    let (held, toggled) = block(&device);
+    assert_eq!(
+        held, !bypassed,
+        "the bypass changes while the switch is down"
+    );
+    assert!((toggled - start).abs() > 0.01, "the press sets B");
+    switch(&mut device, 0);
+    assert_eq!(
+        block(&device),
+        (bypassed, toggled),
+        "the release ends only the bypass"
+    );
+    switch(&mut device, 1);
+    switch(&mut device, 0);
+    assert_eq!(block(&device), (bypassed, start), "the next press sets A");
+
+    // Each action reads what the one before left: two momentary bypasses of one block flip it
+    // twice, and the release leaves it where it started.
+    let bypass = SlotAction::Block {
+        position: light,
+        target: BlockTarget::Bypass,
+    };
+    for command in [
+        action(1, ActionEdit::Set(bypass)),
+        action(1, ActionEdit::Mode(ModeKind::Momentary)),
+    ] {
+        device.push(Event::Custom(command));
+        assert!(device.step().is_none());
+    }
+    switch(&mut device, 1);
+    assert_eq!(block(&device).0, bypassed, "flipped twice while held");
+    switch(&mut device, 0);
+    assert_eq!(
+        block(&device).0,
+        bypassed,
+        "and where it started after the release"
+    );
 }
 
 /// Footswitch presses of a switch with a double press wait for a second press, and two
@@ -1340,8 +1471,8 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     pump(&mut device, "the provider", |d| {
         d.state().custom.provider().is_some()
     });
-    let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
-    let bypass = SlotEdit::SetAction(SlotAction::Block {
+    let scene = |action| first_action(SlotAction::System(SystemAction::Scene(action)));
+    let bypass = first_action(SlotAction::Block {
         position: GridPosition::new(0, 2).unwrap(),
         target: BlockTarget::Bypass,
     });
@@ -1351,10 +1482,24 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
         (0, Gesture::Combo(1), scene(3)),
         (1, Gesture::Press, scene(0)),
         (2, Gesture::Press, bypass.clone()),
-        (2, Gesture::Press, SlotEdit::SetMomentary(true)),
+        (
+            2,
+            Gesture::Press,
+            SlotEdit::Action {
+                index: 0,
+                edit: tetrad_ui::ActionEdit::Mode(tetrad_ui::ModeKind::Momentary),
+            },
+        ),
         (2, Gesture::Double, scene(2)),
         (6, Gesture::Press, bypass),
-        (6, Gesture::Press, SlotEdit::SetMomentary(true)),
+        (
+            6,
+            Gesture::Press,
+            SlotEdit::Action {
+                index: 0,
+                edit: tetrad_ui::ActionEdit::Mode(tetrad_ui::ModeKind::Momentary),
+            },
+        ),
         (6, Gesture::Double, scene(2)),
     ] {
         device.push(Event::Custom(CustomCommand::Slot {
@@ -1465,8 +1610,7 @@ fn a_waiting_custom_press_does_not_run_in_a_program() {
     use tetrad_hal::hal::Event as HalEvent;
     use tetrad_hal::node::Element;
     use tetrad_ui::{
-        CustomCommand, Gesture, LayoutScope, SettingId, SettingValue, SlotAction, SlotEdit,
-        SystemAction,
+        CustomCommand, Gesture, LayoutScope, SettingId, SettingValue, SlotAction, SystemAction,
     };
 
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
@@ -1482,7 +1626,7 @@ fn a_waiting_custom_press_does_not_run_in_a_program() {
     pump(&mut device, "the provider", |d| {
         d.state().custom.provider().is_some()
     });
-    let scene = |action| SlotEdit::SetAction(SlotAction::System(SystemAction::Scene(action)));
+    let scene = |action| first_action(SlotAction::System(SystemAction::Scene(action)));
     for (gesture, edit) in [(Gesture::Press, scene(1)), (Gesture::Double, scene(2))] {
         device.push(Event::Custom(CustomCommand::Slot {
             scope: LayoutScope::Global,
@@ -1632,4 +1776,12 @@ fn a_program_takes_the_screen_until_a_held_touch_ends_it() {
         shown + 1,
         "no frame while it ran, one after"
     );
+}
+
+/// The first action of a slot.
+fn first_action(action: tetrad_ui::SlotAction) -> tetrad_ui::SlotEdit {
+    tetrad_ui::SlotEdit::Action {
+        index: 0,
+        edit: tetrad_ui::ActionEdit::Set(action),
+    }
 }

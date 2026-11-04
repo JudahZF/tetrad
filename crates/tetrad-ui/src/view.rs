@@ -1762,13 +1762,15 @@ pub enum MidiOutTarget {
     Footswitch(Footswitch),
     Expression1,
     Expression2,
-    /// (O) The messages of a Custom mode slot action ([`crate::CustomSlotView::messages`]) in
-    /// the layout of `scope`. They are not Preset MIDI Out data.
+    /// (O) The messages of action `action` of a Custom mode slot
+    /// ([`crate::CustomActionView::messages`]) in the layout of `scope`. They are not Preset
+    /// MIDI Out data.
     Slot {
         scope: crate::LayoutScope,
         page: u8,
         slot: u8,
         gesture: crate::Gesture,
+        action: u8,
     },
 }
 

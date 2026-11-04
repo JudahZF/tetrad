@@ -18,6 +18,9 @@ import {
   demoPreset,
   demoTabs,
   demoThemes,
+  slotAction,
+  slotFromActions,
+  slotSummary,
 } from "@/lib/demo/data";
 import { EditError, applyEdit } from "@/lib/preset/edit";
 import type { Edit, Preset } from "@/lib/preset/model";
@@ -466,66 +469,81 @@ export class DemoClient extends BaseClient implements UnitClient {
           return { ...this.fs, presets: { setlist: command.setlist, slots: ["1A Clean", "4B Worship", "12B Plexi Crunch"].map((label, slot) => ({ slot, label })) } };
         case "slot": {
           const layout = this.layout(command.scope);
-          const page = layout[command.page] ?? refuse(`There is no page ${command.page + 1}`);
+          const page = (layout[command.page] ?? refuse(`There is no page ${command.page + 1}`)).slots;
           const slot = page[command.slot] ?? refuse(`There is no switch ${command.slot + 1}`);
           const edit = command.edit;
-          const at = (p: number, s: number) => layout[p]?.[s] ?? refuse(`There is no switch ${s + 1}`);
+          const at = (p: number, s: number) => layout[p]?.slots[s] ?? refuse(`There is no switch ${s + 1}`);
+          const index = "index" in edit ? (edit.index ?? 0) : 0;
+          const item = () => slot.actions[index] ?? refuse(`There is no action ${index + 1}`);
           switch (edit.kind) {
             case "clear":
-              page[command.slot] = { ...slot, action: null, label: "", customLabel: null, detail: "", colour: "#3a3a3a", swatch: null, value: null, momentary: null, messages: [], engaged: false };
+              page[command.slot] = { ...slot, action: null, actions: [], label: "", customLabel: null, detail: "", colour: "#3a3a3a", swatch: null, engaged: false, available: true };
               break;
             case "label":
               if (edit.label.length > 16) refuse("A label has at most 16 characters");
               slot.customLabel = edit.label || null;
-              slot.label = edit.label || describe(slot.action, this.fs);
               break;
             case "colour":
               if (edit.colour !== null && (edit.colour < 0 || edit.colour > 7)) refuse("There are eight colours");
               slot.swatch = edit.colour;
               slot.colour = edit.colour === null ? "#3a3a3a" : (this.fs.colours[edit.colour] ?? slot.colour);
               break;
-            case "value":
-              if (slot.action?.kind !== "block" || slot.action.parameter === null) refuse("Only a parameter action has a value");
-              slot.value = Math.min(100, Math.max(0, Math.round(edit.value)));
-              break;
-            case "momentary":
-              if (slot.action?.kind !== "block" || slot.action.parameter !== null) refuse("Only a bypass action can be momentary");
-              slot.momentary = edit.momentary;
-              slot.detail = edit.momentary ? "Bypass · momentary" : "Bypass · latching";
-              break;
-            case "messages":
-              if (slot.action?.kind !== "sendMidi") refuse("Choose Send MIDI first");
-              slot.messages = edit.messages;
-              break;
             case "action": {
+              if (index > Math.min(slot.actions.length, T.MAX_SLOT_ACTIONS - 1)) refuse(`A switch runs at most ${T.MAX_SLOT_ACTIONS} actions, in order`);
               const a = edit.action;
               const view: T.SlotActionView =
                 a.kind === "preset" ? { kind: "loadPreset" }
                 : a.kind === "block" ? { kind: "block", row: a.row, column: a.column, parameter: a.parameter ?? null }
                 : a;
-              if (view.kind === "block" && !this.fs.blocks.some((b) => b.row === view.row && b.column === view.column)) refuse("There is no block there");
+              const block = view.kind === "block" ? (this.fs.blocks.find((b) => b.row === view.row && b.column === view.column) ?? refuse("There is no block there")) : null;
               if (view.kind === "system" && typeof view.action === "object" && "customSlot" in view.action) refuse("A slot cannot press another slot");
-              slot.action = view;
-              slot.value = view.kind === "block" && view.parameter !== null ? 50 : null;
-              slot.momentary = view.kind === "block" && view.parameter === null ? false : null;
-              slot.label = slot.customLabel ?? describe(view, this.fs);
-              slot.detail = view.kind === "block" ? (view.parameter === null ? "Bypass · latching" : "Parameter · 50 %") : view.kind === "loadPreset" ? `Load ${a.kind === "preset" ? a.setlist : this.fs.preset}` : "";
+              const detail =
+                view.kind === "block" ? (view.parameter === null ? "Bypass" : (block?.name ?? ""))
+                : view.kind === "loadPreset" ? `Load ${a.kind === "preset" ? a.setlist : this.fs.preset}`
+                : view.kind === "system" ? (this.fs.systems.find((s) => JSON.stringify(s.action) === JSON.stringify(view.action))?.group ?? "System")
+                : view.kind === "sendMidi" ? "MIDI"
+                : "Extension";
+              slot.actions[index] = slotAction(view, describe(view, this.fs), detail);
               break;
             }
+            case "remove":
+              item();
+              slot.actions.splice(index, 1);
+              break;
+            case "mode": {
+              const a = item();
+              if (!a.modes.some((m) => m.kind === edit.mode)) refuse(`${a.label} cannot use the mode ${edit.mode}`);
+              slot.actions[index] = { ...slotAction(a.action, a.label, a.detail, edit.mode), messages: a.messages };
+              break;
+            }
+            case "step": {
+              const a = item();
+              const field = a.fields.find((f) => f.id === edit.field) ?? refuse(`${a.label} has no value ${edit.field}`);
+              if (edit.ticks === 0 || Math.abs(edit.ticks) > 127) refuse("ticks goes from -127 to 127 and is not 0");
+              field.text = stepText(field, edit.ticks);
+              a.summary = slotSummary(a.mode?.kind ?? "onPress", a.fields);
+              break;
+            }
+            case "messages":
+              if (item().action.kind !== "sendMidi") refuse("Choose Send MIDI first");
+              item().messages = edit.messages;
+              break;
             case "copyTo": {
               at(edit.page, edit.slot);
-              const target = layout[edit.page];
+              const target = layout[edit.page]?.slots;
               if (target) target[edit.slot] = structuredClone(slot);
               break;
             }
             case "moveTo": {
               const other = at(edit.page, edit.slot);
-              const target = layout[edit.page];
+              const target = layout[edit.page]?.slots;
               if (target) target[edit.slot] = slot;
               page[command.slot] = other;
               break;
             }
           }
+          const edited = page[command.slot];
+          if (edited) slotFromActions(edited);
           break;
         }
       }
@@ -599,6 +617,14 @@ function describe(action: T.SlotActionView | null, fs: T.FootswitchMode): string
     case "command":
       return fs.commands.find((c) => c.key === action.key && c.command === action.command)?.label.split(" · ").pop() ?? "Command";
   }
+}
+
+/** A stepper tap on a demo value: On and Off swap; a number moves by `ticks`. */
+function stepText(field: T.ValueField, ticks: number): string {
+  if (field.text === "On" || field.text === "Off") return ticks % 2 === 0 ? field.text : field.text === "On" ? "Off" : "On";
+  const [, number = "0", unit = ""] = /^(-?\d+)(.*)$/.exec(field.text) ?? [];
+  const min = field.id === "amount" ? -100 : 0;
+  return `${Math.min(100, Math.max(min, Number(number) + ticks))}${unit}`;
 }
 
 /** 600 KiB that start like a gzip file, so a download needs two pieces. */

@@ -4,6 +4,7 @@ import { type Header, type Json, decode, encode } from "@/lib/link/message";
 import type { LinkPort } from "@/lib/link/session";
 import { sendFile } from "./client";
 import { DemoClient } from "./demo";
+import type { FootswitchView, SlotEdit } from "./types";
 import { LinkClient } from "./link";
 import { type Fetch, RemoteClient, parseAddress } from "./remote";
 
@@ -232,7 +233,27 @@ describe("demo unit", () => {
     const edit = (label: string) => demo.footswitchCommand({ op: "slot", scope: "global", page: 0, slot: 0, edit: { kind: "label", label } });
     await expect(edit("A label far too long")).rejects.toThrow(/16/);
     const view = await edit("Verse");
-    expect(view.mode && "layouts" in view ? view.layouts.global[0]?.[0]?.label : null).toBe("Verse");
+    expect(view.mode && "layouts" in view ? view.layouts.global[0]?.slots[0]?.label : null).toBe("Verse");
+    await demo.close();
+  });
+
+  it("runs up to eight switch actions in order, each with a mode, as the unit does", async () => {
+    const demo = new DemoClient(0);
+    const edit = (e: SlotEdit) => demo.footswitchCommand({ op: "slot", scope: "global", page: 1, slot: 0, edit: e });
+    const slotOf = (view: FootswitchView) => (view.mode && "layouts" in view ? view.layouts.global[1]?.slots[0] : undefined);
+    const tuner = { kind: "system", action: "tuner" } as const;
+    await expect(edit({ kind: "action", index: 1, action: tuner })).rejects.toThrow(/in order/);
+    for (let index = 0; index < 8; index++) await edit({ kind: "action", index, action: tuner });
+    await expect(edit({ kind: "action", index: 8, action: tuner })).rejects.toThrow(/at most 8/);
+    await edit({ kind: "action", index: 1, action: { kind: "block", row: 0, column: 7, parameter: 2 } });
+    await expect(edit({ kind: "mode", index: 1, mode: "follow" })).rejects.toThrow(/cannot use/);
+    await edit({ kind: "mode", index: 1, mode: "toggle" });
+    const stepped = slotOf(await edit({ kind: "step", index: 1, field: "b", ticks: 5 }));
+    expect(stepped?.actions[1]?.summary).toBe("25 % ↔ 80 %");
+    expect(stepped?.detail).toBe("Tuner · +7");
+    const removed = slotOf(await edit({ kind: "remove", index: 0 }));
+    expect(removed?.actions).toHaveLength(7);
+    expect(removed?.action).toEqual({ kind: "block", row: 0, column: 7, parameter: 2 });
     await demo.close();
   });
 });

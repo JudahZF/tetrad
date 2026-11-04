@@ -871,16 +871,17 @@ pub enum CustomControl {
     Select(u8),
     /// PRESS, DOUBLE or COMBO: which action of the selected switch the editor shows.
     Gesture(crate::Gesture),
-    /// The Action row: the action menu.
+    /// A row of the switch's action list: the action editor of action `n` (the number of
+    /// actions: a new one).
+    OpenAction(u8),
+    /// The action editor's Action row: the action menu.
     Actions,
+    /// The action editor's trash button: the action goes.
+    RemoveAction,
     /// The Label row: the keyboard.
     Label,
     /// A colour swatch; `None` is Auto.
     Colour(Option<u8>),
-    /// The value stepper of a parameter action, in 5 % steps.
-    Value(i8),
-    /// The Momentary switch of a bypass action.
-    Momentary,
     /// Edit messages of a Send MIDI action: the message editor.
     Messages,
     Clear,

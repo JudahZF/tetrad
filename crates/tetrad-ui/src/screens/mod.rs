@@ -4,7 +4,7 @@ mod appearance;
 mod bluetooth;
 mod capture;
 mod capture_browser;
-mod custom;
+pub(crate) mod custom;
 mod directory;
 mod directory_glyph;
 mod directory_lists;

@@ -29,6 +29,14 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Plugin licences fail closed: until the DSP reports the licences at boot, every plugin block
   deploys bypassed. Before, a deploy in that window had no licence gate.
 - A DSP block's `placeholder` cannot be a plugin model: Tetrad uses the stock Gain block instead.
+- Custom footswitch mode: a switch (its press, double press or combo) runs up to eight actions,
+  in order. Each action has a mode with its values, as a mapping has: Set, Toggle, Momentary or
+  Step for a parameter (values in the parameter's own units), Toggle, Momentary or Set for a
+  bypass, the Tuner and Gig View, On press or Momentary for a Looper button. The editor lists the
+  switch's actions under the switches; an action opens the Mappings Action, Mode and Values rows
+  ([docs/footswitch-modes.md](docs/footswitch-modes.md#choose-the-actions)). The Remote
+  Footswitch page and the phone app edit the actions the same way. Layouts from before read as
+  before and are written in a new format (2) that older Tetrad builds do not read.
 - Custom footswitch mode: a switch that selects a scene shows the scene's name from the loaded
   preset, with **Scene A** under it. A scene without a name shows **Scene A**, as before. A
   label that you type still comes first.

@@ -1,4 +1,5 @@
-/** What a Custom-mode switch does: a system action, a block's bypass or parameter, a preset, MIDI, or an extension command. */
+/** One action of a Custom-mode switch: a system action, a block's bypass or parameter, a preset, MIDI, or an extension command.
+ *  `index` names the action; the number of actions adds one. */
 
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
@@ -11,7 +12,7 @@ import { useLoad } from "@/state/useLoad";
 import { Button, Empty, Row, Rows, Screen, Section, Spinner } from "@/ui/kit";
 
 export default function SwitchAction() {
-  const params = useLocalSearchParams<{ scope: LayoutScope; page: string; slot: string }>();
+  const params = useLocalSearchParams<{ scope: LayoutScope; page: string; slot: string; index?: string }>();
   const client = useClient();
   const toast = useToast();
   const view = useLoad(() => client.footswitch(), client);
@@ -24,10 +25,11 @@ export default function SwitchAction() {
   const scope = params.scope === "preset" ? "preset" : "global";
   const page = Number(params.page);
   const slot = Number(params.slot);
+  const index = Number(params.index ?? 0);
 
   const choose = async (action: SlotActionInput) => {
     try {
-      await client.footswitchCommand({ op: "slot", scope, page, slot, edit: { kind: "action", action } });
+      await client.footswitchCommand({ op: "slot", scope, page, slot, edit: { kind: "action", index, action } });
       router.back();
     } catch (error) {
       toast.error(error);
@@ -43,7 +45,7 @@ export default function SwitchAction() {
   const listed = presets.data && presets.data.mode && "presets" in presets.data ? presets.data.presets : undefined;
 
   return (
-    <Screen title={`Switch ${SLOT_NAMES[slot] ?? ""} · page ${page + 1}`} right={close}>
+    <Screen title={`Switch ${SLOT_NAMES[slot] ?? ""} · page ${page + 1} · action ${index + 1}`} right={close}>
       {[...groups].map(([group, items]) => (
         <View key={group} style={{ gap: 12 }}>
           <Section>{group}</Section>
@@ -59,7 +61,7 @@ export default function SwitchAction() {
         <Rows key={`${b.row}:${b.column}`}>
           <Row title={`${b.name} · Bypass`} detail={b.location} onPress={() => void choose({ kind: "block", row: b.row, column: b.column, parameter: null })} />
           {b.parameters.map((p) => (
-            <Row key={p.index} title={`${b.name} · ${p.name}`} detail="Sets the parameter on a press" onPress={() => void choose({ kind: "block", row: b.row, column: b.column, parameter: p.index })} />
+            <Row key={p.index} title={`${b.name} · ${p.name}`} detail="Choose its mode and values next" onPress={() => void choose({ kind: "block", row: b.row, column: b.column, parameter: p.index })} />
           ))}
         </Rows>
       ))}

@@ -345,6 +345,25 @@ fn every_screen_has_disjoint_in_frame_touch_targets() {
             &[MappingControl::Open(1), MappingControl::Actions, preset],
         )
     }));
+    // The Custom mode editor with an action list, and its action editor.
+    let custom = |ui: &mut UiState, controls: &[CustomControl]| {
+        let snapshot = UiSnapshot {
+            mappings: crate::screens::mappings::tests::sample(),
+            custom: Some(crate::screens::custom::tests::view(true)),
+            ..ui.snapshot().clone()
+        };
+        ui.set_snapshot(snapshot).expect("valid snapshot");
+        ui.navigate(Screen::CustomMode);
+        for control in [CustomControl::Tab(1), CustomControl::Select(0)]
+            .iter()
+            .chain(controls)
+        {
+            activate(ui, Control::Custom(*control));
+        }
+    };
+    states.push(open(&|ui| custom(ui, &[])));
+    states.push(open(&|ui| custom(ui, &[CustomControl::OpenAction(0)])));
+    states.push(open(&|ui| custom(ui, &[CustomControl::OpenAction(1)])));
     states.push(open(&|ui| {
         activate(ui, Control::SceneMenu);
     }));

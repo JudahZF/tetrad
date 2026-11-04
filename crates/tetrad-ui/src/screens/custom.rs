@@ -3,21 +3,25 @@
 //! switches out as the unit has them: A–D and Down on the top row, E–H and Tap below.
 //!
 //! The editor shows page tabs, PRESS · DOUBLE · COMBO, the ten tiles of the page and the
-//! selected action of the selected switch: the action (the Mappings action menu,
-//! `super::mappings::entries`), label, colour (the press only: it is the switch's) and the
-//! setting of the action (a parameter's value, a bypass's Momentary switch, the MIDI
-//! messages). A tile marks a double press with 2×, and a link joins the two tiles of a combo.
-//! Each control sends a [`CustomCommand`] and the page shows the next snapshot.
+//! selected press, double press or combo of the selected switch: its label, colour (the press
+//! only: it is the switch's) and its actions. A tap on an action opens the action editor: the
+//! Action, Mode and Values rows of the Mappings page (the Mappings action menu,
+//! `super::mappings::entries`, and its mode widgets). A tile marks a double press with 2×, and
+//! a link joins the two tiles of a combo. Each control sends a [`CustomCommand`] and the page
+//! shows the next snapshot.
 
 use tetrad_assets::{Icon, IconSize, Palette, Rgb};
 
-use super::mappings::{Entry, block_tile, chevron, divider, entries, glyph, lines, system_icon};
+use super::mappings::{
+    Entry, ModeRows, block_tile, caption, chevron, divider, entries, glyph, label, lines, mode_row,
+    system_icon, values, values_row,
+};
 use crate::layout::{
     BODY, BODY_BOLD, ButtonStyle, CAPTION, Layout, ListId, Look, MEDIUM, MEDIUM_BOLD, SMALL_BOLD,
     XLARGE_BOLD,
 };
 use crate::render::{Align, fit, wrap};
-use crate::state::{ActionMenu, CustomEdit, CustomPending, Overlay, TextTarget};
+use crate::state::{ActionMenu, ChoicePurpose, CustomEdit, CustomPending, Overlay, TextTarget};
 use crate::*;
 
 /// Editor tiles: five 150 px columns on a 158 px pitch.
@@ -25,12 +29,17 @@ const EDIT_TILE: (u32, u32) = (150, 86);
 const EDIT_TOP: i32 = 108;
 const DETAIL: Rect = Rect::new(8, 296, 784, 176);
 const DETAIL_ROW: u32 = 58;
+/// The action list under the Label row: two rows show, the others scroll.
+const ACTIONS: Rect = Rect::new(8, 354, 784, 118);
+const ACTION_ROW: u32 = 59;
+/// The action editor's rows, as the Mappings detail page's.
+const EDITOR_ROW: u32 = 64;
+const EDITOR_Y: i32 = 88;
 /// Page tabs and PRESS · DOUBLE · COMBO share the row under the header: pitch and width.
 const TAB: (i32, u32) = (80, 72);
 const GESTURE_X: i32 = 328;
 /// Gig View tiles: as the stock tiles, five across.
 const GIG_TILE: (u32, u32) = (150, 194);
-const VALUE_STEP: i32 = 5;
 
 fn rgb([red, green, blue]: [u8; 3]) -> Rgb {
     Rgb(red, green, blue)
@@ -203,6 +212,25 @@ pub(super) fn layout(ui: &UiState, l: &mut Layout) {
         return;
     };
     let edit = clamped(ui.custom_edit, custom);
+    if let Some(index) = edit.action {
+        let binding = custom.binding(edit.scope, edit.page, edit.slot, edit.gesture);
+        let action = binding.and_then(|binding| binding.actions.get(usize::from(index)));
+        let title = format!(
+            "{} · page {}",
+            gesture_name(edit.slot, edit.gesture),
+            edit.page + 1
+        );
+        match action {
+            Some(action) if edit.values => values(
+                l,
+                &format!("{title} values"),
+                action.into(),
+                custom.notice.as_deref(),
+            ),
+            action => action_page(ui, l, custom, edit, &title, action),
+        }
+        return;
+    }
     crate::widgets::page_header(l, "", Control::Back, Icon::Check);
     l.text(
         Rect::new(16, 8, 176, 44),
@@ -465,10 +493,11 @@ fn neighbour_names(slot: u8, except: u8) -> String {
     }
 }
 
-/// The editor's page and slot, within the mode's pages, and a combo with a neighbour.
+/// The editor's page and slot, within the mode's pages, a combo with a neighbour, and an open
+/// action that the binding still has (or the next new one).
 fn clamped(edit: CustomEdit, custom: &CustomModeView) -> CustomEdit {
     let slot = edit.slot.min(CUSTOM_SLOTS as u8 - 1);
-    CustomEdit {
+    let edit = CustomEdit {
         page: edit.page.min(custom.pages.saturating_sub(1)),
         slot,
         gesture: match edit.gesture {
@@ -476,11 +505,25 @@ fn clamped(edit: CustomEdit, custom: &CustomModeView) -> CustomEdit {
             gesture => gesture,
         },
         ..edit
+    };
+    let actions = (custom.binding(edit.scope, edit.page, edit.slot, edit.gesture))
+        .map_or(&[][..], |binding| &binding.actions);
+    let action = edit
+        .action
+        .filter(|&index| usize::from(index) <= actions.len().min(MAX_ACTIONS - 1));
+    let fields = action
+        .and_then(|index| actions.get(usize::from(index)))
+        .map_or(0, |action| action.fields.len());
+    CustomEdit {
+        action,
+        values: edit.values && fields > 2,
+        ..edit
     }
 }
 
-/// The selected action of the selected switch: Action, then Label and Colour (the press
-/// only), then the action's setting.
+/// The selected press, double press or combo: the Label and Colour row (the colour: the press
+/// only), or what a waiting copy or move needs, or the last refusal; then its actions, one row
+/// each, and Add action.
 fn detail(
     ui: &UiState,
     l: &mut Layout,
@@ -492,74 +535,241 @@ fn detail(
 ) {
     let p = l.palette;
     l.panel(DETAIL, p.panel, 8.0, None);
-    let action = Rect::new(DETAIL.x, DETAIL.y, DETAIL.width, 60);
+    let first = Rect::new(DETAIL.x, DETAIL.y, DETAIL.width, DETAIL_ROW);
+    if let Some((text, waiting)) = status(custom, edit) {
+        let color = if waiting { p.accent } else { p.warning };
+        let text = fit(&text, MEDIUM, (first.width - 32) as f32);
+        l.text(first.inset(16, 0), text, MEDIUM, color, Align::Left);
+    } else {
+        let bounds = Rect::new(first.x, first.y, 376, first.height);
+        l.control(
+            bounds,
+            Control::Custom(CustomControl::Label),
+            slot.action.is_some(),
+            "LABEL",
+            Look::Area,
+        );
+        l.text(
+            Rect::new(bounds.x + 16, bounds.y, 80, bounds.height),
+            "Label",
+            MEDIUM,
+            p.text,
+            Align::Left,
+        );
+        let value = slot.custom_label.as_deref().unwrap_or("Auto");
+        l.text(
+            Rect::new(bounds.x + 96, bounds.y, bounds.width - 112, bounds.height),
+            fit(value, MEDIUM, (bounds.width - 112) as f32),
+            MEDIUM,
+            if slot.custom_label.is_some() {
+                p.text
+            } else {
+                p.muted
+            },
+            Align::Right,
+        );
+        if edit.gesture == Gesture::Press {
+            swatches(l, first, slot, &custom.colours);
+        }
+    }
+    divider(l, first);
+    let rows = slot.actions.len() + usize::from(slot.actions.len() < MAX_ACTIONS);
+    let content = rows as u32 * ACTION_ROW;
+    let offset = ui.offset(ListId::CustomActions);
+    let hint = hint(custom, edit, page, switch, slot);
+    l.scroll(ListId::CustomActions, ACTIONS, content, offset, |l, top| {
+        for (index, action) in slot.actions.iter().enumerate() {
+            let bounds = Rect::new(
+                ACTIONS.x,
+                top + (index as u32 * ACTION_ROW) as i32,
+                ACTIONS.width,
+                ACTION_ROW,
+            );
+            action_row(ui, l, bounds, index as u8, action);
+            divider(l, bounds);
+        }
+        if slot.actions.len() < MAX_ACTIONS {
+            let index = slot.actions.len();
+            let bounds = Rect::new(
+                ACTIONS.x,
+                top + (index as u32 * ACTION_ROW) as i32,
+                ACTIONS.width,
+                ACTION_ROW,
+            );
+            let open = Control::Custom(CustomControl::OpenAction(index as u8));
+            l.control(bounds, open, true, "ADD ACTION", Look::Area);
+            let mark = Rect::new(bounds.x + 16, bounds.y + 10, 40, 40);
+            glyph(l, mark, Icon::Plus, IconSize::Medium, p.accent);
+            lines(
+                l,
+                bounds,
+                (bounds.x + 70, bounds.right() - 48),
+                ("Add action", &hint),
+                p.accent,
+            );
+        }
+    });
+    super::scrollbar(l, ACTIONS, content, offset, 2);
+}
+
+/// One action of the list: its mark, name and detail with the mode's values.
+fn action_row(ui: &UiState, l: &mut Layout, bounds: Rect, index: u8, action: &CustomActionView) {
+    let p = l.palette;
+    let open = Control::Custom(CustomControl::OpenAction(index));
+    l.control(bounds, open, true, action.label.clone(), Look::Area);
+    let mark = Rect::new(bounds.x + 16, bounds.y + 10, 40, 40);
+    action_mark(ui, l, Some(&action.action), mark);
+    let detail = match action.summary.as_str() {
+        "" => action.detail.clone(),
+        summary => format!("{} · {summary}", action.detail),
+    };
+    let color = if action.available { p.text } else { p.muted };
+    lines(
+        l,
+        bounds,
+        (bounds.x + 70, bounds.right() - 48),
+        (&action.label, &detail),
+        color,
+    );
+    chevron(l, bounds);
+}
+
+/// A block action shows its block tile, another action its icon.
+fn action_mark(ui: &UiState, l: &mut Layout, action: Option<&SlotAction>, mark: Rect) {
+    let p = l.palette;
+    match action {
+        Some(SlotAction::Block { position, .. }) => block_tile(l, &ui.snapshot, *position, mark),
+        Some(action) => glyph(l, mark, action_icon(action), IconSize::Medium, p.text),
+        None => {}
+    }
+}
+
+/// The action editor: the Mappings detail page's Action panel for one action of the selected
+/// binding, under the switch's name. `action` is `None` for a new action.
+fn action_page(
+    ui: &UiState,
+    l: &mut Layout,
+    custom: &CustomModeView,
+    edit: CustomEdit,
+    title: &str,
+    action: Option<&CustomActionView>,
+) {
+    let p = l.palette;
+    crate::widgets::page_header(l, title, Control::Back, Icon::Check);
     l.control(
-        action,
+        Rect::new(620, 8, 66, 44),
+        Control::Custom(CustomControl::RemoveAction),
+        action.is_some(),
+        "REMOVE",
+        Look::IconButton {
+            icon: Icon::Trash,
+            fill: p.surface,
+        },
+    );
+    l.push(Rect::new(685, 18, 1, 24), "", Look::Fill(p.section));
+    caption(l, 56, "Action");
+    let midi = action.is_some_and(|action| action.action == SlotAction::SendMidi);
+    let third = midi || action.is_some_and(|action| !action.fields.is_empty());
+    let rows = if third { 3 } else { 2 };
+    let panel = Rect::new(8, EDITOR_Y, 784, rows * EDITOR_ROW);
+    l.panel(panel, p.panel, 8.0, None);
+    let row = Rect::new(panel.x, panel.y, panel.width, EDITOR_ROW);
+    l.control(
+        row,
         Control::Custom(CustomControl::Actions),
         true,
         "ACTION",
         Look::Area,
     );
-    let mark = Rect::new(action.x + 16, action.y + 10, 40, 40);
-    match &slot.action {
-        Some(SlotAction::Block { position, .. }) => block_tile(l, &ui.snapshot, *position, mark),
-        Some(action) => glyph(l, mark, action_icon(action), IconSize::Medium, p.text),
-        None => {}
-    }
-    let (text, detail, color) = match &slot.action {
+    let mark = Rect::new(row.x + 16, row.y + 12, 40, 40);
+    action_mark(ui, l, action.map(|action| &action.action), mark);
+    let (text, detail, color) = match action {
+        Some(action) => (
+            action.label.as_str(),
+            action.detail.as_str(),
+            if action.available { p.text } else { p.muted },
+        ),
         None => (
-            format!(
-                "{}: choose an action",
-                gesture_name(edit.slot, edit.gesture)
-            ),
-            "Scene, preset, block, MIDI, system, page or command".to_owned(),
+            "Choose an action",
+            "Scene, preset, block, MIDI, system, page or command",
             p.accent,
         ),
-        Some(_) => (slot.label.clone(), slot.detail.clone(), p.text),
     };
     lines(
         l,
-        action,
-        (action.x + 70, action.right() - 48),
-        (&text, &detail),
+        row,
+        (row.x + 70, row.right() - 48),
+        (text, detail),
         color,
     );
-    chevron(l, action);
-    divider(l, action);
-    let second = Rect::new(DETAIL.x, action.bottom(), DETAIL.width, DETAIL_ROW);
-    let label = Rect::new(second.x, second.y, 376, second.height);
-    l.control(
-        label,
-        Control::Custom(CustomControl::Label),
-        slot.action.is_some(),
-        "LABEL",
-        Look::Area,
-    );
-    l.text(
-        Rect::new(label.x + 16, label.y, 80, label.height),
-        "Label",
-        MEDIUM,
-        p.text,
-        Align::Left,
-    );
-    let value = slot.custom_label.as_deref().unwrap_or("Auto");
-    l.text(
-        Rect::new(label.x + 96, label.y, label.width - 112, label.height),
-        fit(value, MEDIUM, (label.width - 112) as f32),
-        MEDIUM,
-        if slot.custom_label.is_some() {
-            p.text
-        } else {
-            p.muted
-        },
-        Align::Right,
-    );
-    if edit.gesture == Gesture::Press {
-        swatches(l, second, slot, &custom.colours);
+    chevron(l, row);
+    divider(l, row);
+    let mode = Rect::new(panel.x, row.bottom(), panel.width, EDITOR_ROW);
+    let empty = ModeRows {
+        mode: None,
+        modes: &[],
+        fields: &[],
+        summary: "",
+        response: None,
+    };
+    let rows = action.map_or(empty, ModeRows::from);
+    mode_row(l, rows, mode);
+    let third = Rect::new(panel.x, mode.bottom(), panel.width, EDITOR_ROW);
+    if midi {
+        divider(l, mode);
+        let messages = Control::Custom(CustomControl::Messages);
+        l.control(third, messages, true, "EDIT MESSAGES", Look::Area);
+        label(l, third, "Edit messages");
+        chevron(l, third);
+    } else if !rows.fields.is_empty() {
+        divider(l, mode);
+        values_row(l, rows, third);
     }
-    divider(l, second);
-    let third = Rect::new(DETAIL.x, second.bottom(), DETAIL.width, DETAIL_ROW);
-    setting(l, third, custom, edit, page, switch, slot);
+    let footer = Rect::new(16, panel.bottom() + 6, 768, 24);
+    let (note, color) = match &custom.notice {
+        Some(notice) => (notice.clone(), p.warning),
+        None => {
+            let saved = match edit.scope {
+                LayoutScope::Global => "Saved for all presets.",
+                LayoutScope::Preset => "Saved in this preset.",
+            };
+            let order = match (edit.action, ui.snapshot.custom.as_ref()) {
+                (Some(index), Some(_)) if index > 0 => {
+                    format!(" Runs after action {index}.")
+                }
+                _ => String::new(),
+            };
+            (format!("{saved}{order}"), p.faint)
+        }
+    };
+    let note = fit(&note, CAPTION, footer.width as f32);
+    l.text(footer, note, CAPTION, color, Align::Left);
+}
+
+/// What a waiting copy or move needs (`true`), else the last refusal (`false`).
+fn status(custom: &CustomModeView, edit: CustomEdit) -> Option<(String, bool)> {
+    let waiting = match edit.pending {
+        Some(CustomPending::Copy { page, slot }) => Some(format!(
+            "Tap the switch that gets a copy of {} (page {})",
+            SLOT_NAMES[usize::from(slot)],
+            page + 1
+        )),
+        Some(CustomPending::Move { page, slot }) => Some(format!(
+            "Tap the switch that swaps with {} (page {})",
+            SLOT_NAMES[usize::from(slot)],
+            page + 1
+        )),
+        Some(CustomPending::Page { page }) => Some(format!(
+            "Tap the page tab that gets a copy of page {}",
+            page + 1
+        )),
+        None => None,
+    };
+    match (waiting, &custom.notice) {
+        (Some(waiting), _) => Some((waiting, true)),
+        (None, Some(notice)) => Some((notice.clone(), false)),
+        (None, None) => None,
+    }
 }
 
 /// Why the press of `switch` waits, if it does.
@@ -616,143 +826,47 @@ fn swatches(l: &mut Layout, row: Rect, slot: &CustomSlotView, colours: &[[u8; 3]
     }
 }
 
-/// The last row: what a waiting copy or move needs, the last refusal, or the setting of the
-/// action.
-fn setting(
-    l: &mut Layout,
-    row: Rect,
+/// The Add action row's line: when the binding runs, or what to do first.
+fn hint(
     custom: &CustomModeView,
     edit: CustomEdit,
     page: &CustomPageView,
     switch: &CustomSlotView,
     slot: &CustomSlotView,
-) {
-    let p = l.palette;
+) -> String {
     let wait = wait_note(custom, edit, page, switch);
-    let note = |l: &mut Layout, text: &str| {
-        l.text(
-            Rect::new(row.x + 180, row.y, 360, row.height),
-            fit(text, CAPTION, 360.0),
-            CAPTION,
-            p.muted,
-            Align::Left,
-        );
+    let playing = match (custom.preset_slots.is_some(), edit.scope) {
+        (true, LayoutScope::Global) => "This preset plays its own layout. ",
+        _ => "",
     };
-    let title = |l: &mut Layout, text: &str| {
-        l.text(
-            Rect::new(row.x + 16, row.y, 300, row.height),
-            text,
-            MEDIUM,
-            p.text,
-            Align::Left,
-        );
-    };
-    let waiting = match edit.pending {
-        Some(CustomPending::Copy { page, slot }) => Some(format!(
-            "Tap the switch that gets a copy of {} (page {})",
-            SLOT_NAMES[usize::from(slot)],
-            page + 1
-        )),
-        Some(CustomPending::Move { page, slot }) => Some(format!(
-            "Tap the switch that swaps with {} (page {})",
-            SLOT_NAMES[usize::from(slot)],
-            page + 1
-        )),
-        Some(CustomPending::Page { page }) => Some(format!(
-            "Tap the page tab that gets a copy of page {}",
-            page + 1
-        )),
-        None => None,
-    };
-    if let Some(waiting) = waiting {
-        let text = fit(&waiting, MEDIUM, (row.width - 32) as f32);
-        l.text(row.inset(16, 0), text, MEDIUM, p.accent, Align::Left);
-        return;
-    }
-    if let Some(notice) = &custom.notice {
-        let notice = fit(notice, MEDIUM, (row.width - 32) as f32);
-        l.text(row.inset(16, 0), notice, MEDIUM, p.warning, Align::Left);
-        return;
-    }
-    if let Some(percent) = slot.value {
-        title(l, "Value");
-        if let Some(wait) = &wait {
-            note(l, wait);
+    let name = SLOT_NAMES[usize::from(edit.slot)];
+    let ran = match edit.gesture {
+        Gesture::Press => match &wait {
+            Some(wait) => format!("{wait}."),
+            None => "Runs on each press of the switch.".to_owned(),
+        },
+        Gesture::Double => format!(
+            "Runs when {name} is pressed twice within {} ms.",
+            custom.double_press.as_millis()
+        ),
+        Gesture::Combo(partner) => {
+            let [first, second] = [edit.slot.min(partner), edit.slot.max(partner)];
+            format!(
+                "Runs when {} and {} are pressed together. Tap {} for another pair.",
+                SLOT_NAMES[usize::from(first)],
+                SLOT_NAMES[usize::from(second)],
+                neighbour_names(edit.slot, partner)
+            )
         }
-        super::stepper(
-            l,
-            Rect::new(row.right() - 228, row.y + 7, 212, 44),
-            Control::Custom(CustomControl::Value(-1)),
-            Control::Custom(CustomControl::Value(1)),
-            format!("{percent} %"),
-            true,
-        );
-    } else if let Some(momentary) = slot.momentary {
-        title(l, "Momentary");
-        let explained = if momentary {
-            "The block changes only while the switch is down"
-        } else {
-            "Each press toggles the block"
-        };
-        note(l, wait.as_deref().unwrap_or(explained));
-        let bounds = Rect::new(row.right() - 96, row.y + 9, 80, 40);
-        l.control(
-            bounds,
-            Control::Custom(CustomControl::Momentary),
-            true,
-            "MOMENTARY",
-            Look::Switch {
-                on: Some(momentary),
-            },
-        );
-    } else if slot.action == Some(SlotAction::SendMidi) {
-        l.control(
-            row,
-            Control::Custom(CustomControl::Messages),
-            true,
-            "EDIT MESSAGES",
-            Look::Area,
-        );
-        title(l, "Edit messages");
-        if let Some(wait) = &wait {
-            note(l, wait);
-        }
-        chevron(l, row);
-    } else {
-        let playing = match (custom.preset_slots.is_some(), edit.scope) {
-            (true, LayoutScope::Global) => "This preset plays its own layout. ",
-            _ => "",
-        };
-        let name = SLOT_NAMES[usize::from(edit.slot)];
-        let ran = match edit.gesture {
-            Gesture::Press => match &wait {
-                Some(wait) => format!("{wait}."),
-                None => "Runs on each press of the switch.".to_owned(),
-            },
-            Gesture::Double => format!(
-                "Runs when {name} is pressed twice within {} ms.",
-                custom.double_press.as_millis()
-            ),
-            Gesture::Combo(partner) => {
-                let [first, second] = [edit.slot.min(partner), edit.slot.max(partner)];
-                format!(
-                    "Runs when {} and {} are pressed together. Tap {} for another pair.",
-                    SLOT_NAMES[usize::from(first)],
-                    SLOT_NAMES[usize::from(second)],
-                    neighbour_names(edit.slot, partner)
-                )
-            }
-        };
-        let hint = match (
-            slot.action.is_some() || edit.gesture != Gesture::Press,
-            custom.active,
-        ) {
-            (true, _) => format!("{playing}{ran}"),
-            (false, true) => format!("{playing}Tap a switch above to edit it."),
-            (false, false) => format!("{playing}Off: the mode button or Down + Tap turns it on."),
-        };
-        let hint = fit(&hint, CAPTION, (row.width - 32) as f32);
-        l.text(row.inset(16, 0), hint, CAPTION, p.faint, Align::Left);
+    };
+    match (
+        slot.action.is_some() || edit.gesture != Gesture::Press,
+        custom.active,
+    ) {
+        (true, _) => format!("{playing}{ran}"),
+        (false, _) if !playing.is_empty() => format!("{playing}{ran}"),
+        (false, true) => "Scene, preset, block, MIDI, system, page or command".to_owned(),
+        (false, false) => "Off: the mode button or Down + Tap turns it on.".to_owned(),
     }
 }
 
@@ -793,6 +907,9 @@ impl UiState {
             .binding(scope, page, slot, gesture)
             .cloned()
             .unwrap_or_default();
+        let open = edit
+            .action
+            .filter(|&index| usize::from(index) < selected.actions.len());
         match control {
             C::Tap(slot) => vec![UiCommand::Custom(CustomCommand::Tap { slot })],
             C::NextPage => vec![UiCommand::Custom(CustomCommand::Page(PageStep::Next))],
@@ -903,11 +1020,32 @@ impl UiState {
                 self.custom_edit.pending = None;
                 vec![UiCommand::Custom(CustomCommand::PresetLayout(own))]
             }
+            // A new action opens its editor with the action menu over it.
+            C::OpenAction(index) => {
+                self.custom_edit.action = Some(index);
+                self.custom_edit.values = false;
+                if usize::from(index) >= selected.actions.len() {
+                    self.reset_scroll(ListId::MappingActions);
+                    self.overlay = Some(Overlay::MappingActions(ActionMenu::Root));
+                }
+                Vec::new()
+            }
             C::Actions => {
                 self.reset_scroll(ListId::MappingActions);
                 self.overlay = Some(Overlay::MappingActions(ActionMenu::Root));
                 Vec::new()
             }
+            C::RemoveAction => match open {
+                Some(index) => {
+                    self.custom_edit.action = None;
+                    self.custom_edit.values = false;
+                    send(SlotEdit::Action {
+                        index,
+                        edit: ActionEdit::Remove,
+                    })
+                }
+                None => Vec::new(),
+            },
             C::Label if selected.action.is_some() => {
                 let current = selected.custom_label.unwrap_or_default();
                 self.open_keyboard(TextTarget::SlotLabel(scope, page, slot, gesture), current);
@@ -920,27 +1058,17 @@ impl UiState {
             {
                 send(SlotEdit::SetColour(swatch))
             }
-            C::Value(steps) => match selected.value {
-                Some(value) => {
-                    let next =
-                        (i32::from(value) + i32::from(steps) * VALUE_STEP).clamp(0, 100) as u8;
-                    if next == value {
-                        return Vec::new();
-                    }
-                    send(SlotEdit::SetValue(next))
-                }
-                None => Vec::new(),
-            },
-            C::Momentary => match selected.momentary {
-                Some(momentary) => send(SlotEdit::SetMomentary(!momentary)),
-                None => Vec::new(),
-            },
-            C::Messages if selected.action == Some(SlotAction::SendMidi) => {
+            C::Messages
+                if open.is_some_and(|index| {
+                    selected.actions[usize::from(index)].action == SlotAction::SendMidi
+                }) =>
+            {
                 let target = MidiOutTarget::Slot {
                     scope,
                     page,
                     slot,
                     gesture,
+                    action: open.unwrap_or_default(),
                 };
                 self.midi_edit = Some((target, 0));
                 self.navigate(Screen::MidiOut)
@@ -948,6 +1076,104 @@ impl UiState {
             C::Clear => send(SlotEdit::Clear),
             C::Label | C::Colour(_) | C::Messages => Vec::new(),
         }
+    }
+
+    /// The open action's Mode dropdown, Values row and steppers (the Mappings widgets).
+    pub(crate) fn custom_mode_control(&mut self, control: MappingControl) -> Vec<UiCommand> {
+        let Some(custom) = self.snapshot.custom.as_ref() else {
+            return Vec::new();
+        };
+        let edit = clamped(self.custom_edit, custom);
+        let Some(index) = edit.action else {
+            return Vec::new();
+        };
+        let Some(action) = (custom.binding(edit.scope, edit.page, edit.slot, edit.gesture))
+            .and_then(|binding| binding.actions.get(usize::from(index)))
+        else {
+            return Vec::new();
+        };
+        let send = |action_edit| {
+            vec![UiCommand::Custom(CustomCommand::Slot {
+                scope: edit.scope,
+                page: edit.page,
+                slot: edit.slot,
+                gesture: edit.gesture,
+                edit: SlotEdit::Action {
+                    index,
+                    edit: action_edit,
+                },
+            })]
+        };
+        match control {
+            MappingControl::Choice(MappingChoice::Mode) if !action.modes.is_empty() => {
+                let kind = action.mode.as_ref().map(|mode| mode.kind);
+                let current = action.modes.iter().position(|mode| Some(mode.kind) == kind);
+                let purpose = ChoicePurpose::Mapping(MappingChoice::Mode);
+                self.open_choice(purpose, current.unwrap_or(0));
+                Vec::new()
+            }
+            MappingControl::Field(field, ticks)
+                if action.fields.iter().any(|shown| shown.id == field) =>
+            {
+                send(ActionEdit::Field {
+                    field,
+                    ticks: i32::from(ticks),
+                })
+            }
+            MappingControl::Values => {
+                self.custom_edit.values = action.fields.len() > 2;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The open action's mode menu: its labels and the current one.
+    pub(crate) fn custom_modes(&self) -> Option<(Vec<&str>, Option<usize>)> {
+        let action = self.custom_action()?;
+        let kind = action.mode.as_ref().map(|mode| mode.kind);
+        let current = action.modes.iter().position(|mode| Some(mode.kind) == kind);
+        Some((
+            action
+                .modes
+                .iter()
+                .map(|mode| mode.label.as_str())
+                .collect(),
+            current,
+        ))
+    }
+
+    /// A pick from the open action's mode menu.
+    pub(crate) fn choose_custom_mode(&self, index: usize) -> Vec<UiCommand> {
+        let (Some(custom), Some(action)) = (self.snapshot.custom.as_ref(), self.custom_action())
+        else {
+            return Vec::new();
+        };
+        let edit = clamped(self.custom_edit, custom);
+        let current = action.mode.as_ref().map(|mode| mode.kind);
+        match (action.modes.get(index), edit.action) {
+            (Some(mode), Some(at)) if Some(mode.kind) != current => {
+                vec![UiCommand::Custom(CustomCommand::Slot {
+                    scope: edit.scope,
+                    page: edit.page,
+                    slot: edit.slot,
+                    gesture: edit.gesture,
+                    edit: SlotEdit::Action {
+                        index: at,
+                        edit: ActionEdit::Mode(mode.kind),
+                    },
+                })]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The action whose editor is open.
+    fn custom_action(&self) -> Option<&CustomActionView> {
+        let custom = self.snapshot.custom.as_ref()?;
+        let edit = clamped(self.custom_edit, custom);
+        let binding = custom.binding(edit.scope, edit.page, edit.slot, edit.gesture)?;
+        binding.actions.get(usize::from(edit.action?))
     }
 
     /// Row `index` of the action menu over the slot editor. Opening a setlist also makes it the
@@ -966,9 +1192,12 @@ impl UiState {
             gesture,
             ..
         } = clamped(self.custom_edit, custom);
-        let current = custom
-            .binding(scope, page, slot, gesture)
-            .and_then(|slot| slot.action.clone());
+        let actions = (custom.binding(scope, page, slot, gesture))
+            .map_or(&[][..], |binding| &binding.actions);
+        let at = (self.custom_edit.action).unwrap_or(actions.len().min(MAX_ACTIONS) as u8);
+        let current = actions
+            .get(usize::from(at))
+            .map(|action| action.action.clone());
         let (next, commands) = match entries(self, menu).into_iter().nth(usize::from(index)) {
             Some(Entry::Open {
                 menu: ActionMenu::Setlist(id),
@@ -982,12 +1211,16 @@ impl UiState {
                 if current.as_ref() == Some(&action) && action != SlotAction::LoadPreset {
                     return Vec::new();
                 }
+                self.custom_edit.action = Some(at);
                 return vec![UiCommand::Custom(CustomCommand::Slot {
                     scope,
                     page,
                     slot,
                     gesture,
-                    edit: SlotEdit::SetAction(action),
+                    edit: SlotEdit::Action {
+                        index: at,
+                        edit: ActionEdit::Set(action),
+                    },
                 })];
             }
             Some(Entry::Header(_)) | None => return Vec::new(),
@@ -999,24 +1232,68 @@ impl UiState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::screens::mappings::tests::{pick, sample};
     use crate::tests::activate;
 
-    /// Two pages; page 2's A is a bypass of the Green Drive.
-    fn view(active: bool) -> CustomModeView {
+    fn mode(kind: ModeKind, label: &str) -> ModeView {
+        ModeView {
+            kind,
+            label: label.into(),
+            detail: "Detail".into(),
+        }
+    }
+
+    /// Two pages; page 2's A toggles the Green Drive and sets its Drive.
+    pub(crate) fn view(active: bool) -> CustomModeView {
         let mut page = <[CustomSlotView; CUSTOM_SLOTS]>::default();
+        let drive = GridPosition::new(0, 1).unwrap();
+        let bypass = SlotAction::Block {
+            position: drive,
+            target: BlockTarget::Bypass,
+        };
         page[0] = CustomSlotView {
-            action: Some(SlotAction::Block {
-                position: GridPosition::new(0, 1).unwrap(),
-                target: BlockTarget::Bypass,
-            }),
+            action: Some(bypass.clone()),
+            actions: vec![
+                CustomActionView {
+                    action: bypass,
+                    label: "Green Drive".into(),
+                    detail: "Bypass · Toggle".into(),
+                    available: true,
+                    mode: Some(mode(ModeKind::Toggle, "Toggle")),
+                    modes: vec![
+                        mode(ModeKind::Toggle, "Toggle"),
+                        mode(ModeKind::Momentary, "Momentary"),
+                        mode(ModeKind::Set, "Set"),
+                    ],
+                    fields: Vec::new(),
+                    summary: String::new(),
+                    messages: Vec::new(),
+                },
+                CustomActionView {
+                    action: SlotAction::Block {
+                        position: drive,
+                        target: BlockTarget::Parameter(2),
+                    },
+                    label: "Green Drive".into(),
+                    detail: "Drive · Set".into(),
+                    available: true,
+                    mode: Some(mode(ModeKind::Set, "Set")),
+                    modes: vec![mode(ModeKind::Set, "Set"), mode(ModeKind::Toggle, "Toggle")],
+                    fields: vec![ValueField {
+                        id: FieldId::Value,
+                        label: "Value".into(),
+                        text: "6.5".into(),
+                    }],
+                    summary: "6.5".into(),
+                    messages: Vec::new(),
+                },
+            ],
             label: "Green Drive".into(),
-            detail: "Bypass".into(),
+            detail: "Bypass · Toggle · +1".into(),
             colour: [0x45, 0xf8, 0x62],
             available: true,
-            momentary: Some(false),
             ..CustomSlotView::default()
         };
         let page = CustomPageView {
@@ -1075,33 +1352,66 @@ mod tests {
         })
     }
 
-    /// The editor sets the selected slot of the selected page: an action from the shared menu
-    /// (a page change, the loaded preset), then a bypass's Momentary switch.
+    fn set(index: u8, action: SlotAction) -> SlotEdit {
+        SlotEdit::Action {
+            index,
+            edit: ActionEdit::Set(action),
+        }
+    }
+
+    /// Add action opens the action editor with the shared menu over it; the pick is the new
+    /// action, and the editor stays on it. An action's editor has the Mappings Mode dropdown
+    /// and value steppers, and its trash button removes it.
     #[test]
-    fn the_editor_edits_the_selected_slot_through_the_action_menu() {
+    fn the_editor_adds_and_edits_actions_with_the_mappings_rows() {
         let mut ui = open(Screen::CustomMode, false);
         activate(&mut ui, custom(CustomControl::Select(8)));
-        activate(&mut ui, custom(CustomControl::Actions));
+        activate(&mut ui, custom(CustomControl::OpenAction(0)));
         pick(&mut ui, "Page");
-        assert_eq!(
-            pick(&mut ui, "Next page"),
-            global(
-                0,
-                8,
-                SlotEdit::SetAction(SlotAction::System(SystemAction::CustomPage(PageStep::Next)))
-            )
-        );
+        let next = SlotAction::System(SystemAction::CustomPage(PageStep::Next));
+        assert_eq!(pick(&mut ui, "Next page"), global(0, 8, set(0, next)));
         activate(&mut ui, custom(CustomControl::Actions));
         pick(&mut ui, "Preset");
         assert_eq!(
             pick(&mut ui, "Load Studio Crunch"),
-            global(0, 8, SlotEdit::SetAction(SlotAction::LoadPreset))
+            global(0, 8, set(0, SlotAction::LoadPreset))
         );
+        ui.back();
         activate(&mut ui, custom(CustomControl::Tab(1)));
         activate(&mut ui, custom(CustomControl::Select(0)));
+        // The second action: its mode and its value.
+        activate(&mut ui, custom(CustomControl::OpenAction(1)));
+        let map = |control| Control::Mapping(control);
+        activate(&mut ui, map(MappingControl::Choice(MappingChoice::Mode)));
+        let action = |edit| global(1, 0, SlotEdit::Action { index: 1, edit });
         assert_eq!(
-            activate(&mut ui, custom(CustomControl::Momentary)),
-            global(1, 0, SlotEdit::SetMomentary(true))
+            activate(&mut ui, Control::Choose(1)),
+            action(ActionEdit::Mode(ModeKind::Toggle))
+        );
+        assert_eq!(
+            activate(&mut ui, map(MappingControl::Field(FieldId::Value, 1))),
+            action(ActionEdit::Field {
+                field: FieldId::Value,
+                ticks: 1,
+            })
+        );
+        assert_eq!(
+            activate(&mut ui, custom(CustomControl::RemoveAction)),
+            action(ActionEdit::Remove)
+        );
+        assert_eq!(ui.custom_edit.action, None, "the editor closes");
+        // A third action goes after the two: Add action scrolls into view under them.
+        let add = custom(CustomControl::OpenAction(2));
+        let shown = |ui: &UiState| ui.hit_regions().iter().any(|region| region.control == add);
+        assert!(!shown(&ui));
+        ui.handle_input(InputEvent::PointerDown { x: 400, y: 460 });
+        ui.handle_input(InputEvent::PointerMove { x: 400, y: 360 });
+        ui.handle_input(InputEvent::PointerUp { x: 400, y: 360 });
+        assert!(shown(&ui));
+        activate(&mut ui, add);
+        assert_eq!(
+            pick(&mut ui, "Tuner"),
+            global(1, 0, set(2, SlotAction::System(SystemAction::Tuner)))
         );
     }
 
@@ -1119,12 +1429,16 @@ mod tests {
                 edit,
             })
         };
-        let next =
-            SlotEdit::SetAction(SlotAction::System(SystemAction::CustomPage(PageStep::Next)));
+        let next = set(
+            0,
+            SlotAction::System(SystemAction::CustomPage(PageStep::Next)),
+        );
         let choose = |ui: &mut UiState| {
-            activate(ui, custom(CustomControl::Actions));
+            activate(ui, custom(CustomControl::OpenAction(0)));
             pick(ui, "Page");
-            pick(ui, "Next page")
+            let sent = pick(ui, "Next page");
+            ui.back();
+            sent
         };
         activate(&mut ui, custom(CustomControl::Select(3)));
         activate(&mut ui, custom(CustomControl::Gesture(Gesture::Double)));
@@ -1220,7 +1534,7 @@ mod tests {
             title: "Live Set".into(),
         }];
         ui.set_snapshot(snapshot).expect("valid snapshot");
-        activate(&mut ui, custom(CustomControl::Actions));
+        activate(&mut ui, custom(CustomControl::OpenAction(0)));
         pick(&mut ui, "Preset");
         pick(&mut ui, "Choose a preset");
         assert_eq!(
@@ -1242,7 +1556,7 @@ mod tests {
         ui.set_snapshot(snapshot).expect("valid snapshot");
         assert_eq!(
             pick(&mut ui, "2B Crunch"),
-            global(0, 0, SlotEdit::SetAction(SlotAction::PresetSlot(9)))
+            global(0, 0, set(0, SlotAction::PresetSlot(9)))
         );
     }
 
