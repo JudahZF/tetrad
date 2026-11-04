@@ -48,7 +48,7 @@ extension's page.
    | Preset → Next or Previous | Loads the next or previous preset. |
    | Preset → Load *name* | Loads the preset that is loaded now. If you move the preset to another slot, the switch finds it there. |
    | Preset → Choose a preset | Loads a preset that you choose: tap a setlist, then a preset. If you move the preset to another slot, the switch finds it there. |
-   | Scene | Selects a scene, or the next or previous scene. |
+   | Scene | Selects a scene, or the next or previous scene. A scene with a name in the loaded preset shows that name, with **Scene A** under it. |
    | Tuner, Gig View | Opens or closes it. |
    | Tempo → Tap tempo | A tap tempo. |
    | Mode | Goes to another footswitch mode. |
