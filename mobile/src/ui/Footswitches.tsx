@@ -6,20 +6,26 @@ import { mix, usePalette } from "./theme";
 /**
  * The switches as the unit's Custom editor draws them: A B C D Down on top, E F G H Tap below.
  * A tile is a dark tint of its colour, full colour when its switch is on now; the letter sits
- * top right and the label bottom left.
+ * top right and the label bottom left. With `fallback` (THIS PRESET), a switch without actions
+ * draws the ALL PRESETS switch that it plays, dimmed and marked "All presets".
  */
 export function FootswitchTiles({
   slots,
+  fallback,
   selected,
   onSelect,
 }: {
   slots: SlotView[];
+  fallback?: SlotView[];
   selected: number | null;
   onSelect: (slot: number) => void;
 }) {
   const palette = usePalette();
   const tile = (index: number) => {
-    const slot = slots[index];
+    const own = slots[index];
+    const below = own && !own.action ? fallback?.[index] : undefined;
+    const inherited = !!below?.action;
+    const slot = inherited ? below : own;
     const name = SLOT_NAMES[index];
     const system = index >= 8;
     const colour = slot?.action ? slot.colour : "#3a3a3a";
@@ -30,7 +36,7 @@ export function FootswitchTiles({
         key={index}
         onPress={() => onSelect(index)}
         accessibilityRole="button"
-        accessibilityLabel={`Switch ${name}: ${slot?.label || "empty"}`}
+        accessibilityLabel={`Switch ${name}: ${slot?.label || "empty"}${inherited ? " (all presets)" : ""}`}
         accessibilityState={{ selected: on }}
         style={{
           flex: 1,
@@ -41,9 +47,14 @@ export function FootswitchTiles({
           backgroundColor: lit ? colour : system || !slot?.action ? "#3a3a3a" : mix(colour, palette.surface, 0.18),
           borderWidth: 2,
           borderColor: on ? palette.accent : "transparent",
-          opacity: slot && !slot.available ? 0.5 : 1,
+          opacity: inherited || (slot && !slot.available) ? 0.5 : 1,
         }}
       >
+        {inherited && (
+          <T size={8.5} color={palette.muted} style={{ position: "absolute", top: 4, left: 6 }}>
+            All presets
+          </T>
+        )}
         <T size={9.5} weight="semibold" color={lit ? "#0009" : palette.muted} style={{ position: "absolute", top: 4, right: 6 }}>
           {name}
         </T>

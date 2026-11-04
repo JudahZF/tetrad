@@ -107,12 +107,6 @@ export const demoExtensions = (): T.ExtensionsList => ({
       ],
       status: [], blocks: [], log: ["Listening on channel 3"], themes: [], mode: null, app: null,
     },
-    {
-      key: "JudahZF/tetrad-extensions:custom-footswitch", name: "Custom Footswitch Mode", version: "1.0.0",
-      description: "A fourth footswitch mode with four pages.", source: "JudahZF/tetrad-extensions", enabled: true,
-      state: "running", fault: null, update: null, duplicates: [], commands: [], settings: [], status: [], blocks: [],
-      log: [], themes: [], mode: { name: "Custom", detail: "4 pages of 10 switches" }, app: null,
-    },
   ],
   available: [
     { source: "JudahZF/tetrad-extensions", id: "doom", name: "DOOM", version: "1.0.0", description: "Play DOOM on the unit's screen.", duplicates: [], app: true },
@@ -152,6 +146,18 @@ export const DEMO_ACTIONS: T.ActionGroup[] = [
       ...[..."ABCDEFGH"].map((s, i) => ({ key: `System(Scene(${i}))`, label: `Scene ${s}` })),
       { key: "System(Tuner)", label: "Tuner" },
       { key: "System(TapTempo)", label: "Tap tempo" },
+      { key: "System(Mode(Preset))", label: "Preset mode" },
+      { key: "System(Mode(Scene))", label: "Scene mode" },
+      { key: "System(Mode(Custom))", label: "Custom mode" },
+    ],
+  },
+  {
+    label: "Custom",
+    actions: [
+      { key: "System(CustomPage(Next))", label: "Next page" },
+      { key: "System(CustomPage(Previous))", label: "Previous page" },
+      ...[0, 1, 2, 3].map((page) => ({ key: `System(CustomPage(Go(${page})))`, label: `Page ${page + 1}` })),
+      ...["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"].map((name, slot) => ({ key: `System(CustomSlot(${slot}))`, label: `Press ${name}` })),
     ],
   },
   {
@@ -173,11 +179,6 @@ export const DEMO_ACTIONS: T.ActionGroup[] = [
 
 export const demoMappings = (): { preset: DemoMapping[]; global: DemoMapping[] } => ({
   preset: [
-    {
-      id: "Stomp { stomp: 1 }", trigger: { kind: "stomp", stomp: 1 },
-      action: "Block { position: GridPosition { row: 0, column: 7 }, target: Parameter(2) }", mode: "toggle",
-      fields: [{ id: "a", label: "A", value: 25, unit: "%" }, { id: "b", label: "B", value: 60, unit: "%" }],
-    },
     {
       id: "Tetrad(0)", trigger: { kind: "cc", number: 11 },
       action: "Block { position: GridPosition { row: 0, column: 2 }, target: Parameter(0) }", mode: "follow",
@@ -249,8 +250,9 @@ const slot = (swatch: number | null, actions: T.SlotActionRow[], extra: Partial<
   return view;
 };
 
-/** Page 1 as in the mockup; pages 2–4 start with the page keys only. */
-export function demoFootswitch(): T.FootswitchMode {
+/** ALL PRESETS page 1 as in the mockup; pages 2–4 start with the page keys only. THIS PRESET
+ *  has one switch of its own (E, the amp's stomp switch); the others play ALL PRESETS. */
+export function demoFootswitch(): T.FootswitchView {
   const pageKeys = (n: number) => [
     slot(null, [slotAction({ kind: "system", action: { customPage: "previous" } }, "‹ Page", `Page ${n === 0 ? 4 : n}`)]),
     slot(null, [slotAction({ kind: "system", action: { customPage: "next" } }, "Page ›", `Page ${n === 3 ? 1 : n + 2}`)]),
@@ -273,18 +275,26 @@ export function demoFootswitch(): T.FootswitchMode {
     ...pageKeys(0),
   ];
   const others = [1, 2, 3].map((n) => [...Array.from({ length: 8 }, empty), ...pageKeys(n)]);
+  const own = Array.from({ length: 4 }, () => Array.from({ length: 10 }, empty));
+  own[0]?.splice(4, 1, slot(0, [slotAction({ kind: "block", row: 0, column: 2, parameter: null }, "Brit 2203", "Bypass")], { engaged: true }));
   return {
-    mode: { name: "Custom", extension: "Custom Footswitch Mode", pages: 4, page: 0, active: true },
+    mode: { name: "Custom", extension: "Tetrad", pages: 4, page: 0, active: true },
     preset: "12B Plexi Crunch",
     presetLoaded: true,
     colours: COLOURS,
-    layouts: { global: [first, ...others].map((slots) => ({ slots, combos: [] })), preset: null },
+    layouts: {
+      global: [first, ...others].map((slots) => ({ slots, combos: [] })),
+      preset: own.map((slots) => ({ slots, combos: [] })),
+    },
     systems: [
       { group: "Preset", label: "Next preset", action: "nextPreset" },
       { group: "Preset", label: "Previous preset", action: "previousPreset" },
       ...[..."ABCDEFGH"].map((s, i) => ({ group: "Scene" as const, label: `Scene ${s}`, action: { scene: i } })),
       { group: "Tuner", label: "Tuner", action: "tuner" },
       { group: "Tempo", label: "Tap tempo", action: "tapTempo" },
+      { group: "Mode", label: "Preset mode", action: { mode: "preset" } },
+      { group: "Mode", label: "Scene mode", action: { mode: "scene" } },
+      { group: "Mode", label: "Custom mode", action: { mode: "custom" } },
       { group: "Looper", label: "Record / Overdub", action: { looper: "recordOverdub" } },
       { group: "Looper", label: "Play / Stop", action: { looper: "playStop" } },
       { group: "Page", label: "Next page", action: { customPage: "next" } },

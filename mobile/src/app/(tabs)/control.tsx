@@ -3,7 +3,7 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
-import type { FootswitchCommand, FootswitchMode, LayoutScope, MappingScope, MappingsView, SlotEdit, SlotView } from "@/lib/unit/types";
+import type { FootswitchCommand, LayoutScope, MappingScope, MappingsView, SlotEdit, SlotView } from "@/lib/unit/types";
 import { MAX_SLOT_ACTIONS, SLOT_NAMES } from "@/lib/unit/types";
 import { useToast } from "@/state/toast";
 import { useClient } from "@/state/unit";
@@ -28,13 +28,13 @@ function Footswitches() {
   useFocusEffect(useCallback(() => void reload(), [reload]));
 
   if (!view.data) return view.error ? <Empty icon="footswitch" title="Could not read the switches" detail={view.error} /> : <Spinner />;
-  if (!view.data.mode) {
-    return <Empty icon="footswitch" title="No Custom footswitch mode" detail="Install Custom Footswitch Mode (Unit › Extensions) to set up four pages of switches." />;
-  }
-  const fs: FootswitchMode = view.data;
+  const fs = view.data;
   const layout = scope === "global" ? fs.layouts.global : fs.layouts.preset;
   const slots = layout?.[Math.min(page, (layout?.length ?? 1) - 1)]?.slots ?? [];
   const current: SlotView | undefined = slot !== null ? slots[slot] : undefined;
+  // THIS PRESET plays switch by switch: a switch without actions plays the ALL PRESETS one.
+  const fallback = scope === "preset" ? fs.layouts.global[Math.min(page, fs.layouts.global.length - 1)]?.slots : undefined;
+  const inherited = slot !== null && current?.actions.length === 0 ? fallback?.[slot] : undefined;
 
   /** True when the unit took the command. */
   const send = async (command: FootswitchCommand) => {
@@ -87,14 +87,11 @@ function Footswitches() {
       </View>
       {!layout ? (
         <Card style={{ padding: 14, gap: 10 }}>
-          <T size={13} tone="muted">
-            {fs.presetLoaded ? `${fs.preset} uses the layout of all presets.` : "Load a preset on the unit to give it its own layout."}
-          </T>
-          {fs.presetLoaded && <Button label="Give this preset its own layout" kind="accent" onPress={() => void send({ op: "presetLayout", own: true })} />}
+          <T size={13} tone="muted">Load a preset on the unit to edit its switches.</T>
         </Card>
       ) : (
         <>
-          <FootswitchTiles slots={slots} selected={slot} onSelect={setSlot} />
+          <FootswitchTiles slots={slots} fallback={fallback} selected={slot} onSelect={setSlot} />
           {current && slot !== null && (
             <>
               {current.actions.length === 0 ? (
@@ -102,7 +99,7 @@ function Footswitches() {
                   <Row
                     lead={<View style={{ width: 30, height: 30, borderRadius: 6, backgroundColor: palette.canvas, alignItems: "center", justifyContent: "center" }}><Icon name="plus" size={18} /></View>}
                     title={`Switch ${SLOT_NAMES[slot]} is empty`}
-                    detail="Choose what it does"
+                    detail={inherited?.action ? `It plays the ALL PRESETS switch: ${inherited.label}. Choose what it does here` : "Choose what it does"}
                     chevron
                     onPress={() => chooseAction(0)}
                   />
@@ -136,11 +133,12 @@ function Footswitches() {
               )}
             </>
           )}
-          {scope === "preset" && <Button label="Use the layout of all presets" kind="ghost" onPress={() => void send({ op: "presetLayout", own: false })} />}
         </>
       )}
       <T size={11.5} tone="faint" center>
-        {scope === "preset" ? "THIS PRESET is saved with the preset: save it on the unit." : "ALL PRESETS is saved on the unit at once."}
+        {scope === "preset"
+          ? "THIS PRESET is saved with the preset: save it on the unit. A switch without actions plays the ALL PRESETS switch."
+          : "ALL PRESETS is saved on the unit at once."}
       </T>
       <TextPrompt
         visible={labelling}

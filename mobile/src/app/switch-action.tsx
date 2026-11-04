@@ -38,11 +38,10 @@ export default function SwitchAction() {
 
   const close = <Button icon="close" kind="ghost" accessibilityLabel="Close" onPress={() => router.back()} />;
   if (!view.data) return <Screen title="Action" right={close}>{view.error ? <Empty title={view.error} /> : <Spinner />}</Screen>;
-  if (!view.data.mode) return <Screen title="Action" right={close}><Empty title="No Custom footswitch mode" /></Screen>;
   const fs = view.data;
   const groups = new Map<SystemGroup, typeof fs.systems>();
   for (const s of fs.systems) groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
-  const listed = presets.data && presets.data.mode && "presets" in presets.data ? presets.data.presets : undefined;
+  const listed = presets.data?.presets;
 
   return (
     <Screen title={`Switch ${SLOT_NAMES[slot] ?? ""} · page ${page + 1} · action ${index + 1}`} right={close}>
@@ -84,6 +83,15 @@ export default function SwitchAction() {
       <Rows>
         <Row icon="midi" title="Send MIDI" detail="Its messages are set on the unit" onPress={() => void choose({ kind: "sendMidi" })} />
       </Rows>
+      {scope === "preset" && (
+        <>
+          <Section>This preset</Section>
+          <Rows>
+            {/* Only THIS PRESET: an empty switch here plays the ALL PRESETS one; Nothing stops that. */}
+            <Row icon="close" title="Nothing" detail="Play nothing, not the switch of all presets" onPress={() => void choose({ kind: "nothing" })} />
+          </Rows>
+        </>
+      )}
       {fs.commands.length > 0 && (
         <>
           <Section>Extension commands</Section>

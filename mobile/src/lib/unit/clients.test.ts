@@ -233,14 +233,14 @@ describe("demo unit", () => {
     const edit = (label: string) => demo.footswitchCommand({ op: "slot", scope: "global", page: 0, slot: 0, edit: { kind: "label", label } });
     await expect(edit("A label far too long")).rejects.toThrow(/16/);
     const view = await edit("Verse");
-    expect(view.mode && "layouts" in view ? view.layouts.global[0]?.slots[0]?.label : null).toBe("Verse");
+    expect(view.layouts.global[0]?.slots[0]?.label).toBe("Verse");
     await demo.close();
   });
 
   it("runs up to eight switch actions in order, each with a mode, as the unit does", async () => {
     const demo = new DemoClient(0);
     const edit = (e: SlotEdit) => demo.footswitchCommand({ op: "slot", scope: "global", page: 1, slot: 0, edit: e });
-    const slotOf = (view: FootswitchView) => (view.mode && "layouts" in view ? view.layouts.global[1]?.slots[0] : undefined);
+    const slotOf = (view: FootswitchView) => view.layouts.global[1]?.slots[0];
     const tuner = { kind: "system", action: "tuner" } as const;
     await expect(edit({ kind: "action", index: 1, action: tuner })).rejects.toThrow(/in order/);
     for (let index = 0; index < 8; index++) await edit({ kind: "action", index, action: tuner });

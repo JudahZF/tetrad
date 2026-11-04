@@ -577,9 +577,9 @@ export interface MappingRow {
    *  It can change after an edit (the row moves between stock and Tetrad storage): use `focus`. */
   id: string;
   trigger: MappingTriggerView;
-  /** "Stomp A", "CC 20", "Preset loaded", "Ch 3 CC 21". */
+  /** "EXP 1", "CC 20", "Preset loaded", "Ch 3 CC 21". */
   triggerLabel: string;
-  /** "Footswitch press", "MIDI · QC channel", "MIDI Mapper · Ch 3". */
+  /** "Expression pedal", "MIDI · QC channel", "MIDI Mapper · Ch 3". */
   triggerDetail: string;
   /** true for cc, note and extension triggers. */
   learns: boolean;
@@ -605,8 +605,6 @@ export interface MappingRow {
 /** dev/remote_mappings.rs:444-455 */
 export type MappingTriggerView =
   | { kind: "presetLoaded" }
-  /** 0..=7 = A..=H */
-  | { kind: "stomp"; stomp: number }
   /** 1 or 2 */
   | { kind: "expression"; pedal: number }
   /** 0..=127 */
@@ -647,16 +645,18 @@ export interface ResponseView {
 
 /** dev/remote_mappings.rs:411-429 */
 export type TriggerChoice =
-  | { kind: "presetLoaded" | "stomp" | "expression" | "midi"; label: string }
+  | { kind: "presetLoaded" | "expression" | "midi"; label: string }
   | { kind: "extension"; key: string; trigger: string; label: string };
-// preset scope: presetLoaded "Preset loaded", stomp "Footswitch", expression "Expression pedal",
+// preset scope: presetLoaded "Preset loaded", expression "Expression pedal",
 //               midi "MIDI (QC channel)", then extension triggers.
+// No footswitch trigger: the footswitches are on the Footswitch page (§7). The preset rows
+// have no footswitch rows.
 // global scope: midi only, then extension triggers.
 // "midi" in this list maps to a cc or note trigger in a command.
 
 /** dev/remote_mappings.rs:431-441 */
 export interface ActionGroup {
-  /** "System", the Custom mode name, "<block> · <location>", "MIDI out". */
+  /** "System", "Custom", "<block> · <location>", "MIDI out". */
   label: string;
   actions: { /** OPAQUE action key */ key: string; label: string }[];
 }
@@ -668,16 +668,15 @@ store them. Examples of the shape (for debugging only):
 
 | Kind | Example |
 | --- | --- |
-| Row id (ui/mappings.rs:28-41) | `Tetrad(0)`, `Stomp { stomp: 0, position: GridPosition { row: 0, column: 2 } }`, `Expression { pedal: 1, position: GridPosition { row: 0, column: 2 }, target: Parameter(3) }`, `MidiOut(OnLoad)`, `MidiOut(Footswitch(A))` |
+| Row id (ui/mappings.rs:28-41) | `Tetrad(0)`, `Expression { pedal: 1, position: GridPosition { row: 0, column: 2 }, target: Parameter(3) }`, `MidiOut(OnLoad)` |
 | Action key (ui/mappings.rs:106-141) | `System(NextPreset)`, `System(Scene(2))`, `System(Mode(Custom))`, `System(Looper(PlayStop))`, `System(CustomPage(Go(1)))`, `System(CustomSlot(3))`, `Block { position: GridPosition { row: 0, column: 1 }, target: Bypass }`, `Block { position: GridPosition { row: 0, column: 1 }, target: Parameter(4) }`, `SendMidi` |
 
 Action menu content (`dev/remote_mappings.rs:286-357`), in order:
 
 1. **System** (both scopes): Next/Previous preset, Scene A–H, Next/Previous scene, Tuner, Tap
-   tempo, Preset/Scene/Stomp mode, Custom mode (only when an extension adds it), Next mode,
-   Gig View, 8 looper buttons.
-2. **<Custom mode name>** (both scopes, only with the mode): Next page, Previous page, Page 1..N,
-   Press A..Tap (slots 0–9).
+   tempo, Preset/Scene/Custom mode, Next mode, Gig View, 8 looper buttons.
+2. **Custom** (both scopes, always): Next page, Previous page, Page 1..N, Press A..Tap
+   (slots 0–9).
 3. **<block> · <location>** per block (preset scope only): Bypass, then each parameter.
 4. **MIDI out** (preset scope only): Send MIDI.
 
@@ -687,7 +686,8 @@ Action menu content (`dev/remote_mappings.rs:286-357`), in order:
 /** POST /api/mappings/command body. serde tag "op", lowercase. dev/remote_mappings.rs:25-65.
  *  Unknown extra fields are ignored. Validation: dev/remote_mappings.rs:153-278. */
 export type MappingCommand =
-  /** New row with a free default trigger and no action; read its id from `focus`. */
+  /** New row with no action: preset scope "Preset loaded", global scope a free CC. Read its id
+   *  from `focus`. */
   | { op: "add"; scope: MappingScope }
   | { op: "trigger"; scope: MappingScope; id: string; trigger: MappingTriggerInput }
   /** `action` = a `key` from actions[scope]. */
@@ -704,7 +704,6 @@ export type MappingCommand =
  *  the bridge refuses invalid ones). */
 export type MappingTriggerInput =
   | { kind: "presetLoaded" }
-  | { kind: "stomp"; stomp: number }        // 0..=7
   | { kind: "expression"; pedal: number }   // 1 | 2
   | { kind: "cc"; number: number }          // 0..=127
   | { kind: "note"; number: number }        // 0..=127
@@ -713,8 +712,11 @@ export type MappingTriggerInput =
   | { kind: "extension"; key: string; trigger: string };
 ```
 
-Defaults the page sends when the Type changes (`parts/mappings.html:193-199`):
-`presetLoaded` → `{kind:"presetLoaded"}`, `stomp` → `{kind:"stomp",stomp:0}`, `expression` →
+A `trigger` command with `{kind:"stomp"}` is refused (422 `The footswitches are on the Custom
+mode page`).
+
+Defaults the page sends when the Type changes (`parts/mappings.html`):
+`presetLoaded` → `{kind:"presetLoaded"}`, `expression` →
 `{kind:"expression",pedal:1}`, `midi` → `{kind:"cc",number:20}`, `extension` →
 `{kind:"extension",key,trigger}`.
 
@@ -735,8 +737,10 @@ on the unit) (`docs/remote.md:94-95`).
 | Pages | `mode.pages` = 1..=4; `page` index 0-based | `ui/custom_mode.rs:15`, `:112-115` |
 | Slots per page | 10, index 0..=9 = `A B C D E F G H Down Tap` | `ui/custom_mode.rs:13`, `:16-18` |
 | On-screen order | Top row A B C D Down; bottom row E F G H Tap. Page: `ORDER = [0, 1, 2, 3, 8, 4, 5, 6, 7, 9]` | `parts/footswitch.html:91`, `docs/remote.md:104` |
-| Scopes | `"global"` = ALL PRESETS (device layout). `"preset"` = THIS PRESET (the loaded preset's own layout, saved with the preset; save the preset on the unit) | `ui/custom_mode.rs:56-63` |
-| Which plays | `layouts.preset` when not null, else `layouts.global` | `ui/custom_mode.rs:141-143` |
+| Mode | Part of Tetrad: no extension. It plays in the place of stock Stomp mode (stored mode "Stomp"); `mode` is always there | `dev/custom/mod.rs` |
+| Scopes | `"global"` = ALL PRESETS (device layout). `"preset"` = THIS PRESET (the loaded preset's layout, saved with the preset; save the preset on the unit). THIS PRESET is always there while a preset is loaded | `ui/custom_mode.rs:56-63` |
+| Which plays | Switch by switch: each press, double press and combo of THIS PRESET that has actions; else the ALL PRESETS one. `{kind:"nothing"}` plays nothing | `dev/custom/mod.rs` (`playing_page`) |
+| Stock Stomp data | THIS PRESET page 1 A–H show the preset's stock Stomp data: a bypass action for each assigned block, a Send MIDI with the footswitch's Preset MIDI Out list, the stomp label. An edit there writes the stock data back | `dev/custom/stock.rs` |
 | Colours | `colours`: 8 hex LED colours; a slot's `swatch` is an index 0..=7 or null (auto from the action) | `ui/custom_mode.rs:126-127`, `dev/custom.rs:841` |
 | Label | ≤ 16 chars, no control chars; `""` = use the action's name | `dev/custom.rs:44`, `:834-835` |
 | Actions | A slot runs up to 8 actions (`MAX_SLOT_ACTIONS`), in order. Each has a Mappings mode and values (§6) | `ui/custom_mode.rs:35`, `dev/remote_footswitch.rs:557-583` |
@@ -746,16 +750,11 @@ on the unit) (`docs/remote.md:94-95`).
 
 ```ts
 /** GET /api/footswitch and every command reply. dev/remote_footswitch.rs:170-186, :266-332 */
-export type FootswitchView =
-  /** No extension adds a Custom mode. (Commands then get 422.) */
-  | { mode: null }
-  | FootswitchModeView;
-
-export interface FootswitchModeView {
+export interface FootswitchView {
   mode: {
     /** "Custom" */
     name: string;
-    /** The extension's name. */
+    /** "Tetrad" */
     extension: string;
     /** 1..=4 */
     pages: number;
@@ -773,7 +772,7 @@ export interface FootswitchModeView {
   layouts: {
     /** One entry per page. */
     global: LayoutPage[];
-    /** null: the preset has no own layout. */
+    /** One entry per page; null only when no preset is loaded. */
     preset: LayoutPage[] | null;
   };
   /** SYSTEM choices of the action menu, in order. dev/remote_footswitch.rs:612-670 */
@@ -859,7 +858,9 @@ export type SlotActionView =
   /** Any preset (the loaded one or a setlist slot); the slot's label names it. */
   | { kind: "loadPreset" }
   | { kind: "sendMidi" }
-  | { kind: "command"; key: string; command: string };
+  | { kind: "command"; key: string; command: string }
+  /** THIS PRESET: plays nothing, not the ALL PRESETS switch. Label "Nothing". */
+  | { kind: "nothing" };
 
 /** serde remote SystemDef, externally tagged, camelCase. dev/mappings.rs:125-171.
  *  Examples from tests: "tuner", { scene: 2 }, { customPage: "next" }, { customPage: { go: 1 } }. */
@@ -868,6 +869,7 @@ export type SystemActionJson =
   | "tuner" | "tapTempo" | "nextMode" | "gigView"
   /** 0..=7 = A..=H */
   | { scene: number }
+  /** `systems` offers preset, scene and custom. "stomp" can still show on an old stored action. */
   | { mode: "preset" | "scene" | "stomp" | "custom" }
   | { looper: LooperButton }
   | { customPage: "next" | "previous" | { go: number } }
@@ -898,8 +900,6 @@ export type FootswitchCommand =
   | { op: "slot"; scope: LayoutScope; page: number; slot: number; edit: SlotEdit }
   /** Page `to` becomes a copy of page `from`. */
   | { op: "copyPage"; scope: LayoutScope; from: number; to: number }
-  /** true: THIS PRESET gets a copy of ALL PRESETS; false: it loses its own layout. */
-  | { op: "presetLayout"; own: boolean }
   /** Read only: the reply is the view plus `presets`. */
   | { op: "presets"; setlist: string };
 
@@ -938,7 +938,9 @@ export type SlotActionInput =
   | { kind: "preset"; setlist: string; slot: number }
   | { kind: "sendMidi" }
   /** An extension command from `commands`. */
-  | { kind: "command"; key: string; command: string };
+  | { kind: "command"; key: string; command: string }
+  /** THIS PRESET: play nothing, not the ALL PRESETS switch. Offer it only for the preset scope. */
+  | { kind: "nothing" };
 ```
 
 Rules:
@@ -952,9 +954,10 @@ Rules:
   `There is no action N`, `A switch runs at most 8 actions, in order`,
   `<action> cannot use the mode <kind>`, `<action> has no value <field>`,
   `ticks goes from -127 to 127 and is not 0`, `Choose Send MIDI first`,
-  `This preset uses the layout of all presets` (edit of THIS PRESET with no own layout),
-  `No extension adds a Custom footswitch mode`, `Not a command: <serde error>`.
+  `No preset is loaded` (edit of THIS PRESET without a loaded preset),
+  `Not a command: <serde error>`. The `presetLayout` op is gone: serde refuses it.
   (`dev/remote_footswitch.rs:336-526`, `dev/custom/mod.rs:1283-1505`.)
+- To empty a THIS PRESET switch (so that it plays the ALL PRESETS one again), send `clear`.
 - Playing the switches (Gig View taps, page turns) is not in the API (`dev/remote_footswitch.rs:5`).
 
 ## 8. Extension files and tabs: client rules

@@ -363,13 +363,12 @@ export class DemoClient extends BaseClient implements UnitClient {
       triggers: {
         preset: [
           { kind: "presetLoaded", label: "Preset loaded" },
-          { kind: "stomp", label: "Footswitch" },
           { kind: "expression", label: "Expression pedal" },
           { kind: "midi", label: "MIDI (QC channel)" },
         ],
         global: [{ kind: "midi", label: "MIDI (QC channel)" }],
       },
-      actions: { preset: DEMO_ACTIONS, global: DEMO_ACTIONS.filter((g) => g.label === "System") },
+      actions: { preset: DEMO_ACTIONS, global: DEMO_ACTIONS.filter((g) => g.label === "System" || g.label === "Custom") },
       focus: this.focus,
       learning: this.learning,
       notice: this.notice,
@@ -388,7 +387,7 @@ export class DemoClient extends BaseClient implements UnitClient {
       switch (command.op) {
         case "add": {
           const id = `Tetrad(${this.nextMapping++})`;
-          list.push({ id, trigger: command.scope === "global" ? { kind: "cc", number: 20 } : { kind: "stomp", stomp: 0 }, action: null, mode: null, fields: [] });
+          list.push({ id, trigger: command.scope === "global" ? { kind: "cc", number: 20 } : { kind: "presetLoaded" }, action: null, mode: null, fields: [] });
           this.focus = { scope: command.scope, id };
           break;
         }
@@ -449,15 +448,12 @@ export class DemoClient extends BaseClient implements UnitClient {
 
   private layout(scope: T.LayoutScope) {
     const layout = scope === "global" ? this.fs.layouts.global : this.fs.layouts.preset;
-    return layout ?? refuse("This preset uses the layout of all presets");
+    return layout ?? refuse("No preset is loaded");
   }
 
   footswitchCommand(command: T.FootswitchCommand) {
     return this.answer(() => {
       switch (command.op) {
-        case "presetLayout":
-          this.fs.layouts.preset = command.own ? structuredClone(this.fs.layouts.global) : null;
-          break;
         case "copyPage": {
           const layout = this.layout(command.scope);
           const from = layout[command.from] ?? refuse(`There is no page ${command.from + 1}`);
@@ -502,6 +498,7 @@ export class DemoClient extends BaseClient implements UnitClient {
                 : view.kind === "loadPreset" ? `Load ${a.kind === "preset" ? a.setlist : this.fs.preset}`
                 : view.kind === "system" ? (this.fs.systems.find((s) => JSON.stringify(s.action) === JSON.stringify(view.action))?.group ?? "System")
                 : view.kind === "sendMidi" ? "MIDI"
+                : view.kind === "nothing" ? "Plays nothing"
                 : "Extension";
               slot.actions[index] = slotAction(view, describe(view, this.fs), detail);
               break;
@@ -587,8 +584,6 @@ function triggerText(t: T.MappingTriggerView): { label: string; detail: string }
   switch (t.kind) {
     case "presetLoaded":
       return { label: "Preset loaded", detail: "When the preset loads" };
-    case "stomp":
-      return { label: `Stomp ${T.SLOT_NAMES[t.stomp] ?? t.stomp}`, detail: "Footswitch press" };
     case "expression":
       return { label: `EXP ${t.pedal}`, detail: "Expression pedal" };
     case "cc":
@@ -600,7 +595,7 @@ function triggerText(t: T.MappingTriggerView): { label: string; detail: string }
   }
 }
 
-function describe(action: T.SlotActionView | null, fs: T.FootswitchMode): string {
+function describe(action: T.SlotActionView | null, fs: T.FootswitchView): string {
   if (!action) return "";
   switch (action.kind) {
     case "system":
@@ -616,6 +611,8 @@ function describe(action: T.SlotActionView | null, fs: T.FootswitchMode): string
       return "Send MIDI";
     case "command":
       return fs.commands.find((c) => c.key === action.key && c.command === action.command)?.label.split(" · ").pop() ?? "Command";
+    case "nothing":
+      return "Nothing";
   }
 }
 

@@ -85,8 +85,8 @@ every 8 seconds).
 Each row shows the trigger, the action, the mode and the values. Click a row to edit it.
 
 - **+ Add mapping** adds a row, as + on the unit does.
-- In the editor, set the trigger (footswitch, pedal, CC or note and its number, or a trigger of
-  an extension), the action (System, the Custom mode, the bypass and parameters of each block,
+- In the editor, set the trigger (preset loaded, pedal, CC or note and its number, or a trigger
+  of an extension), the action (System, the Custom mode, the bypass and parameters of each block,
   Send MIDI), the mode and its values. − and + step a value by its own step; Shift-click steps
   10. A CC row shows its window graph.
 - **Learn** on a MIDI or extension trigger waits for the next free message; **Cancel** stops it.
@@ -94,19 +94,20 @@ Each row shows the trigger, the action, the mode and the values. Click a row to 
 - Global mappings are saved at once. Preset mappings are part of the preset: save the preset on
   the unit to keep them. Set the messages of Send MIDI on the unit (**Edit messages**).
 - A change that the unit refuses shows its reason, for example a CC that the QC's MIDI map uses.
+- The footswitches are not in these lists. Set them on the [Footswitch](#footswitch) page.
 
 ## Footswitch
 
 **Footswitch** (under **Controls**) edits the layouts of the Custom footswitch mode
-([footswitch-modes.md](footswitch-modes.md)), as **EDIT** in Gig View does. It needs an extension
-that adds the mode, such as Custom Footswitch Mode; without one, the page links to **Manage**.
+([footswitch-modes.md](footswitch-modes.md)), as **EDIT** in Gig View does. The Custom mode is
+part of Tetrad. You do not need an extension. It is in the place of the stock Stomp mode.
 
 - The switches show as on the unit: A to D and Down on top, E to H and Tap below. Choose a page,
   then tap a switch to change it:
   - **Actions**: a switch runs up to 8 actions, in order. Each action is one of System, Block
     (bypass or a parameter), Load a preset (the loaded one, or one from a setlist), Send MIDI,
-    or a command of an extension. **Add action** adds one after the others, and **Remove**
-    removes one.
+    or a command of an extension. On THIS PRESET, **Nothing** is also there. **Add action**
+    adds one after the others, and **Remove** removes one.
   - Each action has a **Mode** and **Values**, as a row of [Mappings](#mappings) has. For
     example, a parameter can **Set** a value, **Toggle** between A and B, be **Momentary**, or
     **Step**. Use − and + to change a value (Shift steps 10). Some actions have one fixed mode.
@@ -118,9 +119,17 @@ that adds the mode, such as Custom Footswitch Mode; without one, the page links 
     above then edit the actions of that one. A tile shows **2×** for a double press and **+C** for a combo
     with C.
 - **Copy page … to** replaces another page with this one.
-- **ALL PRESETS** and **THIS PRESET**: **Give this preset its own layout** and **Remove it** work
-  as on the unit. A change of THIS PRESET is a change of the preset: save the preset on the unit
-  to keep it. **● plays** marks the layout that plays now.
+- **ALL PRESETS** and **THIS PRESET**: THIS PRESET plays switch by switch. A switch of THIS
+  PRESET with actions plays in the place of the ALL PRESETS switch. A switch without actions
+  plays the ALL PRESETS switch. The page shows that switch dimmed, with the note **All presets**.
+  This is also true for a double press and a combo.
+  - To stop a switch of THIS PRESET from playing the ALL PRESETS switch, give it the action
+    **Nothing**. To make it play the ALL PRESETS switch again, use **Clear**.
+  - Page 1 A to H of THIS PRESET are the stock Stomp switches of the preset: a bypass for each
+    assigned block, a Send MIDI with the footswitch's Preset MIDI Out messages, and the stomp
+    label. A change to them changes the stock data of the preset.
+  - A change of THIS PRESET is a change of the preset: save the preset on the unit to keep it.
+    THIS PRESET needs a loaded preset.
 - Each change is saved at once, and the unit's editor shows it. Playing the switches stays on the
   unit.
 
