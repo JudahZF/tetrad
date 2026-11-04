@@ -1561,6 +1561,17 @@ fn describe(
     let (label, detail, colour, engaged, available) = match action {
         StoredAction::System { action } => {
             let (label, detail) = system_label(*action);
+            // A scene that the loaded preset names shows its name, over "Scene A".
+            let name = match *action {
+                SystemAction::Scene(scene) => (current)
+                    .and_then(|current| current.preset.scene_labels.get(usize::from(scene)))
+                    .filter(|name| !name.is_empty()),
+                _ => None,
+            };
+            let (label, detail) = match name {
+                Some(name) => (name.clone(), label),
+                None => (label, detail),
+            };
             let engaged = match *action {
                 SystemAction::Scene(scene) => current.is_some_and(|current| {
                     current.deployment.scene().index() == usize::from(scene)

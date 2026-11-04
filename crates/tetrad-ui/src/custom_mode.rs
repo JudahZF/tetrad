@@ -127,8 +127,8 @@ pub enum LayoutScope {
 pub struct CustomSlotView {
     /// `None` is an empty slot.
     pub action: Option<SlotAction>,
-    /// The typed label, else the action's own name ("Scene A", "Delay"); empty without an
-    /// action.
+    /// The typed label, else the action's own name ("Scene A", or the scene's name in the
+    /// loaded preset; "Delay"); empty without an action.
     pub label: String,
     /// The typed label only: `None` uses the action's name.
     pub custom_label: Option<String>,

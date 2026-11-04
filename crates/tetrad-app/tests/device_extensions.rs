@@ -1298,6 +1298,19 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         (tap.action.clone(), tap.label.as_str(), tap.detail.as_str()),
         (Some(SlotAction::LoadPreset), "Light", "Load preset")
     );
+
+    // A scene slot shows the scene's name from the loaded preset, if it has one.
+    let scene_text = |d: &Device<Sim>| {
+        let slot = &custom::view(d.state()).unwrap().slots[1].slots[0];
+        (slot.label.clone(), slot.detail.clone())
+    };
+    assert_eq!(scene_text(&device), ("Scene C".into(), "Scene".into()));
+    device.push(Event::Action(Action::SceneLabel {
+        scene: tetrad_engine::SceneIndex::new(2).unwrap(),
+        label: "Lead".into(),
+    }));
+    assert!(device.step().is_none());
+    assert_eq!(scene_text(&device), ("Lead".into(), "Scene C".into()));
 }
 
 /// Footswitch presses of a switch with a double press wait for a second press, and two

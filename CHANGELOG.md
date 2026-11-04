@@ -29,6 +29,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Plugin licences fail closed: until the DSP reports the licences at boot, every plugin block
   deploys bypassed. Before, a deploy in that window had no licence gate.
 - A DSP block's `placeholder` cannot be a plugin model: Tetrad uses the stock Gain block instead.
+- Custom footswitch mode: a switch that selects a scene shows the scene's name from the loaded
+  preset, with **Scene A** under it. A scene without a name shows **Scene A**, as before. A
+  label that you type still comes first.
 
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
