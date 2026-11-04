@@ -4,21 +4,57 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 import { CATEGORIES } from "@/lib/preset/model";
-import type { FootswitchCommand, FootswitchMode, LayoutScope, MappingScope, MappingsView, SlotEdit, SlotView } from "@/lib/unit/types";
-import { SLOT_NAMES } from "@/lib/unit/types";
+import type { FootswitchCommand, FootswitchMode, LayoutScope, MappingScope, MappingsView, SlotActionRow, SlotEdit, SlotView } from "@/lib/unit/types";
+import { MAX_SLOT_ACTIONS, SLOT_NAMES } from "@/lib/unit/types";
 import { useToast } from "@/state/toast";
 import { useClient, useUnit } from "@/state/unit";
 import { useLoad } from "@/state/useLoad";
 import { BlockTile } from "@/ui/BlockTile";
 import { ColourDots, FootswitchTiles } from "@/ui/Footswitches";
 import { Icon } from "@/ui/Icon";
-import { Button, Card, Empty, Pill, Row, Rows, Screen, Segmented, Spinner, T, Toggle } from "@/ui/kit";
+import { Button, Card, Empty, Pill, Row, Rows, Screen, Segmented, Spinner, T } from "@/ui/kit";
 import { TextPrompt } from "@/ui/Sheet";
 import { usePalette } from "@/ui/theme";
+import { Chips, Stepper } from "@/ui/Values";
+
+/** One action of a switch, edited as a Mappings row: what it does, its mode and its values. */
+function SwitchAction({ item, index, onChoose, onEdit }: { item: SlotActionRow; index: number; onChoose: () => void; onEdit: (edit: SlotEdit) => void }) {
+  const { preset } = useUnit();
+  const palette = usePalette();
+  const action = item.action;
+  const block = action.kind === "block" ? preset?.grid[action.row]?.[action.column] : null;
+  return (
+    <Rows>
+      <Row
+        lead={
+          block ? <BlockTile category={block.category} size={30} /> : (
+            <View style={{ width: 30, height: 30, borderRadius: 6, backgroundColor: palette.canvas, alignItems: "center", justifyContent: "center" }}>
+              <T size={13} weight="semibold">{String(index + 1)}</T>
+            </View>
+          )
+        }
+        title={item.label}
+        detail={[item.available ? item.detail || (block ? CATEGORIES[block.category].name : "") : item.detail, item.summary].filter(Boolean).join(" · ")}
+        chevron
+        onPress={onChoose}
+      />
+      {item.modes.length > 0 && (
+        <View style={{ padding: 14, gap: 8 }}>
+          <Chips options={item.modes.map((m) => ({ key: m.kind, label: m.label }))} value={item.mode?.kind ?? null} onChange={(mode) => onEdit({ kind: "mode", index, mode })} />
+          {item.mode && <T size={12} tone="muted">{item.mode.detail}</T>}
+        </View>
+      )}
+      {item.fields.map((f) => (
+        <Stepper key={f.id} label={f.label} text={f.text} onStep={(ticks) => onEdit({ kind: "step", index, field: f.id, ticks })} />
+      ))}
+      {action.kind === "sendMidi" && <Row title="Messages" detail={`${item.messages.length} · edit them on the unit or the Remote page`} />}
+      <Row icon="trash" title="Remove action" onPress={() => onEdit({ kind: "remove", index })} />
+    </Rows>
+  );
+}
 
 function Footswitches() {
   const client = useClient();
-  const { preset } = useUnit();
   const toast = useToast();
   const palette = usePalette();
   const view = useLoad(() => client.footswitch(), client);
@@ -35,7 +71,7 @@ function Footswitches() {
   }
   const fs: FootswitchMode = view.data;
   const layout = scope === "global" ? fs.layouts.global : fs.layouts.preset;
-  const slots = layout?.[Math.min(page, (layout?.length ?? 1) - 1)] ?? [];
+  const slots = layout?.[Math.min(page, (layout?.length ?? 1) - 1)]?.slots ?? [];
   const current: SlotView | undefined = slot !== null ? slots[slot] : undefined;
 
   /** True when the unit took the command. */
@@ -49,9 +85,9 @@ function Footswitches() {
     }
   };
   const editSlot = (edit: SlotEdit) => slot !== null && void send({ op: "slot", scope, page, slot, edit });
-
-  const action = current?.action;
-  const block = action?.kind === "block" ? preset?.grid[action.row]?.[action.column] : null;
+  /** Opens the action menu for action `index` of the slot; the number of actions adds one. */
+  const chooseAction = (index: number) =>
+    slot !== null && router.push({ pathname: "/switch-action", params: { scope, page: String(page), slot: String(slot), index: String(index) } });
 
   return (
     <>
@@ -98,46 +134,45 @@ function Footswitches() {
         <>
           <FootswitchTiles slots={slots} selected={slot} onSelect={setSlot} />
           {current && slot !== null && (
-            <Rows>
-              <Row
-                lead={block ? <BlockTile category={block.category} size={30} /> : <View style={{ width: 30, height: 30, borderRadius: 6, backgroundColor: current.action ? current.colour : palette.canvas, alignItems: "center", justifyContent: "center" }}>{!current.action && <Icon name="plus" size={18} />}</View>}
-                title={current.action ? current.label : `Switch ${SLOT_NAMES[slot]} is empty`}
-                detail={current.action ? current.detail || (block ? CATEGORIES[block.category].name : "") : "Choose what it does"}
-                chevron
-                onPress={() => router.push({ pathname: "/switch-action", params: { scope, page: String(page), slot: String(slot) } })}
-              />
+            <>
+              {current.actions.length === 0 ? (
+                <Rows>
+                  <Row
+                    lead={<View style={{ width: 30, height: 30, borderRadius: 6, backgroundColor: palette.canvas, alignItems: "center", justifyContent: "center" }}><Icon name="plus" size={18} /></View>}
+                    title={`Switch ${SLOT_NAMES[slot]} is empty`}
+                    detail="Choose what it does"
+                    chevron
+                    onPress={() => chooseAction(0)}
+                  />
+                </Rows>
+              ) : (
+                current.actions.map((item, index) => (
+                  <SwitchAction
+                    key={index}
+                    item={item}
+                    index={index}
+                    onChoose={() => chooseAction(index)}
+                    onEdit={editSlot}
+                  />
+                ))
+              )}
+              {current.actions.length > 0 && current.actions.length < MAX_SLOT_ACTIONS && (
+                <Button label="Add action" icon="plus" kind="ghost" onPress={() => chooseAction(current.actions.length)} />
+              )}
               {current.action && (
-                <View style={{ padding: 14, gap: 12 }}>
-                  <Pressable onPress={() => setLabelling(true)} style={{ flexDirection: "row", alignItems: "center" }} accessibilityRole="button">
-                    <T size={14} weight="semibold" style={{ flex: 1 }}>Label</T>
-                    <T size={14} tone={current.customLabel ? "text" : "muted"}>{current.customLabel ?? `${current.label} (auto)`}</T>
-                    <Icon name="pencil" size={16} color={palette.faint} style={{ marginLeft: 8 }} />
-                  </Pressable>
-                  <ColourDots colours={fs.colours} value={current.swatch} onChange={(colour) => editSlot({ kind: "colour", colour })} />
-                </View>
+                <Rows>
+                  <View style={{ padding: 14, gap: 12 }}>
+                    <Pressable onPress={() => setLabelling(true)} style={{ flexDirection: "row", alignItems: "center" }} accessibilityRole="button">
+                      <T size={14} weight="semibold" style={{ flex: 1 }}>Label</T>
+                      <T size={14} tone={current.customLabel ? "text" : "muted"}>{current.customLabel ?? `${current.label} (auto)`}</T>
+                      <Icon name="pencil" size={16} color={palette.faint} style={{ marginLeft: 8 }} />
+                    </Pressable>
+                    <ColourDots colours={fs.colours} value={current.swatch} onChange={(colour) => editSlot({ kind: "colour", colour })} />
+                  </View>
+                  <Row icon="trash" title="Clear this switch" onPress={() => editSlot({ kind: "clear" })} />
+                </Rows>
               )}
-              {current.momentary !== null && (
-                <Row
-                  title="Momentary"
-                  detail="The block changes only while the switch is down"
-                  right={<Toggle value={current.momentary} onChange={(momentary) => editSlot({ kind: "momentary", momentary })} />}
-                />
-              )}
-              {current.value !== null && (
-                <Row
-                  title="Value"
-                  detail="Where the parameter goes on a press"
-                  right={
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Button icon="minus" onPress={() => editSlot({ kind: "value", value: Math.max(0, (current.value ?? 0) - 5) })} />
-                      <T size={13} mono style={{ width: 48, textAlign: "center" }}>{`${current.value} %`}</T>
-                      <Button icon="plus" onPress={() => editSlot({ kind: "value", value: Math.min(100, (current.value ?? 0) + 5) })} />
-                    </View>
-                  }
-                />
-              )}
-              {current.action && <Row icon="trash" title="Clear this switch" onPress={() => editSlot({ kind: "clear" })} />}
-            </Rows>
+            </>
           )}
           {scope === "preset" && <Button label="Use the layout of all presets" kind="ghost" onPress={() => void send({ op: "presetLayout", own: false })} />}
         </>

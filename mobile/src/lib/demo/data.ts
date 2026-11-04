@@ -193,27 +193,83 @@ export const demoMappings = (): { preset: DemoMapping[]; global: DemoMapping[] }
 
 const COLOURS = ["#45f862", "#0a74e0", "#ff7000", "#ff02c2", "#87daff", "#6954ff", "#ffd236", "#ff2727"];
 
-const slot = (label: string, swatch: number | null, action: T.SlotActionView | null, detail: string, extra: Partial<T.SlotView> = {}): T.SlotView => ({
-  action, label, customLabel: null, detail, colour: swatch === null ? "#3a3a3a" : (COLOURS[swatch] ?? "#3a3a3a"),
-  swatch, engaged: false, available: true, value: null, momentary: null, messages: [], ...extra,
-});
+/** The modes a switch offers for `action`, the default first; empty = fixed On press. */
+export function slotModes(action: T.SlotActionView): T.ModeKind[] {
+  if (action.kind === "block") return action.parameter === null ? ["toggle", "momentary", "set"] : ["set", "toggle", "momentary", "step"];
+  if (action.kind === "system") {
+    if (action.action === "tuner" || action.action === "gigView") return ["toggle", "momentary", "set"];
+    if (typeof action.action === "object" && "looper" in action.action) return ["onPress", "momentary"];
+  }
+  return [];
+}
+
+/** The values of `mode` for `action`, at their start. */
+export function slotFields(action: T.SlotActionView, mode: T.ModeKind): T.ValueField[] {
+  const parameter = action.kind === "block" && action.parameter !== null;
+  switch (mode) {
+    case "set":
+      return [{ id: "value", label: "Value", text: parameter ? "50 %" : "On" }];
+    case "momentary":
+      return parameter ? [{ id: "value", label: "Value", text: "100 %" }] : [];
+    case "toggle":
+      return parameter ? [{ id: "a", label: "A", text: "25 %" }, { id: "b", label: "B", text: "75 %" }] : [];
+    case "step":
+      return [{ id: "amount", label: "Amount", text: "10 %" }, { id: "wrap", label: "Wrap", text: "On" }];
+    default:
+      return [];
+  }
+}
+
+export const slotSummary = (mode: T.ModeKind, fields: T.ValueField[]) =>
+  mode === "toggle" ? fields.map((f) => f.text).join(" ↔ ") : fields.map((f) => `${f.label} ${f.text}`).join(" · ");
+
+/** A switch action in `mode` (else its default), as the unit shows it. */
+export function slotAction(action: T.SlotActionView, label: string, detail: string, mode?: T.ModeKind, fields?: T.ValueField[]): T.SlotActionRow {
+  const modes = slotModes(action);
+  const kind = mode ?? modes[0] ?? "onPress";
+  const values = fields ?? slotFields(action, kind);
+  return { action, label, detail, available: true, mode: MODES[kind], modes: modes.map((k) => MODES[k]), fields: values, summary: slotSummary(kind, values), messages: [] };
+}
+
+/** The slot-level fields the unit takes from the first action. */
+export function slotFromActions(slot: T.SlotView) {
+  const [first] = slot.actions;
+  slot.action = first?.action ?? null;
+  slot.label = slot.customLabel ?? first?.label ?? "";
+  slot.detail = first ? first.detail + (slot.actions.length > 1 ? ` · +${slot.actions.length - 1}` : "") : "";
+  slot.available = slot.actions.every((a) => a.available);
+}
+
+const slot = (swatch: number | null, actions: T.SlotActionRow[], extra: Partial<T.SlotView> = {}): T.SlotView => {
+  const view: T.SlotView = {
+    action: null, actions, label: "", customLabel: null, detail: "", colour: swatch === null ? "#3a3a3a" : (COLOURS[swatch] ?? "#3a3a3a"),
+    swatch, engaged: false, available: true, ...extra,
+  };
+  slotFromActions(view);
+  return view;
+};
 
 /** Page 1 as in the mockup; pages 2–4 start with the page keys only. */
 export function demoFootswitch(): T.FootswitchMode {
   const pageKeys = (n: number) => [
-    slot("‹ Page", null, { kind: "system", action: { customPage: "previous" } }, `Page ${n === 0 ? 4 : n}`),
-    slot("Page ›", null, { kind: "system", action: { customPage: "next" } }, `Page ${n === 3 ? 1 : n + 2}`),
+    slot(null, [slotAction({ kind: "system", action: { customPage: "previous" } }, "‹ Page", `Page ${n === 0 ? 4 : n}`)]),
+    slot(null, [slotAction({ kind: "system", action: { customPage: "next" } }, "Page ›", `Page ${n === 3 ? 1 : n + 2}`)]),
   ];
-  const empty = () => slot("", null, null, "");
+  const empty = () => slot(null, []);
+  const scene = (i: number) => slotAction({ kind: "system", action: { scene: i } }, `Scene ${"ABC"[i]}`, "Scene");
+  const delay = slotAction({ kind: "block", row: 0, column: 6, parameter: null }, "Simple Delay", "Bypass", "momentary");
   const first: T.SlotView[] = [
-    slot("Scene A", 0, { kind: "system", action: { scene: 0 } }, "Scene", { engaged: true }),
-    slot("Scene B", 1, { kind: "system", action: { scene: 1 } }, "Scene"),
-    slot("Scene C", 2, { kind: "system", action: { scene: 2 } }, "Scene"),
-    slot("Delay", 4, { kind: "block", row: 0, column: 6, parameter: null }, "Bypass · momentary", { engaged: true, momentary: true, customLabel: "Delay" }),
-    slot("Worship 4B", 6, { kind: "loadPreset" }, "Load 4B", { customLabel: "Worship 4B" }),
-    slot("Synth", 5, { kind: "command", key: "JudahZF/tetrad-extensions:midi-mapper", command: "reset" }, "MIDI Mapper · Reset"),
-    slot("Rec / Overdub", 7, { kind: "system", action: { looper: "recordOverdub" } }, "Looper"),
-    slot("Swell", 3, { kind: "block", row: 0, column: 7, parameter: 2 }, "Mix · 80 %", { value: 80, customLabel: "Swell" }),
+    slot(0, [scene(0)], { engaged: true }),
+    slot(1, [scene(1)]),
+    slot(2, [scene(2)]),
+    slot(4, [delay], { engaged: true, customLabel: "Delay" }),
+    slot(6, [slotAction({ kind: "loadPreset" }, "4B Worship", "Load 4B")], { customLabel: "Worship 4B" }),
+    slot(5, [slotAction({ kind: "command", key: "JudahZF/tetrad-extensions:midi-mapper", command: "reset" }, "Reset learned CCs", "MIDI Mapper · Reset")]),
+    slot(7, [slotAction({ kind: "system", action: { looper: "recordOverdub" } }, "Record / Overdub", "Looper")]),
+    slot(3, [
+      slotAction({ kind: "block", row: 0, column: 7, parameter: 2 }, "Mix", "Plate Verb", "toggle", [{ id: "a", label: "A", text: "25 %" }, { id: "b", label: "B", text: "80 %" }]),
+      slotAction({ kind: "block", row: 0, column: 6, parameter: null }, "Simple Delay", "Bypass"),
+    ], { customLabel: "Swell" }),
     ...pageKeys(0),
   ];
   const others = [1, 2, 3].map((n) => [...Array.from({ length: 8 }, empty), ...pageKeys(n)]);
@@ -222,7 +278,7 @@ export function demoFootswitch(): T.FootswitchMode {
     preset: "12B Plexi Crunch",
     presetLoaded: true,
     colours: COLOURS,
-    layouts: { global: [first, ...others], preset: null },
+    layouts: { global: [first, ...others].map((slots) => ({ slots, combos: [] })), preset: null },
     systems: [
       { group: "Preset", label: "Next preset", action: "nextPreset" },
       { group: "Preset", label: "Previous preset", action: "previousPreset" },

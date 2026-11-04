@@ -98,8 +98,8 @@ All routes need the PIN header. "Reply" is the 200 body.
 | POST | `/api/themes/delete` | `id` (must be `file:<id>`) | empty | `ThemesList` | `dev/remote_themes.rs:234-263` |
 | GET | `/api/mappings` | – | – | `MappingsView` | `dev/remote_mappings.rs:395-407` |
 | POST | `/api/mappings/command` | – | JSON `MappingCommand` | `MappingsView` | `dev/remote_mappings.rs:105-139` |
-| GET | `/api/footswitch` | – | – | `FootswitchView` | `dev/remote_footswitch.rs:142-159`, `:237-289` |
-| POST | `/api/footswitch/command` | – | JSON `FootswitchCommand` | `FootswitchView` | `dev/remote_footswitch.rs:142-207` |
+| GET | `/api/footswitch` | – | – | `FootswitchView` | `dev/remote_footswitch.rs:170-186`, `:266-332` |
+| POST | `/api/footswitch/command` | – | JSON `FootswitchCommand` | `FootswitchView` | `dev/remote_footswitch.rs:170-236` |
 | GET | `/` or `/index.html` | – | – | the HTML page (no PIN) | `http.rs:125` |
 
 Routing source: `http.rs:118-348` (main), `http.rs:350-396` (library), `http.rs:398-425` (backup).
@@ -734,17 +734,18 @@ on the unit) (`docs/remote.md:94-95`).
 | --- | --- | --- |
 | Pages | `mode.pages` = 1..=4; `page` index 0-based | `ui/custom_mode.rs:15`, `:112-115` |
 | Slots per page | 10, index 0..=9 = `A B C D E F G H Down Tap` | `ui/custom_mode.rs:13`, `:16-18` |
-| On-screen order | Top row A B C D Down; bottom row E F G H Tap. Page: `ORDER = [0, 1, 2, 3, 8, 4, 5, 6, 7, 9]` | `parts/footswitch.html:77-79`, `docs/remote.md:104` |
+| On-screen order | Top row A B C D Down; bottom row E F G H Tap. Page: `ORDER = [0, 1, 2, 3, 8, 4, 5, 6, 7, 9]` | `parts/footswitch.html:91`, `docs/remote.md:104` |
 | Scopes | `"global"` = ALL PRESETS (device layout). `"preset"` = THIS PRESET (the loaded preset's own layout, saved with the preset; save the preset on the unit) | `ui/custom_mode.rs:56-63` |
 | Which plays | `layouts.preset` when not null, else `layouts.global` | `ui/custom_mode.rs:141-143` |
 | Colours | `colours`: 8 hex LED colours; a slot's `swatch` is an index 0..=7 or null (auto from the action) | `ui/custom_mode.rs:126-127`, `dev/custom.rs:841` |
 | Label | ≤ 16 chars, no control chars; `""` = use the action's name | `dev/custom.rs:44`, `:834-835` |
-| Messages | ≤ 12 per Send MIDI slot | `dev/custom.rs:46`, `:856` |
-| Value | percent 0..=100, parameter actions only | `dev/remote_footswitch.rs:330-338` |
-| Momentary | bypass actions only | `dev/remote_footswitch.rs:339-344` |
+| Actions | A slot runs up to 8 actions (`MAX_SLOT_ACTIONS`), in order. Each has a Mappings mode and values (§6) | `ui/custom_mode.rs:35`, `dev/remote_footswitch.rs:557-583` |
+| Modes | Per target: block bypass, Tuner, Gig View → toggle, momentary, set; block parameter → set, toggle, momentary, step; Looper → onPress, momentary; others: onPress only (`modes` can be empty: fixed) | `dev/mappings/mode.rs:126` |
+| Fields | A switch action gets only `value`, `a`, `b`, `amount`, `wrap` | `dev/remote_footswitch.rs:401-415` |
+| Messages | ≤ 12 per Send MIDI action | `dev/custom/mod.rs:67`, `:1467` |
 
 ```ts
-/** GET /api/footswitch and every command reply. dev/remote_footswitch.rs:142-159, :237-289 */
+/** GET /api/footswitch and every command reply. dev/remote_footswitch.rs:170-186, :266-332 */
 export type FootswitchView =
   /** No extension adds a Custom mode. (Commands then get 422.) */
   | { mode: null }
@@ -770,12 +771,12 @@ export interface FootswitchModeView {
   /** 8 entries, "#rrggbb". */
   colours: string[];
   layouts: {
-    /** pages × 10 slots */
-    global: SlotView[][];
+    /** One entry per page. */
+    global: LayoutPage[];
     /** null: the preset has no own layout. */
-    preset: SlotView[][] | null;
+    preset: LayoutPage[] | null;
   };
-  /** SYSTEM choices of the action menu, in order. dev/remote_footswitch.rs:516-574 */
+  /** SYSTEM choices of the action menu, in order. dev/remote_footswitch.rs:612-670 */
   systems: { group: SystemGroup; label: string; action: SystemActionJson }[];
   /** Blocks of the loaded preset. */
   blocks: FootswitchBlock[];
@@ -783,13 +784,21 @@ export interface FootswitchModeView {
   commands: { key: string; command: string; /** "Control Macro · Reset" */ label: string }[];
   /** User setlist names, for "Choose a preset". */
   setlists: string[];
-  /** Only in the reply to { op: "presets" }. dev/remote_footswitch.rs:155-157, :224-234 */
+  /** Only in the reply to { op: "presets" }. dev/remote_footswitch.rs:183-185, :253-264 */
   presets?: { setlist: string; slots: { /** 0-based setlist slot */ slot: number; /** "1A Clean" */ label: string }[] };
 }
 
 export type SystemGroup = "Preset" | "Scene" | "Tuner" | "Tempo" | "Mode" | "Gig View" | "Looper" | "Page";
 
-/** dev/remote_footswitch.rs:243-256 */
+/** dev/remote_footswitch.rs:268-279 */
+export interface LayoutPage {
+  /** 10 slots, A–H, Down, Tap. */
+  slots: SlotView[];
+  /** Two adjacent switches pressed together; the binding is a slot view. */
+  combos: (SlotView & { switches: [number, number] })[];
+}
+
+/** dev/remote_footswitch.rs:281-293 */
 export interface FootswitchBlock {
   /** Grid row 0..=3 */
   row: number;
@@ -801,15 +810,17 @@ export interface FootswitchBlock {
   parameters: { index: number; name: string }[];
 }
 
-/** dev/remote_footswitch.rs:463-487, ui/custom_mode.rs:65-93 */
+/** dev/remote_footswitch.rs:541-555, ui/custom_mode.rs */
 export interface SlotView {
-  /** null = empty slot. */
+  /** The first action; null = empty slot. */
   action: SlotActionView | null;
-  /** Typed label, else the action's name; "" when empty. */
+  /** Up to 8, run in order on a press. */
+  actions: SlotActionRow[];
+  /** Typed label, else the first action's name; "" when empty. */
   label: string;
   /** Typed label only; null = uses the action's name. */
   customLabel: string | null;
-  /** "Bypass · momentary", "Load 3B", "PC 12 · Ch 1". */
+  /** The first action's detail, with " · +N" when N more follow. */
   detail: string;
   /** The LED/tile colour in use, "#rrggbb". */
   colour: string;
@@ -819,15 +830,28 @@ export interface SlotView {
   engaged: boolean;
   /** false: missing block or preset, or the command's extension is not running. */
   available: boolean;
-  /** Parameter actions: percent. Else null. */
-  value: number | null;
-  /** Bypass actions: boolean. Else null. */
-  momentary: boolean | null;
-  /** Send MIDI actions. */
+  /** The double-press binding of this switch (press slots only). The app does not use it yet. */
+  double: SlotView | null;
+}
+
+/** One action of a slot, as a Mappings row has it (§6). dev/remote_footswitch.rs:557-583 */
+export interface SlotActionRow {
+  action: SlotActionView;
+  label: string;
+  detail: string;
+  available: boolean;
+  mode: ModeView | null;
+  /** The modes to choose from; empty = fixed. */
+  modes: ModeView[];
+  /** value, a, b, amount, wrap: each a stepper ("step" edit). */
+  fields: ValueField[];
+  /** "25 % ↔ 75 %". */
+  summary: string;
+  /** Send MIDI only; else []. */
   messages: MidiMessage[];
 }
 
-/** Action as the view shows it. dev/remote_footswitch.rs:490-508 */
+/** Action as the view shows it. dev/remote_footswitch.rs:586-604 */
 export type SlotActionView =
   | { kind: "system"; action: SystemActionJson }
   /** parameter null = bypass. */
@@ -853,7 +877,7 @@ export type SystemActionJson =
 export type LooperButton =
   | "recordOverdub" | "playStop" | "undo" | "reverse" | "halfSpeed" | "oneShot" | "punchIn" | "duplicate";
 
-/** dev/remote_footswitch.rs:122-138 (deny_unknown_fields), :417-448, :463-472 */
+/** dev/remote_footswitch.rs:150-166 (deny_unknown_fields), :495-526 */
 export type MidiMessage =
   /** values = [cc#, value, null] */
   | { kind: "cc"; channel: number; values: [number, number, number | null] }
@@ -868,7 +892,7 @@ export type MidiMessage =
 ### Commands
 
 ```ts
-/** POST /api/footswitch/command body. serde tag "op", camelCase. dev/remote_footswitch.rs:25-47 */
+/** POST /api/footswitch/command body. serde tag "op", camelCase. dev/remote_footswitch.rs:28-52 */
 export type FootswitchCommand =
   /** page 0..pages-1, slot 0..=9. */
   | { op: "slot"; scope: LayoutScope; page: number; slot: number; edit: SlotEdit }
@@ -881,26 +905,29 @@ export type FootswitchCommand =
 
 export type LayoutScope = "global" | "preset";
 
-/** serde tag "kind", camelCase. dev/remote_footswitch.rs:56-91, checks :315-367 */
+/** serde tag "kind", camelCase. dev/remote_footswitch.rs:72-119, checks :336-447.
+ *  `index` names an action of the slot, 0 without it. */
 export type SlotEdit =
-  | { kind: "action"; action: SlotActionInput }
+  /** Sets action `index`; index = the number of actions adds one (at most 8, in order). */
+  | { kind: "action"; index?: number; action: SlotActionInput }
+  | { kind: "remove"; index: number }
+  /** One of that action's `modes`, by kind. */
+  | { kind: "mode"; index?: number; mode: ModeKind }
+  /** A stepper tap on one of its `fields`; ticks -127..=127, not 0. */
+  | { kind: "step"; index?: number; field: FieldKey; ticks: number }
+  /** The whole list (≤ 12). Send MIDI action only ("Choose Send MIDI first"). */
+  | { kind: "messages"; index?: number; messages: MidiMessage[] }
   | { kind: "clear" }
-  /** ≤ 16 chars; "" = the action's name. */
+  /** ≤ 16 chars; "" = the first action's name. */
   | { kind: "label"; label: string }
   /** 0..=7, or null = auto from the action. */
   | { kind: "colour"; colour: number | null }
-  /** 0..=100, parameter action only. */
-  | { kind: "value"; value: number }
-  /** Bypass action only. */
-  | { kind: "momentary"; momentary: boolean }
-  /** The whole list (≤ 12). Send MIDI action only ("Choose Send MIDI first"). */
-  | { kind: "messages"; messages: MidiMessage[] }
   /** The target slot of the same layout becomes a copy of this one. */
   | { kind: "copyTo"; page: number; slot: number }
   /** The two slots swap. */
   | { kind: "moveTo"; page: number; slot: number };
 
-/** serde tag "kind", camelCase. dev/remote_footswitch.rs:94-120, resolve :373-414 */
+/** serde tag "kind", camelCase. dev/remote_footswitch.rs:121-148, resolve :449-492 */
 export type SlotActionInput =
   | { kind: "system"; action: SystemActionJson }
   /** `parameter` omitted or null = bypass; else a parameter index of that block. */
@@ -917,14 +944,17 @@ export type SlotActionInput =
 Rules:
 
 - Each edit starts from the state of the last reply, and a message list is sent whole. The page
-  sends one command at a time and waits for its reply (`parts/footswitch.html:133-157`).
+  sends one command at a time and waits for its reply (`parts/footswitch.html:161-184`).
 - Typical refusals (422): `There is no page N`, `There is no switch N`, `There is no scene N`,
   `There is no block there`, `<block> has no parameter N`, `A slot cannot press another slot`,
   `A label has at most 16 characters`, `There are eight colours`, `A channel is 1 to 16`,
   `A message needs each of its values`, `A MIDI value is 0 to 127`, `That slot is empty`,
+  `There is no action N`, `A switch runs at most 8 actions, in order`,
+  `<action> cannot use the mode <kind>`, `<action> has no value <field>`,
+  `ticks goes from -127 to 127 and is not 0`, `Choose Send MIDI first`,
   `This preset uses the layout of all presets` (edit of THIS PRESET with no own layout),
   `No extension adds a Custom footswitch mode`, `Not a command: <serde error>`.
-  (`dev/remote_footswitch.rs:299-447`, `dev/custom.rs:834-1014`.)
+  (`dev/remote_footswitch.rs:336-526`, `dev/custom/mod.rs:1188-`.)
 - Playing the switches (Gig View taps, page turns) is not in the API (`dev/remote_footswitch.rs:5`).
 
 ## 8. Extension files and tabs: client rules

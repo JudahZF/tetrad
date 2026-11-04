@@ -103,15 +103,19 @@ that adds the mode, such as Custom Footswitch Mode; without one, the page links 
 
 - The switches show as on the unit: A to D and Down on top, E to H and Tap below. Choose a page,
   then tap a switch to change it:
-  - **Action**: System, Block (bypass or a parameter), Load a preset (the loaded one, or one
-    from a setlist), Send MIDI, or a command of an extension.
-  - **Label** (at most 16 characters; empty uses the name of the action) and **Colour** (Auto
-    or one of the eight).
-  - **Value** for a parameter, **Momentary** for a bypass, and **Messages** (up to 12) for Send
-    MIDI.
+  - **Actions**: a switch runs up to 8 actions, in order. Each action is one of System, Block
+    (bypass or a parameter), Load a preset (the loaded one, or one from a setlist), Send MIDI,
+    or a command of an extension. **Add action** adds one after the others, and **Remove**
+    removes one.
+  - Each action has a **Mode** and **Values**, as a row of [Mappings](#mappings) has. For
+    example, a parameter can **Set** a value, **Toggle** between A and B, be **Momentary**, or
+    **Step**. Use − and + to change a value (Shift steps 10). Some actions have one fixed mode.
+  - **Messages** (up to 12) for a Send MIDI action.
+  - **Label** (at most 16 characters; empty uses the name of the first action) and **Colour**
+    (Auto or one of the eight).
   - **Copy to** or **Swap with** another switch on any page, and **Clear**.
   - **Runs on**: **Press**, **Double press**, or **Combo with** an adjacent switch. The rows
-    above then edit that action. A tile shows **2×** for a double press and **+C** for a combo
+    above then edit the actions of that one. A tile shows **2×** for a double press and **+C** for a combo
     with C.
 - **Copy page … to** replaces another page with this one.
 - **ALL PRESETS** and **THIS PRESET**: **Give this preset its own layout** and **Remove it** work

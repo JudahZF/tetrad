@@ -54,8 +54,16 @@
 #footswitch .fs-row small { color: var(--muted); }
 #footswitch .fs-swatch { width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 50%; border: 2px solid var(--line); font-size: 13px; color: var(--fg); background: var(--bg); }
 #footswitch .fs-swatch[aria-pressed=true] { outline: 3px solid var(--accent); outline-offset: 2px; }
-#footswitch input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
-#footswitch input[type=range] { width: min(320px, 100%); accent-color: var(--accent); }
+#footswitch .fs-action { padding: 10px 0 2px; border-top: 1px solid var(--line); }
+#footswitch .fs-action .fs-row { border-top: 0; padding: 6px 0; }
+#footswitch .fs-action-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+#footswitch .fs-action-head small { flex: 1; color: var(--muted); }
+#footswitch .fs-add { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+#footswitch .fs-add small { color: var(--muted); }
+#footswitch .fs-value { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+#footswitch .fs-step { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+#footswitch .fs-step button { min-height: 36px; width: 40px; padding: 0; border-radius: 0; background: var(--panel); color: var(--fg); font-size: 18px; }
+#footswitch .fs-step output { min-width: 10ch; padding: 0 10px; text-align: center; }
 #footswitch .fs-messages { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 #footswitch .fs-message { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 #footswitch .fs-message label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); }
@@ -74,7 +82,8 @@
 // The Custom footswitch mode (docs/remote.md, docs/footswitch-modes.md): the editor of the unit
 // (EDIT in Gig View) on a big screen. Every command answers with the new view. Pages are
 // 0-based; slots 0..=7 are A–H, 8 Down and 9 Tap. A switch has a press, can have a double press,
-// and two adjacent switches can have a combo.
+// and two adjacent switches can have a combo. Each of them runs up to 8 actions in order; an
+// action has a mode and values as a Mappings row has (parts/mappings.html).
 {
   $("panes").append($("footswitch"));
   const NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"];
@@ -96,19 +105,22 @@
     return (ra === rb && Math.abs(ca - cb) === 1) || (ca === cb && ra !== rb);
   };
   const neighbours = (slot) => ORDER.filter((other) => adjacent(slot, other));
-  const EMPTY = { action: null, label: "", customLabel: null, detail: "", swatch: null, engaged: false,
-    available: true, value: null, momentary: null, messages: [], double: null };
+  const MAX_ACTIONS = 8;
+  const EMPTY = { action: null, actions: [], label: "", customLabel: null, detail: "", swatch: null, engaged: false,
+    available: true, double: null };
 
   let view = null;
   let scope = "global";
   let page = 0;
   let selected = null;
-  /** Which action of the selected switch shows: "press", "double", or the combo partner (0..=9). */
+  /** Which binding of the selected switch shows: "press", "double", or the combo partner (0..=9). */
   let gesture = "press";
-  /** A kind chosen in the Action list before its target, and the setlist chosen for a preset:
-      kept until another slot, layout or action is chosen. */
-  let pendingKind = null;
-  let setlist = null;
+  /** The kind chosen in an Action list before its target, and the setlist chosen for a preset:
+      `{ index, kind, setlist }` for action `index` (the number of actions: a new one). Kept until
+      another slot, layout or action is chosen. */
+  let pick = null;
+  /** The row of a new action shows ("Add action"). */
+  let adding = false;
   let sending = false;
   /** Setlist name → its presets ([{slot, label}]), read once per visit of the page. */
   const presets = new Map();
@@ -182,8 +194,9 @@
     if (gesture === "double") return slot.double || EMPTY;
     return comboOf(data, selected, gesture) || EMPTY;
   };
-  const setAction = (action) => { pendingKind = setlist = null; return edit({ kind: "action", action }); };
-  const unpick = () => { pendingKind = setlist = null; };
+  const unpick = () => { pick = null; adding = false; };
+  /** Sets action `index`; the number of actions adds one. */
+  const setAction = (index, action) => { unpick(); return edit({ kind: "action", index, action }); };
 
   /** Draws the view. `force` draws the editor too while one of its controls has the focus. */
   function render(next, force) {
@@ -298,7 +311,6 @@
     const data = layout()[page];
     const slot = binding();
     const press = gesture === "press";
-    const kind = pendingKind !== null ? pendingKind : kindOf(slot.action);
     const name = NAMES[selected];
     const title = press ? "Switch " + name : gesture === "double" ? "Double " + name
       : NAMES[Math.min(selected, gesture)] + " + " + NAMES[Math.max(selected, gesture)];
@@ -320,44 +332,91 @@
         ...neighbours(selected).map((other) =>
           runs(other, "Combo with " + NAMES[other] + (comboOf(data, selected, other) ? " ●" : ""))),
         hint ? el("small", { textContent: hint }) : null)),
-      slot.action && !slot.available ? el("p", { className: "failed", textContent: slot.detail }) : null,
-      row("Action",
-        select(KINDS.map(([value, text]) => option(value, text, value === "command" && !view.commands.length)), kind, (value) => {
-          if (value === "sendMidi") return setAction({ kind: "sendMidi" });
-          if (value === "") { unpick(); return slot.action ? edit({ kind: "clear" }) : drawEditor(); }
-          pendingKind = value;
-          setlist = null;
-          drawEditor();
-        }),
-        ...target(kind, slot)),
+      ...slot.actions.map((item, index) => actionItem(item, index)),
+      addAction(slot.actions.length),
     ];
     if (slot.action) {
       const label = el("input", { type: "text", maxLength: 16, value: slot.customLabel || "", placeholder: slot.customLabel ? "" : slot.label });
       label.addEventListener("change", () => edit({ kind: "label", label: label.value }));
-      parts.push(row("Label", label, el("small", { textContent: "Empty: the name of the action" })));
+      parts.push(row("Label", label, el("small", { textContent: "Empty: the name of the first action" })));
       if (press) parts.push(row("Colour", ...swatches(slot)));
     }
-    if (slot.value !== null) {
-      const shown = el("output", { textContent: slot.value + " %" });
-      const range = el("input", { type: "range", min: 0, max: 100, step: 5, value: slot.value });
-      range.addEventListener("input", () => { shown.textContent = range.value + " %"; });
-      range.addEventListener("change", () => edit({ kind: "value", value: Number(range.value) }));
-      parts.push(row("Value", range, shown));
-    }
-    if (slot.momentary !== null) {
-      const box = el("input", { type: "checkbox", checked: slot.momentary });
-      box.addEventListener("change", () => edit({ kind: "momentary", momentary: box.checked }));
-      parts.push(row("Momentary", box, el("small", { textContent: "The block changes only while the switch is down" })));
-    }
-    if (slot.action && slot.action.kind === "sendMidi") parts.push(row("Messages", messages(slot.messages)));
     if (press && (slot.action || slot.double)) parts.push(row("Copy or swap", ...copyMove()));
     panel.replaceChildren(...parts);
   }
 
-  /** The lists that choose the action of `kind`. A choice sends the action at once. */
-  function target(kind, slot) {
-    const action = slot.action || {};
+  /** One action of the binding, as a Mappings row: what it does, its mode and its values. */
+  function actionItem(item, index) {
+    const summary = [item.detail, item.summary].filter(Boolean).join(" · ");
+    const parts = [
+      el("div", { className: "fs-action-head" },
+        el("strong", { textContent: (index + 1) + ". " + item.label }),
+        el("small", { textContent: summary }),
+        button("Remove", "danger", () => { unpick(); edit({ kind: "remove", index }); })),
+      item.available ? null : el("p", { className: "failed", textContent: item.detail }),
+      row("Action", ...chooser(index, item)),
+    ];
+    if (item.modes.length) {
+      parts.push(row("Mode",
+        select(item.modes.map((m) => option(m.kind, m.label)), item.mode ? item.mode.kind : undefined,
+          (mode) => edit({ kind: "mode", index, mode })),
+        item.mode ? el("small", { textContent: item.mode.detail }) : null));
+    } else if (item.mode) {
+      parts.push(row("Mode", el("span", { textContent: item.mode.label }), el("small", { textContent: item.mode.detail })));
+    }
+    if (item.fields.length) parts.push(row("Values", ...item.fields.map((field) => stepper(index, field))));
+    if (item.action.kind === "sendMidi") parts.push(row("Messages", messages(item.messages, index)));
+    return el("div", { className: "fs-action" }, ...parts);
+  }
+
+  /** The row of a new action at `index`: a button first, then the action lists. */
+  function addAction(index) {
+    if (index >= MAX_ACTIONS) {
+      return el("p", { className: "fs-add" }, el("small", { textContent: "A switch runs at most " + MAX_ACTIONS + " actions, in order." }));
+    }
+    if (!adding && index > 0) {
+      return el("div", { className: "fs-add" },
+        button("Add action", "", () => { pick = null; adding = true; drawEditor(); }),
+        el("small", { textContent: "It runs after the actions above." }));
+    }
+    const cancel = index > 0 ? button("Cancel", "", () => { unpick(); drawEditor(); }) : null;
+    return el("div", { className: "fs-action" },
+      el("div", { className: "fs-action-head" }, el("strong", { textContent: (index + 1) + ". New action" })),
+      row("Action", ...chooser(index, null), cancel));
+  }
+
+  /** The kind list and the lists of its target for action `index` (`item` null: a new one). A
+      choice sends the action at once. */
+  function chooser(index, item) {
+    const mine = pick && pick.index === index;
+    const kind = mine ? pick.kind : kindOf(item && item.action);
+    const kinds = select([option("", "Choose…", true),
+      ...KINDS.map(([value, text]) => option(value, text, value === "command" && !view.commands.length))], kind, (value) => {
+      if (value === "sendMidi") return setAction(index, { kind: "sendMidi" });
+      pick = { index, kind: value, setlist: null };
+      adding = !item;
+      drawEditor();
+    });
+    return [kinds, ...target(kind, index, item)];
+  }
+
+  /** − and + as on the unit and the Mappings page: one step of the value's own size; Shift steps 10. */
+  function stepper(index, field) {
+    const tap = (text, sign) => {
+      const node = el("button", { type: "button", textContent: text, title: "Shift: 10 steps" });
+      node.addEventListener("click", (event) =>
+        edit({ kind: "step", index, field: field.id, ticks: sign * (event.shiftKey ? 10 : 1) }));
+      return node;
+    };
+    return el("span", { className: "fs-value" }, field.label,
+      el("span", { className: "fs-step" }, tap("−", -1), el("output", { textContent: field.text }), tap("+", 1)));
+  }
+
+  /** The lists that choose the action of `kind` for action `index`. */
+  function target(kind, index, item) {
+    const action = (item && item.action) || {};
     const choose = (text) => option("", text, true);
+    const set = (next) => setAction(index, next);
     if (kind === "system") {
       const groups = new Map();
       for (const choice of view.systems) {
@@ -366,7 +425,7 @@
       }
       const current = action.kind === "system" ? JSON.stringify(action.action) : "";
       return [select([choose("Choose…"), ...groups.values()], current,
-        (value) => setAction({ kind: "system", action: JSON.parse(value) }))];
+        (value) => set({ kind: "system", action: JSON.parse(value) }))];
     }
     if (kind === "block") {
       if (!view.blocks.length) return [el("small", { textContent: "The loaded preset has no blocks." })];
@@ -375,23 +434,24 @@
       const blocks = select([choose("Choose a block…"), ...view.blocks.map((b) =>
         option(b.row + "," + b.column, b.name + " · " + b.location))], here, (value) => {
         const [row, column] = value.split(",").map(Number);
-        setAction({ kind: "block", row, column, parameter: null });
+        set({ kind: "block", row, column, parameter: null });
       });
       if (!block) return [blocks];
       const targets = select([option("bypass", "Bypass"), ...block.parameters.map((p) => option(String(p.index), p.name))],
         action.parameter === null || action.parameter === undefined ? "bypass" : String(action.parameter),
-        (value) => setAction({ kind: "block", row: block.row, column: block.column, parameter: value === "bypass" ? null : Number(value) }));
+        (value) => set({ kind: "block", row: block.row, column: block.column, parameter: value === "bypass" ? null : Number(value) }));
       return [blocks, targets];
     }
     if (kind === "preset") {
+      const setlist = pick && pick.index === index ? pick.setlist : null;
       const parts = [];
-      if (action.kind === "loadPreset") parts.push(el("small", { textContent: "Loads " + slot.label + "." }));
+      if (action.kind === "loadPreset") parts.push(el("small", { textContent: "Loads " + item.label + "." }));
       parts.push(select([choose("Choose…"),
         option("\n", view.preset ? "The loaded preset (" + view.preset + ")" : "The loaded preset", !view.preset),
         ...view.setlists.map((name) => option(name, name))], setlist === null ? "" : setlist, async (name) => {
-        if (name === "\n") return setAction({ kind: "loadPreset" });
-        pendingKind = "preset";
-        setlist = name;
+        if (name === "\n") return set({ kind: "loadPreset" });
+        pick = { index, kind: "preset", setlist: name };
+        adding = !item;
         if (!presets.has(name)) {
           const { status, body } = await call("/api/footswitch/command", {
             method: "POST",
@@ -407,9 +467,8 @@
       const list = setlist !== null && presets.get(setlist);
       if (list && !list.length) parts.push(el("small", { textContent: "No presets in " + setlist + "." }));
       if (list && list.length) {
-        const name = setlist;
         parts.push(select([choose("Choose a preset…"), ...list.map((p) => option(String(p.slot), p.label))], "",
-          (value) => setAction({ kind: "preset", setlist: name, slot: Number(value) })));
+          (value) => set({ kind: "preset", setlist, slot: Number(value) })));
       }
       return parts;
     }
@@ -417,7 +476,7 @@
       const current = action.kind === "command" ? action.key + "\n" + action.command : "";
       return [select([choose("Choose…"), ...view.commands.map((c) => option(c.key + "\n" + c.command, c.label))], current, (value) => {
         const [key, command] = value.split("\n");
-        setAction({ kind: "command", key, command });
+        set({ kind: "command", key, command });
       })];
     }
     return [];
@@ -440,9 +499,10 @@
     return [swatch(null), ...view.colours.map((_, index) => swatch(index))];
   }
 
-  /** The Send MIDI list: each change sends the whole list, as the MIDI Out editor does. */
-  function messages(list) {
-    const save = (next) => edit({ kind: "messages", messages: next });
+  /** The Send MIDI list of action `index`: each change sends the whole list, as the MIDI Out
+      editor does. */
+  function messages(list, index) {
+    const save = (next) => edit({ kind: "messages", index, messages: next });
     const copy = () => list.map((m) => ({ kind: m.kind, channel: m.channel, values: m.values.slice() }));
     const number = (label, value, min, max, empty, change) => {
       const input = el("input", { type: "number", min, max, step: 1, value: value === null ? "" : value, placeholder: empty ? "Off" : "" });
@@ -457,9 +517,9 @@
       });
       return el("label", {}, label, input);
     };
-    const rows = list.map((message, index) => {
+    const rows = list.map((message, at) => {
       const [, labels] = MIDI[message.kind];
-      const set = (change) => { const next = copy(); change(next[index]); save(next); };
+      const set = (change) => { const next = copy(); change(next[at]); save(next); };
       const kind = select(Object.entries(MIDI).map(([value, [text]]) => option(value, text)), message.kind, (value) => set((m) => {
         m.kind = value;
         // As the unit: the values the new kind uses keep their number or become 0.
@@ -471,7 +531,7 @@
         el("label", {}, "Type", kind),
         number("Channel", message.channel, 1, 16, false, (value) => set((m) => { m.channel = value; })),
         ...values,
-        button("Remove", "danger", () => save(copy().filter((_, i) => i !== index))));
+        button("Remove", "danger", () => save(copy().filter((_, i) => i !== at))));
     });
     const add = button("Add a message", "", () => save([...copy(), { kind: "cc", channel: 1, values: [0, 0, null] }]));
     add.disabled = list.length >= MAX_MESSAGES;

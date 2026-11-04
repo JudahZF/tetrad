@@ -288,18 +288,39 @@ export type SlotActionView =
   | { kind: "loadPreset" }
   | { kind: "sendMidi" }
   | { kind: "command"; key: string; command: string };
+/** One action of a switch, with a mode and values as a Mappings row has. */
+export interface SlotActionRow {
+  action: SlotActionView;
+  label: string;
+  detail: string;
+  available: boolean;
+  mode: ModeView | null;
+  /** Empty: the mode is fixed. */
+  modes: ModeView[];
+  /** A switch gets value, a, b, amount and wrap. */
+  fields: ValueField[];
+  summary: string;
+  /** Send MIDI only. */
+  messages: MidiMessage[];
+}
 export interface SlotView {
+  /** The first action; null = empty. */
   action: SlotActionView | null;
+  /** Up to MAX_SLOT_ACTIONS, run in order. */
+  actions: SlotActionRow[];
   label: string;
   customLabel: string | null;
+  /** The first action's detail, with " · +N" when more follow. */
   detail: string;
   colour: string;
   swatch: number | null;
   engaged: boolean;
   available: boolean;
-  value: number | null;
-  momentary: boolean | null;
-  messages: MidiMessage[];
+}
+/** One page: 10 slots, and the combos of adjacent switches (a combo shows as a slot). */
+export interface LayoutPage {
+  slots: SlotView[];
+  combos: (SlotView & { switches: [number, number] })[];
 }
 export interface FootswitchBlock {
   row: number;
@@ -314,7 +335,7 @@ export interface FootswitchMode {
   presetLoaded: boolean;
   /** 8 LED colours. */
   colours: string[];
-  layouts: { global: SlotView[][]; preset: SlotView[][] | null };
+  layouts: { global: LayoutPage[]; preset: LayoutPage[] | null };
   systems: { group: SystemGroup; label: string; action: SystemAction }[];
   blocks: FootswitchBlock[];
   commands: { key: string; command: string; label: string }[];
@@ -329,14 +350,17 @@ export type SlotActionInput =
   | { kind: "preset"; setlist: string; slot: number }
   | { kind: "sendMidi" }
   | { kind: "command"; key: string; command: string };
+/** `index` names an action of the slot (0 without it); `action` at the number of actions adds one. */
 export type SlotEdit =
-  | { kind: "action"; action: SlotActionInput }
+  | { kind: "action"; index?: number; action: SlotActionInput }
+  | { kind: "remove"; index: number }
+  | { kind: "mode"; index?: number; mode: ModeKind }
+  /** ticks -127..=127, not 0. */
+  | { kind: "step"; index?: number; field: FieldKey; ticks: number }
+  | { kind: "messages"; index?: number; messages: MidiMessage[] }
   | { kind: "clear" }
   | { kind: "label"; label: string }
   | { kind: "colour"; colour: number | null }
-  | { kind: "value"; value: number }
-  | { kind: "momentary"; momentary: boolean }
-  | { kind: "messages"; messages: MidiMessage[] }
   | { kind: "copyTo"; page: number; slot: number }
   | { kind: "moveTo"; page: number; slot: number };
 export type FootswitchCommand =
@@ -345,6 +369,8 @@ export type FootswitchCommand =
   | { op: "presetLayout"; own: boolean }
   | { op: "presets"; setlist: string };
 
+/** The most actions a switch runs. */
+export const MAX_SLOT_ACTIONS = 8;
 /** Slot index per switch: A–H, then Down and Tap. */
 export const SLOT_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "Down", "Tap"] as const;
 /** On-screen order: A B C D Down / E F G H Tap. */
