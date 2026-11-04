@@ -742,7 +742,7 @@ on the unit) (`docs/remote.md:94-95`).
 | Actions | A slot runs up to 8 actions (`MAX_SLOT_ACTIONS`), in order. Each has a Mappings mode and values (§6) | `ui/custom_mode.rs:35`, `dev/remote_footswitch.rs:557-583` |
 | Modes | Per target: block bypass, Tuner, Gig View → toggle, momentary, set; block parameter → set, toggle, momentary, step; Looper → onPress, momentary; others: onPress only (`modes` can be empty: fixed) | `dev/mappings/mode.rs:126` |
 | Fields | A switch action gets only `value`, `a`, `b`, `amount`, `wrap` | `dev/remote_footswitch.rs:401-415` |
-| Messages | ≤ 12 per Send MIDI action | `dev/custom/mod.rs:67`, `:1467` |
+| Messages | ≤ 12 per Send MIDI action | `dev/custom/mod.rs:67`, `:1498-1499` |
 
 ```ts
 /** GET /api/footswitch and every command reply. dev/remote_footswitch.rs:170-186, :266-332 */
@@ -954,7 +954,7 @@ Rules:
   `ticks goes from -127 to 127 and is not 0`, `Choose Send MIDI first`,
   `This preset uses the layout of all presets` (edit of THIS PRESET with no own layout),
   `No extension adds a Custom footswitch mode`, `Not a command: <serde error>`.
-  (`dev/remote_footswitch.rs:336-526`, `dev/custom/mod.rs:1188-`.)
+  (`dev/remote_footswitch.rs:336-526`, `dev/custom/mod.rs:1283-1505`.)
 - Playing the switches (Gig View taps, page turns) is not in the API (`dev/remote_footswitch.rs:5`).
 
 ## 8. Extension files and tabs: client rules

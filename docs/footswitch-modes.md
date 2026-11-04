@@ -63,8 +63,9 @@ extension's page.
    | MIDI OUT → Send MIDI | Sends up to 12 messages (CC, CC Toggle or PC). Tap **Edit messages**. |
    | EXTENSIONS → Commands | Runs a command of a running extension. |
 
-5. **Mode**: how the press drives the action, as on the Mappings page. Tuner and Gig View also
-   have Toggle, Momentary and Set. The other actions run on each press.
+5. **Mode**: how the press drives the action, as on the Mappings page. A block bypass, the Tuner
+   and Gig View have Toggle, Momentary and Set. A parameter has Set, Toggle, Momentary and Step.
+   A Looper button has On press and Momentary. The other actions run on each press.
 6. The trash button of the action editor removes the action. Back returns to the switches.
 7. **Label**: the text of the switch in Gig View. Leave it empty to show the name of the first
    action.
