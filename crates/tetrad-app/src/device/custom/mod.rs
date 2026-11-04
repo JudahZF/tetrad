@@ -1,15 +1,14 @@
-//! Custom footswitch mode (owned, Tetrad): the footswitch mode an extension declares in its
-//! manifest (`footswitchMode`, API 4), run by Tetrad (`tetrad_ui::custom_mode`).
-//!
-//! The mode is a layer over the stored stock mode (`FootswitchContext::custom`): Cortex
-//! Control and MIDI CC#47 still see the stock mode, and leaving Custom returns to it. While it
-//! is on, the ten switches A–D, Down, E–H and Tap are the slots of the current page and Bank Up
-//! is the mode switch (tetrad-core `FootswitchContext::press`).
+//! Custom footswitch mode (owned, Tetrad; `tetrad_ui::custom_mode`): Tetrad's footswitch mode in
+//! the place of stock Stomp mode. It is on while the stored mode (`Mode/mode`) is Stomp, so
+//! stock CorOS, Cortex Control and MIDI CC#47 see Stomp mode. A stored Stomp hybrid (Tetrad
+//! offers none) also plays as Custom. While it is on, the ten switches A–D, Down, E–H and Tap
+//! are the slots of the current page and Bank Up is the mode switch (tetrad-core
+//! `FootswitchContext::press`).
 //!
 //! A press captures what its release must do, so a release after a page change still ends the
-//! action it started (a momentary bypass comes back). Leaving the mode, a new layout of a held
-//! slot and a new provider release every held slot; a preset load drops the held momentary
-//! bypasses, which belong to the old preset's blocks.
+//! action it started (a momentary bypass comes back). Leaving the mode and a new layout of a
+//! held slot release every held slot; a preset load drops the held momentary bypasses and
+//! parameters, which belong to the old preset's blocks.
 //!
 //! A switch can also have a double press, and two adjacent switches a combo. Footswitch presses
 //! (and MIDI CC#35..=42, which are footswitch taps: double presses, never combos) go through
@@ -17,13 +16,13 @@
 //! the press at once. A page change, leaving the mode, a preset load and a layout edit drop a
 //! press that still waits.
 //!
-//! The ALL PRESETS layout is one per extension installation, in [`LAYOUT_DIR`]; removing the
-//! extension keeps it. A preset can have its own layout (THIS PRESET) in the preset field
-//! [`TETRAD_FOOTSWITCH_FIELD`]; it plays instead while that preset is loaded, and its edits are
-//! preset edits that the preset saves. [`ACTIVE_FILE`] names the installation whose mode was on,
-//! so the mode comes back after a restart once the extension store is read.
+//! The ALL PRESETS layout is in [`LAYOUT_FILE`]. A preset can have its own layout (THIS PRESET)
+//! in the preset field [`TETRAD_FOOTSWITCH_FIELD`]; while the preset is loaded, each of its
+//! switches with actions plays instead of the ALL PRESETS switch, and its edits are preset
+//! edits that the preset saves. [`ACTIVE_FILE`] keeps the double press and combo times.
 
 mod gesture;
+mod stock;
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -45,7 +44,6 @@ use self::gesture::{Fire, Gestures, Shape};
 use super::actions::ActionError;
 use super::mappings::mode::{self, Mode, Param, Source, Target, Window};
 use super::mappings::{self, StoredTarget, SystemDef};
-use super::preset::PresetEdit;
 use super::{Action, Effect, State};
 
 /// The installation whose mode was on at the last change, and the double press and combo
@@ -79,24 +77,18 @@ pub enum Origin {
     Touch,
 }
 
-/// The installation that provides the mode.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Provider {
-    /// `owner/repo:extension.id`.
-    pub key: String,
-    /// The key as a file name (`InstallKey::file_stem`).
-    pub stem: String,
-    /// The extension's name.
-    pub extension: String,
-    /// The mode's name.
-    pub name: String,
-    pub pages: u8,
-}
+/// The mode's name, as the mode button shows it.
+pub const NAME: &str = "Custom";
+/// The ALL PRESETS layout.
+pub const LAYOUT_FILE: &str = "/media/p4/tetrad/footswitch-layout.json";
+/// Where Tetrad 0.1.0-alpha.10 and earlier kept the layout of the extension that added the
+/// mode (`<install key file stem>.json`): read once while [`LAYOUT_FILE`] is missing.
+pub const OLD_LAYOUT_DIR: &str = "/media/p4/tetrad/footswitch-modes";
 
-impl Provider {
-    pub fn layout_path(&self) -> String {
-        format!("{LAYOUT_DIR}/{}.json", self.stem)
-    }
+/// The stored footswitch mode plays as Custom: stock Stomp mode, or a Stomp hybrid.
+pub fn plays_custom(mode: tetrad_settings::controls::FootswitchMode) -> bool {
+    use tetrad_core::performance::mode::FootswitchKind;
+    super::actions::core_mode(mode).is_some_and(|mode| mode.includes(FootswitchKind::Stomp))
 }
 
 // ---- stored form ----------------------------------------------------------------------------
@@ -126,6 +118,8 @@ enum StoredAction {
         key: String,
         command: String,
     },
+    /// THIS PRESET only: the switch plays nothing, not the ALL PRESETS switch.
+    Nothing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +149,10 @@ struct Act {
     /// Send MIDI only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     messages: Vec<StoredMessage>,
+    /// The preset's stock Stomp data ([`stock`]): never in a layout field, and a press plays
+    /// it through the stock stomp path.
+    #[serde(skip)]
+    stock: bool,
 }
 
 impl Act {
@@ -163,6 +161,7 @@ impl Act {
             action,
             mode: None,
             messages: Vec::new(),
+            stock: false,
         }
     }
 
@@ -240,9 +239,9 @@ impl Binding {
         (self.value, self.momentary) = (None, false);
         if self.actions.is_empty() {
             self.actions.push(Act {
-                action,
                 mode,
                 messages,
+                ..Act::new(action)
             });
         }
     }
@@ -384,7 +383,7 @@ struct StoredCombo {
     combo: Combo,
 }
 
-/// [`Provider::layout_path`]: the assigned slots and the combos. A Tetrad without combos and
+/// [`LAYOUT_FILE`]: the assigned slots and the combos. A Tetrad without combos and
 /// double presses ignores those fields.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -400,6 +399,9 @@ struct StoredLayout {
 #[serde(rename_all = "camelCase")]
 struct StoredActive {
     format: u32,
+    /// Tetrad 0.1.0-alpha.10 and earlier: the install key of the extension whose mode was on.
+    /// Read once to find its layout in [`OLD_LAYOUT_DIR`]; not written.
+    #[serde(default, skip_serializing)]
     active: Option<String>,
     /// Settings › Double Press & Combo, in ms; without them, the defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -437,14 +439,13 @@ struct Held {
 #[derive(Debug, Default)]
 pub struct Step {
     pub effects: Vec<Effect>,
-    /// New contents of the provider's layout file.
+    /// New contents of the layout file.
     pub save: Option<(String, Vec<u8>)>,
 }
 
 #[derive(Debug, Default)]
 pub struct CustomMode {
-    provider: Option<Provider>,
-    /// ALL PRESETS: always [`PAGES`] pages; the view shows the provider's.
+    /// ALL PRESETS: always [`PAGES`] pages.
     layout: Vec<Page>,
     /// THIS PRESET: the loaded preset's own layout, decoded at `preset_revision` ([`sync`]).
     preset_layout: Option<Vec<Page>>,
@@ -460,15 +461,11 @@ pub struct CustomMode {
     /// Commands of the running extensions, for the Command action.
     commands: Vec<CommandChoice>,
     notice: Option<String>,
-    /// [`ACTIVE_FILE`]: the installation whose mode was on.
-    restore: Option<String>,
+    /// The old [`ACTIVE_FILE`]'s install key, until the layout is read.
+    old_active: Option<String>,
 }
 
 impl CustomMode {
-    pub fn provider(&self) -> Option<&Provider> {
-        self.provider.as_ref()
-    }
-
     pub fn page(&self) -> u8 {
         self.page
     }
@@ -478,7 +475,7 @@ impl CustomMode {
         let bytes = bytes?;
         match serde_json::from_slice::<StoredActive>(bytes) {
             Ok(stored) if stored.format == ACTIVE_FORMAT => {
-                self.restore = stored.active;
+                self.old_active = stored.active;
                 self.gestures.set_times(
                     stored_time(stored.double_press_ms, &DOUBLE_PRESS_CHOICES, DOUBLE_PRESS),
                     stored_time(stored.combo_press_ms, &COMBO_PRESS_CHOICES, COMBO_PRESS),
@@ -493,42 +490,59 @@ impl CustomMode {
         }
     }
 
-    /// The contents of [`ACTIVE_FILE`] for the mode's state now. While the mode is off, the
-    /// installation that it comes back with (its extension is off) stays.
-    pub fn active_file(&self, active: bool) -> Vec<u8> {
+    /// The contents of [`ACTIVE_FILE`]: the double press and combo times.
+    pub fn active_file(&self) -> Vec<u8> {
         let (double, combo) = self.gestures.times();
         let ms = |time: Duration| u16::try_from(time.as_millis()).ok();
         let stored = StoredActive {
             format: ACTIVE_FORMAT,
-            active: (self.provider.as_ref())
-                .filter(|_| active)
-                .map(|provider| provider.key.clone())
-                .or_else(|| self.restore.clone()),
+            active: None,
             double_press_ms: ms(double),
             combo_press_ms: ms(combo),
         };
         serde_json::to_vec_pretty(&stored).expect("the active file encodes")
     }
 
+    /// The file name of the old layout to read when [`LAYOUT_FILE`] is missing: the one of the
+    /// extension whose mode was on, if the old [`ACTIVE_FILE`] names one.
+    pub fn old_layout_stem(&self) -> Option<String> {
+        let key = self.old_active.as_deref()?;
+        let key: tetrad_extensions::store::InstallKey = key.parse().ok()?;
+        Some(key.file_stem())
+    }
+
+    /// The ALL PRESETS layout as stored ([`LAYOUT_FILE`]).
+    pub fn layout_file(&self) -> Vec<u8> {
+        encode(&self.layout)
+    }
+
     pub fn set_commands(&mut self, commands: Vec<CommandChoice>) {
         self.commands = commands;
     }
 
-    /// The layout the switches play: the preset's own, else ALL PRESETS.
-    fn playing(&self) -> &[Page] {
-        self.preset_layout.as_deref().unwrap_or(&self.layout)
-    }
-
-    fn playing_scope(&self) -> LayoutScope {
-        match self.preset_layout {
-            Some(_) => LayoutScope::Preset,
-            None => LayoutScope::Global,
+    /// The page the switches play: each press, double press and combo of the preset's own
+    /// layout that has actions, else the ALL PRESETS one. The colour goes with the press.
+    fn playing_page(&self, page: u8) -> Page {
+        let index = usize::from(page);
+        let mut playing = self.layout.get(index).cloned().unwrap_or_default();
+        let Some(own) = (self.preset_layout.as_ref()).and_then(|layout| layout.get(index)) else {
+            return playing;
+        };
+        for (slot, mine) in playing.slots.iter_mut().zip(&own.slots) {
+            if !mine.press.actions.is_empty() {
+                (slot.press, slot.colour) = (mine.press.clone(), mine.colour);
+            }
+            if (mine.double.as_ref()).is_some_and(|double| !double.actions.is_empty()) {
+                slot.double = mine.double.clone();
+            }
         }
-    }
-
-    /// A slot of the playing layout.
-    fn slot(&self, page: u8, slot: usize) -> Option<&Slot> {
-        self.playing().get(usize::from(page))?.slots.get(slot)
+        for combo in &own.combos {
+            playing
+                .combos
+                .retain(|other| other.switches != combo.switches);
+            playing.combos.push(combo.clone());
+        }
+        playing
     }
 
     /// When a waiting footswitch press is due: call [`expire`] then.
@@ -623,15 +637,16 @@ fn system_allowed(action: SystemAction) -> bool {
 /// edit, undo). A field that does not decode leaves the preset on the ALL PRESETS layout.
 pub fn sync(state: &mut State) {
     let revision = state.current.revision();
-    let custom = &mut state.custom;
-    if custom.preset_revision == Some(revision) {
+    if state.custom.preset_revision == Some(revision) {
         return;
     }
-    custom.preset_revision = Some(revision);
-    let layout = (state.current.as_ref())
+    state.custom.preset_revision = Some(revision);
+    let own = (state.current.as_ref())
         .and_then(|current| current.preset.unknown.bytes_field(TETRAD_FOOTSWITCH_FIELD))
         .and_then(|bytes| decode(&bytes).ok())
         .map(|(layout, _)| layout);
+    let layout = stock::merged(state, own);
+    let custom = &mut state.custom;
     // A waiting press belongs to the layout it was pressed on.
     if layout != custom.preset_layout {
         custom.gestures.clear();
@@ -639,118 +654,53 @@ pub fn sync(state: &mut State) {
     }
 }
 
-// ---- mode and provider ----------------------------------------------------------------------
+// ---- the mode ------------------------------------------------------------------------------
 
-/// The installation that provides the mode now (the first enabled one with a footswitch mode,
-/// by key), with its stored layout (`None`: no file). A new provider releases the held slots
-/// and starts on page 1; a mode that is on goes off when its provider goes.
-pub fn set_provider(
-    state: &mut State,
-    provider: Option<Provider>,
-    layout: Option<Result<Vec<u8>, String>>,
-) -> Vec<Effect> {
-    let custom = &mut state.custom;
-    let same = custom.provider.as_ref().map(|p| &p.key) == provider.as_ref().map(|p| &p.key);
-    if same {
-        // A new version can change the name and page count.
-        custom.provider = provider;
-        let pages = custom.provider.as_ref().map_or(1, |p| p.pages);
-        if custom.page >= pages {
-            custom.page = pages - 1;
-            custom.gestures.clear();
-        }
-        return Vec::new();
-    }
-    let mut effects = release_all(state, true);
+/// The stored ALL PRESETS layout, read at start-up (`None`: no file). A bad layout is reported
+/// and the switches start empty.
+pub fn load_layout(state: &mut State, layout: Option<Result<Vec<u8>, String>>) -> Vec<Effect> {
     let custom = &mut state.custom;
     custom.layout = empty_layout();
-    custom.page = 0;
-    custom.toggled = Default::default();
     custom.notice = None;
-    if let Some(provider) = &provider {
-        match layout {
-            None => {}
-            Some(Ok(bytes)) => match decode(&bytes) {
-                Ok((layout, dropped)) => {
-                    custom.layout = layout;
-                    if dropped > 0 {
-                        custom.notice = Some(format!("{dropped} slots were not valid"));
-                    }
-                }
-                Err(error) => {
-                    custom.notice = Some(format!("The layout was not read: {error}"));
-                    effects.push(Effect::Notice(
-                        super::Subsystem::Extensions,
-                        format!("{}: {error}", provider.layout_path()),
-                    ));
-                }
-            },
-            Some(Err(error)) => effects.push(Effect::Notice(
-                super::Subsystem::Extensions,
-                format!("{}: {error}", provider.layout_path()),
-            )),
+    let problem = match layout.map(|layout| layout.and_then(|bytes| decode(&bytes))) {
+        None => None,
+        Some(Ok((layout, dropped))) => {
+            custom.layout = layout;
+            (dropped > 0).then(|| format!("{dropped} slots were not valid"))
         }
-    }
-    let restore = provider
-        .as_ref()
-        .is_some_and(|provider| custom.restore.as_ref() == Some(&provider.key));
-    custom.provider = provider;
-    let footswitch = &mut state.performance.footswitch;
-    if footswitch.custom && custom.provider.is_none() {
-        // The stored choice stays: the mode comes back with its extension.
-        footswitch.custom = false;
-        effects.push(Effect::Notice(
-            super::Subsystem::Extensions,
-            "Custom footswitch mode is off: its extension is off".into(),
-        ));
-    } else if footswitch.custom {
-        // Another installation took over the mode that is on: it is the stored choice now.
-        custom.restore = custom.provider.as_ref().map(|p| p.key.clone());
-        effects.push(Effect::CustomModeChanged);
-    } else if restore {
-        effects.extend(enter(state));
-    }
-    effects
+        Some(Err(error)) => Some(format!("The layout was not read: {error}")),
+    };
+    custom.notice = problem.clone();
+    problem
+        .map(|problem| {
+            Effect::Notice(
+                super::Subsystem::Extensions,
+                format!("{LAYOUT_FILE}: {problem}"),
+            )
+        })
+        .into_iter()
+        .collect()
 }
 
-/// Turns the mode on (page 1) or off. Off releases the held slots; off while the mode is
-/// already off (its extension is off) forgets the stored choice, so a stock mode the user
-/// chose stays.
-pub fn set_active(state: &mut State, active: bool) -> Vec<Effect> {
-    if active == state.performance.footswitch.custom {
-        // A stock mode chosen while the mode's extension is off: it does not come back.
-        if !active && state.custom.restore.take().is_some() {
-            return vec![Effect::CustomModeChanged];
-        }
+/// Follows a change of the stored footswitch mode ([`plays_custom`]): on, the mode starts on
+/// page 1; off, the held switches are released.
+pub fn follow_mode(state: &mut State) -> Vec<Effect> {
+    let on = plays_custom(state.settings.settings().mode.mode());
+    if on == state.performance.footswitch.custom {
         return Vec::new();
     }
-    if active {
-        if state.custom.provider.is_none() {
-            return vec![Effect::Notice(
-                super::Subsystem::Extensions,
-                "No extension adds a Custom footswitch mode".into(),
-            )];
+    let mut effects = match on {
+        true => {
+            state.custom.page = 0;
+            state.custom.gestures.clear();
+            state.performance.footswitch.overlay = None;
+            Vec::new()
         }
-        let mut effects = enter(state);
-        effects.push(Effect::CustomModeChanged);
-        effects
-    } else {
-        let mut effects = release_all(state, true);
-        state.performance.footswitch.custom = false;
-        state.custom.restore = None;
-        effects.push(Effect::CustomModeChanged);
-        effects.push(Effect::Present);
-        effects
-    }
-}
-
-fn enter(state: &mut State) -> Vec<Effect> {
-    let footswitch = &mut state.performance.footswitch;
-    footswitch.custom = true;
-    footswitch.overlay = None;
-    state.custom.page = 0;
-    state.custom.restore = state.custom.provider.as_ref().map(|p| p.key.clone());
-    vec![Effect::Present]
+        false => release_all(state, true),
+    };
+    state.performance.footswitch.custom = on;
+    effects.push(Effect::Present);
+    effects
 }
 
 /// The releases owed by every held slot. `run` false drops them. Waiting presses go.
@@ -822,9 +772,7 @@ pub fn preset_loaded(state: &mut State) {
 }
 
 pub fn turn(state: &mut State, step: PageStep) -> Vec<Effect> {
-    let Some(pages) = (state.custom.provider.as_ref()).map(|p| p.pages) else {
-        return Vec::new();
-    };
+    let pages = tetrad_ui::CUSTOM_PAGES;
     if !state.performance.footswitch.custom {
         return Vec::new();
     }
@@ -877,7 +825,7 @@ pub fn expire(state: &mut State) -> Vec<Effect> {
 /// What the switches of the current page of the playing layout have beyond their press.
 fn shapes(state: &State) -> [Shape; CUSTOM_SLOTS] {
     let custom = &state.custom;
-    (custom.playing().get(usize::from(custom.page))).map_or_else(Default::default, Page::shapes)
+    custom.playing_page(custom.page).shapes()
 }
 
 /// What the gestures fired, as one [`Action::CustomFire`] each: a press reads the state that the
@@ -934,18 +882,27 @@ fn start(state: &mut State, slot: u8, gesture: Gesture, origin: Origin) -> Optio
         return None;
     }
     let page = state.custom.page;
-    let binding = (state.custom.playing().get(usize::from(page)))
-        .and_then(|data| data.binding(slot, gesture))?
+    let binding = (state.custom.playing_page(page))
+        .binding(slot, gesture)?
         .clone();
+    // A–H on page 1 play the preset's stock Stomp data first, through the stock stomp path.
+    let stomp = (page == 0 && gesture == Gesture::Press && slot < stock::STOMPS).then_some(slot);
+    let stocked = |pressed| {
+        stomp.map_or_else(Vec::new, |stomp| {
+            stock::press(state, &binding, stomp, pressed)
+        })
+    };
+    let (mut effects, release) = (stocked(true), stocked(false));
     // Each action runs after the effects of the ones before ([`act`]).
-    let effects = (0..binding.actions.len() as u8)
-        .map(|at| Effect::Action(Action::CustomAct { slot, index: at }))
-        .collect();
+    effects.extend(
+        (0..binding.actions.len() as u8)
+            .map(|at| Effect::Action(Action::CustomAct { slot, index: at })),
+    );
     state.custom.held[index] = Some(Held {
         origin,
         page,
         gesture,
-        release: Vec::new(),
+        release,
         restore: Vec::new(),
         invert: Vec::new(),
         actions: binding.actions,
@@ -968,6 +925,10 @@ pub fn act(state: &mut State, slot: u8, index: u8) -> Vec<Effect> {
     let Some(action) = held.actions.get(usize::from(index)).cloned() else {
         return Vec::new();
     };
+    // The stock stomp path played it ([`start`]).
+    if action.stock {
+        return Vec::new();
+    }
     let ran = run(state, (held.page, slot, held.gesture, index), &action);
     if let Some(held) = state.custom.held[usize::from(slot)].as_mut() {
         held.release.splice(0..0, ran.release);
@@ -1115,6 +1076,7 @@ fn run(state: &mut State, key: (u8, u8, Gesture, u8), act: &Act) -> Ran {
             key: key.clone(),
             command: command.clone(),
         }]),
+        StoredAction::Nothing => Ran::default(),
     }
 }
 
@@ -1190,7 +1152,8 @@ fn target(action: &StoredAction) -> Target {
         StoredAction::SendMidi => Target::SendMidi,
         StoredAction::System { .. }
         | StoredAction::LoadPreset { .. }
-        | StoredAction::Command { .. } => Target::Command,
+        | StoredAction::Command { .. }
+        | StoredAction::Nothing => Target::Command,
     }
 }
 
@@ -1239,14 +1202,7 @@ pub fn command(state: &mut State, command: CustomCommand, presets: PresetSlots) 
                 save: None,
             };
         }
-        CustomCommand::PresetLayout(own) => preset_layout(state, own),
-        CustomCommand::CopyPage { from, .. }
-            if state
-                .custom
-                .provider
-                .as_ref()
-                .is_none_or(|p| from >= p.pages) =>
-        {
+        CustomCommand::CopyPage { from, .. } if from >= tetrad_ui::CUSTOM_PAGES => {
             Ok(Step::default())
         }
         CustomCommand::CopyPage { scope, from, to } => {
@@ -1513,74 +1469,50 @@ fn change(
     touched: Vec<(u8, u8)>,
     edit: impl FnOnce(&mut Vec<Page>) -> Result<(), String>,
 ) -> Result<Step, String> {
-    let Some(pages) = state.custom.provider.as_ref().map(|p| p.pages) else {
-        return Ok(Step::default());
-    };
-    if touched.iter().any(|(page, _)| *page >= pages) {
+    if touched
+        .iter()
+        .any(|(page, _)| *page >= tetrad_ui::CUSTOM_PAGES)
+    {
         return Ok(Step::default());
     }
     let custom = &state.custom;
     let mut layout = match scope {
         LayoutScope::Global => custom.layout.clone(),
-        LayoutScope::Preset => (custom.preset_layout.clone())
-            .ok_or_else(|| "This preset uses the layout of all presets".to_owned())?,
+        LayoutScope::Preset => {
+            (custom.preset_layout.clone()).ok_or_else(|| "No preset is loaded".to_owned())?
+        }
     };
     let before = layout.clone();
     edit(&mut layout)?;
     if layout == before {
         return Ok(Step::default());
     }
-    // Only the playing layout has held and waiting presses and CC Toggle states to end.
+    // Both layouts play (switch by switch): held and waiting presses and CC Toggle states of
+    // the touched switches end.
     let mut effects = Vec::new();
-    if scope == state.custom.playing_scope() {
-        state.custom.gestures.clear();
-        let mut ended = Vec::new();
-        for (page, slot) in &touched {
-            let index = usize::from(*slot);
-            ended.extend(state.custom.held[index].take_if(|held| held.page == *page));
-            (state.custom.toggled).retain(|(p, s, ..)| (p, s) != (page, slot));
-        }
-        // One pass, so two held bypasses of one block end where they started.
-        effects.extend(finish(state, ended));
+    state.custom.gestures.clear();
+    let mut ended = Vec::new();
+    for (page, slot) in &touched {
+        let index = usize::from(*slot);
+        ended.extend(state.custom.held[index].take_if(|held| held.page == *page));
+        (state.custom.toggled).retain(|(p, s, ..)| (p, s) != (page, slot));
     }
+    // One pass, so two held bypasses of one block end where they started.
+    effects.extend(finish(state, ended));
     effects.push(Effect::Present);
-    let bytes = encode(&layout);
     let save = match scope {
         LayoutScope::Global => {
+            let bytes = encode(&layout);
             state.custom.layout = layout;
-            (state.custom.provider.as_ref()).map(|p| (p.layout_path(), bytes))
+            Some((LAYOUT_FILE.to_owned(), bytes))
         }
         LayoutScope::Preset => {
+            effects.extend(stock::store(state, &layout));
             state.custom.preset_layout = Some(layout);
-            let edit = PresetEdit::CustomLayout(Some(bytes));
-            effects.push(Effect::Action(Action::PresetEdit(edit)));
             None
         }
     };
     Ok(Step { effects, save })
-}
-
-/// THIS PRESET gets a copy of the ALL PRESETS layout, or loses its own.
-fn preset_layout(state: &mut State, own: bool) -> Result<Step, String> {
-    if state.current.is_none() {
-        return Err("No preset is loaded".into());
-    }
-    let custom = &mut state.custom;
-    if own == custom.preset_layout.is_some() {
-        return Ok(Step::default());
-    }
-    // The held presses keep their releases; a held slot of the old layout ends normally. A
-    // waiting press belongs to the old layout.
-    custom.gestures.clear();
-    custom.preset_layout = own.then(|| custom.layout.clone());
-    let bytes = custom.preset_layout.as_deref().map(encode);
-    Ok(Step {
-        effects: vec![
-            Effect::Action(Action::PresetEdit(PresetEdit::CustomLayout(bytes))),
-            Effect::Present,
-        ],
-        save: None,
-    })
 }
 
 /// A chosen action as stored, or why the slot cannot take it.
@@ -1630,6 +1562,7 @@ fn stored_action(
             }
             StoredAction::Command { key, command }
         }
+        SlotAction::Nothing => StoredAction::Nothing,
     })
 }
 
@@ -1661,30 +1594,31 @@ fn ui_message(message: &StoredMessage) -> MidiOutMessage {
 
 // ---- views ----------------------------------------------------------------------------------
 
-/// The slot editor and Gig View contents; `None` without a provider.
+/// The slot editor and Gig View contents.
 pub fn view(state: &State) -> Option<CustomModeView> {
     let custom = &state.custom;
-    let provider = custom.provider.as_ref()?;
-    let playing = custom.playing_scope();
-    let views = |layout: &[Page], scope| {
-        (0..provider.pages)
+    let views = |layout: &[Page]| {
+        (0..tetrad_ui::CUSTOM_PAGES)
             .map(|page| match layout.get(usize::from(page)) {
-                Some(data) => page_view(state, data, page, scope == playing),
+                Some(data) => page_view(state, data, page),
                 None => CustomPageView::default(),
             })
             .collect::<Vec<_>>()
     };
-    let slots = views(&custom.layout, LayoutScope::Global);
-    let preset_slots =
-        (custom.preset_layout.as_deref()).map(|layout| views(layout, LayoutScope::Preset));
+    let slots = views(&custom.layout);
+    let preset_slots = custom.preset_layout.as_deref().map(views);
+    let playing = (0..tetrad_ui::CUSTOM_PAGES)
+        .map(|page| page_view(state, &custom.playing_page(page), page))
+        .collect();
     Some(CustomModeView {
-        name: provider.name.clone(),
-        extension: provider.extension.clone(),
-        pages: provider.pages,
+        name: NAME.to_owned(),
+        extension: "Tetrad".to_owned(),
+        pages: tetrad_ui::CUSTOM_PAGES,
         page: custom.page,
         active: state.performance.footswitch.custom,
         slots,
         preset_slots,
+        playing,
         preset: (state.current.as_ref())
             .and_then(|current| current.preset.name.clone())
             .unwrap_or_default(),
@@ -1747,10 +1681,11 @@ pub fn change_setting(
 pub fn leds(state: &State) -> [Option<CustomLed>; CUSTOM_SLOTS] {
     let page = state.custom.page;
     std::array::from_fn(|index| {
-        let data = state.custom.slot(page, index)?;
+        let playing = state.custom.playing_page(page);
+        let data = &playing.slots[index];
         let first = data.press.actions.first()?;
         let at = (page, index as u8, Gesture::Press);
-        let (_, _, colour, engaged, _) = describe(state, at, first, data.colour, true);
+        let (_, _, colour, engaged, _) = describe(state, at, first, data.colour);
         Some(CustomLed {
             rgb: colour,
             engaged,
@@ -1758,23 +1693,16 @@ pub fn leds(state: &State) -> [Option<CustomLed>; CUSTOM_SLOTS] {
     })
 }
 
-/// One page of a layout; `playing` is true for the layout the switches play.
-fn page_view(state: &State, data: &Page, page: u8, playing: bool) -> CustomPageView {
+/// One page of a layout.
+fn page_view(state: &State, data: &Page, page: u8) -> CustomPageView {
     let slots = std::array::from_fn(|index| {
         let slot = &data.slots[index];
         let at = |gesture| (page, index as u8, gesture);
-        let double = (slot.double.as_ref()).map(|double| {
-            Box::new(binding_view(
-                state,
-                at(Gesture::Double),
-                double,
-                None,
-                playing,
-            ))
-        });
+        let double = (slot.double.as_ref())
+            .map(|double| Box::new(binding_view(state, at(Gesture::Double), double, None)));
         CustomSlotView {
             double,
-            ..binding_view(state, at(Gesture::Press), &slot.press, slot.colour, playing)
+            ..binding_view(state, at(Gesture::Press), &slot.press, slot.colour)
         }
     });
     let combos = (data.combos.iter())
@@ -1783,7 +1711,7 @@ fn page_view(state: &State, data: &Page, page: u8, playing: bool) -> CustomPageV
             let at = (page, first, Gesture::Combo(second));
             CustomComboView {
                 switches: combo.switches,
-                binding: binding_view(state, at, &combo.binding, None, playing),
+                binding: binding_view(state, at, &combo.binding, None),
             }
         })
         .collect();
@@ -1797,7 +1725,6 @@ fn binding_view(
     at: (u8, u8, Gesture),
     data: &Binding,
     swatch: Option<u8>,
-    playing: bool,
 ) -> CustomSlotView {
     let Some(first) = data.actions.first() else {
         return CustomSlotView {
@@ -1808,7 +1735,7 @@ fn binding_view(
             ..CustomSlotView::default()
         };
     };
-    let (label, detail, colour, engaged, available) = describe(state, at, first, swatch, playing);
+    let (label, detail, colour, engaged, available) = describe(state, at, first, swatch);
     let detail = match data.actions.len() {
         1 => detail,
         count => format!("{detail} · +{}", count - 1),
@@ -1816,7 +1743,7 @@ fn binding_view(
     CustomSlotView {
         action: ui_action(&first.action),
         actions: (data.actions.iter())
-            .filter_map(|act| action_view(state, at, act, playing))
+            .filter_map(|act| action_view(state, at, act))
             .collect(),
         label: data.label.clone().unwrap_or(label),
         custom_label: data.label.clone(),
@@ -1830,13 +1757,8 @@ fn binding_view(
 }
 
 /// One action as the editor shows it, with its mode as the Mappings page shows a row's.
-fn action_view(
-    state: &State,
-    at: (u8, u8, Gesture),
-    act: &Act,
-    playing: bool,
-) -> Option<CustomActionView> {
-    let (label, detail, _, _, available) = describe(state, at, act, None, playing);
+fn action_view(state: &State, at: (u8, u8, Gesture), act: &Act) -> Option<CustomActionView> {
+    let (label, detail, _, _, available) = describe(state, at, act, None);
     let param = act_param(state, act);
     let block = matches!(act.action, StoredAction::Block { .. });
     let target = (Source::Press, target(&act.action));
@@ -1872,22 +1794,21 @@ fn ui_action(stored: &StoredAction) -> Option<SlotAction> {
             key: key.clone(),
             command: command.clone(),
         },
+        StoredAction::Nothing => SlotAction::Nothing,
     })
 }
 
-/// Label, detail, colour, engaged and available of an action at (page, slot, gesture). Only
-/// an action of the playing layout shows its held press.
+/// Label, detail, colour, engaged and available of an action at (page, slot, gesture). A held
+/// press shows engaged.
 fn describe(
     state: &State,
     (page, slot, gesture): (u8, u8, Gesture),
     data: &Act,
     swatch: Option<u8>,
-    playing: bool,
 ) -> (String, String, [u8; 3], bool, bool) {
-    let held = playing
-        && state.custom.held[usize::from(slot)]
-            .as_ref()
-            .is_some_and(|held| held.page == page && held.gesture == gesture);
+    let held = state.custom.held[usize::from(slot)]
+        .as_ref()
+        .is_some_and(|held| held.page == page && held.gesture == gesture);
     let swatch = swatch.map(|colour| PALETTE[usize::from(colour) % PALETTE.len()]);
     let current = state.current.as_ref();
     let action = &data.action;
@@ -2007,6 +1928,13 @@ fn describe(
                 ),
             }
         }
+        StoredAction::Nothing => (
+            "Nothing".into(),
+            "Not the switch of all presets".into(),
+            [0x3a; 3],
+            false,
+            true,
+        ),
     };
     (label, detail, swatch.unwrap_or(colour), engaged, available)
 }

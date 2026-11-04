@@ -395,31 +395,31 @@ fn unlicensed_plugins(state: &State) -> BTreeSet<u32> {
 
 /// tetrad-core mode → mode chip and hybrid rows. Hybrid rows: first named mode on the upper
 /// row (A–D), second on the lower row (E–H) (stock `0x65dbcc`, `0x678304`).
+/// A stored mode as the UI shows it. Stock Stomp mode, and a stored Stomp hybrid, play as
+/// Custom (`custom::plays_custom`).
 fn view_mode(mode: CoreMode) -> (FootswitchMode, Option<HybridRows>) {
-    use FootswitchMode::{Preset, Scene, Stomp};
+    use FootswitchMode::{Custom, Preset, Scene};
     let rows = |upper, lower| (FootswitchMode::Hybrid, Some(HybridRows { upper, lower }));
     match mode {
         CoreMode::Preset => (Preset, None),
         CoreMode::Scene => (Scene, None),
-        CoreMode::Stomp => (Stomp, None),
         CoreMode::PresetScene => rows(Preset, Scene),
-        CoreMode::PresetStomp => rows(Preset, Stomp),
         CoreMode::ScenePreset => rows(Scene, Preset),
-        CoreMode::SceneStomp => rows(Scene, Stomp),
-        CoreMode::StompPreset => rows(Stomp, Preset),
-        CoreMode::StompScene => rows(Stomp, Scene),
+        CoreMode::Stomp
+        | CoreMode::PresetStomp
+        | CoreMode::SceneStomp
+        | CoreMode::StompPreset
+        | CoreMode::StompScene => (Custom, None),
     }
 }
 
 fn allowed_modes(settings: &Settings) -> Vec<FootswitchMode> {
     let mut modes = Vec::new();
     for mode in settings.mode.available() {
-        let view = match mode.to_stock() {
-            0 => FootswitchMode::Preset,
-            1 => FootswitchMode::Scene,
-            2 => FootswitchMode::Stomp,
-            _ => FootswitchMode::Hybrid,
+        let Some(core) = super::super::actions::core_mode(*mode) else {
+            continue;
         };
+        let view = view_mode(core).0;
         if !modes.contains(&view) {
             modes.push(view);
         }

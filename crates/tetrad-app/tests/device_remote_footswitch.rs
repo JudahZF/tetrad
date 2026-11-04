@@ -139,14 +139,11 @@ fn boot() -> (Device<Sim>, MemFiles, Media) {
         source: SOURCE.into(),
         id: "test.footswitch".into(),
     }));
-    pump(&mut device, "the provider", |d| {
-        d.state().custom.provider().is_some()
-    });
     (device, files, media)
 }
 
-fn layout_file(device: &Device<Sim>, files: &MemFiles) -> Option<Vec<u8>> {
-    files.get(&device.state().custom.provider().unwrap().layout_path())
+fn layout_file(_device: &Device<Sim>, files: &MemFiles) -> Option<Vec<u8>> {
+    files.get(tetrad_app::device::custom::LAYOUT_FILE)
 }
 
 /// Sends one page request and returns the device's reply.

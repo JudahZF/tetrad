@@ -2450,23 +2450,19 @@ fn stored_modes(mode: FootswitchMode, rows: tetrad_ui::HybridRows) -> Vec<Stored
     match mode {
         FootswitchMode::Preset => vec![StoredMode::Preset],
         FootswitchMode::Scene => vec![StoredMode::Scene],
-        FootswitchMode::Stomp => vec![StoredMode::Stomp],
+        // Custom is stored as stock Stomp mode.
+        FootswitchMode::Stomp | FootswitchMode::Custom => vec![StoredMode::Stomp],
         FootswitchMode::Hybrid => hybrid_mode(rows).into_iter().collect(),
-        // Not a stored mode: the Custom mode follows the stock cycle.
-        FootswitchMode::Custom => Vec::new(),
     }
 }
 
-/// Upper row first (row order inferred, see `project::view_mode`).
+/// Upper row first (row order inferred, see `project::view_mode`). Only Preset and Scene
+/// make a hybrid: Custom has no half.
 fn hybrid_mode(rows: tetrad_ui::HybridRows) -> Option<StoredMode> {
-    use FootswitchMode::{Preset, Scene, Stomp};
+    use FootswitchMode::{Preset, Scene};
     Some(match (rows.upper, rows.lower) {
         (Preset, Scene) => StoredMode::PresetScene,
-        (Preset, Stomp) => StoredMode::PresetStomp,
         (Scene, Preset) => StoredMode::ScenePreset,
-        (Scene, Stomp) => StoredMode::SceneStomp,
-        (Stomp, Preset) => StoredMode::StompPreset,
-        (Stomp, Scene) => StoredMode::StompScene,
         _ => return None,
     })
 }

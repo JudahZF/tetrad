@@ -893,8 +893,6 @@ pub enum CustomControl {
     Move,
     /// COPY PAGE: the next page tab tapped becomes a copy of this page (again: cancel).
     CopyPage,
-    /// THIS PRESET gets its own layout (`true`), or goes back to ALL PRESETS (`false`).
-    PresetLayout(bool),
 }
 
 /// The dropdowns of the Mappings detail page.

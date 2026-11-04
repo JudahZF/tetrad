@@ -90,9 +90,6 @@ pub struct Input {
     midi_pressed: u16,
     /// Physical mask of letters whose press ended a Looper X assignment; their release is quiet.
     assigned: u16,
-    /// Owned: stomps (bit per index) whose press reached the mappings. Their release goes there
-    /// too, even when the press changed the footswitch mode.
-    mapping_held: u8,
     /// (O) Physical mask of switches pressed in the Custom mode. Their slot ends with the mode,
     /// so a release after the mode is left is quiet (no stock action from a Custom press).
     custom_down: u16,
@@ -501,20 +498,7 @@ impl Input {
             self.press(switch, state, now)
         } else {
             state.performance.held &= !stomp.mask();
-            let mut effects = self.release(switch, state);
-            if let Some(letter) = switch.letter()
-                && self.mapping_held & (1 << letter) != 0
-            {
-                self.mapping_held &= !(1 << letter);
-                let release = Effect::MappingStomp {
-                    stomp: letter,
-                    pressed: false,
-                };
-                if !effects.contains(&release) {
-                    effects.push(release);
-                }
-            }
-            effects
+            self.release(switch, state)
         };
         // tetrad-ui lights its tiles from the raw edge; tetrad-core above owns the meaning.
         effects.extend(view(pressed));
@@ -725,23 +709,7 @@ impl Input {
                     }))),
                 }
             }
-            FootswitchAction::StompPress(stomp) => {
-                let mut effects = act(Action::ToggleStomp(stomp));
-                self.mapping_held |= 1 << stomp.get();
-                effects.push(Effect::MappingStomp {
-                    stomp: stomp.get(),
-                    pressed: true,
-                });
-                // Driver hooks `+0x40`/`+0x44` of the stomp's blocks (`0x5239d0`, `0x523f80`).
-                effects.push(Effect::Dsp(DspCommand::Footswitch {
-                    stomp,
-                    pressed: true,
-                }));
-                if !state.platform.is_atma() {
-                    effects.extend(stomp_midi(state, stomp.get()));
-                }
-                effects
-            }
+            FootswitchAction::StompPress(stomp) => stock_stomp(state, stomp, true),
             FootswitchAction::CustomPress(slot) | FootswitchAction::CustomRelease(slot) => {
                 act(Action::CustomSlot {
                     slot,
@@ -750,21 +718,7 @@ impl Input {
                 })
             }
             FootswitchAction::ShowTuner => act(Action::ShowTuner(true)),
-            FootswitchAction::StompRelease(stomp) => {
-                let mut effects = act(Action::ReleaseStomp(stomp));
-                effects.push(Effect::MappingStomp {
-                    stomp: stomp.get(),
-                    pressed: false,
-                });
-                effects.push(Effect::Dsp(DspCommand::Footswitch {
-                    stomp,
-                    pressed: false,
-                }));
-                if state.platform.is_atma() {
-                    effects.extend(stomp_midi(state, stomp.get()));
-                }
-                effects
-            }
+            FootswitchAction::StompRelease(stomp) => stock_stomp(state, stomp, false),
         }
     }
 
@@ -952,6 +906,26 @@ pub fn control_volume(state: &mut State, level: f32) -> Vec<Effect> {
 /// Preset MIDI Out of a stomp switch, with part of the stock gate (`0x00332064`): no tuner
 /// and no bank overlay. The other stock predicates (about eight UI states and the stomp
 /// assignment) are not modelled (inferred gate, w2c-integrator review fixes).
+/// A stock stomp press or release: the toggle or momentary release of its blocks, the
+/// driver hooks `+0x40`/`+0x44` of the stomp's blocks (`0x5239d0`, `0x523f80`) and the
+/// footswitch's Preset MIDI Out (on the press, on the mini on the release). The Custom mode
+/// plays page 1's A–H through it (`custom::stock`).
+pub(super) fn stock_stomp(
+    state: &State,
+    stomp: tetrad_core::performance::stomp::StompIndex,
+    pressed: bool,
+) -> Vec<Effect> {
+    let mut effects = vec![Effect::Action(match pressed {
+        true => Action::ToggleStomp(stomp),
+        false => Action::ReleaseStomp(stomp),
+    })];
+    effects.push(Effect::Dsp(DspCommand::Footswitch { stomp, pressed }));
+    if pressed != state.platform.is_atma() {
+        effects.extend(stomp_midi(state, stomp.get()));
+    }
+    effects
+}
+
 fn stomp_midi(state: &State, stomp: u8) -> Option<Effect> {
     (state.screen != Screen::Tuner && state.performance.footswitch.overlay.is_none())
         .then_some(Effect::PresetMidiOut(Trigger::Footswitch(stomp)))

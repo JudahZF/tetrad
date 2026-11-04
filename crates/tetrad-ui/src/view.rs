@@ -56,7 +56,8 @@ pub enum FootswitchMode {
     Scene,
     Stomp,
     Hybrid,
-    /// (O) An extension's Custom mode ([`crate::CustomModeView`]): ten slots and pages.
+    /// (O) Tetrad's Custom mode ([`crate::CustomModeView`]): ten slots and pages, in the place
+    /// of Stomp, which the UI no longer shows.
     Custom,
 }
 
@@ -74,7 +75,7 @@ impl FootswitchMode {
 
 /// Hybrid mode row assignment. Upper row A–D, lower row E–H (stock `0x678304`,
 /// `0x65dbcc`): `upper` is the mode's first kind, `lower` the second. The default
-/// (Scene over Stomp) is stock mode 6.
+/// (Preset over Scene) is stock mode 3; Tetrad has no Stomp hybrid (O).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HybridRows {
     pub upper: FootswitchMode,
@@ -84,8 +85,8 @@ pub struct HybridRows {
 impl Default for HybridRows {
     fn default() -> Self {
         Self {
-            upper: FootswitchMode::Scene,
-            lower: FootswitchMode::Stomp,
+            upper: FootswitchMode::Preset,
+            lower: FootswitchMode::Scene,
         }
     }
 }

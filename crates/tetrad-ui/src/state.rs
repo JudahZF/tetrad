@@ -2261,6 +2261,15 @@ impl UiState {
         }
     }
 
+    /// Footswitch `tile` takes block assignments: a stomp, or A–H of Custom, whose page 1
+    /// plays the preset's stock Stomp assignments (O).
+    pub(crate) fn assignable_tile(&self, tile: usize) -> bool {
+        matches!(
+            self.tile_mode(tile),
+            FootswitchMode::Stomp | FootswitchMode::Custom
+        )
+    }
+
     /// Index into `bank.presets` for a preset tile: a hybrid preset half has four switches,
     /// so its tiles show the bank's first four presets (tetrad-core `preset_slot`).
     pub(crate) fn preset_offset(&self, tile: usize) -> usize {

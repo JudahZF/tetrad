@@ -41,10 +41,6 @@ enum Command {
         from: u8,
         to: u8,
     },
-    /// THIS PRESET gets a copy of ALL PRESETS (`true`), or loses its own layout.
-    PresetLayout {
-        own: bool,
-    },
     /// Reads the presets of one setlist for "Choose a preset". It changes nothing.
     Presets {
         setlist: String,
@@ -145,6 +141,8 @@ enum Action {
         key: String,
         command: String,
     },
+    /// THIS PRESET: the switch plays nothing, not the ALL PRESETS switch.
+    Nothing,
 }
 
 /// A message as the MIDI Out editor makes it: CC (CC#, value), CC Toggle (CC#, min, max) or
@@ -348,7 +346,6 @@ fn checked(
     };
     Ok(match command {
         Command::Presets { .. } => return Err("A read changes nothing".into()),
-        Command::PresetLayout { own } => CustomCommand::PresetLayout(own),
         Command::CopyPage { scope, from, to } => CustomCommand::CopyPage {
             scope: scope.into(),
             from: page_in(from)?,
@@ -488,6 +485,7 @@ fn slot_action(
         Action::Preset { slot, .. } => SlotAction::PresetSlot(slot as u64),
         Action::SendMidi => SlotAction::SendMidi,
         Action::Command { key, command } => SlotAction::Command { key, command },
+        Action::Nothing => SlotAction::Nothing,
     })
 }
 
@@ -600,6 +598,7 @@ fn action(action: &SlotAction) -> Value {
         SlotAction::Command { key, command } => {
             json!({ "kind": "command", "key": key, "command": command })
         }
+        SlotAction::Nothing => json!({ "kind": "nothing" }),
     }
 }
 

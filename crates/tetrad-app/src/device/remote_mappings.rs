@@ -412,7 +412,6 @@ fn triggers(view: &MappingsView, scope: MappingScope) -> Value {
     let own: &[(&str, &str)] = match scope {
         MappingScope::Preset => &[
             ("presetLoaded", "Preset loaded"),
-            ("stomp", "Footswitch"),
             ("expression", "Expression pedal"),
             ("midi", "MIDI (QC channel)"),
         ],

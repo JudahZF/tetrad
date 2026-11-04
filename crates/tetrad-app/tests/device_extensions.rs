@@ -1119,10 +1119,6 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     let files = MemFiles::default();
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
     let (mut device, media) = boot_over(media, web, files.clone());
-    install(&mut device);
-    pump(&mut device, "the provider", |d| {
-        d.state().custom.provider().is_some_and(|p| p.pages == 2)
-    });
     let light = GridPosition::new(0, 2).unwrap();
     let edit = |scope, page, slot, edit| CustomCommand::Slot {
         scope,
@@ -1191,8 +1187,8 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         }
     };
 
-    // Preset → Scene → Stomp → Custom.
-    for _ in 0..3 {
+    // Preset → Scene → Custom.
+    for _ in 0..2 {
         device.push(Event::Action(Action::CycleMode));
         assert!(device.step().is_none());
     }
@@ -1228,7 +1224,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
     switch(&mut device, 10, 0);
     assert!(!custom(&device));
     // A switch held while the mode ends releases quietly: no stock action from Custom's press.
-    for _ in 0..3 {
+    for _ in 0..2 {
         device.push(Event::Action(Action::CycleMode));
         assert!(device.step().is_none());
     }
@@ -1243,7 +1239,7 @@ fn a_custom_footswitch_mode_plays_pages_and_survives_a_restart() {
         (footswitch.current_preset, footswitch.overlay),
         (preset, None)
     );
-    for _ in 0..3 {
+    for _ in 0..2 {
         device.push(Event::Action(Action::CycleMode));
         assert!(device.step().is_none());
     }
@@ -1342,10 +1338,6 @@ fn a_custom_switch_runs_several_actions_in_their_modes() {
     );
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
     let (mut device, _media) = boot_over(media, web, MemFiles::default());
-    install(&mut device);
-    pump(&mut device, "the provider", |d| {
-        d.state().custom.provider().is_some()
-    });
     let light = GridPosition::new(0, 2).unwrap();
     let action = |index, edit| CustomCommand::Slot {
         scope: LayoutScope::Global,
@@ -1398,7 +1390,7 @@ fn a_custom_switch_runs_several_actions_in_their_modes() {
             assert!(d.step().is_none());
         }
     };
-    for _ in 0..3 {
+    for _ in 0..2 {
         device.push(Event::Action(Action::CycleMode));
         assert!(device.step().is_none());
     }
@@ -1467,10 +1459,6 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
     let media = Media::new([("Light", light_preset(&STOCK.specs(), 2))]);
     let files = MemFiles::default();
     let (mut device, media) = boot_over(media, web, files.clone());
-    install(&mut device);
-    pump(&mut device, "the provider", |d| {
-        d.state().custom.provider().is_some()
-    });
     let scene = |action| first_action(SlotAction::System(SystemAction::Scene(action)));
     let bypass = first_action(SlotAction::Block {
         position: GridPosition::new(0, 2).unwrap(),
@@ -1511,7 +1499,7 @@ fn custom_mode_footswitches_run_double_presses_and_combos() {
         }));
         assert!(device.step().is_none());
     }
-    for _ in 0..3 {
+    for _ in 0..2 {
         device.push(Event::Action(Action::CycleMode));
         assert!(device.step().is_none());
     }
@@ -1623,9 +1611,6 @@ fn a_waiting_custom_press_does_not_run_in_a_program() {
     let web = repository_of_files(manifest, None, None, &files);
     let (mut device, _media) = boot(media, web);
     install(&mut device);
-    pump(&mut device, "the provider", |d| {
-        d.state().custom.provider().is_some()
-    });
     let scene = |action| first_action(SlotAction::System(SystemAction::Scene(action)));
     for (gesture, edit) in [(Gesture::Press, scene(1)), (Gesture::Double, scene(2))] {
         device.push(Event::Custom(CustomCommand::Slot {
@@ -1641,7 +1626,9 @@ fn a_waiting_custom_press_does_not_run_in_a_program() {
         id: SettingId::DoublePressTime,
         value: SettingValue::Choice(4),
     }));
-    device.push(Event::Action(Action::SetCustomMode(true)));
+    device.push(Event::Action(Action::SetMode(
+        tetrad_settings::controls::FootswitchMode::Stomp,
+    )));
     assert!(device.step().is_none());
 
     // A tap of A waits 500 ms; the program starts before that.

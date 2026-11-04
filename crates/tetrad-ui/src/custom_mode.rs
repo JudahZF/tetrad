@@ -119,6 +119,8 @@ pub enum SlotAction {
     SendMidi,
     /// Run a command that a running extension registered.
     Command { key: String, command: String },
+    /// Nothing: a switch of THIS PRESET that does not play the ALL PRESETS switch.
+    Nothing,
 }
 
 /// Which layout an edit changes.
@@ -230,8 +232,12 @@ pub struct CustomModeView {
     pub active: bool,
     /// The ALL PRESETS layout, one entry per page.
     pub slots: Vec<CustomPageView>,
-    /// The loaded preset's own layout (THIS PRESET); it plays instead of [`Self::slots`].
+    /// The loaded preset's own layout (THIS PRESET), with its stock Stomp data on page 1;
+    /// `None` without a loaded preset. Each of its switches with actions plays instead of the
+    /// ALL PRESETS one.
     pub preset_slots: Option<Vec<CustomPageView>>,
+    /// What the switches play now, switch by switch (Gig View).
+    pub playing: Vec<CustomPageView>,
     /// The loaded preset ("3B Clean"), for the "Load this preset" action.
     pub preset: String,
     pub commands: Vec<CommandChoice>,
@@ -245,7 +251,7 @@ pub struct CustomModeView {
 }
 
 impl CustomModeView {
-    /// The layout of `scope`; `None` for THIS PRESET when the preset has none.
+    /// The layout of `scope`; `None` for THIS PRESET without a loaded preset.
     pub fn layout(&self, scope: LayoutScope) -> Option<&[CustomPageView]> {
         match scope {
             LayoutScope::Global => Some(&self.slots),
@@ -255,7 +261,7 @@ impl CustomModeView {
 
     /// The layout the switches play now.
     pub fn playing(&self) -> &[CustomPageView] {
-        self.preset_slots.as_deref().unwrap_or(&self.slots)
+        &self.playing
     }
 
     pub fn slot(&self, scope: LayoutScope, page: u8, slot: usize) -> Option<&CustomSlotView> {
@@ -298,8 +304,6 @@ pub enum CustomCommand {
         from: u8,
         to: u8,
     },
-    /// THIS PRESET gets a copy of the ALL PRESETS layout (`true`), or loses its own (`false`).
-    PresetLayout(bool),
     /// A Gig View tile: a press, then a release, of a slot of the current page.
     Tap {
         slot: u8,

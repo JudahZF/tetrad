@@ -47,6 +47,8 @@ const MAX_MAPPINGS: usize = 128;
 /// Mappings one trigger runs at most, so a crafted list cannot make one MIDI message cost
 /// hundreds of preset edits.
 const MAX_RUN: usize = 8;
+/// Why a mapping takes no footswitch trigger.
+const FOOTSWITCHES: &str = "The footswitches are on the Custom mode page";
 /// Format 1 also covers `mode` and `window`: an older Tetrad ignores them.
 const FORMAT: u32 = 1;
 /// A CC refreshes the view (the Values page graph) at most this often.
@@ -209,6 +211,73 @@ fn decode(bytes: &[u8], scope: MappingScope) -> Result<Vec<Stored>, String> {
             && mode_allowed(stored).is_ok()
     });
     Ok(list.mappings)
+}
+
+/// An old footswitch mapping of the loaded preset (Tetrad 0.1.0-alpha.10 and earlier), for the
+/// Custom mode, which plays the footswitches now: switch 0..=7 and what it does.
+pub(super) struct FootswitchRow {
+    pub stomp: u8,
+    pub action: FootswitchAction,
+    pub mode: Option<Mode>,
+}
+
+pub(super) enum FootswitchAction {
+    System(SystemAction),
+    Block {
+        row: u8,
+        column: u8,
+        model: u32,
+        target: StoredTarget,
+    },
+}
+
+/// The loaded preset's mappings with a footswitch trigger, in order. Send MIDI rows are left
+/// out: they send the footswitch's Preset MIDI Out list, which the Custom mode shows itself.
+pub(super) fn footswitch_rows(state: &State) -> Vec<FootswitchRow> {
+    (preset_list(state).into_iter())
+        .filter_map(|stored| {
+            let StoredTrigger::Stomp { stomp } = stored.trigger else {
+                return None;
+            };
+            let action = match stored.action? {
+                StoredAction::System { action } => FootswitchAction::System(action),
+                StoredAction::Block {
+                    row,
+                    column,
+                    model,
+                    target,
+                } => FootswitchAction::Block {
+                    row,
+                    column,
+                    model,
+                    target,
+                },
+                StoredAction::SendMidi => return None,
+            };
+            Some(FootswitchRow {
+                stomp,
+                action,
+                mode: stored.mode,
+            })
+        })
+        .collect()
+}
+
+/// The edit that takes the footswitch mappings out of the loaded preset's mappings, once the
+/// Custom mode stores them; `None` when it has none.
+pub(super) fn without_footswitch_rows(state: &State) -> Option<PresetEdit> {
+    let mut list = preset_list(state);
+    let count = list.len();
+    list.retain(|stored| !matches!(stored.trigger, StoredTrigger::Stomp { .. }));
+    (list.len() != count).then(|| PresetEdit::Mappings((!list.is_empty()).then(|| encode(&list))))
+}
+
+/// The loaded preset's Tetrad mappings as stored.
+fn preset_list(state: &State) -> Vec<Stored> {
+    (state.current.as_ref())
+        .and_then(|current| current.preset.unknown.bytes_field(TETRAD_MAPPINGS_FIELD))
+        .and_then(|bytes| decode(&bytes, MappingScope::Preset).ok())
+        .unwrap_or_default()
 }
 
 /// A row of one list, for the runtime state of its mode.
@@ -395,25 +464,6 @@ impl Mappings {
             }
         }
         step
-    }
-
-    /// A Stomp-mode footswitch press or release, 0..=7. Stock assignments toggle their blocks
-    /// as before.
-    pub fn on_stomp(
-        &mut self,
-        stomp: u8,
-        pressed: bool,
-        state: &State,
-        now: Duration,
-    ) -> Vec<Effect> {
-        self.sync(state);
-        let input = if pressed {
-            Input::Press
-        } else {
-            Input::Release
-        };
-        let trigger = StoredTrigger::Stomp { stomp };
-        self.run_matching(MappingScope::Preset, &trigger, input, state, now)
     }
 
     /// The preset finished loading. Held and set values of the old preset's rows go.
@@ -761,7 +811,11 @@ impl Mappings {
         self.view_stale = true;
         self.notice = None;
         match command {
-            MappingCommand::Add(scope) => self.add(scope, state),
+            MappingCommand::Add(scope) => self.add(scope),
+            MappingCommand::SetTrigger {
+                trigger: Trigger::Stomp(_),
+                ..
+            } => self.refuse(FOOTSWITCHES.into()),
             MappingCommand::SetTrigger { scope, id, trigger } => {
                 let trigger = stored_trigger(trigger);
                 self.set_trigger(scope, id, trigger, state)
@@ -790,18 +844,15 @@ impl Mappings {
         Step::default()
     }
 
-    fn add(&mut self, scope: MappingScope, state: &State) -> Step {
+    fn add(&mut self, scope: MappingScope) -> Step {
         let mut list = self.list(scope).clone();
         if list.len() >= MAX_MAPPINGS {
             return self.refuse(format!("This list holds at most {MAX_MAPPINGS} mappings"));
         }
         let used = |trigger: &StoredTrigger| list.iter().any(|stored| &stored.trigger == trigger);
         let trigger = match scope {
-            // The first footswitch with no assignment yet.
-            MappingScope::Preset => (0..8)
-                .map(|stomp| StoredTrigger::Stomp { stomp })
-                .find(|trigger| !used(trigger) && !stock_stomp_used(state, trigger))
-                .unwrap_or(StoredTrigger::Stomp { stomp: 0 }),
+            // The footswitches are the Custom mode's: a preset row starts on the preset load.
+            MappingScope::Preset => StoredTrigger::PresetLoaded,
             MappingScope::Global => (3..120)
                 .filter(|cc| !tetrad_midi::is_stock_controller(*cc))
                 .map(|controller| StoredTrigger::Cc { controller })
@@ -1251,6 +1302,9 @@ impl Mappings {
                     (stored.trigger.clone(), row)
                 }),
         );
+        // The footswitches belong to the Custom mode now: its page 1 shows the stock Stomp
+        // assignments, the footswitch MIDI Out lists and these rows (`custom::stock`).
+        preset.retain(|(trigger, _)| !matches!(trigger, StoredTrigger::Stomp { .. }));
         preset.sort_by_key(|(trigger, _)| rank(trigger));
         let global = (self.global.iter().enumerate())
             .map(|(index, stored)| {
@@ -1346,7 +1400,7 @@ pub(super) fn press(
                 _ => Vec::new(),
             }
         }
-        SystemAction::Mode(ModeChoice::Custom) => vec![Action::SetCustomMode(true)],
+        // Custom plays in the place of stock Stomp mode.
         SystemAction::Mode(mode) => vec![Action::SetMode(match mode {
             ModeChoice::Preset => FootswitchMode::Preset,
             ModeChoice::Scene => FootswitchMode::Scene,
@@ -1526,15 +1580,6 @@ fn momentary_edit(stomp: u8, mode: Mode) -> Effect {
         stomp: u32::from(stomp),
         momentary: matches!(mode, Mode::Momentary { .. }),
     }))
-}
-
-fn stock_stomp_used(state: &State, trigger: &StoredTrigger) -> bool {
-    let StoredTrigger::Stomp { stomp } = trigger else {
-        return false;
-    };
-    state.current.as_ref().is_some_and(|current| {
-        (current.preset.stomp_mode_assignments.iter()).any(|a| a.stomp_index == u32::from(*stomp))
-    })
 }
 
 fn rank(trigger: &StoredTrigger) -> (u8, u8) {
