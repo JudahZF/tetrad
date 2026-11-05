@@ -4496,3 +4496,109 @@ fn editor_preset_falls_back_to_the_catalog_defaults_and_counts_the_bypass() {
         Some(tetrad_ui::PresetMatch::CatalogDefault)
     );
 }
+
+/// A one-model catalog (`count` float parameters, `hidden` ones hidden in ModelRepo) with the
+/// model at row 1, column 3, its parameters at `values`, and its editor open.
+fn hidden_parameter_editor(
+    (category, model): (u32, u32),
+    count: u32,
+    hidden: impl Fn(u32) -> bool,
+    values: impl Fn(u32) -> f32,
+) -> (State, Ui, Duration) {
+    let params: String = (0..count)
+        .map(|index| {
+            let flag = if hidden(index) { " hidden='true'" } else { "" };
+            format!(
+                "<Parameter name='P{index}' type='float' min='0' max='1' \
+defaultValue='0'{flag}/>"
+            )
+        })
+        .collect();
+    let models = common::MODELS.replace(
+        "</Models>",
+        &format!(
+            "<Category id='{category}' name='Test'><Model id='{model}' name='Test' \
+blob='light'>{params}</Model></Category></Models>"
+        ),
+    );
+    let report = common::REPORT.replace(
+        "</ModuleReport>",
+        &format!(
+            "<Module id='{model}' name='Test' blob_name='light' category='{category}' \
+dm_heap='100' pm_heap='10' sd_heap='0' dma='0' dm='10' pm='0' sw='100' nw='0' Latency='0'>\
+<Test name='Stimulus High' avg='1'/></Module></ModuleReport>"
+        ),
+    );
+    let specs = Specs::resolve(&tetrad_catalog::Catalog::parse(&models, &report).unwrap()).unwrap();
+    let catalog = SpecsCatalog(&specs);
+    let mut preset = Preset::new_default("4.1.0", &catalog).unwrap();
+    let block = Model::block(
+        model,
+        (0..count).map(|index| ParamValue::Float(values(index))),
+    );
+    preset
+        .insert_block(Slot { row: 0, column: 2 }, block, &catalog)
+        .unwrap();
+    let mut state = loaded_state(specs, preset);
+    let mut ui = Ui::new();
+    let _ = ui.render(&state);
+    let now = Duration::from_secs(5);
+    let cell = target(&ui, Control::SelectCell(GridPosition::new(0, 2).unwrap()));
+    let requests = tap(&mut ui, &state, cell, now);
+    run(&mut state, requests, now);
+    let _ = ui.render(&state);
+    (state, ui, now)
+}
+
+/// Taps editor `control` a second after `now` and returns the parameters it writes.
+fn press_editor(
+    ui: &mut Ui,
+    state: &mut State,
+    now: &mut Duration,
+    control: tetrad_ui::EditorControl,
+) -> Vec<u32> {
+    *now += Duration::from_secs(1);
+    let at = target(ui, Control::Editor(control));
+    let requests = tap(ui, state, at, *now);
+    let written = edits(&requests)
+        .into_iter()
+        .filter_map(|action| match *action {
+            Action::SetParameter { index, .. } => Some(index),
+            _ => None,
+        })
+        .collect();
+    run(state, requests, *now);
+    let _ = ui.render(state);
+    written
+}
+
+/// Issue #41: Overlord Synth (30001) keeps ARP NOTE 2–8 (41–47), OSC ACTIVE (9, 14) and WAVE
+/// (10, 15) hidden in ModelRepo, but its editor buttons write them (`0x630c4c`, `0x6312e4`).
+#[test]
+fn overlord_note_and_oscillator_buttons_write_their_hidden_parameters() {
+    let hidden = |index: u32| matches!(index, 9 | 10 | 14 | 15 | 41..=47);
+    // OSC 1 on (9), wave SIN (10).
+    let on = |index: u32| if index == 9 { 1.0 } else { 0.0 };
+    let (mut state, mut ui, mut now) = hidden_parameter_editor((30, 30001), 52, hidden, on);
+    let mut press = |state: &mut State, control| press_editor(&mut ui, state, &mut now, control);
+    use tetrad_ui::EditorControl::{Tab, Toggle, Wave};
+    press(&mut state, Tab(1));
+    assert_eq!(press(&mut state, Toggle(42)), [42], "ARP note 3");
+    press(&mut state, Tab(2));
+    assert_eq!(
+        press(&mut state, Wave { osc: 0, wave: 3 }),
+        [10],
+        "OSC 1 SAW"
+    );
+    assert_eq!(press(&mut state, Toggle(14)), [14], "OSC 2 on");
+}
+
+/// Parallax (3008) keeps its LOW, MID and HIGH section switches (34–36) hidden in ModelRepo,
+/// but its section buttons write them (`0x153f6b0`).
+#[test]
+fn parallax_section_buttons_write_their_hidden_switches() {
+    let hidden = |index: u32| matches!(index, 34..=36);
+    let (mut state, mut ui, mut now) = hidden_parameter_editor((3, 3008), 42, hidden, |_| 0.0);
+    let section = tetrad_ui::EditorControl::Toggle(35);
+    assert_eq!(press_editor(&mut ui, &mut state, &mut now, section), [35]);
+}

@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use std::sync::Arc;
-use tetrad_catalog::{ModelSpec, Specs};
+use tetrad_catalog::{ModelSpec, ParamSpec, Specs};
 use tetrad_core::conversion::{ParameterScale, ParameterType};
 use tetrad_core::performance::FootswitchMode as CoreMode;
 use tetrad_core::performance::footswitch::BankSize;
@@ -328,6 +328,9 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
             });
             if let (Some(position), Some(specs)) = (snapshot.selected_block, &state.specs) {
                 snapshot.parameters = parameters(layout, position, scene, specs, &local.media);
+                if let Some(block) = instance(layout, position) {
+                    snapshot.editor_parameters = editor_parameters(block, scene, specs);
+                }
             }
             // The editor meters (`Action::EditorBlock` polls them, `meters::on_model_meter`).
             if let Some(slot) = snapshot.selected_block.and_then(slot_of)
@@ -355,6 +358,7 @@ pub(super) fn snapshot(state: &State, local: &Local) -> UiSnapshot {
             {
                 snapshot.selected_site = Some(site);
                 snapshot.parameters = instance_parameters(block, scene, specs, &local.media);
+                snapshot.editor_parameters = editor_parameters(block, scene, specs);
             }
             if let Some(position) = snapshot.selected_block {
                 (
@@ -851,7 +855,6 @@ pub(crate) fn instance_parameters(
     let Some(spec) = specs.model(block.model.0) else {
         return Vec::new();
     };
-    let scene_mode = |index: u32| block.scene_mode.get(index as usize) == Some(&true);
     spec.parameters
         .iter()
         .filter(|param| param.index <= MAX_PARAMETER_INDEX)
@@ -865,31 +868,14 @@ pub(crate) fn instance_parameters(
                     value: media_value(spec, block, scene, param.index, kind, media),
                     kind: ParameterKind::Media(kind),
                     entry: None,
-                    scene: scene_mode(param.index),
+                    scene: scene_mode(block, param.index),
                     choices: Vec::new(),
                 });
             }
             if param.hidden && !ir_switch(spec, param.index) {
                 return None;
             }
-            let normalized = block.params.get(param.index as usize)?.at(scene);
-            let kind = parameter_kind(&param.scale, normalized)?;
-            let value = match kind {
-                ParameterKind::Toggle { on } => if on { "On" } else { "Off" }.to_owned(),
-                _ => param
-                    .scale
-                    .display_with_units(normalized)
-                    .unwrap_or_else(|_| "-".into()),
-            };
-            Some(ParameterView {
-                index: param.index as u16,
-                label: param.name.clone(),
-                value,
-                kind,
-                entry: numeric_range(&param.scale, normalized, kind),
-                scene: scene_mode(param.index),
-                choices: choices(&param.scale, kind),
-            })
+            parameter_view(block, scene, param)
         })
         .collect()
 }
@@ -921,6 +907,53 @@ fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
         })
         .collect::<Result<_, _>>()
         .unwrap_or_default()
+}
+
+/// The hidden parameters of an instance that its model editor reads and writes
+/// ([`editor_parameter`]); the generic views do not show them.
+pub(crate) fn editor_parameters(
+    block: &Instance,
+    scene: EngineScene,
+    specs: &Specs,
+) -> Vec<ParameterView> {
+    let Some(spec) = specs.model(block.model.0) else {
+        return Vec::new();
+    };
+    spec.parameters
+        .iter()
+        .filter(|param| param.hidden && editor_parameter(spec, param.index))
+        .filter_map(|param| parameter_view(block, scene, param))
+        .collect()
+}
+
+fn scene_mode(block: &Instance, index: u32) -> bool {
+    block.scene_mode.get(index as usize) == Some(&true)
+}
+
+/// The view of a non-media parameter; `None` for meters, strings and missing values.
+fn parameter_view(
+    block: &Instance,
+    scene: EngineScene,
+    param: &ParamSpec,
+) -> Option<ParameterView> {
+    let normalized = block.params.get(param.index as usize)?.at(scene);
+    let kind = parameter_kind(&param.scale, normalized)?;
+    let value = match kind {
+        ParameterKind::Toggle { on } => if on { "On" } else { "Off" }.to_owned(),
+        _ => param
+            .scale
+            .display_with_units(normalized)
+            .unwrap_or_else(|_| "-".into()),
+    };
+    Some(ParameterView {
+        index: param.index as u16,
+        label: param.name.clone(),
+        value,
+        kind,
+        entry: numeric_range(&param.scale, normalized, kind),
+        scene: scene_mode(block, param.index),
+        choices: choices(&param.scale, kind),
+    })
 }
 
 /// The numeric keyboard range of a continuous knob (`0x4c62d4`): the display value and the
@@ -967,6 +1000,20 @@ fn ir_switch(model: &ModelSpec, index: u32) -> bool {
         8 | 9 => loader.ir_count() == 2,
         _ => false,
     })
+}
+
+/// Hidden parameters that only a model editor shows (stock editors read the model's
+/// parameters directly): the Overlord Synth OSC 1/2 ACTIVE and WAVE (9, 10; 14, 15) and ARP
+/// NOTE 2–8 (41–47) buttons (`0x630c4c`, `0x6312e4`), and the Parallax LOW, MID and HIGH
+/// section switches (34–36, `0x153f6b0`). Clones use their base model.
+fn editor_parameter(model: &ModelSpec, index: u32) -> bool {
+    const OVERLORD_SYNTH: u32 = 30001;
+    const PARALLAX: u32 = 3008;
+    match model.clones.first().copied().unwrap_or(model.id) {
+        OVERLORD_SYNTH => matches!(index, 9 | 10 | 14 | 15 | 41..=47),
+        PARALLAX => matches!(index, 34..=36),
+        _ => false,
+    }
 }
 
 /// IR id parameters (`0x515d58`; IR Loader slot B only on Dual models) and the capture
@@ -1687,6 +1734,40 @@ defaultValue='5'/></Model></Category></Models>";
             choices,
             [&["0", "1", "2"][..], &[], &["Sine", "Square", "Saw"], &[]]
         );
+    }
+
+    /// Hidden parameters stay off the generic views (knob pages, expression targets); only
+    /// those a model editor writes go to the editor: Overlord OSC1 ACTIVE (9), not QUANTIZE (4).
+    #[test]
+    fn hidden_parameters_go_to_the_model_editor_only() {
+        let params: String = (0..10)
+            .map(|index| {
+                let hidden = if matches!(index, 4 | 9) {
+                    " hidden='true'"
+                } else {
+                    ""
+                };
+                format!("<Parameter name='P{index}' type='switch' min='0' max='1'{hidden}/>")
+            })
+            .collect();
+        let models = format!(
+            "<Models><Category id='30' name='Synth2'><Model id='30001' name='Overlord Synth' \
+blob='light'>{params}</Model></Category></Models>"
+        );
+        let specs =
+            Specs::resolve(&tetrad_catalog::Catalog::parse(&models, "<ModuleReport/>").unwrap())
+                .unwrap();
+        let block = Instance::new(
+            tetrad_engine::ModelId(30001),
+            vec![tetrad_engine::Scened::Fixed(1.0); 10],
+        );
+        let scene = EngineScene::new(0).unwrap();
+        let indices = |views: Vec<ParameterView>| -> Vec<u16> {
+            views.into_iter().map(|view| view.index).collect()
+        };
+        let shown = indices(instance_parameters(&block, scene, &specs, &[]));
+        assert_eq!(shown, [0, 1, 2, 3, 5, 6, 7, 8]);
+        assert_eq!(indices(editor_parameters(&block, scene, &specs)), [9]);
     }
 
     /// Stock `0x0032da4c`: the mode button's MIDI glyph follows any stored message type, a

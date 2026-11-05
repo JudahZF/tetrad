@@ -1239,7 +1239,7 @@ impl UiState {
     fn knob_parameter(&self, target: KnobTarget) -> Option<&ParameterView> {
         match target {
             KnobTarget::Block(knob) => self.parameter_at(knob),
-            KnobTarget::Editor(index) => self.snapshot.parameters.iter().find(|p| p.index == index),
+            KnobTarget::Editor(index) => self.snapshot.editor_parameter(index),
         }
     }
 
