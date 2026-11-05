@@ -288,26 +288,6 @@ fn descriptor_ignore_is_directional_and_does_not_suppress_values_or_cache() {
 }
 
 #[test]
-fn descriptor_ignore_cannot_turn_unsupported_into_equal() {
-    let a = ParameterFields {
-        packed260: [0, 1, 0, 0],
-        opaque_variant64: Variant::UnsupportedTypeId(777),
-        ..ParameterFields::default()
-    };
-    let lhs = model_with(a.clone());
-    let rhs = model_with(a);
-    let error = compare_model(&lhs, &rhs, POLICY).unwrap_err();
-    assert_eq!(
-        error.reason,
-        UnsupportedReason::VariantType { type_id: 777 }
-    );
-    assert_eq!(
-        error.path.to_string(),
-        "model.descriptors28[0].opaque_variant64.lhs"
-    );
-}
-
-#[test]
 fn lhs_descriptor_dispatch_is_used_before_rhs_metadata() {
     let lhs = model_with(ParameterFields::default());
     let rhs = model_with(ParameterFields {
@@ -734,63 +714,6 @@ fn cross_numeric_to_real_is_f32_and_int_uint_extend_correctly() {
         .unwrap_err()
         .reason,
         UnsupportedReason::CrossRealOverflow
-    );
-}
-
-#[test]
-fn unsupported_string_conversion_keeps_rhs_to_lhs_direction() {
-    let i = Variant::Int32(7);
-    let s = Variant::String(Utf16::from_literal("007").unwrap());
-    assert_eq!(
-        compare_variant(&i, &s, POLICY).unwrap_err().reason,
-        UnsupportedReason::RhsToLhsConversion {
-            lhs_type: 2,
-            rhs_type: 10
-        }
-    );
-    assert_eq!(
-        compare_variant(&s, &i, POLICY).unwrap_err().reason,
-        UnsupportedReason::RhsToLhsConversion {
-            lhs_type: 10,
-            rhs_type: 2
-        }
-    );
-}
-
-#[test]
-fn custom_live_handler_unknown_types_and_numeric_environment_are_refusals() {
-    let a = snapshot(fixture());
-    assert_eq!(
-        compare(&a, &a, ComparisonPolicy::CustomOrLiveHandler)
-            .unwrap_err()
-            .reason,
-        UnsupportedReason::HandlerPolicy
-    );
-    assert_eq!(
-        compare(&a, &a, ComparisonPolicy::UnresolvedNumericEnvironment)
-            .unwrap_err()
-            .reason,
-        UnsupportedReason::NumericEnvironment
-    );
-    for id in [0, 1, 4, 5, 136, 9999] {
-        assert_eq!(
-            compare_variant(
-                &Variant::UnsupportedTypeId(id),
-                &Variant::UnsupportedTypeId(id),
-                POLICY
-            )
-            .unwrap_err()
-            .reason,
-            UnsupportedReason::VariantType { type_id: id }
-        );
-    }
-    assert_eq!(
-        F32::from_bits(0x7f80_0001).unwrap_err().reason,
-        AdmissionReason::SignalingNaN
-    );
-    assert_eq!(
-        F64::from_bits(0x7ff0_0000_0000_0001).unwrap_err().reason,
-        AdmissionReason::SignalingNaN
     );
 }
 

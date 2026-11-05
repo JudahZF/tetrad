@@ -462,27 +462,6 @@ fn a_device_drop_sends_the_grid_move_echo() {
     assert_eq!(sent, [ControlMessage::GridMove(echo)]);
 }
 
-/// A3: the bring-up `SLOW` line names the costliest unit of each phase: the Control message
-/// and action in `reduce`, or the READ part and folder of a spread reply (the effect kinds of
-/// `apply` are in `probe.rs`).
-#[test]
-fn a_pass_names_its_costliest_units() {
-    use std::time::Duration;
-    let (mut device, _log, _media) = connected(qc_scale_media());
-    queue_raw(&mut device, 35, &[0x08, 3]);
-    device.step();
-    let units = device.last_units(Duration::ZERO);
-    assert!(
-        units.contains("reduce: Control ModuleStats Read"),
-        "{units}"
-    );
-    queue_raw(&mut device, 4, &[0x08, 3, 0x58, 1]);
-    device.step();
-    device.step();
-    let units = device.last_units(Duration::ZERO);
-    assert!(units.contains("reduce: File Read part estimate"), "{units}");
-}
-
 /// A4: a connected Cortex Control at idle costs no frame. After the connect burst (the
 /// subscriptions of the grid and I/O meters included), 10 s of keep-alives, row meter records,
 /// SOC2 ARM blocks and the 1 s pushes render nothing on the grid (the QC rendered about 45

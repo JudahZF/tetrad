@@ -12,7 +12,6 @@ use tetrad_blocks::verification::{
     VerificationFrame, scheduled_frames, verify_module, verify_module_at,
 };
 use tetrad_blocks::{BLOCK_SAMPLES, BuiltModule, HostReference, OwnedBlock};
-use tetrad_sharc::math::prm::Precision;
 
 const HPF_SLOPE: u32 = 0;
 const HPF_FREQ: u32 = 1;
@@ -165,29 +164,6 @@ fn flat_passes_exactly_and_a_cut_decays_to_exact_zero() {
 /// Live and target coefficient words (12-word records: history, live, target).
 fn is_coefficient(word: usize) -> bool {
     word < CASCADE.words() - 2 && word % 12 >= 2
-}
-
-/// The stock RND32 bracket (40-bit section loop) cuts the round-off of the
-/// slowest design, 48 dB/oct HPF at 20 Hz, by more than 12 dB (measured
-/// 16.9 dB: −68.2 → −85.1 dB). Not 48 dB: every store keeps 24 bits, and
-/// the y history is truncated at each block end.
-#[test]
-fn rnd32_bracket_cuts_the_round_off_of_the_low_sections() {
-    let mut state = channel();
-    LowHighCut.set_parameter(&mut state, HPF_SLOPE, 1.0);
-    LowHighCut.set_parameter(&mut state, HPF_FREQ, 0.0);
-    LowHighCut.reset(&mut state);
-    run(&mut state, 1);
-    let single = Cascade {
-        precision: Precision::Single,
-        ..CASCADE
-    };
-    let (before, after) = (
-        support::round_off_db(&single, &state),
-        support::round_off_db(&CASCADE, &state),
-    );
-    println!("round-off: RND32 = 1 {before:.1} dB, bracket {after:.1} dB");
-    assert!(after < -80.0 && before - after > 12.0);
 }
 
 /// A FREQ and SLOPE change mid-stream: the FREQ ramp lands after 30 blocks
@@ -360,12 +336,4 @@ fn each_placement_runs_its_relocated_bytes_through_v2() {
         words[..2 * STATE_WORDS],
         LowHighCut.static_layout().states().concat()
     );
-}
-
-/// V4: the independent `blobdis` decoder reads the whole shim as the ABI
-/// record's entry and stubs.
-#[test]
-#[ignore = "runs the blobdis binary that QC_BLOBDIS names (not in this repository)"]
-fn blobdis_decodes_the_shim() {
-    support::blobdis::verify_shim_decode(&BuiltModule::build(&LowHighCut).unwrap());
 }

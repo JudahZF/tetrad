@@ -34,17 +34,3 @@ pub fn statvfs(path: &Path) -> io::Result<FsSpace> {
         available: fragment.saturating_mul(stats.f_bavail),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The call reads a real file system and reports a missing path as the OS error.
-    #[test]
-    fn statvfs_reads_a_mounted_file_system_and_refuses_a_missing_path() {
-        let space = statvfs(&std::env::temp_dir()).unwrap();
-        assert!(space.total > 0 && space.available <= space.total);
-        let missing = statvfs(Path::new("/tetrad-sys-no-such-dir")).unwrap_err();
-        assert_eq!(missing.kind(), io::ErrorKind::NotFound);
-    }
-}

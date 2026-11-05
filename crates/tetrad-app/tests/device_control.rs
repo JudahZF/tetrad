@@ -1027,6 +1027,17 @@ fn undo_redo_frames_push_once_per_change_and_read_lists_them() {
         sent.iter().map(frames).collect::<Vec<_>>(),
         [(vec![0], vec![])]
     );
+    // Stock `[27]`: the READ reply leaves the action at 0 (implicit).
+    assert!(
+        matches!(
+            &sent[..],
+            [ControlMessage::UndoRedo(UndoRedoMessage {
+                action: None,
+                ..
+            })]
+        ),
+        "{sent:?}"
+    );
 
     let undo = UndoRedoMessage {
         action: update(),
@@ -7964,62 +7975,18 @@ fn local_backup_send_ends_on_a_link_loss() {
     );
 }
 
-/// Without `--persist` a Control ModelPreset CREATE is refused before the reducer runs: the
-/// device never sees an action Control reduces itself, so Control runs `RunOptions::refusal`
-/// (review r18 F12), and `zenui.db` keeps no new preset.
-#[test]
-fn model_preset_create_needs_persist() {
-    use tetrad_app::device::Library;
-    use tetrad_control::codecs::{GridMessage, ModelPreset, ModelPresetMessage};
-    use tetrad_library::stock::{StockLibrary, StockLimits};
-    use tetrad_storage::media::MediaRoot;
-    use tetrad_storage::stock::{DbLimits, StockDb};
-    let root =
-        std::env::temp_dir().join(format!("tetrad-app-control-vdp-ro-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("Presets")).unwrap();
-    let mut database = StockDb::create(&root.join("zenui.db"), DbLimits::default()).unwrap();
-    database
-        .transaction(|write| write.boot_maintenance())
-        .unwrap();
-    let (mut state, mut control) = loaded::session();
-    state.library = Some(Library {
-        presets: StockLibrary::open(MediaRoot::new(&root), StockLimits::default()).unwrap(),
-        database: Some(database),
-    });
-    let block = tetrad_preset::Model {
-        hash: Some(1),
-        column: Some(2),
-        ..Default::default()
-    };
-    let add: GridMessage = grid::message(MessageAction::Update, grid::block(1, block));
-    let (_, effects) = loaded::host(&mut control, &mut state, add, at(0));
-    loaded::commit(&mut state, effects);
-    control.set_run_options(&loaded::bringup(false));
-    let create = ModelPresetMessage {
-        action: Some(MessageAction::Create.into()),
-        create_from_row: Some(1),
-        create_from_column: Some(2),
-        presets: vec![ModelPreset {
-            name: Some("Mine".into()),
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
-    let (_, effects) = loaded::host(&mut control, &mut state, create, at(10));
-    assert!(matches!(effects[..], [Effect::Notice(..)]), "{effects:?}");
-    let database = state.library.as_ref().unwrap().database.as_ref().unwrap();
-    assert!(database.view().model_presets().unwrap().is_empty());
-    let _ = std::fs::remove_dir_all(&root);
-}
-
 /// Review-2 R5: the `zenui.db` writes that Control receivers run themselves (File IR import,
 /// File media folder CREATE, PinnedModels CREATE) are refused without `--persist` with a
-/// "bring-up refused" notice, also on a writable database.
+/// "bring-up refused" notice, also on a writable database. A ModelPreset CREATE is an action
+/// Control reduces itself, so `RunOptions::refusal` refuses it before the reducer runs (review
+/// r18 F12).
 #[test]
 fn control_database_writes_need_persist() {
     use tetrad_app::device::Library;
-    use tetrad_control::codecs::{FileMessage, FolderInfo, PinnedModelsMessage, ProductData};
+    use tetrad_control::codecs::{
+        FileMessage, FolderInfo, GridMessage, ModelPreset, ModelPresetMessage, PinnedModelsMessage,
+        ProductData,
+    };
     use tetrad_library::stock::{StockLibrary, StockLimits};
     use tetrad_media::factory::DeviceCipher;
     use tetrad_storage::media::MediaRoot;
@@ -8054,8 +8021,17 @@ fn control_database_writes_need_persist() {
             view.product_ids(ProductType::Ir).unwrap(),
             view.folders().unwrap().len(),
             view.pinned_models().unwrap(),
+            view.model_presets().unwrap(),
         )
     };
+    let block = tetrad_preset::Model {
+        hash: Some(1),
+        column: Some(2),
+        ..Default::default()
+    };
+    let add: GridMessage = grid::message(MessageAction::Update, grid::block(1, block));
+    let (_, effects) = loaded::host(&mut control, &mut state, add, at(0));
+    loaded::commit(&mut state, effects);
     let before = view(&state);
     control.set_run_options(&loaded::bringup(false));
     let import = FileMessage {
@@ -8085,10 +8061,24 @@ fn control_database_writes_need_persist() {
         models: vec![7],
         ..Default::default()
     };
-    let messages: [ControlMessage; 3] = [import.into(), folder.into(), pin.into()];
+    let preset = ModelPresetMessage {
+        action: Some(MessageAction::Create.into()),
+        create_from_row: Some(1),
+        create_from_column: Some(2),
+        presets: vec![ModelPreset {
+            name: Some("Mine".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let messages: [ControlMessage; 4] = [import.into(), folder.into(), pin.into(), preset.into()];
     for (index, message) in messages.into_iter().enumerate() {
-        let (sent, effects) =
-            loaded::host(&mut control, &mut state, message, at(10 * index as u64));
+        let (sent, effects) = loaded::host(
+            &mut control,
+            &mut state,
+            message,
+            at(10 + 10 * index as u64),
+        );
         assert!(sent.is_empty(), "{sent:?}");
         let [Effect::Notice(_, notice)] = &effects[..] else {
             panic!("one notice: {effects:?}");
@@ -10925,7 +10915,7 @@ mod r49 {
     use tetrad_app::device::{Effect, State};
     use tetrad_control::codecs::{
         ControlMessage, LooperMessage, LooperUpdateType, MessageAction, RecallPresetMessage,
-        SetlistPositionMessage, UndoRedoMessage,
+        SetlistPositionMessage,
     };
     use tetrad_control::link::Notification;
     use tetrad_engine::SceneIndex;
@@ -11283,19 +11273,6 @@ sd_heap='0' dma='0' dm='10' pm='0' sw='100' nw='0' Latency='0'>\
         state.screen = tetrad_ui::Screen::Tuner;
         let effects = features::tuner_reading(&mut state, Some(441.0));
         assert!(effects.contains(&Effect::Present), "{effects:?}");
-    }
-
-    /// D17, S7 stock `[27]`: the UndoRedo READ reply (`0x1ba218`) leaves the action at 0
-    /// (implicit), so with empty stacks the body is empty.
-    #[test]
-    fn undo_redo_read_replies_without_an_action() {
-        let (mut state, mut control) = loaded::session();
-        let read = UndoRedoMessage {
-            action: Some(MessageAction::Read.into()),
-            ..Default::default()
-        };
-        let (sent, _) = loaded::host(&mut control, &mut state, read, at(10));
-        assert_eq!(sent, [ControlMessage::UndoRedo(UndoRedoMessage::default())]);
     }
 
     /// A7, `0x27ed1c`: a Downloads item sends only `is_downloads` and its key; a plugin preset

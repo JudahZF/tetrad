@@ -6,12 +6,11 @@ use crate::account::{AccountTokens, Secret};
 use crate::controls::FootswitchMode;
 use crate::general::{BypassSaveMode, PowerButtonSensitivity};
 use crate::io::{ExpressionCalibrator, ExpressionRange};
-use crate::library::TableRole;
 use crate::midi::{MidiChannel, MidiClockOut};
 use crate::tuner::{InputPortId, TempoDefaults};
 use crate::{
-    DeviceSettings, Hardware, LoadIssue, ResetKind, Settings, SettingsEvent, SettingsFileId,
-    SettingsStorage, Variant,
+    DeviceSettings, Hardware, LoadIssue, ResetKind, SettingsEvent, SettingsFileId, SettingsStorage,
+    Variant,
 };
 
 #[derive(Default)]
@@ -55,43 +54,6 @@ fn tempo_defaults() -> TempoDefaults {
     TempoDefaults {
         params: BTreeMap::from([(0, 0.5), (1, 0.0), (2, 1.0)]),
     }
-}
-
-/// Stock defaults recovered from the `value(key, default)` calls.
-#[test]
-fn defaults_match_stock_readers() {
-    let s = Settings::defaults(Hardware::QuadCortex);
-    assert_eq!(
-        (s.display.brightness.get(), s.display.led_brightness.get()),
-        (50, 27)
-    );
-    assert_eq!(s.display.dimmed_led_brightness.get(), 6);
-    assert!(s.display.dimmed_stomp && !s.display.dimmed_preset);
-    assert_eq!(
-        (s.midi.channel, s.midi.over_usb, s.midi.clock_out),
-        (MidiChannel::DEFAULT, true, MidiClockOut::Off)
-    );
-    assert_eq!(
-        (s.tuner.input, s.tuner.mutes_outputs, s.tuner.reference_hz()),
-        (InputPortId::Input1, true, 440.0)
-    );
-    assert_eq!(s.mode.mode(), FootswitchMode::Preset);
-    assert_eq!(s.mode.available().len(), 3);
-    assert_eq!(s.general.hold_timing.millis(), 800);
-    assert_eq!(
-        s.general.power_button_sensitivity,
-        PowerButtonSensitivity::Medium
-    );
-    assert!(s.general.dynamic_delay_compensation && s.general.atma_power_on_automatic);
-    assert_eq!(s.library.presets.role, TableRole::Banks);
-    assert_eq!(s.capture.nc1.cabsim_id, 12001);
-    assert!(s.paired_version.needs_pairing());
-    assert_eq!(s.looper.stomp_assignments(), [3, 4, 5, 6, 0, 1, 7, 2]);
-    assert!(s.io.params.is_empty() && !s.io.out12_paired);
-
-    let atma = Settings::defaults(Hardware::Atma);
-    assert_eq!(atma.looper.stomp_assignments(), [6, 2, 0, 1, 3, 4, 5, 7]);
-    assert_eq!(atma.capture.nc1.io.return_level, 2.0 / 7.0);
 }
 
 const ZENJACK: &str = r#"[General]

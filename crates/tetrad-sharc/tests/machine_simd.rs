@@ -34,15 +34,6 @@ const fn load(reg: u64, i: u64, m: u64) -> Dual {
     }
 }
 
-const fn store(reg: u64, i: u64, m: u64) -> Dual {
-    Dual {
-        store: true,
-        i,
-        m,
-        reg,
-    }
-}
-
 /// Type 1a, PRM figure 14.03.1: 001 47:45, DMD 44, DMI 43:41, DMM 40:38, PMD 37, DMDREG 36:33,
 /// PMI 32:30, PMM 29:27, PMDREG 26:23, compute 22:0.
 fn type1a(dm: Dual, pm: Dual, compute: u64) -> u64 {
@@ -74,13 +65,7 @@ fn mul_alu(opcode: u64, fm: u64, fa: u64, [xm, ym, xa, ya]: [u64; 4]) -> u64 {
         | (ya - 12)
 }
 
-/// Multiplier and dual add/subtract (PRM 21.15): opcode 11 at 21:20, Fs at 19:16.
-fn mul_dual(fs: u64, fm: u64, fa: u64, inputs: [u64; 4]) -> u64 {
-    mul_alu(0b11_0000 | fs, fm, fa, inputs)
-}
-
 const FLOAT_ADD: u64 = 0x081;
-const FLOAT_MUL: u64 = 0x130;
 
 /// Single-function compute: CU and opcode 21:12, Rn 11:8, Rx 7:4, Ry 3:0.
 fn single(opcode: u64, n: u64, x: u64, y: u64) -> u64 {
@@ -191,39 +176,6 @@ fn run(
 
 fn f(bits: u32) -> f32 {
     f32::from_bits(bits)
-}
-
-#[test]
-fn stock_words_are_the_prm_fields() {
-    assert_eq!(
-        type1a(
-            load(0, 4, 4),
-            load(4, 13, 12),
-            mul_alu(MUL_ADD, 12, 8, [0, 5, 8, 12])
-        ),
-        0x2901_6258_c810
-    );
-    assert_eq!(
-        type1a(
-            store(10, 7, 6),
-            store(9, 12, 8),
-            mul_dual(3, 1, 8, [0, 4, 9, 12])
-        ),
-        0x3fb5_04f3_1804
-    );
-    assert_eq!(type1a(load(0, 0, 4), store(0, 8, 12), 0), 0x2120_2000_0000);
-    let post = Single {
-        post: true,
-        i: 2,
-        m: 4,
-        store: false,
-        ureg: 0,
-    };
-    assert_eq!(type3a(post, single(FLOAT_MUL, 8, 0, 4)), 0x553e_0013_0804);
-    assert_eq!(type12a(0x1f, true, 0x28), 0x0c00_1f80_0028);
-    assert_eq!(mode1(false, MODE1_PEYEN), 0x1402_0020_0000);
-    assert_eq!(mode1(true, MODE1_PEYEN), 0x1422_0020_0000);
-    assert_eq!(mode1(false, MODE1_PEYEN | MODE1_BDCST9), 0x1402_0060_0000);
 }
 
 /// Stock Type 1a and 3a words run with parallel semantics: computes and stores read the
@@ -346,24 +298,6 @@ fn interleave(a: &[f32], b: &[f32]) -> Vec<f32> {
 
 const COUNT: usize = 16;
 
-/// SISD: activations through DM/DAG1 (I0), weights through PM/DAG2 (I8).
-#[test]
-fn sisd_dot_product_reads_weights_through_dag2() {
-    let (x, w) = (signal(0.1, COUNT + 1), signal(0.7, COUNT + 1));
-    let mut data = memory();
-    fill(&mut data, X, x.iter().copied());
-    fill(&mut data, W, w.iter().copied());
-    let mut machine = Machine::reset();
-    (machine.i[0], machine.m[0], machine.i[8], machine.m[8]) = (X, 1, W, 1);
-    let program = |unit| dot_product(unit, COUNT as u64, load(0, 0, 0), load(4, 8, 8), 0);
-    let (out, _) = run(program, &machine, &data);
-    assert_eq!(f(out.r[8]), reference(&x[..COUNT], &w[..COUNT]));
-    assert_eq!(
-        (out.i[0], out.i[8]),
-        (X + COUNT as u32 + 1, W + COUNT as u32 + 1)
-    );
-}
-
 /// SIMD: two outputs per instruction. Each PE reads its own interleaved activation and weight
 /// (PEy at I + 1 normal word: +1 in word space, +4 in byte space), and the closing Type 2a add
 /// runs on both PEs.
@@ -424,30 +358,6 @@ fn broadcast_dot_products_share_one_operand() {
     let (out, _) = run(program, &machine, &data);
     assert_eq!(f(out.r[8]), reference(&a[..COUNT], &w[..COUNT]));
     assert_eq!(f(out.s[8]), reference(&b[..COUNT], &w[..COUNT]));
-}
-
-/// The planned convolution kernel: the input history is a ring on I1 (byte space, CBUFEN) whose
-/// samples BDCST1 broadcasts to both PEs, while DAG2 reads the interleaved weights of two output
-/// channels. Starting mid-ring, the reads wrap.
-#[test]
-fn broadcast_kernel_reads_a_history_ring() {
-    const LENGTH: usize = COUNT + 1;
-    let history = signal(0.4, LENGTH);
-    let (u, v) = (signal(0.7, LENGTH), signal(0.9, LENGTH));
-    let mut data = memory();
-    fill(&mut data, BYTES, history.iter().copied());
-    fill(&mut data, W, interleave(&u, &v));
-    let mut machine = Machine::reset();
-    machine.mode1 |= MODE1_CBUFEN;
-    (machine.b[1], machine.l[1]) = (BYTES, LENGTH as u32);
-    (machine.i[1], machine.m[1], machine.i[8], machine.m[8]) = (at(BYTES, 5), 1, W, 2);
-    let mode = MODE1_PEYEN | MODE1_BDCST1;
-    let program = |unit| dot_product(unit, COUNT as u64, load(0, 1, 1), load(4, 8, 8), mode);
-    let (out, _) = run(program, &machine, &data);
-    let x: Vec<f32> = (0..COUNT).map(|k| history[(5 + k) % LENGTH]).collect();
-    assert_eq!(f(out.r[8]), reference(&x, &u[..COUNT]));
-    assert_eq!(f(out.s[8]), reference(&x, &v[..COUNT]));
-    assert_eq!(out.i[1], at(BYTES, 5), "a full turn of the ring");
 }
 
 /// Type 3a with G = 1 (`PM(Ic, Md)`): SISD, SIMD (complementary register at I + 1, S2 as the

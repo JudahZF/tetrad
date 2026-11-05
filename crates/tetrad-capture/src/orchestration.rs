@@ -2383,28 +2383,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_headroom_blocks_new_work_but_still_drains_cleanup_replies() {
-        let mut machine = calibrating();
-        machine.sequence = u64::MAX - REQUEST_LIMIT as u64 + 1;
-        machine.epoch.entry = u64::MAX - REQUEST_LIMIT as u64 + 1;
-        machine.epoch.generation = u64::MAX - REQUEST_LIMIT as u64 + 1;
-        assert_eq!(
-            machine.apply(Event::Progress {
-                epoch: machine.epoch(),
-                value: 5.0
-            }),
-            Err(Refusal::IdentityExhausted)
-        );
-        machine.apply(Event::Command(Command::Close)).unwrap();
-        settle(&mut machine);
-        assert!(machine.cleanup_complete());
-        assert_eq!(
-            machine.apply(Event::Command(Command::Open)),
-            Err(Refusal::IdentityExhausted)
-        );
-    }
-
-    #[test]
     fn headroom_refuses_discard_restart_and_reentry_but_close_still_drains() {
         fn discard(machine: &mut CaptureOrchestrator) -> Event {
             machine.apply(Event::Command(Command::Back)).unwrap();

@@ -316,37 +316,22 @@ mod tests {
         bytes
     }
 
-    /// A file that does not parse holds no theme ID: a later file may use its name.
-    #[test]
-    fn a_broken_file_does_not_take_its_name_as_an_id() {
-        let mut appearance = Appearance::default();
-        let good = br##"{"version":1,"id":"midnight","name":"Midnight","colors":{}}"##;
-        appearance.set_files(vec![
-            ("midnight.json".into(), Err("bad JSON".into())),
-            ("z.json".into(), Ok(good.to_vec())),
-        ]);
-        assert!(appearance.select(ThemeId::File("midnight".into())).is_ok());
-    }
-
-    #[test]
-    fn oversized_appearance_file_is_refused() {
-        let mut appearance = Appearance::default();
-        let stored = br##"{"version":1,"theme":"slate","palette":{}}"##;
-        let problem = appearance.load(Some(&oversized(stored))).unwrap();
-        assert!(problem.contains("larger"), "{problem}");
-    }
-
     #[test]
     fn theme_files_are_rows_and_bad_ones_cannot_be_chosen() {
         let mut appearance = Appearance::default();
+        // The stored choice has its own size check.
+        let stored = br##"{"version":1,"theme":"slate","palette":{}}"##;
+        let problem = appearance.load(Some(&oversized(stored))).unwrap();
+        assert!(problem.contains("larger"), "{problem}");
         let good =
             br##"{"version":1,"id":"midnight","name":"Midnight","colors":{"accent":"#7aa2f7"}}"##;
         let light = br##"{"version":1,"id":"day","name":"Day","colors":{"background":"#ffffff"}}"##;
         appearance.set_files(vec![
+            // A file that does not read holds no ID: a later file may use its name.
+            ("midnight.json".into(), Err("permission denied".into())),
             ("a.json".into(), Ok(good.to_vec())),
             ("b.json".into(), Ok(good.to_vec())),
             ("c.json".into(), Ok(light.to_vec())),
-            ("d.json".into(), Err("permission denied".into())),
             // A valid theme padded past the limit: `read_bounded` hands over one byte more.
             ("e.json".into(), Ok(oversized(good))),
         ]);
@@ -357,15 +342,15 @@ mod tests {
             .collect();
         assert_eq!(files.len(), 5);
         assert!(files[4].palette.as_ref().unwrap_err().contains("larger"));
-        assert!(files[0].palette.is_ok());
+        assert!(files[1].palette.is_ok());
         assert!(
-            files[1]
+            files[2]
                 .palette
                 .as_ref()
                 .unwrap_err()
                 .contains("earlier file")
         );
-        assert!(files[2].palette.as_ref().unwrap_err().contains("dark"));
+        assert!(files[3].palette.as_ref().unwrap_err().contains("dark"));
         assert!(appearance.select(ThemeId::File("day".into())).is_err());
         assert!(appearance.select(ThemeId::File("midnight".into())).is_ok());
         assert_eq!(

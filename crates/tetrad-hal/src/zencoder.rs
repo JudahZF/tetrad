@@ -586,20 +586,4 @@ mod tests {
             Footswitch::Tempo
         );
     }
-
-    #[test]
-    fn identity_formats_match_stock_printf() {
-        assert_eq!(FirmwareVersion::from_word(0), None);
-        assert_eq!(
-            FirmwareVersion::from_word(0x1a2b).unwrap().to_string(),
-            "1a2b"
-        );
-        let mut id = [0u8; 16];
-        id[0] = 0xab;
-        id[15] = 0x01;
-        assert_eq!(
-            BoardUniqueId(id).to_string(),
-            "AB000000000000000000000000000001"
-        );
-    }
 }

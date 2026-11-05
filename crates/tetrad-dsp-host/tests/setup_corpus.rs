@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use tetrad_dsp_host::setup::{DriverTables, ElfTables, StockTables, driver_kind, drivers};
+use tetrad_dsp_host::setup::{DriverTables, StockTables, driver_kind, drivers};
 
 /// `$QC_CORPUS_DIR/<path>`, or `None` with a note when the variable is not set.
 fn corpus(path: &str) -> Option<PathBuf> {
@@ -13,23 +13,6 @@ fn corpus(path: &str) -> Option<PathBuf> {
         return None;
     };
     Some(PathBuf::from(dir).join(path))
-}
-
-/// Every constructor table resolves in the pinned ZenUI with its stock length.
-#[test]
-#[ignore = "reads $QC_CORPUS_DIR/rootfs/opt/neuraldsp/ZenUI"]
-fn constructor_tables_resolve_in_pinned_zenui() {
-    let Some(zenui) = corpus("rootfs/opt/neuraldsp/ZenUI") else {
-        return;
-    };
-    let tables = ElfTables::new(std::fs::read(zenui).unwrap()).unwrap();
-    let mut count = 0;
-    for (kind, model, payload) in drivers::constructor_tables() {
-        let bytes = tables.read(payload).unwrap();
-        assert_eq!(bytes.len(), payload.len(), "{kind:?} {model}");
-        count += 1;
-    }
-    assert_eq!(count, 21);
 }
 
 /// One checked image gives every table a driver reads: the kept payload

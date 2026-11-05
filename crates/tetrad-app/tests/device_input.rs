@@ -100,16 +100,6 @@ fn preset_press_loads_its_slot_and_release_is_quiet() {
     assert!(actions(&stomp(&mut input, &mut state, A, 0)).is_empty());
 }
 
-#[test]
-fn scene_press_selects_its_scene() {
-    let (mut input, mut state) = (Input::new(), qc(FootswitchMode::Scene));
-    let effects = stomp(&mut input, &mut state, B, 1);
-    assert_eq!(
-        actions(&effects),
-        [&Action::SelectScene(SceneIndex::new(1).unwrap())]
-    );
-}
-
 /// Stored Stomp mode plays as the Custom mode: a press and a release are a switch of its
 /// current page (the stock stomp path runs from page 1's A–H, `custom::stock`).
 #[test]
@@ -505,11 +495,13 @@ fn midi_footswitch_follows_the_mode() {
 }
 
 /// Mini keys: 50 ms ticks, first step at 500 ms (f32 sum of 0.05 passes 0.5 on tick 10),
-/// release step, blocked chord, saved gain, silent gain at 0 (`0x511bb0`).
+/// release step, blocked chord, saved gain, silent gain at 0 (`0x511bb0`). After the splash a
+/// step also shows the Master Volume overlay (`0x1fc76c`, `0x4fffb8`).
 #[test]
 fn mini_volume_keys_repeat_release_and_block_both_keys() {
     let mut input = Input::new();
     let mut mini = state_mini();
+    mini.splash_dismissed = true;
     let key = |key, pressed| HalEvent::Volume(VolumeEvent::Key { key, pressed });
     let effects = hal(&mut input, &mut mini, key(VolumeKey::Up, true), ZERO);
     assert_eq!(
@@ -539,6 +531,8 @@ fn mini_volume_keys_repeat_release_and_block_both_keys() {
             gain_bits: gain.to_bits()
         }
     ))));
+    let overlay = UiInput::View(InputEvent::MasterVolume { percent: 30 });
+    assert!(applied.contains(&Effect::UiInput(overlay)));
     assert!(
         applied
             .iter()
@@ -671,17 +665,6 @@ fn standby_mutes_outputs_and_blanks_the_backlight_then_restores() {
             notify(PowerOptions::WakeUp),
         ]
     );
-}
-
-/// `0x1fc76c` emits `updatePotentiometerSignal(false)`: after the splash a mini key step
-/// also shows the Master Volume overlay (`0x4fffb8`).
-#[test]
-fn mini_volume_step_shows_the_volume_overlay() {
-    let mut mini = state_mini();
-    mini.splash_dismissed = true;
-    let effects = tetrad_app::device::actions::reduce(Action::StepVolume(0.05), &mut mini).unwrap();
-    let overlay = UiInput::View(InputEvent::MasterVolume { percent: 30 });
-    assert!(effects.contains(&Effect::UiInput(overlay)));
 }
 
 /// Lock Touchscreen and Master Volume (`0x1fb86c` forces owner 2): while locked the knob never

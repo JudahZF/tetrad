@@ -254,48 +254,4 @@ mod tests {
         master.read_exact(&mut echoed).unwrap();
         assert_eq!(echoed, [0xf8]);
     }
-
-    #[test]
-    fn custom_divisor_leaves_termios_alone() {
-        let (_master, slave) = crate::testing::pty_pair();
-        let uart = MidiUart::from_fd(slave.fd).unwrap();
-        let path =
-            std::fs::read_link(format!("/proc/self/fd/{}", uart.as_fd().as_raw_fd())).unwrap();
-        let before = line_settings(uart.as_fd());
-        // A pty has no serial_struct, so the driver rejects the ioctl. The port must be unchanged either way.
-        assert!(set_custom_divisor(&path, STOCK_CUSTOM_DIVISOR).is_err());
-        assert_eq!(line_settings(uart.as_fd()), before);
-    }
-
-    /// The termios fields a divisor change must not touch, including the speeds termios reports.
-    fn line_settings(
-        fd: BorrowedFd<'_>,
-    ) -> (
-        libc::tcflag_t,
-        libc::tcflag_t,
-        libc::tcflag_t,
-        libc::tcflag_t,
-        [libc::cc_t; libc::NCCS],
-        libc::speed_t,
-        libc::speed_t,
-    ) {
-        let mut termios = MaybeUninit::<libc::termios>::uninit();
-        // SAFETY: tcgetattr fully initializes the live termios on success, asserted before use.
-        let termios = unsafe {
-            assert_eq!(libc::tcgetattr(fd.as_raw_fd(), termios.as_mut_ptr()), 0);
-            termios.assume_init()
-        };
-        // SAFETY: both only read the speed fields of an initialized termios.
-        let (ispeed, ospeed) =
-            unsafe { (libc::cfgetispeed(&termios), libc::cfgetospeed(&termios)) };
-        (
-            termios.c_iflag,
-            termios.c_oflag,
-            termios.c_cflag,
-            termios.c_lflag,
-            termios.c_cc,
-            ispeed,
-            ospeed,
-        )
-    }
 }

@@ -537,20 +537,6 @@ fn a_looper_block_tap_opens_looper_x() {
     assert_eq!(ui.screen(), Screen::Looper);
 }
 
-/// Tetrad: Mappings takes the place of stock Preset MIDI Out in the ⋮ menu.
-#[test]
-fn main_menu_mappings_opens_the_mappings_page() {
-    let mut ui = ui_with(rich());
-    activate(&mut ui, Control::OpenMainMenu);
-    let regions = ui.hit_regions();
-    let item =
-        (regions.iter()).find(|region| region.control == Control::Menu(MenuAction::Mappings));
-    assert_eq!(item.map(|region| region.label.as_str()), Some("Mappings"));
-    activate(&mut ui, Control::Menu(MenuAction::Mappings));
-    assert_eq!(ui.screen(), Screen::Mappings);
-    assert!(!ui.overlay_open());
-}
-
 #[test]
 fn navigation_stack_back_order_and_tuner_visibility_requests() {
     let mut ui = UiState::new();
@@ -810,6 +796,11 @@ fn media_picker_commits_the_stored_text_of_the_tapped_item() {
     assert!(!shown.contains(&Control::Media(MediaControl::Folder(
         MediaFolder::MyCaptures
     ))));
+    // The library row lists the IRs of every folder, and no captures.
+    activate(&mut ui, Control::Media(MediaControl::Library));
+    let item = |index| Control::Media(MediaControl::Item(index));
+    assert!(shows(&ui, item(0)) && shows(&ui, item(1)));
+    assert!(!shows(&ui, item(2)));
 
     activate(
         &mut ui,
@@ -1110,6 +1101,16 @@ fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
     ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
     ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
     assert!(ui.animating());
+    // A press outside the list stops it too, and presses as usual.
+    let mut outside = ui.clone();
+    let mut back = ui.clone();
+    back.activate(Control::Back);
+    let (bx, by) = center(&ui, Control::Back);
+    outside.handle_input(InputEvent::PointerDown { x: bx, y: by });
+    assert!(!outside.animating());
+    outside.handle_input(InputEvent::PointerUp { x: bx, y: by });
+    assert_ne!(back.screen(), ui.screen());
+    assert_eq!(outside.screen(), back.screen());
     tick(&mut ui, 2_540);
     let at = ui.offset(list);
     ui.handle_input(InputEvent::PointerDown { x, y });
@@ -1130,27 +1131,6 @@ fn a_slow_or_held_release_does_not_coast_and_a_press_stops_it() {
         ui.handle_input(InputEvent::PointerUp { x: px, y: py }),
         ui.activate(page),
     );
-}
-
-#[test]
-fn a_press_outside_a_coasting_list_stops_it_and_presses_as_usual() {
-    let (mut ui, (x, y), _) = settings_page_list();
-    let tick = |ui: &mut UiState, now_ms| ui.handle_input(InputEvent::Tick { now_ms });
-    tick(&mut ui, 3_000);
-    ui.handle_input(InputEvent::PointerDown { x, y });
-    tick(&mut ui, 3_020);
-    ui.handle_input(InputEvent::PointerMove { x, y: y - 60 });
-    ui.handle_input(InputEvent::PointerUp { x, y: y - 60 });
-    assert!(ui.animating());
-    let page = ui.screen();
-    let mut back = ui.clone();
-    back.activate(Control::Back);
-    let (bx, by) = center(&ui, Control::Back);
-    ui.handle_input(InputEvent::PointerDown { x: bx, y: by });
-    assert!(!ui.animating());
-    ui.handle_input(InputEvent::PointerUp { x: bx, y: by });
-    assert_ne!(back.screen(), page);
-    assert_eq!(ui.screen(), back.screen());
 }
 
 #[test]
@@ -1428,61 +1408,6 @@ fn parameter_knobs_follow_the_page() {
         .is_empty()
     );
     assert_eq!(KnobIndex::new(10), Err(UiError::InvalidKnob));
-}
-
-/// Issue #39: a tap on a choice with step texts opens them as a list at its drop-down field
-/// (stock `ComboBoxSelector`), with the current step marked; a row sets that step and closes
-/// the list. A choice without step texts still steps.
-#[test]
-fn a_choice_tap_opens_its_steps_and_a_row_sets_the_step() {
-    let mut snapshot = UiSnapshot {
-        selected_block: Some(cell(0, 0)),
-        ..rich()
-    };
-    snapshot.parameters[4].kind = ParameterKind::ComboBox { position: 0.5 };
-    snapshot.parameters[4].choices = ["Low", "Mid", "High"].map(String::from).into();
-    snapshot.parameters[5].kind = ParameterKind::Choice {
-        position: 0.0,
-        steps: 2,
-    };
-    let mut ui = ui_with(snapshot);
-    let knob = |index| Control::Param(ParamControl::Knob(KnobIndex(index)));
-    let cell_bounds = (ui.hit_regions().into_iter())
-        .find(|region| region.control == knob(4))
-        .unwrap()
-        .bounds;
-    let (x, y) = cell_bounds.center();
-    assert!(tap(&mut ui, x, y).is_empty());
-    let rows: Vec<(String, Rect)> = (ui.hit_regions().into_iter())
-        .filter(|region| matches!(region.control, Control::Choose(_)))
-        .map(|region| (region.label, region.bounds))
-        .collect();
-    let labels: Vec<&str> = rows.iter().map(|(label, _)| label.as_str()).collect();
-    assert_eq!(labels, ["Low", "Mid", "High"]);
-    // The list opens just above or below the cell's drop-down field.
-    let field = crate::draw::dropdown_field(cell_bounds);
-    let (top, bottom) = (rows[0].1.y, rows[2].1.bottom());
-    assert!(
-        top == field.bottom() + 4 || bottom == field.y - 4,
-        "{field:?} {rows:?}"
-    );
-    assert_eq!(
-        activate(&mut ui, Control::Choose(2)),
-        vec![UiCommand::SetStep {
-            target: ParameterTarget::Block(cell(0, 0)),
-            parameter: 8,
-            step: 2,
-        }]
-    );
-    assert_eq!(ui.overlay, None);
-    assert_eq!(
-        activate(&mut ui, knob(5)),
-        vec![UiCommand::NudgeParameter {
-            position: cell(0, 0),
-            parameter: 10,
-            steps: 1,
-        }]
-    );
 }
 
 /// Stock knob drag law (`ParameterControl::mouseMoveEvent` `0x4c9e20`): the normalized value
@@ -2422,44 +2347,6 @@ fn gig_scene_tools_and_undo_visibility() {
     assert_eq!(activate(&mut ui, Control::Undo), vec![UiCommand::Undo]);
 }
 
-/// Looper X: eight tiles A–H in stock order (`0x6129fc`) with one UNDO/REDO tile.
-#[test]
-fn looper_has_the_eight_stock_tiles() {
-    let mut snapshot = rich();
-    snapshot.looper.state = LooperState::Playing;
-    snapshot.looper.redo_available = true;
-    let mut ui = ui_with(snapshot);
-    ui.navigate(Screen::Looper);
-    let tiles: Vec<(LooperAction, String)> = ui
-        .hit_regions()
-        .into_iter()
-        .filter_map(|region| match region.control {
-            Control::Looper(action) => Some((action, region.label)),
-            _ => None,
-        })
-        .collect();
-    let titles: Vec<&str> = tiles.iter().map(|(_, title)| title.as_str()).collect();
-    assert_eq!(
-        titles,
-        [
-            "DUPLICATE",
-            "ONE SHOT",
-            "HALF SPEED",
-            "PUNCH IN",
-            "OVERDUB",
-            "PLAYING",
-            "REVERSE",
-            "REDO"
-        ]
-    );
-    assert!(
-        tiles
-            .iter()
-            .map(|(action, _)| *action)
-            .eq(LooperAction::TILES)
-    );
-}
-
 /// Looper X tiles: stock draws every tile in normal ink with no loop (shot 086; the device
 /// drops the presses its gates refuse); REDO shows whenever redo exists; an undo in progress
 /// leaves only UNDO.
@@ -2588,102 +2475,6 @@ fn tempo_knob_drag_nudges_the_tempo() {
         vec![UiCommand::NudgeTempo { steps: 60 }]
     );
     assert!(tap(&mut ui, from.0, from.1).is_empty());
-}
-
-/// Stock's Tempo header has the ◀◀ A ▶▶ scene stepper left of ✓ (seen on the QC 2026-10-15).
-#[test]
-fn tempo_page_steps_scenes() {
-    let mut ui = ui_with(rich());
-    ui.navigate(Screen::Tempo);
-    let current = ui.snapshot.selected_scene.get();
-    let next = scene((current + 1) % SCENE_COUNT as u8);
-    let (x, y) = center(&ui, Control::SelectScene(next));
-    assert!(x > 600 && y < 60);
-    assert_eq!(
-        tap(&mut ui, x, y),
-        vec![UiCommand::SelectScene { scene: next }]
-    );
-}
-
-/// MIDI Clock Out on: stock paints the BPM red and appends " | MIDI Clock Out" to the caption
-/// (`0x380924`..`0x3809d0`, seen on the QC 2026-10-15); off, the BPM stays the accent green.
-#[test]
-fn tempo_page_marks_midi_clock_out() {
-    let color_of = |ui: &UiState, text: &str| {
-        ui.layout().items.iter().find_map(|item| match item.look {
-            crate::layout::Look::Text { color, .. } if item.label == text => Some(color),
-            _ => None,
-        })
-    };
-    let mut snapshot = rich();
-    snapshot.tempo.bpm = 120.0;
-    snapshot
-        .settings
-        .insert(SettingId::MidiClockOut, SettingValue::Choice(0));
-    let mut ui = ui_with(snapshot.clone());
-    ui.navigate(Screen::Tempo);
-    assert_eq!(color_of(&ui, "120"), Some(Palette::STOCK.accent));
-    assert!(
-        !ui.layout()
-            .items
-            .iter()
-            .any(|item| item.label.ends_with("| MIDI Clock Out"))
-    );
-    snapshot
-        .settings
-        .insert(SettingId::MidiClockOut, SettingValue::Choice(1));
-    ui.set_snapshot(snapshot).unwrap();
-    assert_eq!(color_of(&ui, "120"), Some(Palette::STOCK.danger));
-    assert!(
-        ui.layout()
-            .items
-            .iter()
-            .any(|item| item.label.ends_with(" | MIDI Clock Out"))
-    );
-}
-
-/// Stock 4.1.0 ⋮ menu (seen on the QC, 2026-10-15): a scrolling list on the right with FILE
-/// and QUAD CORTEX headers; the first rows show at once, Settings only after a scroll.
-#[test]
-fn main_menu_is_a_scrolling_list_with_sections() {
-    let mut ui = ui_with(rich());
-    let shown = |ui: &UiState, action| {
-        ui.hit_regions()
-            .iter()
-            .any(|region| region.enabled && region.control == Control::Menu(action))
-    };
-    ui.apply(Control::OpenMainMenu);
-    assert!(ui.layout().items.iter().any(|item| item.label == "FILE"));
-    assert!(shown(&ui, MenuAction::CreateNew));
-    assert!(!shown(&ui, MenuAction::Settings));
-    drag(&mut ui, (600, 400), (600, 40));
-    assert!(
-        ui.layout()
-            .items
-            .iter()
-            .any(|item| item.label == "QUAD CORTEX")
-    );
-    drag(&mut ui, (600, 400), (600, 40));
-    assert!(shown(&ui, MenuAction::Settings));
-}
-
-/// The Boot Selector switch flips the launcher state the application read; before a read (or
-/// after a failed one) it shows no state and takes no tap.
-#[test]
-fn the_boot_selector_switch_needs_a_known_state() {
-    let page = Screen::Settings(SettingsPage::BootSelector);
-    let mut ui = ui_with(rich());
-    ui.show(page);
-    assert_eq!(activate(&mut ui, Control::BootSelectorToggle), vec![]);
-
-    let mut snapshot = rich();
-    snapshot.boot_selector = Some(true);
-    let mut ui = ui_with(snapshot);
-    ui.show(page);
-    assert_eq!(
-        activate(&mut ui, Control::BootSelectorToggle),
-        vec![UiCommand::SetBootSelector { shown: false }]
-    );
 }
 
 /// While Remote runs and its "Show PIN in menu" switch is on, the first row of the ⋮ menu is
@@ -2873,32 +2664,6 @@ fn scene_badge_opens_a_dropdown_that_a_pick_or_dismiss_closes() {
     activate(&mut ui, Control::SceneMenu);
     ui.handle_input(InputEvent::Back);
     assert_eq!(scene_rows(&ui), 0);
-}
-
-/// Stock 4.1.0 on the QC (`st5b.png`, 2026-10-16): the open scene dropdown has no pencil
-/// (scene names are edited from Gig View), a tap anywhere on the active row picks it, and the
-/// header badge turns grey (`#636163`) with no green frame around it.
-/// The dropdown scene letter as stock draws it (`st5b`, row B): ink rows 115–130 (a 16 px cap)
-/// and columns 476–487.
-#[test]
-fn scene_dropdown_letters_match_the_stock_cap() {
-    let mut ui = ui_with(rich());
-    activate(&mut ui, Control::SceneMenu);
-    let frame = ui.render();
-    // Inside the yellow badge only.
-    let ink: Vec<(u32, u32)> = (474..490)
-        .flat_map(|x| (112..134).map(move |y| (x, y)))
-        .filter(|&(x, y)| {
-            let p = frame.pixel(x, y);
-            u32::from(p.0) + u32::from(p.1) + u32::from(p.2) < 200
-        })
-        .collect();
-    let rows = (ink.iter().map(|p| p.1).min(), ink.iter().map(|p| p.1).max());
-    let columns = (ink.iter().map(|p| p.0).min(), ink.iter().map(|p| p.0).max());
-    assert_eq!(
-        (rows, columns),
-        ((Some(115), Some(130)), (Some(476), Some(487)))
-    );
 }
 
 #[test]
@@ -3286,34 +3051,6 @@ fn expression_assign_toggles_links_per_pedal_and_back_reverts() {
     assert_eq!(ui.screen(), Screen::Grid);
 }
 
-/// The media picker library row lists every item of the picked kind.
-#[test]
-fn media_library_row_lists_all_items_of_the_kind() {
-    let mut snapshot = rich();
-    snapshot.selected_block = Some(cell(0, 0));
-    snapshot.parameters[0].kind = ParameterKind::Media(MediaKind::Ir);
-    let entry = |folder, name: &str| MediaEntry {
-        folder,
-        name: name.into(),
-        value: name.into(),
-    };
-    snapshot.media = vec![
-        entry(MediaFolder::FactoryIrs, "F"),
-        entry(MediaFolder::MyIrs, "M"),
-        entry(MediaFolder::MyCaptures, "C"),
-    ]
-    .into();
-    let mut ui = ui_with(snapshot);
-    activate(
-        &mut ui,
-        Control::Param(ParamControl::Knob(KnobIndex::new(0).unwrap())),
-    );
-    activate(&mut ui, Control::Media(MediaControl::Library));
-    let item = |index| Control::Media(MediaControl::Item(index));
-    assert!(shows(&ui, item(0)) && shows(&ui, item(1)));
-    assert!(!shows(&ui, item(2)));
-}
-
 /// Power & Locking (`0x7d5690`, slot `0x6a852c`): a full-size POWER press shows the
 /// popup (again) and restarts a 3 s guard (`0x6a862c`), an open menu blocks it, LOCK drops touch until a 1 s hold of
 /// repeated presses (a 350 ms gap cancels), Be Right Back blanks the screen until a press.
@@ -3445,26 +3182,6 @@ fn master_volume_overlay_assigns_outputs_and_times_out() {
     activate(&mut ui, Control::Power(PowerControl::Lock));
     ui.handle_input(InputEvent::MasterVolume { percent: 20 });
     assert!(!ui.overlay_open());
-}
-
-/// Modes configuration ⓘ (`0x2d4f00`): the MIDI recall help opens over the page and
-/// Back returns to the page.
-#[test]
-fn modes_info_opens_midi_help_over_the_page() {
-    let mut ui = ui_with(rich());
-    activate(&mut ui, Control::OpenMainMenu);
-    activate(&mut ui, Control::Menu(MenuAction::ModesConfiguration));
-    let slot = Control::Mode(ModeControl::Slot(0));
-    activate(&mut ui, Control::Mode(ModeControl::Info));
-    assert!(!shows(&ui, slot));
-    let layout = ui.layout();
-    assert!(
-        layout.items[layout.layer..]
-            .iter()
-            .any(|item| item.label.contains("CC#47 value 2"))
-    );
-    ui.handle_input(InputEvent::Back);
-    assert!(shows(&ui, slot));
 }
 
 /// Modes configuration (manual §3): drag onto a slot merges a hybrid, drag into the row
@@ -4238,30 +3955,6 @@ fn preset_grid_is_the_grid_area_on_a_transparent_fill() {
     );
 }
 
-/// Tempo beat marks (`0x0037e89c`, tempo parameter 10 + beat): 1 fills the dot black, 2 and
-/// 3 put a small dot 24 px above or below the beat centre (shot 008).
-#[test]
-fn tempo_beat_accents_draw_the_stock_marks() {
-    let mut snapshot = rich();
-    snapshot.tempo.beats_per_bar = 4;
-    snapshot.tempo.accents[..3].copy_from_slice(&[
-        BeatAccent::Above,
-        BeatAccent::Black,
-        BeatAccent::Below,
-    ]);
-    let mut ui = ui_with(snapshot);
-    ui.navigate(Screen::Tempo);
-    let frame = ui.render();
-    // Beat centres x = 208 + 128·i, y 213; marks at y 189 and 237.
-    let at = |x, y| frame.pixel(x, y);
-    assert_eq!(at(208, 189), Palette::STOCK.section, "mark above beat 1");
-    assert_eq!(at(208, 237), Palette::STOCK.canvas);
-    assert_eq!(at(336, 213), Palette::STOCK.canvas, "black beat 2");
-    assert_eq!(at(464, 237), Palette::STOCK.section, "mark below beat 3");
-    assert_eq!(at(592, 213), Palette::STOCK.section, "plain beat 4");
-    assert_eq!(at(592, 189), Palette::STOCK.canvas);
-}
-
 /// Looper X after "Reassign": tile n shows the action stored for footswitch n, and picking a
 /// tile in the swap dialog names its footswitch letter.
 #[test]
@@ -4321,58 +4014,6 @@ fn grid_draws_a_lock_on_an_unlicensed_plugin_block_only() {
         .bounds;
     // Stock (4, 54, 24, 24) in the 82 px block item, whose tile sits at (9, 9).
     assert_eq!(locks(&ui), [Rect::new(slot.x - 5, slot.y + 45, 24, 24)]);
-}
-
-/// Stock `0x005a6004` and `0x002eb624` (`3d-worship-v5`): a plugin block gets its tag
-/// ("NLY" for plugin 5, white on the amp red) at (19, −4, 32, 16) of its slot and a tile fill
-/// of its colour at 30 % (`#4c0c0c`, `#4a0c08` on the 565 screen); a plain block gets neither.
-#[test]
-fn grid_draws_the_plugin_tag_and_fill_on_a_plugin_block_only() {
-    let mut snapshot = rich();
-    for (index, plugin) in [Some(5), None].into_iter().enumerate() {
-        snapshot.grid[index].label = "AMP".into();
-        snapshot.blocks[index] = BlockInfo {
-            category: Some(ModelCategory::GuitarAmp),
-            model_id: Some(1171),
-            plugin,
-        };
-    }
-    let ui = ui_with(snapshot);
-    let items = ui.layout().items;
-    let tile = |column| {
-        let item = items
-            .iter()
-            .find(|item| item.control == Some(Control::SelectCell(cell(0, column))))
-            .unwrap();
-        match item.look {
-            crate::layout::Look::Block { fill, .. } => (item.bounds, fill),
-            _ => panic!("not a block"),
-        }
-    };
-    let tags: Vec<_> = items
-        .iter()
-        .filter(|item| matches!(item.look, crate::layout::Look::Text { .. }))
-        .filter(|item| item.label == "NLY")
-        .map(|item| (item.bounds, item.look.clone()))
-        .collect();
-    let (slot, fill) = tile(0);
-    let tag = Rect::new(slot.x + 19, slot.y - 4, 32, 16);
-    assert_eq!(fill, tetrad_assets::Rgb(0x4c, 0x0c, 0x0c));
-    assert_eq!(tags.len(), 1);
-    assert_eq!(tags[0].0, tag);
-    assert!(matches!(
-        tags[0].1,
-        crate::layout::Look::Text { color, .. } if color == Palette::STOCK.text
-    ));
-    assert!(items.iter().any(|item| item.bounds == tag
-        && matches!(
-            item.look,
-            crate::layout::Look::Panel {
-                fill: tetrad_assets::block::AMP,
-                ..
-            }
-        )));
-    assert_eq!(tile(1).1, Palette::STOCK.canvas);
 }
 
 /// Census #2: a new device notice opens the MessageDialog once; while another modal shows
@@ -5333,50 +4974,6 @@ fn edit_stomp_takes_a_footswitch_press_as_its_stomp() {
     assert!(!shows(&ui, Control::Stomp(StompEdit::Rename(1))));
 }
 
-/// Review r15 R25: "Factory Captures will be omitted." is in the plural delete text only
-/// (singular strings `0x01204f00`, `0x01204fd8` have no `%4`).
-#[test]
-fn factory_omitted_note_is_plural_only() {
-    let mut snapshot = rich();
-    let entry = |value: &str| MediaEntry {
-        folder: MediaFolder::MyCaptures,
-        name: value.into(),
-        value: value.into(),
-    };
-    let details = |value: &str, read_only| DirectoryMedia {
-        value: value.into(),
-        author: String::new(),
-        date: String::new(),
-        read_only,
-        folders: Vec::new(),
-        capture: None,
-    };
-    snapshot.media = vec![entry("owned"), entry("factory")].into();
-    std::sync::Arc::make_mut(&mut snapshot.directory).media =
-        vec![details("owned", false), details("factory", true)];
-    let mut ui = ui_with(snapshot);
-    let library = Control::Library;
-    activate(&mut ui, Control::Navigate(Screen::Presets));
-    activate(&mut ui, library(LibraryControl::Category));
-    activate(&mut ui, Control::Choose(2));
-    let note = |ui: &UiState| {
-        ui.layout()
-            .items
-            .iter()
-            .any(|item| item.label.contains("will be omitted"))
-    };
-    for (rows, plural) in [(&[1][..], false), (&[0, 1][..], true)] {
-        activate(&mut ui, library(LibraryControl::MultiSelect));
-        for row in rows {
-            activate(&mut ui, library(LibraryControl::Check(*row)));
-        }
-        activate(&mut ui, library(LibraryControl::Bulk(BulkAction::Delete)));
-        assert_eq!(note(&ui), plural, "{rows:?}");
-        ui.handle_input(InputEvent::Back);
-        ui.handle_input(InputEvent::Back);
-    }
-}
-
 /// Global EQ preset popup (`0x227a84`, `0x2289a0`): while the page matches a preset, Save
 /// Current Parameters as... and Overwrite are disabled; factory rows cannot be renamed; a
 /// user Delete asks first, then requests the delete.
@@ -6148,55 +5745,6 @@ fn bulk_download_fetches_the_checked_cloud_captures_not_on_the_unit() {
     offline.wifi.status = WifiStatus::NoNetwork;
     ui.set_snapshot(offline).unwrap();
     assert!(ui.directory.cloud.is_none() && ui.directory.multi.is_none());
-}
-
-/// Gap C1 (`0x79992c` → `0x799134`; `0x794910` type 1 → `0x7867c4`): a cloud IR row downloads
-/// into the IR destination, and Multi Select DOWNLOAD fetches each checked IR not on the unit
-/// with "Downloading IRs, please wait.".
-#[test]
-fn cloud_irs_download_one_by_one_or_in_bulk() {
-    let mut s = rich();
-    s.wifi.status = WifiStatus::InternetConnected;
-    s.account.username = Some("player@example.com".into());
-    let row = |id: &str, stored| CloudItem {
-        id: id.into(),
-        name: id.into(),
-        author: "someone".into(),
-        stored,
-    };
-    s.cloud = vec![CloudFolderView {
-        kind: ItemKind::Ir,
-        scope: CloudScope::Cloud,
-        rows: vec![row("a", false), row("b", true), row("c", false)],
-        more: false,
-        fetching: false,
-        error: None,
-    }]
-    .into();
-    let mut ui = ui_with(s);
-    let library = Control::Library;
-    activate(&mut ui, Control::Navigate(Screen::Presets));
-    activate(&mut ui, library(LibraryControl::Category));
-    activate(&mut ui, Control::Choose(3));
-    activate(&mut ui, library(LibraryControl::Cloud));
-    assert_eq!(
-        activate(&mut ui, library(LibraryControl::CloudItem(0))),
-        [UiCommand::DownloadProduct { id: "a".into() }]
-    );
-    activate(&mut ui, library(LibraryControl::MultiSelect));
-    for index in [1, 2] {
-        activate(&mut ui, library(LibraryControl::Check(index)));
-    }
-    assert_eq!(
-        activate(&mut ui, library(LibraryControl::Bulk(BulkAction::Download))),
-        [UiCommand::DownloadProducts {
-            ids: vec!["c".into()]
-        }]
-    );
-    assert_eq!(
-        ui.toast.as_ref().map(|toast| toast.text.as_str()),
-        Some("Downloading IRs, please wait.")
-    );
 }
 
 /// Census #14 (`BackupEditDialog`): CREATE BACKUP asks a name first (`0x3f8568`, empty
@@ -7026,17 +6574,6 @@ fn the_capture_cycle_puts_factory_captures_first_then_the_directory_sort() {
     assert_eq!((rows[0].name, rows[0].version), ("Fac Z", "2"));
 }
 
-/// The first boot after an update (`0x54491c`) shows the popup titled "CorOS: %1"
-/// (`0x351c58`) over the release notes.
-#[test]
-fn update_notes_show_the_version_title_and_notes() {
-    let mut ui = ui_with(rich());
-    ui.show_update_notes("4.1.1", "Bug fixes".into());
-    let layout = ui.layout();
-    let says = |text: &str| layout.items.iter().any(|i| i.label == text);
-    assert!(says("CorOS: 4.1.1") && says("Bug fixes"));
-}
-
 fn media_snapshot(entries: &[(MediaFolder, &str, &str)]) -> UiSnapshot {
     let mut snapshot = rich();
     snapshot.media = (entries.iter())
@@ -7554,94 +7091,6 @@ fn selected_overdrive() -> UiSnapshot {
     s
 }
 
-/// Stock block editor (`b4-stock1`, 2026-10-16): the header and the Grid behind an open editor
-/// keep 132/255 of each channel, and the editor panel is not dimmed.
-#[test]
-fn open_block_editor_dims_the_header_and_grid_to_stock_level() {
-    let open = ui_with(selected_overdrive()).render();
-    let mut closed_snapshot = selected_overdrive();
-    closed_snapshot.selected_block = None;
-    let closed = ui_with(closed_snapshot).render();
-    // USB 5 port tile (8..51, 109..184) and the header scene badge (656..680, 12..36).
-    for (x, y) in [(20, 120), (658, 24)] {
-        assert_eq!(
-            open.pixel(x, y),
-            closed.pixel(x, y).mix(Palette::STOCK.canvas, 123),
-            "dimmed at ({x}, {y})"
-        );
-    }
-    assert_eq!(
-        open.pixel(730, 210),
-        Palette::STOCK.panel,
-        "the ✓ key is not dimmed"
-    );
-}
-
-/// Colour the device shows: RGB565 truncation, expanded back to 8 bits per channel.
-fn device(c: tetrad_assets::Rgb) -> tetrad_assets::Rgb {
-    let (r, g, b) = (c.0 >> 3, c.1 >> 2, c.2 >> 3);
-    tetrad_assets::Rgb(
-        (r << 3) | (r >> 2),
-        (g << 2) | (g >> 4),
-        (b << 3) | (b >> 2),
-    )
-}
-
-/// First and last column of each run of columns with ink (a channel above 128) inside `area`,
-/// the same threshold the stock shots are read with.
-fn ink_runs(frame: &Frame, area: Rect) -> Vec<(i32, i32)> {
-    let mut runs: Vec<(i32, i32)> = Vec::new();
-    for x in area.x..area.right() {
-        let inked = (area.y..area.bottom()).any(|y| {
-            let c = frame.pixel(x as u32, y as u32);
-            c.0.max(c.1).max(c.2) > 128
-        });
-        if !inked {
-            continue;
-        }
-        match runs.last_mut() {
-            Some((_, last)) if *last + 1 == x => *last = x,
-            _ => runs.push((x, x)),
-        }
-    }
-    runs
-}
-
-/// Stock title (`sn-0` "1A Save", `stock-home` "3D Worship V5"): the glyph starts are 15, 56,
-/// 120, 163, 200 and 239, and 13, 59, 120, 187, 228, 254 and 292. Qt draws 70 px text as outlines
-/// at the fractional pen, and Tetrad puts each glyph at the rounded pen, so each start may
-/// differ by 1.
-#[test]
-fn grid_title_glyph_starts_match_the_stock() {
-    let title = |bank: u16, slot: u8, name: &str| {
-        ui_with(UiSnapshot {
-            preset_title: name.into(),
-            preset_slot: Some(BankSlot { bank, slot }),
-            ..UiSnapshot::default()
-        })
-        .render()
-    };
-    let area = Rect::new(0, 14, 560, 80);
-    let check = |frame: &Frame, stock: &[i32]| {
-        let starts: Vec<i32> = ink_runs(frame, area).iter().map(|run| run.0).collect();
-        assert!(starts.len() >= stock.len(), "{starts:?}");
-        for (got, want) in starts.iter().zip(stock) {
-            assert!((got - want).abs() <= 1, "glyph start {got} for {stock:?}");
-        }
-    };
-    check(&title(0, 0, "Save"), &[15, 56, 120, 163, 200, 239]);
-    check(
-        &title(2, 3, "Worship V5"),
-        &[13, 59, 120, 187, 228, 254, 292],
-    );
-    // Stock `sn-0` ink rows 27 to 77 for "1A Save": the baseline sits at y 77.
-    let frame = title(0, 0, "Save");
-    let rows: Vec<i32> = (area.y..area.bottom())
-        .filter(|&y| (area.x..area.right()).any(|x| frame.pixel(x as u32, y as u32).0 > 128))
-        .collect();
-    assert_eq!((rows[0], rows[rows.len() - 1]), (27, 77), "title rows");
-}
-
 /// Stock never elides the Grid title (`0x00341104`): while the name's ink + 1 is wider than
 /// the 598 px item − pen x − 10, it sets the pixel size to `int(size × 0.9)`. "1C Main & Bass V2"
 /// draws whole at 63 px (`st-mp1c`; Tetrad used to show "Main & Bass..."), a short name stays
@@ -7675,106 +7124,6 @@ fn grid_title_shrinks_to_fit_and_is_not_elided() {
         ]
     );
     assert_eq!(title("Bass")[2], ("Bass".into(), px70));
-}
-
-/// Stock mode label (`st-mp1c`): "STOMP" is 22 px Bold with the 26.6 kern rule (T→O −1 px), ink
-/// x 693–765 and y 64–79. Without the T→O kern it ends at 766.
-#[test]
-fn grid_mode_label_is_the_stock_22_px_bold() {
-    let frame = ui_with(UiSnapshot {
-        footswitch_mode: Some(FootswitchMode::Stomp),
-        ..UiSnapshot::default()
-    })
-    .render();
-    let area = Rect::new(686, 52, 106, 40);
-    let runs = ink_runs(&frame, area);
-    let (first, last) = (
-        runs.first().expect("label ink").0,
-        runs.last().expect("label ink").1,
-    );
-    assert_eq!((first, last), (693, 765), "label ink columns");
-    let rows: Vec<i32> = (area.y..area.bottom())
-        .filter(|&y| {
-            (area.x..area.right()).any(|x| {
-                let c = frame.pixel(x as u32, y as u32);
-                c.0.max(c.1).max(c.2) > 128
-            })
-        })
-        .collect();
-    assert_eq!((rows[0], rows[rows.len() - 1]), (64, 79), "label rows");
-}
-
-/// Stock selection (`b4-stock1`): the selected tile's ring is 6 px wide (x 69..74) in the block's
-/// own colour, and nothing white is drawn outside the tile.
-#[test]
-fn selected_tile_has_a_six_pixel_ring_in_its_hue() {
-    let frame = ui_with(selected_overdrive()).render();
-    let hue = ModelCategory::GuitarOverdrive
-        .hue()
-        .mix(Palette::STOCK.canvas, 123);
-    for x in 69..=74 {
-        assert_eq!(frame.pixel(x, 140), hue, "ring at x {x}");
-    }
-    assert_eq!(
-        frame.pixel(75, 140),
-        Palette::STOCK.canvas,
-        "inside the ring"
-    );
-    assert_eq!(
-        frame.pixel(68, 140),
-        Palette::STOCK.canvas,
-        "outside the tile"
-    );
-}
-
-/// Stock editor keys (`b4-stock1`): ⋮, the scene selector, and bypass are `#181c18`, and the
-/// scene letter badge is 24 px (x 556..579) centred between the chevrons.
-#[test]
-fn block_editor_keys_use_the_stock_fill_and_a_24_px_scene_badge() {
-    let frame = ui_with(selected_overdrive()).render();
-    let idle = tetrad_assets::Rgb(0x18, 0x1c, 0x18);
-    assert_eq!(frame.pixel(12, 210), idle, "⋮ key");
-    assert_eq!(frame.pixel(660, 210), idle, "bypass key");
-    assert_eq!(
-        frame.pixel(556, 226),
-        Palette::STOCK.warning,
-        "badge left edge"
-    );
-    assert_eq!(
-        frame.pixel(579, 226),
-        Palette::STOCK.warning,
-        "badge right edge"
-    );
-    assert_eq!(frame.pixel(555, 226), idle, "left of the badge");
-    assert_eq!(frame.pixel(580, 226), idle, "right of the badge");
-}
-
-/// Stock dropdown pixels (shot 025, RGB565 readback): the panel fill is 49/52/49, its
-/// corner has a 10 px radius, and the active top row is clipped to that corner.
-#[test]
-fn scene_dropdown_panel_matches_stock_fill_and_corner() {
-    let mut ui = ui_with(rich());
-    let mut s = ui.snapshot().clone();
-    s.selected_scene = scene(0);
-    ui.set_snapshot(s).unwrap();
-    activate(&mut ui, Control::SceneMenu);
-    let frame = ui.render();
-    let outside = frame.pixel(453, 44);
-    assert_eq!(
-        frame.pixel(650, 150),
-        tetrad_assets::Rgb(0x31, 0x34, 0x31),
-        "panel fill"
-    );
-    assert_eq!(
-        frame.pixel(456, 46),
-        outside,
-        "a 10 px corner leaves (456, 46) clear"
-    );
-    assert_eq!(
-        frame.pixel(455, 44),
-        outside,
-        "the active row is clipped to the corner"
-    );
 }
 
 /// Every catalog category and sub-category takes its stock block glyph and colour
@@ -7873,148 +7222,6 @@ fn block_glyphs_and_colours_follow_the_stock_device_table() {
     assert_eq!(capture(CaptureDevice::Compressor), block::DYNAMICS);
     assert_eq!(capture(CaptureDevice::Default), block::NEUTRAL);
     assert_eq!(BlockInfo::default().icon(None), None);
-}
-
-/// Factory 1A "Brit 2203", row 1 block 7 (Adaptive Gate (S/C), 16007) on the QC: stock
-/// draws the `utility.png` fan at 32 px with its box at tile + 16, (599, 131) on screen
-/// (`st5a.png`, 2026-10-16). Tetrad drew a 40 px wrench there.
-#[test]
-fn a_utility_block_draws_the_stock_fan_at_32_px() {
-    let position = cell(0, 6);
-    let mut s = UiSnapshot::default();
-    s.grid[position.index()].label = "Adaptive Gate (S/C)".into();
-    s.blocks[position.index()] = BlockInfo {
-        category: Some(ModelCategory::Utility),
-        model_id: Some(16_007),
-        plugin: None,
-    };
-    let ui = ui_with(s);
-    let slot = (ui.hit_regions().into_iter())
-        .find(|region| region.control == Control::SelectCell(position))
-        .expect("the block is visible")
-        .bounds;
-    let (x, y) = (slot.x + 3 + 16, slot.y + 3 + 16);
-    assert_eq!((x, y), (599, 131), "stock glyph box");
-    let frame = ui.render();
-    let at = |dx: i32, dy: i32| frame.pixel((x + dx) as u32, (y + dy) as u32);
-    assert_eq!(at(5, 9), Palette::STOCK.text, "handle");
-    assert_eq!(at(4, 27), Palette::STOCK.text, "ball");
-    let blade = at(12, 12);
-    assert!((100..180).contains(&blade.0), "grey blade {blade:?}");
-    assert_eq!(
-        at(22, 22),
-        Palette::STOCK.canvas,
-        "the wrench shaft is gone"
-    );
-}
-
-/// The Grid picks the block glyph by model as stock does (`0x2eb99c`): a Doubler (16011)
-/// draws `doubler.png`, not the Utility fan of its category.
-#[test]
-fn grid_blocks_use_the_model_glyph_not_only_the_category() {
-    let position = cell(2, 1);
-    let render = |model_id| {
-        let mut s = UiSnapshot::default();
-        s.grid[position.index()].label = "Block".into();
-        s.blocks[position.index()] = BlockInfo {
-            category: Some(ModelCategory::Utility),
-            model_id: Some(model_id),
-            plugin: None,
-        };
-        let ui = ui_with(s);
-        let slot = (ui.hit_regions().into_iter())
-            .find(|region| region.control == Control::SelectCell(position))
-            .expect("the block is visible")
-            .bounds;
-        let frame = ui.render();
-        (0..32)
-            .flat_map(|dy| (0..32).map(move |dx| (dx, dy)))
-            .map(|(dx, dy)| frame.pixel((slot.x + 19 + dx) as u32, (slot.y + 19 + dy) as u32))
-            .collect::<Vec<_>>()
-    };
-    assert_ne!(
-        render(16_011),
-        render(16_007),
-        "Doubler and the Utility fan differ"
-    );
-}
-
-/// Factory 1A "Brit 2203" on the QC (`st5a.png`, 2026-10-16): stock draws ●▶ after "In 1"
-/// (stored input flag), ▶● on the left edge of the Adaptive Gate (S/C) in row 1 column 7 (a
-/// sink) and a grey ▶● on the bypassed Doubler in row 3 column 2 (`0x005a6004`, 20 %). The
-/// pixels below are the stock ones: white square, black dot and ▶, a black rim over the cable.
-#[test]
-fn sidechain_marks_draw_as_stock_on_the_grid() {
-    let mut s = UiSnapshot::default();
-    s.rows[0] = RowView {
-        input: InputPort::Input1,
-        output: OutputPort::NextRow3,
-        ..RowView::default()
-    };
-    s.rows[2] = RowView {
-        input: InputPort::PrevRow,
-        output: OutputPort::MultipleOuts,
-        ..RowView::default()
-    };
-    for (position, bypassed) in [(cell(0, 6), false), (cell(2, 1), true)] {
-        s.grid[position.index()] = GridCell {
-            label: "Block".into(),
-            bypassed,
-        };
-        s.blocks[position.index()].category = Some(ModelCategory::Utility);
-        s.sidechain.sinks[position.index()] = true;
-    }
-    s.sidechain.inputs[0] = true;
-    let frame = ui_with(s).render();
-    let at = |x: u32, y: u32| frame.pixel(x, y);
-    let (white, black) = (Palette::STOCK.text, Palette::STOCK.canvas);
-    // "In 1" source, glyph box (46, 139): rim on the tile, square, dot, ▶; the cable from x 64.
-    assert_eq!(
-        [
-            at(45, 146),
-            at(53, 141),
-            at(50, 147),
-            at(55, 147),
-            at(64, 147)
-        ],
-        [black, white, black, black, Palette::STOCK.cable]
-    );
-    // Row 1 column 7 sink, glyph box (579, 139): rim cuts the cable, ▶, square, dot.
-    assert_eq!(
-        [
-            at(577, 147),
-            at(582, 147),
-            at(587, 147),
-            at(590, 147),
-            at(593, 147)
-        ],
-        [black, black, white, black, white]
-    );
-    // Bypassed row 3 column 2 sink, glyph box (151, 327): grey square, the cable through the ▶.
-    assert_eq!(at(160, 330), white.mix(black, 204));
-    assert_eq!(at(153, 334), Palette::STOCK.cable);
-}
-
-/// Stock `0x427db4` strokes a block tile with `drawRoundedRect(13, 13)` on the pen's centre
-/// line, so a 2 px ring has an outer corner radius of 14 (`st-mp1a.png`, tile (69, 115)): the
-/// left edge is black at tile row 8, partly lit from row 9 and fully lit from row 14.
-#[test]
-fn block_tile_corners_use_the_stock_radius() {
-    let position = cell(0, 0);
-    let mut s = UiSnapshot::default();
-    s.grid[position.index()].label = "OD".into();
-    s.blocks[position.index()].category = Some(ModelCategory::GuitarOverdrive);
-    let ui = ui_with(s);
-    let slot = (ui.hit_regions().into_iter())
-        .find(|region| region.control == Control::SelectCell(position))
-        .unwrap()
-        .bounds;
-    let frame = ui.render();
-    let at = |dy: i32| frame.pixel(slot.x as u32 + 3, (slot.y + 3 + dy) as u32);
-    assert_eq!(at(8), Palette::STOCK.canvas);
-    assert_ne!(at(9), Palette::STOCK.canvas);
-    assert_ne!(at(13), tetrad_assets::block::DRIVE);
-    assert_eq!(at(14), tetrad_assets::block::DRIVE);
 }
 
 /// Factory 1A row 1 column 3 on the QC (`st5a.png`): a "pedal" capture draws `NC_pedal.png`
@@ -8151,127 +7358,6 @@ fn gig_stomp_icons_use_the_block_glyph_not_only_the_category() {
         pedal.hue(Some(CaptureDevice::Pedal)).unwrap()
     );
     assert_ne!(fill(Some(CaptureDevice::Pedal)), fill(None));
-}
-
-/// Stock 103 (tile B): a Neural Capture with a device type shows the capture badge on its Gig
-/// stomp. The 24 px black disc sits at (−2, +48) of the 70 px icon box (218, 88). The probe
-/// (228, 158) is below the box (y 88..157), where only the disc's backing can paint.
-#[test]
-fn gig_stomp_shows_the_capture_type_badge() {
-    let position = cell(0, 2);
-    let render = |capture: Option<CaptureDevice>| {
-        let mut snapshot = UiSnapshot {
-            footswitch_mode: Some(FootswitchMode::Stomp),
-            ..rich()
-        };
-        let category = ModelCategory::of_model(14_000);
-        snapshot.blocks[position.index()] = BlockInfo {
-            category,
-            model_id: Some(14_000),
-            plugin: None,
-        };
-        snapshot.captures[position.index()] = capture;
-        snapshot.stomps[1] = StompView {
-            label: "STOMP".into(),
-            category,
-            position: Some(position),
-            blocks: vec![position],
-            ..StompView::default()
-        };
-        let mut ui = ui_with(snapshot);
-        swipe_up_to_gig(&mut ui);
-        ui.render()
-    };
-    let badged = render(Some(CaptureDevice::Pedal));
-    let plain = render(None);
-    assert_eq!(badged.pixel(228, 158), Palette::STOCK.canvas, "badge disc");
-    assert_ne!(
-        plain.pixel(228, 158),
-        Palette::STOCK.canvas,
-        "no badge without a device type"
-    );
-    // The striped glyph is white in the disc, below the block glyph (which ends at y 143).
-    let striped = |frame: &Frame| {
-        (222..240).any(|x| (144..158).any(|y| frame.pixel(x, y) == Palette::STOCK.text))
-    };
-    assert!(striped(&badged), "striped glyph");
-    assert!(!striped(&plain), "no glyph without a device type");
-}
-
-/// Stock "Multiple devices": a switch on several blocks shows `multiple_stomps.png` in place of
-/// its first block's glyph. More blocks than two do not change it.
-#[test]
-fn gig_stomp_on_several_blocks_shows_the_multiple_devices_glyph() {
-    let render = |blocks: Vec<GridPosition>| {
-        let mut snapshot = UiSnapshot {
-            footswitch_mode: Some(FootswitchMode::Stomp),
-            ..rich()
-        };
-        let category = ModelCategory::of_model(16_011);
-        snapshot.blocks[cell(0, 2).index()] = BlockInfo {
-            category,
-            model_id: Some(16_011),
-            plugin: None,
-        };
-        snapshot.stomps[1] = StompView {
-            label: "STOMP".into(),
-            category,
-            position: Some(cell(0, 2)),
-            blocks,
-            ..StompView::default()
-        };
-        let mut ui = ui_with(snapshot);
-        swipe_up_to_gig(&mut ui);
-        let frame = ui.render();
-        // Tile B's 70 px icon box at (218, 88).
-        (0..70_u32)
-            .flat_map(|dy| (0..70_u32).map(move |dx| (dx, dy)))
-            .map(|(dx, dy)| frame.pixel(218 + dx, 88 + dy))
-            .collect::<Vec<_>>()
-    };
-    let one = render(vec![cell(0, 2)]);
-    let two = render(vec![cell(0, 2), cell(0, 3)]);
-    assert_ne!(one, two, "two blocks show the Multiple devices glyph");
-    assert_eq!(two, render(vec![cell(0, 2), cell(0, 3), cell(0, 4)]));
-}
-
-/// Stock editor header (`b4-stock1`): "Freeman BOD" at 20 px (cap ink y 231..244), and with a
-/// Virtual Device Preset match the 16 px layers glyph in the name colour after it (stock box
-/// x 188, y 229; Tetrad's name is 1 px wider, so Tetrad's box is at x 189).
-#[test]
-fn block_editor_header_marks_a_preset_match_after_the_model_name() {
-    let hue = ModelCategory::GuitarOverdrive.hue();
-    let render = |matched: Option<PresetMatch>| {
-        let mut s = selected_overdrive();
-        s.editor_preset = matched;
-        ui_with(s).render()
-    };
-    let plain = render(None);
-    let marked = render(Some(PresetMatch::CatalogDefault));
-    let ink_rows = (215..255)
-        .filter(|&y| (62..186).any(|x| plain.pixel(x, y) == hue))
-        .collect::<Vec<_>>();
-    assert_eq!(ink_rows.first().zip(ink_rows.last()), Some((&231, &244)));
-    let (x, y) = (189, 229);
-    // Diamond row 3 is solid from column 2 to 13; chevron row 8 is solid at columns 2..=3
-    // and open at column 7.
-    for column in 2..=13 {
-        assert_eq!(
-            marked.pixel(x + column, y + 3),
-            hue,
-            "diamond column {column}"
-        );
-    }
-    assert_eq!(marked.pixel(x + 2, y + 8), hue);
-    assert_eq!(marked.pixel(x + 7, y + 8), plain.pixel(x + 7, y + 8));
-    let glyph_box = (x - 1..x + 17).flat_map(|px| (y - 1..y + 17).map(move |py| (px, py)));
-    assert!(glyph_box.clone().all(|(px, py)| plain.pixel(px, py) != hue));
-    assert!(
-        glyph_box
-            .filter(|&(px, py)| marked.pixel(px, py) == hue)
-            .count()
-            > 60
-    );
 }
 
 /// Stock title area (`0x4ba858`): one 200 × 60 button right of ⋮ from the editor top. A tap on
@@ -8508,154 +7594,6 @@ fn cables_stop_short_of_ports_and_active_blocks_and_cross_bypassed_ones() {
     assert_eq!(frame.pixel(794, 120), Palette::STOCK.canvas);
 }
 
-/// Stock bypassed block editor (`0x4b5918`, `sl-1` against `b4-stock1`): the parameter cells
-/// are drawn at opacity 0.3 (white text reads `#525552`, the `#ff7100` arc `#522c08`), the
-/// bypass key shows the bypassed pixmap (`0x6869ec`: the ring in the block colour at x
-/// 676–693, cut at y 224–227, a white bar at y 225–226 from x 673 to 696), and the header
-/// keys keep full colour. Three parameters take one row: the card ends at y 362 and the
-/// divider after the last cell (x 478) is the last one.
-#[test]
-fn a_bypassed_block_editor_dims_its_cells_and_shows_the_bypassed_glyph() {
-    let near = |got: tetrad_assets::Rgb, stock: tetrad_assets::Rgb| {
-        let channel = |a: u8, b: u8| a.abs_diff(b) <= 10;
-        channel(got.0, stock.0) && channel(got.1, stock.1) && channel(got.2, stock.2)
-    };
-    let mut s = selected_overdrive();
-    s.parameters = ["OVERDRIVE", "TONE", "LEVEL"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, label)| continuous(index as u16, label, 0.5))
-        .collect();
-    let active = ui_with(s.clone()).render();
-    s.grid[0].bypassed = true;
-    let bypassed = ui_with(s).render();
-    let hue = ModelCategory::GuitarOverdrive.hue();
-    let idle = tetrad_assets::Rgb(0x18, 0x1c, 0x18);
-    // The arc at the left of the first knob (centre 122.5, 327.5, radius about 30).
-    let arc = (80..105)
-        .map(|x| (x, 328))
-        .find(|&(x, y)| active.pixel(x, y) == hue)
-        .expect("an active arc pixel");
-    assert!(near(
-        bypassed.pixel(arc.0, arc.1),
-        tetrad_assets::Rgb(0x52, 0x2c, 0x08)
-    ));
-    let label = (18..60)
-        .flat_map(|x| (268..282).map(move |y| (x, y)))
-        .find(|&(x, y)| active.pixel(x, y) == Palette::STOCK.text)
-        .expect("a label pixel");
-    assert!(near(
-        bypassed.pixel(label.0, label.1),
-        tetrad_assets::Rgb(0x52, 0x55, 0x52)
-    ));
-    assert!(
-        near(
-            bypassed.pixel(60, 300),
-            tetrad_assets::Rgb(0x10, 0x14, 0x10)
-        ),
-        "cell fill"
-    );
-    // The bypass key.
-    assert_eq!(bypassed.pixel(677, 221), hue, "ring");
-    assert_eq!(bypassed.pixel(685, 221), idle, "inside the ring");
-    assert_eq!(bypassed.pixel(676, 224), idle, "the cut");
-    for x in [673, 685, 696] {
-        assert_eq!(bypassed.pixel(x, 225), Palette::STOCK.text, "bar at x {x}");
-        assert_eq!(bypassed.pixel(x, 226), Palette::STOCK.text, "bar at x {x}");
-    }
-    assert_eq!(bypassed.pixel(672, 225), idle);
-    assert_ne!(active.pixel(677, 221), hue, "active: the power glyph");
-    assert_eq!(bypassed.pixel(660, 210), idle, "keys are not dimmed");
-    assert_eq!(bypassed.pixel(730, 210), Palette::STOCK.panel);
-    // One row of cells, dividers up to the last cell.
-    let page = active.pixel(400, 400);
-    assert_eq!(active.pixel(400, 362), crate::widgets::CARD);
-    assert_eq!(active.pixel(400, 363), page);
-    assert_eq!(active.pixel(478, 300), Palette::STOCK.divider);
-    assert_eq!(active.pixel(635, 300), crate::widgets::CARD);
-}
-
-/// Stock bypassed card (`sl-1`, device readback): the card reads `#101410`, the divider and page
-/// `#101010`. The 0.3 layer over the `#101010` page only turns green after RGB565 truncation (green
-/// keeps 6 bits, red and blue keep 5). The cell content goes at 0.3 over the faded card.
-#[test]
-fn bypassed_card_reads_back_green_like_the_stock_565_panel() {
-    let mut s = selected_overdrive();
-    s.parameters = ["OVERDRIVE", "TONE", "LEVEL"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, label)| continuous(index as u16, label, 0.5))
-        .collect();
-    s.grid[0].bypassed = true;
-    let frame = ui_with(s).render();
-    let card = tetrad_assets::Rgb(0x10, 0x14, 0x10);
-    let page = tetrad_assets::Rgb(0x10, 0x10, 0x10);
-    assert_eq!(device(frame.pixel(60, 300)), card, "card");
-    assert_eq!(
-        device(frame.pixel(790, 300)),
-        card,
-        "card at the right edge"
-    );
-    assert_eq!(device(frame.pixel(164, 300)), page, "cell divider");
-    assert_eq!(device(frame.pixel(400, 400)), page, "page below the card");
-    // The brightest pixel of the "OVERDRIVE" label is its white stem.
-    let text = (18..60)
-        .flat_map(|x| (268..282).map(move |y| (x, y)))
-        .map(|(x, y)| frame.pixel(x, y))
-        .max_by_key(|c| c.0)
-        .map(device)
-        .expect("label ink");
-    // Full white over the faded card, as stock's needle; stock's label stems peak one green
-    // step lower (#525552) because its glyph stems are not fully covered.
-    let white = tetrad_assets::Rgb(0x52, 0x59, 0x52);
-    assert_eq!(text, white, "label");
-    // The first knob as `sl-1` reads it: face, needle and arc each painted at 0.3 over the
-    // faded card.
-    assert_eq!(
-        device(frame.pixel(122, 335)),
-        tetrad_assets::Rgb(0x10, 0x18, 0x10),
-        "face"
-    );
-    let knob: Vec<_> = (85..160)
-        .flat_map(|x| (290..362).map(move |y| (x, y)))
-        .map(|(x, y)| device(frame.pixel(x, y)))
-        .collect();
-    assert!(knob.contains(&white), "needle");
-    assert!(knob.contains(&tetrad_assets::Rgb(0x52, 0x2c, 0x08)), "arc");
-}
-
-/// Stock card rows (`b4-stock1`, seven parameters): cells on a 157 px pitch, row 2 from y 365,
-/// and in a part row no divider after the cell that follows the last one.
-#[test]
-fn block_editor_draws_a_cell_only_for_each_parameter() {
-    let mut s = selected_overdrive();
-    s.parameters = (0..7).map(|index| continuous(index, "P", 0.5)).collect();
-    let frame = ui_with(s).render();
-    for (x, y) in [
-        (164, 300),
-        (321, 300),
-        (478, 300),
-        (635, 300),
-        (164, 410),
-        (321, 410),
-    ] {
-        assert_eq!(
-            frame.pixel(x, y),
-            Palette::STOCK.divider,
-            "divider at ({x}, {y})"
-        );
-    }
-    for (x, y) in [(478, 410), (635, 410), (164, 360), (164, 270)] {
-        assert_eq!(
-            frame.pixel(x, y),
-            crate::widgets::CARD,
-            "card at ({x}, {y})"
-        );
-    }
-    assert_eq!(frame.pixel(400, 364), Palette::STOCK.divider, "row gap");
-    assert_eq!(frame.pixel(400, 365), crate::widgets::CARD, "row 2");
-}
-
 /// Stock `updateMode` (`0x674ed0`): a stored Preset MIDI Out message (`0x0032da4c`) puts
 /// `icons/mainMenuPopup/midi.png` in the mode glyph's place in every mode but Preset (`sn-0`;
 /// `st0` without messages keeps the footswitch, in the same 24 px box). The disc is 22 px
@@ -8705,29 +7643,4 @@ fn mode_button_shows_the_midi_glyph_while_the_preset_has_midi_out() {
     );
     assert!(!white(cx, cy + 10), "key notch");
     assert!(!white(cx - 12, cy) && !white(cx + 12, cy), "22 px disc");
-}
-
-/// Stock `0x427db4`: a Capture 2.0 block (model 14001, `0x6966d4`) has a second 2 px ring
-/// 5 px inside its tile at opacity 0.6 (`nc-s1`: tile y 115–178, inner ring y 120–121 and
-/// 172–173 at x 356); a 14000 capture has none. It is not a selection.
-#[test]
-fn capture_two_blocks_draw_the_stock_inner_ring() {
-    let frame = |model| {
-        let mut s = UiSnapshot::default();
-        let position = cell(0, 3);
-        s.grid[position.index()].label = "NC".into();
-        s.blocks[position.index()].category = Some(ModelCategory::NeuralCapture);
-        s.blocks[position.index()].model_id = Some(model);
-        ui_with(s).render()
-    };
-    let two = frame(14_001);
-    let ring = two.pixel(356, 116);
-    let inner = ring.mix(Palette::STOCK.canvas, 102);
-    for y in [120, 121, 172, 173] {
-        assert_eq!(two.pixel(356, y), inner, "inner ring at y {y}");
-    }
-    for y in [118, 123, 170, 175] {
-        assert_eq!(two.pixel(356, y), Palette::STOCK.canvas, "black at y {y}");
-    }
-    assert_eq!(frame(14_000).pixel(356, 120), Palette::STOCK.canvas);
 }

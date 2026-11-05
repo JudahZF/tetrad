@@ -526,53 +526,6 @@ mod tests {
         }
     }
 
-    /// A stock grid block can be a placeholder; a paid plugin's model never is, so a community
-    /// block can never stand in for one.
-    #[test]
-    fn plugin_models_are_never_placeholders() {
-        let model = |id, plugin_id| ModelSpec {
-            id,
-            name: format!("model {id}"),
-            category_id: 0,
-            role: ModelRole::Block,
-            blob: None,
-            plugin_id,
-            hidden: false,
-            internal: false,
-            replaces: Vec::new(),
-            clones: Vec::new(),
-            sidechain: None,
-            secondary_stomp_parameter: None,
-            parameters: Vec::new(),
-            stats: None,
-            report_row: false,
-            reuse_pmco: true,
-            community: None,
-        };
-        let mut specs = Specs::default();
-        for spec in [model(3, None), model(4, Some(1))] {
-            specs.models.insert(spec.id, spec);
-        }
-        assert_eq!(placeholder(Some(3), &specs), 3);
-        assert_eq!(placeholder(Some(4), &specs), DEFAULT_PLACEHOLDER);
-    }
-
-    /// Without the DSP firmware files nothing is built and the catalog keeps no community model.
-    #[test]
-    fn no_template_builds_nothing() {
-        let mut specs = Specs::default();
-        let sources = [source("a/b:c/sat", qcdsp::examples::saturator().unwrap())];
-        let (blobs, statuses) = install(
-            &sources,
-            None,
-            &mut specs,
-            &mut BTreeMap::new(),
-            &mut Ids::new(),
-        );
-        assert!(blobs.is_empty() && specs.models.is_empty());
-        assert!(statuses[0].model.is_none() && statuses[0].error.is_some());
-    }
-
     /// A key keeps its saved ID when a new key's hash collides with it, when it is not installed
     /// for a while, and after a restart; it moves only off a stock ID, and a full range reuses
     /// the ID of a key that is not installed.

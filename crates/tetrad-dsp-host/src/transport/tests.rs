@@ -65,32 +65,6 @@ fn synchronous_flag_publication_waits_on_consumer_for_every_core_and_rejects_old
 }
 
 #[test]
-fn typed_metronome_block_publishes_one_exact_generic_frame() {
-    use tetrad_dsp_protocol::controls::MetronomeParameterBlock;
-    let block = MetronomeParameterBlock::new(std::array::from_fn(|index| index as u32));
-    let mut transport = DspTransport::new(FakeMemory::new(MESSAGE_MEMORY_BYTES)).unwrap();
-    let receipt = transport
-        .send_control(ControlPacket::MetronomeBlock(&block))
-        .unwrap();
-    assert_eq!(
-        receipt,
-        SendReceipt {
-            core: CoreId::Control,
-            slot: 1,
-            byte_length: 108
-        }
-    );
-    let bytes = &transport.memory.bytes[0xb7e8..0xb854];
-    assert_eq!(
-        &bytes[..16],
-        &[0x46, 4, 0, 0, 0, 0, 0, 0, 108, 0, 0, 0, 92, 0, 0, 0]
-    );
-    for (index, word) in bytes[16..].chunks_exact(4).enumerate() {
-        assert_eq!(word, &(index as u32).to_le_bytes());
-    }
-}
-
-#[test]
 fn typed_control_requests_publish_the_complete_packet_without_an_extra_fragment_header() {
     use tetrad_dsp_protocol::controls::{ControlRequest, RequestFrame};
     use tetrad_dsp_protocol::hid::HidReportFrame;

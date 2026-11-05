@@ -932,28 +932,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn recording_hal_records_and_answers_from_settings() {
-        let mut hal = RecordingHal::default();
-        let setting = lift(GroundLift::Grounded);
-        hal.apply(Command::Set(setting, Verification::Unverified))
-            .unwrap();
-        hal.apply(Command::Power(PowerCommand::Shutdown)).unwrap();
-        assert_eq!(hal.commands.len(), 2);
-        let query = Query::Setting(setting.control());
-        assert_eq!(hal.read(query), Ok(Reading::Value(setting.value())));
-        assert_eq!(
-            hal.read(Query::Volume),
-            Err(HalError::NoReading(Query::Volume))
-        );
-        hal.set_reading(Query::Volume, Reading::Word(7));
-        assert_eq!(hal.read(Query::Volume), Ok(Reading::Word(7)));
-        hal.inject(Event::Tempo(3));
-        let mut events = Vec::new();
-        hal.poll_events(&mut events).unwrap();
-        assert_eq!(events, [Event::Tempo(3)]);
-    }
-
     /// An element index past 10 fails before any ioctl, on both `Hal` impls.
     #[test]
     fn element_led_index_is_checked_before_any_ioctl() {

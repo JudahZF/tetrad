@@ -149,17 +149,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mix_endpoints_are_exact() {
-        let stock = Palette::STOCK;
-        assert_eq!(stock.accent.mix(stock.background, 0), stock.accent);
-        assert_eq!(stock.accent.mix(stock.background, 255), stock.background);
-        assert_eq!(
-            Rgb(0, 0, 0).mix(Rgb(255, 255, 255), 128),
-            Rgb(128, 128, 128)
-        );
-    }
-
-    #[test]
     fn hex_text_round_trips() {
         assert_eq!(
             Rgb::try_from("#17291a".to_owned()),

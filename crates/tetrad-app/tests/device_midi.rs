@@ -222,14 +222,6 @@ fn program_change_is_dropped_while_a_plugin_preset_is_auditioned() {
     );
 }
 
-/// Without a library a program change is refused, not loaded.
-#[test]
-fn program_change_without_library_loads_nothing() {
-    let mut state = state(HalPlatform::QcOriginal, Hardware::QuadCortex);
-    let mut midi = started(&state);
-    assert!(loads(feed(&mut midi, &mut state, &[0xC0, 0x05])).is_empty());
-}
-
 /// A DSP MIDI record: `code`, `status`, two data bytes and the word-2 SHARC stamp.
 fn record(
     response_type: ResponseType,

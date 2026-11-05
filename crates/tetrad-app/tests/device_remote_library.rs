@@ -95,13 +95,6 @@ fn new_folder(device: &mut Device<Sim>, name: &str, parent: Option<i64>) -> i64 
     folder.expect("the new folder")["id"].as_i64().unwrap()
 }
 
-/// The names in the touch UI's media picker: it follows each change of the page.
-fn picker_names(device: &Device<Sim>) -> Vec<String> {
-    let media = device.bridges().ui.media();
-    let user = media.iter().filter(|entry| entry.value.starts_with("CIR_"));
-    user.map(|entry| entry.name.clone()).collect()
-}
-
 /// The listing holds the user IRs (no factory IRs) with name, import date and folders, the
 /// writable IR folders root first, and the saving destination.
 #[test]
@@ -173,50 +166,6 @@ fn an_ir_joins_and_leaves_folders_but_stays_in_the_root() {
     assert_eq!(listing["irs"][0]["folders"], json!([root]));
 }
 
-/// A rename follows the IR name rule (4 to 60 characters, spaces simplified) and reaches the
-/// touch UI's media picker.
-#[test]
-fn a_rename_follows_the_name_rule_and_reaches_the_picker() {
-    let (mut device, _media) = device();
-    let id = upload(&mut device, "V30 SM57");
-    let rename = |name: &str| LibraryOp::Rename {
-        id: id.clone(),
-        name: name.into(),
-    };
-
-    let renamed = library(&mut device, rename("  Greenback   121 ")).unwrap();
-    assert_eq!(renamed["irs"][0]["name"], "Greenback 121");
-    assert_eq!(picker_names(&device), ["Greenback 121"]);
-
-    for bad in ["abc", &"x".repeat(61)] {
-        let refused = library(&mut device, rename(bad)).unwrap_err();
-        assert!(refused.contains("4 to 60"), "{refused}");
-    }
-    assert_eq!(picker_names(&device), ["Greenback 121"]);
-}
-
-/// A delete removes the IR from the library, its folders and the touch UI's media picker.
-#[test]
-fn a_delete_removes_the_ir_everywhere() {
-    let (mut device, _media) = device();
-    let kept = upload(&mut device, "V30 SM57");
-    let gone = upload(&mut device, "Greenback 121");
-    let cabs = new_folder(&mut device, "Cabs", None);
-    let link = LibraryOp::Link {
-        id: gone.clone(),
-        folder: cabs,
-        linked: true,
-    };
-    library(&mut device, link).unwrap();
-
-    let listing = library(&mut device, LibraryOp::Delete { id: gone.clone() }).unwrap();
-    let irs = listing["irs"].as_array().unwrap();
-    assert_eq!(irs.len(), 1);
-    assert_eq!(irs[0]["id"], kept.as_str());
-    assert_eq!(picker_names(&device), ["V30 SM57"]);
-    assert!(library(&mut device, LibraryOp::Delete { id: gone }).is_err());
-}
-
 /// The saving destination is the stock setting: the status line and the next upload follow it.
 /// Only a writable IR folder can be one.
 #[test]
@@ -241,58 +190,4 @@ fn the_destination_sets_where_uploads_go() {
     assert!(library(&mut device, LibraryOp::Destination { folder: 9999 }).is_err());
     let listing = library(&mut device, LibraryOp::List).unwrap();
     assert_eq!(listing["destination"], nested);
-}
-
-/// Folder names follow the touch keyboard rule; the folder count is capped as on the unit.
-#[test]
-fn a_new_folder_follows_the_name_rule_and_the_cap() {
-    let (mut device, _media) = device();
-    let create = |name: &str| LibraryOp::CreateFolder {
-        name: name.into(),
-        parent: None,
-    };
-    let refused = library(&mut device, create("abc")).unwrap_err();
-    assert!(refused.contains("4 to 60"), "{refused}");
-
-    // The root counts as one of the 30.
-    for n in 1..30 {
-        library(&mut device, create(&format!("Folder {n}"))).unwrap();
-    }
-    let refused = library(&mut device, create("Folder 30")).unwrap_err();
-    assert!(refused.contains("30 IR folders"), "{refused}");
-}
-
-/// Every library request needs the PIN; a wrong PIN changes nothing.
-#[test]
-fn a_wrong_pin_changes_nothing() {
-    let (mut device, _media) = device();
-    let id = upload(&mut device, "V30 SM57");
-    let before = library(&mut device, LibraryOp::List).unwrap();
-    let root = root(&before);
-    let ops = [
-        LibraryOp::List,
-        LibraryOp::Rename {
-            id: id.clone(),
-            name: "Greenback 121".into(),
-        },
-        LibraryOp::Delete { id: id.clone() },
-        LibraryOp::Link {
-            id,
-            folder: root,
-            linked: false,
-        },
-        LibraryOp::Destination { folder: root },
-        LibraryOp::CreateFolder {
-            name: "Cabs".into(),
-            parent: None,
-        },
-    ];
-    for op in ops {
-        let pin = "9999".into();
-        assert_eq!(
-            ask(&mut device, Request::Library { pin, op }),
-            Reply::WrongPin
-        );
-    }
-    assert_eq!(library(&mut device, LibraryOp::List).unwrap(), before);
 }

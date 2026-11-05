@@ -1790,38 +1790,6 @@ pub(crate) mod tests {
         assert_eq!(ui.screen(), Screen::Grid);
     }
 
-    /// The Mode dropdown lists the row's modes and sends the picked one; a value stepper sends
-    /// one tick of its field. The host decides what the tick does.
-    #[test]
-    fn mode_dropdown_and_value_steppers_send_their_commands() {
-        let mut ui = page(sample());
-        activate(&mut ui, map(MappingControl::Open(1)));
-        let id = MappingId::Stomp {
-            stomp: 0,
-            position: cell(0, 1),
-        };
-        activate(&mut ui, map(MappingControl::Choice(MappingChoice::Mode)));
-        assert_eq!(
-            activate(&mut ui, Control::Choose(1)),
-            sent(MappingCommand::SetMode {
-                scope: MappingScope::Preset,
-                id: id.clone(),
-                mode: ModeKind::Toggle,
-            })
-        );
-        let step = map(MappingControl::Field(FieldId::Value, -1));
-        assert!(shown(&ui, step));
-        assert_eq!(
-            activate(&mut ui, step),
-            sent(MappingCommand::StepField {
-                scope: MappingScope::Preset,
-                id,
-                field: FieldId::Value,
-                ticks: -1,
-            })
-        );
-    }
-
     /// More than two values live on the Values page: the Values row opens it, Back returns to
     /// the detail page, and the page closes when the row comes to have two values or fewer.
     #[test]

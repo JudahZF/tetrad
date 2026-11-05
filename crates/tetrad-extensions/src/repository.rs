@@ -368,11 +368,6 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn default_key_is_valid() {
-        PublicKey::from_base64(DEFAULT_KEY).unwrap();
-    }
-
     /// A key only the tests revoke, with the space and line end that an entry may have.
     pub(crate) const REVOKED_KEY: &str = " tcIAxscbc0Xu7znfW4h8hwQ/BiK7sazrjkbOp7UID7U=\n";
 

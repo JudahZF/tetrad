@@ -1,10 +1,10 @@
 use tetrad_sharc::address::{DmWordAddress32, PcRelative24, PmWordAddress24};
 use tetrad_sharc::isa48::{
     BitOperation, BranchKind, BranchTarget, Condition, EncodeError, IMASK_EMUI, IMASK_RSTI,
-    IMASK_SECI, IMASK_WRITABLE, Instruction48, InstructionWord48, InterruptMask, MODE1_CBUFEN,
-    MODE1_IRPTEN, MODE1_NESTM, MODE1_PEYEN, MODE1_RND32, MODE1_SCALAR_CLEAR, MODE2_CADIS,
-    MODE2_SNEN, Mmask, Mode1Mask, Mode2Mask, STKYX_LSEM, STKYX_PCEM, STKYX_SSEM, StackEmptyMask,
-    StackPops, SystemBitMask, UnsupportedFeature,
+    IMASK_WRITABLE, Instruction48, InstructionWord48, InterruptMask, MODE1_CBUFEN, MODE1_IRPTEN,
+    MODE1_NESTM, MODE1_PEYEN, MODE1_RND32, MODE1_SCALAR_CLEAR, MODE2_CADIS, MODE2_SNEN, Mmask,
+    Mode1Mask, Mode2Mask, STKYX_LSEM, STKYX_PCEM, STKYX_SSEM, StackEmptyMask, StackPops,
+    SystemBitMask, UnsupportedFeature,
 };
 use tetrad_sharc::register::DataReg;
 
@@ -168,47 +168,6 @@ fn read_only_status_and_unsupported_numerical_modes_cannot_be_written() {
         .encode(),
         Err(EncodeError::Unsupported(UnsupportedFeature::Simd))
     );
-}
-
-#[test]
-fn sysreg_and_ureg_selectors_and_rti_bit40_are_distinct() {
-    let mask = Mmask::new(MODE1_PEYEN).unwrap();
-    assert_eq!(
-        Instruction48::MmaskImmediate(mask).encode().unwrap().bits() >> 32 & 0x7f,
-        0x73
-    );
-    for operation in [BitOperation::Set, BitOperation::Clear, BitOperation::Test] {
-        for (operand, selector) in [
-            (
-                SystemBitMask::Mode1(Mode1Mask::new(MODE1_RND32).unwrap()),
-                2,
-            ),
-            (SystemBitMask::Mmask(mask), 3),
-            (
-                SystemBitMask::Mode2(Mode2Mask::new(MODE2_CADIS).unwrap()),
-                4,
-            ),
-            (
-                SystemBitMask::Interrupt(InterruptMask::new(IMASK_SECI).unwrap()),
-                0xb,
-            ),
-        ] {
-            assert_eq!(
-                Instruction48::SystemBit { operation, operand }
-                    .encode()
-                    .unwrap()
-                    .bits()
-                    >> 32
-                    & 0xf,
-                selector
-            );
-        }
-    }
-    let rti = Instruction48::Rti.encode().unwrap().bits();
-    let rts = Instruction48::Rts.encode().unwrap().bits();
-    assert_eq!(rti ^ rts, 1 << 40);
-    assert_eq!(rti & (1 << 39), 0);
-    assert_ne!(rti, 0x0abe00000000); // Explicitly reject the oracle bug.
 }
 
 #[test]

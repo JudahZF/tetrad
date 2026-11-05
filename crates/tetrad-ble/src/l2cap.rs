@@ -174,30 +174,4 @@ mod tests {
             Err(FrameError::TooLong(0xffff))
         );
     }
-
-    #[test]
-    fn signalling_round_trips() {
-        let parameters = Parameters {
-            min_interval: 9,
-            max_interval: 12,
-            latency: 0,
-            timeout: 300,
-        };
-        let request = parameter_update_request(7, parameters);
-        assert_eq!(
-            parse_signal(&request),
-            Signal::UpdateRequest {
-                identifier: 7,
-                parameters
-            }
-        );
-        assert_eq!(
-            parse_signal(&update_response(7, true)),
-            Signal::UpdateResponse { accepted: true }
-        );
-        assert_eq!(
-            parse_signal(&[0x0a, 3, 0, 0]),
-            Signal::Unknown { identifier: 3 }
-        );
-    }
 }

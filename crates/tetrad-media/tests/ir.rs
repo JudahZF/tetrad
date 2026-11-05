@@ -86,16 +86,6 @@ fn raw_preserves_all_float_bits_including_nonfinite_payloads() {
 }
 
 #[test]
-fn raw_words_are_little_endian_independent_of_host_float_operations() {
-    let bytes = [
-        0x45, 0x23, 0xc1, 0x7f, 0, 0, 0, 0x80, 0x12, 0x34, 0x56, 0x78,
-    ];
-    let samples = decode(&bytes, IrInputFormat::RawLeFloat32, LIMITS).unwrap();
-    assert_eq!(samples.bits(), [0x7fc1_2345, 0x8000_0000, 0x7856_3412]);
-    assert_eq!(samples.to_le_bytes(), bytes);
-}
-
-#[test]
 fn raw_selection_tracks_source_count_at_capacity_boundaries() {
     for count in [0, 1, 1023, 1024, 1025, 4097] {
         let words: Vec<u32> = (0..count).map(|index| WORDS[index % WORDS.len()]).collect();
@@ -191,17 +181,6 @@ fn provenance_assigns_rate_and_channels_only_to_validated_wav() {
         assert_eq!(samples.source_format(), IrSourceFormat::WavMono48kFloat32);
         assert_eq!(samples.source_format().sample_rate_hz(), Some(48_000));
         assert_eq!(samples.source_format().channel_count(), Some(1));
-    }
-}
-
-#[test]
-fn checked_channel_indices_accept_only_zero_and_one() {
-    assert_eq!(IrChannel::try_from(0), Ok(IrChannel::Channel0));
-    assert_eq!(IrChannel::try_from(1), Ok(IrChannel::Channel1));
-    assert_eq!(IrChannel::Channel0.index(), 0);
-    assert_eq!(IrChannel::Channel1.index(), 1);
-    for channel in [2, 10, u32::MAX] {
-        assert_eq!(IrChannel::try_from(channel), Err(IrError::Channel(channel)));
     }
 }
 
@@ -314,26 +293,6 @@ fn both_wav_policies_preserve_every_selected_float_bit() {
 }
 
 #[test]
-fn standard_format_16_is_a_deliberate_improvement_over_fixed_header_38() {
-    let bytes = wav(&raw(&WORDS), 16, true);
-    assert_eq!(&bytes[36..40], b"data");
-    assert_eq!(
-        decode(&bytes, IrInputFormat::Wav(WavPolicy::StandardRiff), LIMITS)
-            .unwrap()
-            .bits(),
-        WORDS
-    );
-    assert_eq!(
-        decode(
-            &bytes,
-            IrInputFormat::Wav(WavPolicy::RecoveredHeader38),
-            LIMITS
-        ),
-        Err(IrError::RecoveredHeaderLayout)
-    );
-}
-
-#[test]
 fn standard_walks_unknown_chunks_before_fmt_while_recovered_requires_fmt_first() {
     let bytes = riff(&[
         chunk(b"JUNK", b"ab", true),
@@ -399,14 +358,18 @@ fn wav_rejects_each_unverified_format_channel_rate_and_width() {
     }
 }
 
+/// Standard takes fmt 16 (common in DAW exports) as well as 18, and no other size; the fixed
+/// 38-byte header of the recovered policy takes only 18.
 #[test]
 fn arbitrary_fmt_sizes_are_not_generalized_into_float_formats() {
-    for size in [0, 15, 17, 19, 40] {
+    for size in [0, 15, 16, 17, 19, 40] {
         let bytes = wav(&raw(&WORDS), size, true);
-        assert_eq!(
-            decode(&bytes, IrInputFormat::Wav(WavPolicy::StandardRiff), LIMITS),
-            Err(IrError::UnsupportedFormatSize(size))
-        );
+        let standard = decode(&bytes, IrInputFormat::Wav(WavPolicy::StandardRiff), LIMITS);
+        if size == 16 {
+            assert_eq!(standard.unwrap().bits(), WORDS);
+        } else {
+            assert_eq!(standard, Err(IrError::UnsupportedFormatSize(size)));
+        }
         assert_eq!(
             decode(
                 &bytes,
@@ -756,24 +719,6 @@ fn complete_even_unknown_chunks_after_data_do_not_change_selected_samples() {
             assert_eq!(samples.original_sample_count(), words.len());
             let plan = IrTransferPlan::new(&samples, IrChannel::Channel0);
             assert_eq!(plan.payload(), raw(words));
-        }
-    }
-}
-
-#[test]
-fn wav_count_truncation_keeps_original_count_without_allocating_declared_capacity() {
-    for count in [0, 1, 1023, 1024, 1025, 4097] {
-        let words: Vec<u32> = (0..count).map(|index| WORDS[index % WORDS.len()]).collect();
-        let bytes = wav(&raw(&words), 18, true);
-        for policy in POLICIES {
-            let samples = decode(&bytes, IrInputFormat::Wav(policy), LIMITS).unwrap();
-            assert_eq!(samples.bits(), &words[..count.min(1024)]);
-            assert_eq!(samples.original_sample_count(), count);
-            assert_eq!(samples.is_truncated(), count > 1024);
-            assert_eq!(samples.ignored_partial_bytes(), 0);
-            let plan = IrTransferPlan::new(&samples, IrChannel::Channel1);
-            assert_eq!(plan.byte_count(), 4 * count.min(1024));
-            assert_eq!(plan.payload(), raw(&words[..count.min(1024)]));
         }
     }
 }

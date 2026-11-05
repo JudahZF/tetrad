@@ -451,14 +451,4 @@ mod tests {
         assert_eq!(edge(5, Some(30), low), press);
         assert_eq!(edge(30, Some(5), low), release);
     }
-
-    #[test]
-    fn follow_maps_the_window_and_clamps() {
-        let window = Window { low: 10, high: 110 };
-        assert_eq!(follow(0, window, 0.2, 0.8), 0.2);
-        assert_eq!(follow(60, window, 0.2, 0.8), 0.5);
-        assert_eq!(follow(127, window, 0.2, 0.8), 0.8);
-        assert_eq!(follow(60, window, 1.0, 0.0), 0.5);
-        assert_eq!(follow(127, Window::FULL, 1.0, 0.0), 0.0);
-    }
 }

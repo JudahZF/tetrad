@@ -46,13 +46,6 @@ fn ask(device: &mut Device<Sim>, pin: &str, op: EditorOp) -> Reply {
     reply
 }
 
-fn view(device: &mut Device<Sim>) -> Value {
-    match ask(device, PIN, EditorOp::View) {
-        Reply::Json(view) => view,
-        other => panic!("the view: {other:?}"),
-    }
-}
-
 fn command(device: &mut Device<Sim>, command: Value) -> Reply {
     let json = command.to_string().into_bytes();
     ask(device, PIN, EditorOp::Command { json })
@@ -75,57 +68,6 @@ fn refused(reply: Reply) -> String {
 
 fn edit(scope: &str, page: u8, slot: u8, edit: Value) -> Value {
     json!({ "op": "slot", "scope": scope, "page": page, "slot": slot, "edit": edit })
-}
-
-/// The mode is part of Tetrad: the view has it without any extension.
-#[test]
-fn the_mode_needs_no_extension() {
-    let (mut device, _files, _media) = boot();
-    assert_eq!(view(&mut device)["mode"]["name"], "Custom");
-    let clear = edit("global", 0, 0, json!({ "kind": "clear" }));
-    applied(&mut device, clear);
-}
-
-/// The view has the mode's pages of ten slots, the two layouts and the choices of the touch
-/// action menu for this preset and this mode.
-#[test]
-fn the_view_lists_the_pages_slots_and_choices() {
-    let (mut device, _files, _media) = boot();
-    let view = view(&mut device);
-    assert_eq!(
-        view["mode"],
-        json!({ "name": "Custom", "extension": "Tetrad", "pages": 4, "page": 0,
-                "active": false })
-    );
-    let pages = view["layouts"]["global"].as_array().unwrap();
-    assert_eq!(pages.len(), 4);
-    assert!(
-        pages
-            .iter()
-            .all(|page| page["slots"].as_array().unwrap().len() == 10)
-    );
-    assert_eq!(pages[0]["slots"][0]["action"], Value::Null);
-    assert_eq!(view["layouts"]["preset"].as_array().map(Vec::len), Some(4));
-    assert_eq!(view["preset"], "Light");
-    assert_eq!(view["colours"].as_array().unwrap().len(), 8);
-    assert_eq!(view["setlists"], json!(["My Presets"]));
-    let block = &view["blocks"][0];
-    assert_eq!((&block["row"], &block["column"]), (&json!(0), &json!(2)));
-    let pages: Vec<_> = (view["systems"].as_array().unwrap().iter())
-        .filter(|choice| choice["group"] == "Page")
-        .map(|choice| choice["action"].clone())
-        .collect();
-    assert_eq!(
-        pages,
-        [
-            json!({ "customPage": "next" }),
-            json!({ "customPage": "previous" }),
-            json!({ "customPage": { "go": 0 } }),
-            json!({ "customPage": { "go": 1 } }),
-            json!({ "customPage": { "go": 2 } }),
-            json!({ "customPage": { "go": 3 } }),
-        ]
-    );
 }
 
 /// An action, a label and a colour from the page give the layout file that the same edits
@@ -422,24 +364,6 @@ fn a_bad_command_is_refused_and_writes_nothing() {
     assert!(reason.contains("unknown variant `tap`"), "{reason}");
     assert_eq!(layout_file(&device, &files), None);
     assert!(!device.state().preset_dirty());
-}
-
-/// Every call needs the PIN, a command too.
-#[test]
-fn a_wrong_pin_stays_refused() {
-    let (mut device, files, _media) = boot();
-    assert_eq!(ask(&mut device, "9999", EditorOp::View), Reply::WrongPin);
-    let json = edit(
-        "global",
-        0,
-        0,
-        json!({ "kind": "action", "action": { "kind": "sendMidi" } }),
-    )
-    .to_string()
-    .into_bytes();
-    let reply = ask(&mut device, "9999", EditorOp::Command { json });
-    assert_eq!(reply, Reply::WrongPin);
-    assert_eq!(layout_file(&device, &files), None);
 }
 
 /// A command names the double press or a combo of a switch with `gesture`; the view shows

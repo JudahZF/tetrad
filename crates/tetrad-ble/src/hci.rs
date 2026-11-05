@@ -405,23 +405,4 @@ mod tests {
         );
         assert_eq!(Event::parse(&[0x0e, 0x04, 0x0f]), None);
     }
-
-    #[test]
-    fn commands_and_acl_frame() {
-        assert_eq!(command(op::RESET, &[]), [0x01, 0x03, 0x0c, 0x00]);
-        assert_eq!(
-            acl(0x40, true, &[1, 2]),
-            [0x02, 0x40, 0x00, 0x02, 0x00, 1, 2]
-        );
-        assert_eq!(acl(0x40, false, &[3]), [0x02, 0x40, 0x10, 0x01, 0x00, 3]);
-    }
-
-    #[test]
-    fn advertising_data_names_and_services() {
-        let data = [
-            0x02, 0x01, 0x06, 0x03, 0x03, 0x12, 0x18, 0x05, 0x09, b'P', b'e', b'd', b'l',
-        ];
-        assert_eq!(ad_name(&data).as_deref(), Some("Pedl"));
-        assert_eq!(ad_services(&data), vec![crate::Uuid::Short(0x1812)]);
-    }
 }

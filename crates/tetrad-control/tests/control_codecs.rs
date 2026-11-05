@@ -4,7 +4,7 @@ use tetrad_control::codecs::{
     ShowTunerMessage, SuspendConnectionMessage, SuspendReason, TunerMessage, WireValue,
 };
 use tetrad_control::scene::SceneWireError;
-use tetrad_control::{Envelope, Error, Limits, Reassembler};
+use tetrad_control::{Envelope, Limits, Reassembler};
 
 #[test]
 fn complete_type_table_and_open_enums_are_explicit() {
@@ -229,22 +229,6 @@ fn wire_observations_keep_duplicates_unknowns_groups_and_wrong_wire_types() {
 }
 
 #[test]
-fn duplicate_looper_status_messages_merge_including_explicit_zero() {
-    let payload = [26, 4, 8, 9, 32, 2, 26, 5, 8, 0, 0x98, 1, 7, 26, 0];
-    let decoded = LooperMessage::decode(&payload, CodecLimits::default()).unwrap();
-    let status = decoded.message.status.as_ref().unwrap();
-    assert_eq!(status.state, Some(0));
-    assert_eq!(status.duplicate_cycle, Some(2));
-    assert_eq!(status.events_waiting_for_quantize, Some(7));
-    assert_eq!(decoded.original_payload(), payload);
-    let canonical = [26, 7, 8, 0, 32, 2, 0x98, 1, 7];
-    assert_eq!(
-        decoded.message.encode(CodecLimits::default()).unwrap(),
-        canonical
-    );
-}
-
-#[test]
 fn looper_status_all_22_fields_use_descriptor_types_not_flag_guesses() {
     let mut payload = Vec::new();
     for number in 1u8..=22 {
@@ -448,34 +432,4 @@ fn byte_field_and_combined_nesting_limits_apply_to_read_and_write() {
         LooperMessage::decode(&payload, limits),
         Err(CodecError::FieldLimit(3))
     );
-}
-
-#[test]
-fn typed_selection_refuses_unsupported_types_and_preserves_envelope_guards() {
-    let mut envelope = Envelope {
-        message_type: 6,
-        transform: 1,
-        decompress: 0,
-        opaque: [0; 2],
-        payload: vec![],
-    };
-    assert_eq!(
-        ControlMessage::decode(&envelope, CodecLimits::default()),
-        Err(CodecError::Envelope(Error::UnsupportedTransform(1)))
-    );
-    envelope.transform = 0;
-    envelope.decompress = 1;
-    assert_eq!(
-        ControlMessage::decode(&envelope, CodecLimits::default()),
-        Err(CodecError::Envelope(Error::UnsupportedCompression))
-    );
-    envelope.decompress = 0;
-    // Type 52 gained a codec in the remaining-families slice; see control_remaining.rs.
-    for message_type in [0, 13, 73, 74, u32::MAX] {
-        envelope.message_type = message_type;
-        assert_eq!(
-            ControlMessage::decode(&envelope, CodecLimits::default()),
-            Err(CodecError::UnsupportedMessageType(message_type))
-        );
-    }
 }

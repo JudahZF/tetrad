@@ -1722,13 +1722,6 @@ mod tests {
     }
 
     #[test]
-    fn all_lists_every_icon_at_its_own_index() {
-        for (index, entry) in Icon::ALL.into_iter().enumerate() {
-            assert_eq!(entry as usize, index, "{entry:?}");
-        }
-    }
-
-    #[test]
     fn every_icon_has_ink_inside_its_box() {
         for entry in Icon::ALL {
             // Icons are authored on the grid; ink must stay near the box.

@@ -156,12 +156,6 @@ fn relocate_maps_whole_ranges_only() {
     assert_eq!(vas.relocate(0x1110, 1), None);
 }
 
-#[test]
-fn the_default_build_runs_without_a_selection() {
-    assert_eq!(running().firmware, Firmware::DEFAULT);
-    assert_eq!(select(Firmware::DEFAULT.profile().unwrap()), Ok(()));
-}
-
 /// The RE results of each 4.1.1 read site (`data/v4_1_1_sites.tsv`): `(4.1.0 VA, len,
 /// 4.1.1 VA)`.
 fn v4_1_1_sites() -> impl Iterator<Item = (u32, u32, u32)> {

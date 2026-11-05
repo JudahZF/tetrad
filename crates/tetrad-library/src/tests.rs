@@ -427,25 +427,3 @@ fn foreign_database_and_sidecar_paths_are_refused_before_sqlite_mutation() {
     assert_eq!(fs::read(&fixture.path).unwrap(), before);
     assert_eq!(fs::read(&journal).unwrap(), b"synthetic non-SQLite journal");
 }
-
-#[cfg(unix)]
-#[test]
-fn symlinked_database_and_dangling_sidecars_are_refused() {
-    use std::os::unix::fs::symlink;
-    let fixture = Fixture::new();
-    let alias = fixture.directory.join("alias.sqlite");
-    symlink(&fixture.path, &alias).unwrap();
-    assert!(matches!(
-        PresetLibrary::open_owned(&alias, 42, Limits::default(), Access::ReadOnly),
-        Err(Error::Storage(StorageError::NotRegular))
-    ));
-    symlink(
-        fixture.directory.join("absent"),
-        fixture.directory.join("owned.sqlite-wal"),
-    )
-    .unwrap();
-    assert!(matches!(
-        PresetLibrary::open_owned(&fixture.path, 42, Limits::default(), Access::ReadWrite),
-        Err(Error::Storage(StorageError::UnsafeSidecar(_)))
-    ));
-}

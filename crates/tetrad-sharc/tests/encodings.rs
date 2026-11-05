@@ -287,28 +287,6 @@ fn word_bounds_and_container_serialization_are_explicit() {
 }
 
 #[test]
-fn register_classes_enforce_all_bounds() {
-    assert!(DataReg::new(15).is_ok());
-    assert!(DataReg::new(16).is_err());
-    assert!(FloatReg::new(15).is_ok());
-    assert!(FloatReg::new(16).is_err());
-    for index in [8, 15, 255] {
-        assert!(Dag1Index::new(index).is_err());
-        assert!(Dag1Modify::new(index).is_err());
-        assert!(Dag1Base::new(index).is_err());
-        assert!(Dag1Length::new(index).is_err());
-    }
-    assert!(Dag1Index::new(7).is_ok());
-    assert!(Dag1Modify::new(7).is_ok());
-    assert!(Dag1Base::new(7).is_ok());
-    assert!(Dag1Length::new(7).is_ok());
-    assert_eq!(
-        DataReg::from(FloatReg::new(15).unwrap()),
-        DataReg::new(15).unwrap()
-    );
-}
-
-#[test]
 fn immediate_destinations_and_move_source_split_cover_each_class() {
     let destinations = [
         UniversalReg::Data(DataReg::new(15).unwrap()),

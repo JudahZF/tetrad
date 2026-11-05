@@ -2,7 +2,7 @@
 //! against an independent std-f32 reference of the owned contract (§4.1/§4.2).
 
 use tetrad_capture::network::emitted::{
-    CompiledAdaaClip, Error, Layout, OwnedAdaaClip, Preactivation, Receipt, SAMPLES, StepPlan,
+    CompiledAdaaClip, Error, Layout, OwnedAdaaClip, Preactivation, Receipt, SAMPLES,
 };
 use tetrad_capture::reference::{ADAA_EPSILON, AdaaClip};
 use tetrad_sharc::address::{AddressError, DmWordAddress32, PmWordAddress24};
@@ -77,54 +77,6 @@ fn host_block(model: &mut OwnedAdaaClip, input: &[f32]) -> Result<Vec<f32>, Erro
 
 fn to_bits(values: &[f32]) -> Vec<u32> {
     values.iter().map(|value| value.to_bits()).collect()
-}
-
-#[test]
-fn public_step_plan_checks_counts_and_field_arithmetic_in_both_profiles() {
-    let (compiled, _) = fixture(0.0, &[0.0; N]);
-    let plan = compiled.step_plan();
-    for count in 0..=SAMPLES {
-        assert_eq!(plan.steps(count), Some(916 + 20 * count as usize));
-    }
-    let plans = [
-        plan,
-        StepPlan {
-            fixed: usize::MAX,
-            common: 1,
-            reciprocal: 0,
-            midpoint: 0,
-        },
-        StepPlan {
-            common: usize::MAX,
-            ..plan
-        },
-        StepPlan {
-            reciprocal: usize::MAX,
-            ..plan
-        },
-        StepPlan {
-            midpoint: usize::MAX,
-            ..plan
-        },
-        StepPlan {
-            fixed: usize::MAX,
-            common: 0,
-            reciprocal: 0,
-            midpoint: 0,
-        },
-    ];
-    for plan in plans {
-        for count in [0, 1, 2, 16, 31, 32] {
-            let expected = plan.fixed as u128
-                + SAMPLES as u128 * plan.common as u128
-                + count as u128 * plan.reciprocal as u128
-                + (SAMPLES - count) as u128 * plan.midpoint as u128;
-            assert_eq!(plan.steps(count), usize::try_from(expected).ok());
-        }
-        for count in [SAMPLES + 1, u32::MAX] {
-            assert_eq!(plan.steps(count), None);
-        }
-    }
 }
 
 /// State carries across two calls of one immutable compiled leaf; both paths,

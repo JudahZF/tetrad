@@ -1149,45 +1149,6 @@ fn gig_view_polls_the_tuner_meter_only_with_live_tuner() {
     assert!(!polled(&mut device));
 }
 
-/// "Unsaved" is the PresetDirty flag (`0x5ad250`): it reads `State::clean`, so an expression
-/// link edit marks the preset and the baseline a save sets clears the mark.
-#[test]
-fn unsaved_follows_state_clean_through_expression_edit_and_save() {
-    use tetrad_app::device::preset::Snapshot;
-    let specs = STOCK.specs();
-    let catalog = SpecsCatalog(&specs);
-    let mut preset = Preset::new_default("4.1.0", &catalog).unwrap();
-    let light = Model::block(1, [ParamValue::Float(0.5), ParamValue::Float(0.0)]);
-    let slot = Slot { row: 0, column: 2 };
-    preset.insert_block(slot, light, &catalog).unwrap();
-    let mut state = loaded_state(specs, preset);
-    let baseline = |state: &mut State| {
-        *state.clean.get_mut() = Some(Snapshot::of(state.current.as_ref().unwrap()));
-    };
-    baseline(&mut state);
-    let mut ui = Ui::new();
-    // The first pass also refreshes the library, which this state has not.
-    let _ = ui.render(&state);
-    assert!(!ui.view().snapshot().dirty);
-
-    let link = Action::LinkExpression {
-        slot: EngineSlot {
-            row: Row::new(0).unwrap(),
-            column: Column::new(2).unwrap(),
-        },
-        parameter: Some(0),
-        pedal: tetrad_core::performance::expression::Pedal::Exp1,
-        linked: true,
-    };
-    tetrad_app::device::actions::reduce(link, &mut state).unwrap();
-    ui.render(&state).unwrap();
-    assert!(ui.view().snapshot().dirty, "an expression edit is unsaved");
-
-    baseline(&mut state);
-    ui.render(&state).unwrap();
-    assert!(!ui.view().snapshot().dirty, "a save clears the mark");
-}
-
 /// Health r34 #9: the PresetDirty mark ("Unsaved", `0x5ad250`) on the device changes exactly at
 /// these steps: an edit sets it, an UNDO back to the loaded preset clears it, a save clears it
 /// and a load clears it. Pinned through the device loop before the dirty check was memoized.

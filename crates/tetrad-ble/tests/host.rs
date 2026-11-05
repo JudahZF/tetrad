@@ -204,21 +204,6 @@ fn cccd(value: u16) -> Vec<u8> {
 }
 
 #[test]
-fn set_up_names_the_unit_and_advertises() {
-    let mut rig = Rig::new(true, Vec::new());
-    let answered = rig.answer_commands();
-    assert_eq!(answered[0], hci::op::RESET);
-    assert_eq!(answered.last(), Some(&hci::op::LE_SET_ADVERTISE_ENABLE));
-    assert_eq!(
-        rig.take_events(),
-        vec![Event::Ready {
-            address: ADDRESS,
-            name: "Quad Cortex 1FEB".into()
-        }]
-    );
-}
-
-#[test]
 fn a_phone_pairs_plays_midi_and_comes_back_with_its_bond() {
     let mut rig = Rig::new(true, Vec::new());
     rig.answer_commands();

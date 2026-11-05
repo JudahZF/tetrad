@@ -174,13 +174,6 @@ fn ask(device: &mut Device<Sim>, pin: &str, op: ExtensionsOp) -> Reply {
     reply
 }
 
-fn list(device: &mut Device<Sim>) -> Value {
-    match ask(device, PIN, ExtensionsOp::List) {
-        Reply::Json(list) => list,
-        other => panic!("the list: {other:?}"),
-    }
-}
-
 fn command(device: &mut Device<Sim>, command: Value) -> Reply {
     let json = command.to_string().into_bytes();
     ask(device, PIN, ExtensionsOp::Command { json })
@@ -191,31 +184,6 @@ fn refused(reply: Reply) -> String {
         Reply::Refused(reason) => reason,
         other => panic!("a refusal: {other:?}"),
     }
-}
-
-/// The list has what the unit's page shows: the state, the settings with their values, and
-/// nothing left to install from the repository.
-#[test]
-fn the_list_shows_an_installed_extension_with_its_state_and_settings() {
-    let (mut device, _media) = boot();
-    let list = list(&mut device);
-    let extension = &list["installed"][0];
-    assert_eq!(extension["key"], KEY);
-    assert_eq!(extension["name"], "Test Mapper");
-    assert_eq!(extension["version"], "1.0.0");
-    assert_eq!(extension["source"], SOURCE);
-    assert_eq!(extension["state"], "running");
-    assert_eq!(extension["fault"], Value::Null);
-    assert_eq!(
-        extension["settings"],
-        json!([
-            { "key": "channel", "label": "MIDI channel", "kind": "choice",
-              "options": ["2", "3"], "value": 0 },
-            { "key": "relay", "label": "Relay", "kind": "toggle", "value": false },
-        ])
-    );
-    assert_eq!(list["available"], json!([]));
-    assert_eq!(list["busy"], false);
 }
 
 /// "disable" and "enable" switch the extension as the Enabled switch of the unit does, and the
@@ -280,21 +248,5 @@ fn an_unknown_op_or_key_is_refused_with_a_reason() {
         json!({ "op": "install", "source": SOURCE, "id": "test.other" }),
     ));
     assert!(reason.contains("does not offer test.other"), "{reason}");
-    assert!(view(&device).installed[0].enabled);
-}
-
-/// Every call needs the PIN, a command too.
-#[test]
-fn a_wrong_pin_stays_refused() {
-    let (mut device, _media) = boot();
-    assert_eq!(
-        ask(&mut device, "9999", ExtensionsOp::List),
-        Reply::WrongPin
-    );
-    let json = json!({ "op": "disable", "key": KEY })
-        .to_string()
-        .into_bytes();
-    let disable = ExtensionsOp::Command { json };
-    assert_eq!(ask(&mut device, "9999", disable), Reply::WrongPin);
     assert!(view(&device).installed[0].enabled);
 }

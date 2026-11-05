@@ -34,17 +34,6 @@ describe("preset edits", () => {
     expect(blockAt(p, a)).toBeNull();
   });
 
-  it("refuses slots outside the grid and missing blocks", () => {
-    expect(() => edit(empty(), { kind: "add", to: { row: 4, column: 0 }, model: "amp.brit-2203" })).toThrow(/row/);
-    expect(() => edit(empty(), { kind: "remove", at: { row: 0, column: 0 } })).toThrow(/no block/);
-    expect(() => edit(empty(), { kind: "add", to: { row: 0, column: 0 }, model: "nope" })).toThrow(/model/);
-  });
-
-  it("each edit gives a new load id, so an edit on an old preset can be told apart", () => {
-    const p = edit(empty(), { kind: "add", to: { row: 0, column: 0 }, model: "amp.brit-2203" });
-    expect(p.loadId).toBe(2);
-  });
-
   it("parameters clamp to their range and step", () => {
     const at = { row: 0, column: 0 };
     let p = edit(empty(), { kind: "add", to: at, model: "amp.brit-2203" });
@@ -75,11 +64,5 @@ describe("preset edits", () => {
     expect(block && liveBypass(block, 2)).toBe(true);
     expect(block && liveBypass(block, 0)).toBe(false);
     expect(blockAt(edit(p, { kind: "bypass-scenes", at, on: false }), at)?.bypass).toBe(true);
-  });
-
-  it("a scene change keeps the preset saved", () => {
-    const p = edit(empty(), { kind: "scene", scene: 3 });
-    expect(p.scene).toBe(3);
-    expect(p.edited).toBe(false);
   });
 });

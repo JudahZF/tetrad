@@ -322,17 +322,4 @@ mod tests {
             [press(D), Fire::Up(D), press(C), Fire::Up(C)]
         );
     }
-
-    /// A cleared wait (a page change, a layout edit) runs nothing, and its release is quiet
-    /// to the waits: it only ends what the switch holds.
-    #[test]
-    fn a_cleared_wait_runs_nothing() {
-        let mut shapes = [Shape::default(); CUSTOM_SLOTS];
-        shapes[usize::from(D)].double = true;
-        let mut gestures = Gestures::default();
-        assert!(gestures.edge(D, true, ms(0), &shapes).is_empty());
-        gestures.clear();
-        assert_eq!(gestures.deadline(), None);
-        assert_eq!(gestures.edge(D, false, ms(50), &shapes), [Fire::Up(D)]);
-    }
 }

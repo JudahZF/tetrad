@@ -225,20 +225,6 @@ fn setup_entry_follows_the_stock_order() {
 }
 
 #[test]
-fn cab_bypass_applies_and_echoes_only_a_change() {
-    let mut controller = controller_in(Nc2State::Setup);
-    let set = |bypass, current| Nc2Input::CabsimBypass { bypass, current };
-    assert!(controller.apply(set(true, true)).unwrap().is_empty());
-    assert_eq!(
-        controller.apply(set(true, false)).unwrap(),
-        [
-            Nc2Effect::CabsimBypass(true),
-            Nc2Effect::Remote(Nc2Remote::CabsimBypass(true))
-        ]
-    );
-}
-
-#[test]
 fn io_parameters_apply_once_per_change_and_levels_only_echo() {
     let mut controller = controller_in(Nc2State::Setup);
     let set = |index, value| Nc2Input::Parameter { index, value };
@@ -258,6 +244,16 @@ fn io_parameters_apply_once_per_change_and_levels_only_echo() {
             .any(|e| matches!(e, Nc2Effect::IoParameter { .. }))
     );
     assert_eq!(controller.apply(set(15, 1.0)), Err(Nc2Error::Parameter(15)));
+    // The cab bypass applies and echoes only a change too.
+    let cab = |bypass, current| Nc2Input::CabsimBypass { bypass, current };
+    assert!(controller.apply(cab(true, true)).unwrap().is_empty());
+    assert_eq!(
+        controller.apply(cab(true, false)).unwrap(),
+        [
+            Nc2Effect::CabsimBypass(true),
+            Nc2Effect::Remote(Nc2Remote::CabsimBypass(true))
+        ]
+    );
 }
 
 #[test]

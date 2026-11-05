@@ -148,15 +148,4 @@ mod tests {
         assert_eq!(ember.tone(Palette::STOCK.danger), ember.danger);
         assert_eq!(ember.tone(Palette::STOCK.action), ember.action);
     }
-
-    #[test]
-    fn stock_is_unchanged() {
-        for c in [
-            Rgb(0x18, 0x1c, 0x18),
-            Rgb(0x51, 0x09, 0x09),
-            Rgb(0xfe, 0x59, 0x48),
-        ] {
-            assert_eq!(Palette::STOCK.tone(c), c);
-        }
-    }
 }

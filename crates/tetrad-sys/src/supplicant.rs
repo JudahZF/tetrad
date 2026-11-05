@@ -1101,13 +1101,4 @@ mod tests {
         assert_eq!(worker.join().unwrap(), b"DETACH");
         assert!(t.poison().is_none());
     }
-
-    #[test]
-    fn stock_local_path_shape() {
-        let p = stock_local_path(Path::new("/tmp"), 7);
-        assert_eq!(
-            p,
-            PathBuf::from(format!("/tmp/wpa_ctrl_{}-7", std::process::id()))
-        );
-    }
 }

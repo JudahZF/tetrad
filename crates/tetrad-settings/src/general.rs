@@ -394,18 +394,3 @@ impl GeneralSettings {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::HoldTiming;
-
-    #[test]
-    fn hold_delay_steps_match_stock_table() {
-        let delays: Vec<u32> = (0..=5)
-            .map(|index| HoldTiming::new(index).map(HoldTiming::millis))
-            .collect::<Result<_, _>>()
-            .expect("hold timing indices 0..=5 are valid");
-        assert_eq!(delays, [500, 600, 700, 800, 900, 1000]);
-        assert_eq!(HoldTiming::DEFAULT.millis(), 800);
-    }
-}

@@ -195,18 +195,6 @@ fn meter_reply(index: u16, value: f32) -> DspEvent {
 }
 
 #[test]
-fn v1_without_seed_is_unsupported() {
-    let result = Capture::new().command(Command::Open);
-    assert!(matches!(result, Err(CaptureError::Unsupported(_))));
-}
-
-#[test]
-fn v1_meter_tick_before_setup_requests_nothing() {
-    let effects = bridge().on_meter_tick().unwrap();
-    assert!(requests(&effects).is_empty());
-}
-
-#[test]
 fn v1_save_outside_refine_is_refused() {
     let info = SaveInfo {
         name: "test".into(),

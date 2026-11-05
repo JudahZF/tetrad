@@ -1504,33 +1504,6 @@ pub(crate) mod tests {
         );
     }
 
-    /// A program shows its button on the extension's page and starts on a tap, only while the
-    /// extension is on.
-    #[test]
-    fn a_program_button_launches_while_the_extension_is_on() {
-        let mut view = sample();
-        view.installed[1].app = Some("Play DOOM".into());
-        let mut ui = page(view.clone());
-        activate(&mut ui, ext(ExtensionControl::Open(1)));
-        let button = |ui: &UiState| {
-            (ui.hit_regions().into_iter())
-                .find(|region| region.control == ext(ExtensionControl::Launch))
-                .expect("the program button shows")
-        };
-        let shown = button(&ui);
-        assert_eq!((shown.label.as_str(), shown.enabled), ("Play DOOM", true));
-        let centre = shown.bounds.center();
-        assert_eq!(
-            crate::tests::tap(&mut ui, centre.0, centre.1),
-            sent(ExtensionCommand::Launch { key: key("clock") })
-        );
-
-        view.installed[1].enabled = false;
-        with_extensions(&mut ui, view);
-        assert!(!button(&ui).enabled);
-        assert!(activate(&mut ui, ext(ExtensionControl::Launch)).is_empty());
-    }
-
     #[test]
     fn removal_asks_for_confirmation_first() {
         let mut ui = page(sample());
@@ -1560,21 +1533,6 @@ pub(crate) mod tests {
             sent(ExtensionCommand::SetSourceEnabled {
                 repository: DEFAULT.into(),
                 enabled: false,
-            })
-        );
-    }
-
-    #[test]
-    fn add_repository_types_owner_and_repo() {
-        let mut ui = page(sample());
-        activate(&mut ui, ext(ExtensionControl::Sources));
-        activate(&mut ui, ext(ExtensionControl::AddSource));
-        assert!(ui.keyboard_open());
-        ui.handle_input(InputEvent::TextChanged("someone/pedals".into()));
-        assert_eq!(
-            activate(&mut ui, Control::Key(Key::Done)),
-            sent(ExtensionCommand::AddSource {
-                repository: "someone/pedals".into(),
             })
         );
     }

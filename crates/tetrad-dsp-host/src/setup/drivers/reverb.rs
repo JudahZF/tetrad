@@ -363,19 +363,4 @@ mod tests {
         assert!(driver.update_parameter(5, 0.5, ParamSetMode::Live, &mut out));
         assert!(out.is_empty());
     }
-
-    /// Every registered payload (all drivers) resolves in the compact
-    /// table built from the local pinned ZenUI.
-    #[test]
-    #[ignore = "reads $QC_CORPUS_DIR/rootfs/opt/neuraldsp/ZenUI"]
-    fn stock_payloads_resolve_in_pinned_zenui() {
-        use super::super::super::tables::{ElfTables, StockTables};
-        let Some(path) = crate::corpus("rootfs/opt/neuraldsp/ZenUI") else {
-            return;
-        };
-        let tables = ElfTables::drivers(std::fs::read(path).unwrap()).unwrap();
-        for payload in super::super::stock_payloads() {
-            assert_eq!(tables.read(payload).unwrap().len(), payload.len());
-        }
-    }
 }

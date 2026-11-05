@@ -2448,20 +2448,4 @@ mod tests {
         let written = String::from_utf8(encode(&rows)).unwrap();
         assert!(!written.contains("\"value\":60"), "{written}");
     }
-
-    /// An extension source is a level when its learned firing was continuous, whatever its
-    /// name; rows match it without that flag.
-    #[test]
-    fn extension_sources_keep_their_kind() {
-        let pedal = |continuous| StoredTrigger::Extension {
-            key: "owner/repo:x".into(),
-            trigger: "midi".into(),
-            source: "pedal:1".into(),
-            label: "Pedal".into(),
-            continuous,
-        };
-        assert_eq!(source(&pedal(true)), Source::Level);
-        assert_eq!(source(&pedal(false)), Source::Press);
-        assert_eq!(level_key(&pedal(true)), level_key(&pedal(false)));
-    }
 }

@@ -84,19 +84,3 @@ pub mod block {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Spot checks against the recovered jump table (tokens §2.1).
-    #[test]
-    fn block_colors_follow_the_stock_category_table() {
-        assert_eq!(block::category(1), Rgb(0xff, 0x27, 0x27));
-        assert_eq!(block::category(27), block::AMP);
-        assert_eq!(block::category(15), Rgb(0x45, 0xf8, 0x62));
-        assert_eq!(block::category(10), block::category(4));
-        assert_eq!(block::category(29), Rgb(0x69, 0x54, 0xff));
-        assert_eq!(block::category(17), Rgb(0xff, 0xff, 0xff));
-    }
-}

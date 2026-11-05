@@ -153,12 +153,6 @@ mod tests {
     }
 
     #[test]
-    fn piecewise_nan_has_no_segment() {
-        let law = points(&[(0.0, 20.0), (0.5, 60.0), (1.0, 200.0)]);
-        assert_eq!(law.to_display(f32::NAN), None);
-    }
-
-    #[test]
     fn linear_power_branch_keeps_the_fused_multiply_add() {
         let law = PowerLaw::new(-1.0, f32::EPSILON, 1.0).unwrap();
         let u = 1.0 - f32::EPSILON;
@@ -173,6 +167,7 @@ mod tests {
         assert_eq!(law.to_display(0.75), Some(130.0));
         assert_eq!(law.to_display(-0.5), Some(-20.0));
         assert_eq!(law.to_display(1.5), None);
+        assert_eq!(law.to_display(f32::NAN), None);
         assert_eq!(law.to_normalized(130.0), Some(0.75));
         assert_eq!(law.to_normalized(10.0), None);
         // Descending segments invert too.
