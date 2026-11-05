@@ -2053,6 +2053,10 @@ pub struct UiSnapshot {
     pub captures: [Option<CaptureDevice>; GRID_CELLS],
     pub selected_block: Option<GridPosition>,
     pub parameters: Vec<ParameterView>,
+    /// Catalog-hidden parameters of the selected block that only its model editor reads and
+    /// writes (Overlord Synth notes and oscillators, Parallax sections). The knob pages and
+    /// expression targets do not show them.
+    pub editor_parameters: Vec<ParameterView>,
     pub clipboard: bool,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -2293,6 +2297,7 @@ impl Default for UiSnapshot {
             captures: [None; GRID_CELLS],
             selected_block: None,
             parameters: Vec::new(),
+            editor_parameters: Vec::new(),
             clipboard: false,
             can_undo: false,
             can_redo: false,
@@ -2392,6 +2397,13 @@ impl UiSnapshot {
         }
     }
 
+    /// A parameter of the open model editor: a shown one or one of [`Self::editor_parameters`].
+    pub(crate) fn editor_parameter(&self, index: u16) -> Option<&ParameterView> {
+        (self.parameters.iter())
+            .chain(&self.editor_parameters)
+            .find(|p| p.index == index)
+    }
+
     pub(crate) fn cell(&self, position: GridPosition) -> &GridCell {
         &self.grid[position.index()]
     }
@@ -2457,6 +2469,7 @@ impl UiSnapshot {
             || self.allowed_modes.len() > 4
             || [
                 self.parameters.len(),
+                self.editor_parameters.len(),
                 self.setlists.len(),
                 self.wifi.networks.len(),
                 self.backups.items.len(),
@@ -2486,7 +2499,11 @@ impl UiSnapshot {
         }
         if has_duplicates(self.setlists.iter().map(|setlist| setlist.id))
             || has_duplicates(self.backups.items.iter().map(|item| item.id))
-            || has_duplicates(self.parameters.iter().map(|p| u64::from(p.index)))
+            || has_duplicates(
+                (self.parameters.iter())
+                    .chain(&self.editor_parameters)
+                    .map(|p| u64::from(p.index)),
+            )
         {
             return Err(UiError::DuplicateId);
         }
@@ -2498,9 +2515,8 @@ impl UiSnapshot {
                 .busy
                 .as_ref()
                 .is_none_or(|(_, progress)| progress.is_none_or(unit))
-            && self
-                .parameters
-                .iter()
+            && (self.parameters.iter())
+                .chain(&self.editor_parameters)
                 .all(|parameter| match parameter.kind {
                     ParameterKind::Continuous { position }
                     | ParameterKind::Centred { position }
@@ -2528,8 +2544,8 @@ impl UiSnapshot {
             .chain(self.bank.presets.iter().map(|preset| &preset.title))
             .chain(self.stomps.iter().map(|stomp| &stomp.label))
             .chain(
-                self.parameters
-                    .iter()
+                (self.parameters.iter())
+                    .chain(&self.editor_parameters)
                     .flat_map(|parameter| [&parameter.label, &parameter.value]),
             )
             .chain(self.setlists.iter().map(|setlist| &setlist.title))

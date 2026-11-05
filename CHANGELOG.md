@@ -65,9 +65,11 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Extensions (`controls.list`), the Mappings pages and Custom mode switch labels named every
   Neural Capture block "Eltron 30", the catalog name of the capture player. They now show the
   capture name, as the Grid does. A Stomp switch with no label also shows the capture name.
-
-### Fixed
-
+- Overlord Synth editor: the ARPEGGIATOR note buttons and the OSCILLATOR on and wave buttons
+  work, and they show the values of a loaded preset (for example the factory preset "Arp 1").
+  The Parallax LOW, MID and HIGH buttons work too. The catalog hides these parameters, and the
+  editors did not get them. Hidden parameters stay off the knob pages and the expression pedal
+  targets (#41).
 - Block parameter drop-downs (such as Arpeggio Delay SCALE) open a list of their options, as on
   stock. A tap on a row selects that option. Before, a tap only moved the parameter to its next
   option. This works on the parameter pages, the I/O and junction editors and the model editors.

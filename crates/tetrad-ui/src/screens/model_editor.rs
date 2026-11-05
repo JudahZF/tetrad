@@ -136,7 +136,7 @@ impl ModelEditor {
 }
 
 pub(super) fn parameter(ui: &UiState, index: u16) -> Option<&ParameterView> {
-    ui.snapshot.parameters.iter().find(|p| p.index == index)
+    ui.snapshot.editor_parameter(index)
 }
 
 fn position_of(ui: &UiState, index: u16) -> f32 {
