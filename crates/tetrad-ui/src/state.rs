@@ -314,6 +314,13 @@ pub(crate) enum ChoicePurpose {
     Extension(u16),
     /// A Trigger dropdown of the open mapping.
     Mapping(MappingChoice),
+    /// The steps of a Choice or ComboBox parameter (stock `ComboBoxSelector` `0x01259d88`),
+    /// opened from the control `from`.
+    Parameter {
+        target: crate::ParameterTarget,
+        parameter: u16,
+        from: crate::Control,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

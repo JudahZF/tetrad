@@ -66,6 +66,14 @@ All notable changes to Tetrad are in this file. The version numbers follow
   Neural Capture block "Eltron 30", the catalog name of the capture player. They now show the
   capture name, as the Grid does. A Stomp switch with no label also shows the capture name.
 
+### Fixed
+
+- Block parameter drop-downs (such as Arpeggio Delay SCALE) open a list of their options, as on
+  stock. A tap on a row selects that option. Before, a tap only moved the parameter to its next
+  option. This works on the parameter pages, the I/O and junction editors and the model editors.
+  A sidechain **SOURCE** lists Off, Follow Input, the inputs and then the blocks before it, such
+  as **Light (R1 C1)** (#39).
+
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
 ### Added

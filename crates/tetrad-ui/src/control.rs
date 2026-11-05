@@ -1816,6 +1816,12 @@ pub enum UiCommand {
         parameter: u16,
         text: String,
     },
+    /// A choice list row: the parameter takes the value of its step `step`.
+    SetStep {
+        target: ParameterTarget,
+        parameter: u16,
+        step: u16,
+    },
     /// Device Information name edit (`DeviceNameDialog`, `0x64fd2c`).
     SetDeviceName {
         name: String,
@@ -1832,7 +1838,7 @@ pub enum UiCommand {
     },
 }
 
-/// The element whose parameter a numeric entry sets.
+/// The element whose parameter a numeric entry or a choice list sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParameterTarget {
     Block(GridPosition),
@@ -2114,6 +2120,11 @@ impl fmt::Debug for UiCommand {
                 parameter,
                 text,
             } => show!("EnterParameter", target, parameter, text),
+            C::SetStep {
+                target,
+                parameter,
+                step,
+            } => show!("SetStep", target, parameter, step),
             C::SetDeviceName { name } => show!("SetDeviceName", name),
             C::ShowLicence { package } => show!("ShowLicence", package),
             C::RestoreQuarantinedCapture { id, downloads } => {

@@ -164,6 +164,7 @@ fn fixture() -> Result<UiSnapshot, UiError> {
                 position: 0.15 + index as f32 * 0.14,
             },
         },
+        choices: Vec::new(),
     })
     .collect();
     s.parameters[7].value = "MODERN".into();
@@ -864,6 +865,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             },
             entry: None,
             scene: false,
+            choices: Vec::new(),
         }];
     }
     if view == "gate" {
@@ -883,6 +885,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 },
                 entry: None,
                 scene: false,
+                choices: Vec::new(),
             })
             .collect();
     }
@@ -898,6 +901,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             label: "MIC A".into(),
             value: "Synthetic Cab 2 Mic B".into(),
             kind: ParameterKind::Media(MediaKind::Ir),
+            choices: Vec::new(),
         };
         snapshot.media = (1..=3)
             .flat_map(|cab| {
@@ -994,6 +998,7 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
             label: "CAPTURE".into(),
             value: "Synthetic Capture 2".into(),
             kind: ParameterKind::Media(MediaKind::Capture),
+            choices: Vec::new(),
         };
         snapshot.media = (1..=9)
             .map(|n| MediaEntry {
@@ -2285,6 +2290,7 @@ fn model_editor(snapshot: &mut UiSnapshot, view: &str) -> Result<(), UiError> {
         kind: ParameterKind::Continuous { position },
         entry: None,
         scene: false,
+        choices: Vec::new(),
     };
     let toggle = |index: u16, label: &str, on: bool| ParameterView {
         index,
@@ -2293,6 +2299,7 @@ fn model_editor(snapshot: &mut UiSnapshot, view: &str) -> Result<(), UiError> {
         kind: ParameterKind::Toggle { on },
         entry: None,
         scene: false,
+        choices: Vec::new(),
     };
     let numeric =
         |index: u16, label: &str, value: f32, text: String, min: f32, max: f32| ParameterView {

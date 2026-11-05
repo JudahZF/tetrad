@@ -532,8 +532,8 @@ impl UiState {
             ParamControl::Knob(knob) => {
                 self.focus = Some(knob);
                 let index = self.param_page * KNOB_COUNT + usize::from(knob.get());
-                // A tap flips a toggle, steps a choice to its next option and
-                // opens the media picker (stock IR/capture browser flow not
+                // A tap flips a toggle, opens a choice's list (or steps a choice without
+                // step texts) and opens the media picker (stock IR/capture browser flow not
                 // recovered; I).
                 if let Some(parameter) = self.snapshot.parameters.get(index)
                     && let ParameterKind::Media(kind) = parameter.kind
@@ -556,11 +556,19 @@ impl UiState {
                             | ParameterKind::ComboBox { .. }
                     )
                 {
-                    return vec![UiCommand::NudgeParameter {
-                        position,
-                        parameter: parameter.index,
-                        steps: 1,
-                    }];
+                    let parameter = parameter.index;
+                    let from = Control::Param(ParamControl::Knob(knob));
+                    if !self.open_parameter_choice(
+                        ParameterTarget::Block(position),
+                        parameter,
+                        from,
+                    ) {
+                        return vec![UiCommand::NudgeParameter {
+                            position,
+                            parameter,
+                            steps: 1,
+                        }];
+                    }
                 } else if let Some(parameter) = self.snapshot.parameters.get(index) {
                     let double = self.knob_tap.is_some_and(|(last, at)| {
                         last == knob && self.now.saturating_sub(at) <= crate::state::DOUBLE_TAP_MS
@@ -683,6 +691,29 @@ impl UiState {
         self.overlay = Some(Overlay::Choice(purpose));
     }
 
+    /// Open the step list of a Choice or ComboBox parameter that has step texts. `false`
+    /// when it has none, so the caller steps it instead.
+    pub(crate) fn open_parameter_choice(
+        &mut self,
+        target: ParameterTarget,
+        parameter: u16,
+        from: Control,
+    ) -> bool {
+        let Some(current) = (self.snapshot.parameters.iter())
+            .find(|view| view.index == parameter)
+            .and_then(|view| view.choice_step())
+        else {
+            return false;
+        };
+        let purpose = ChoicePurpose::Parameter {
+            target,
+            parameter,
+            from,
+        };
+        self.open_choice(purpose, current);
+        true
+    }
+
     fn step_setting(&self, id: SettingId, steps: i32) -> Vec<UiCommand> {
         id.step(self.snapshot.setting(id), steps)
             .map(|value| vec![UiCommand::ChangeSetting { id, value }])
@@ -720,6 +751,13 @@ impl UiState {
             ChoicePurpose::FilterType(parameter) => self.choose_filter_type(parameter, index),
             ChoicePurpose::Extension(setting) => self.choose_extension_setting(setting, index),
             ChoicePurpose::Mapping(choice) => self.choose_mapping(choice, index),
+            ChoicePurpose::Parameter {
+                target, parameter, ..
+            } => vec![UiCommand::SetStep {
+                target,
+                parameter,
+                step: index as u16,
+            }],
             ChoicePurpose::SettingsGroup => match SettingsGroup::ALL.get(index) {
                 Some(group) => {
                     self.reset_scroll(ListId::SettingsMenu);
@@ -731,7 +769,7 @@ impl UiState {
         }
     }
 
-    /// Lane control and junction editors: a knob tap flips a toggle or steps a choice;
+    /// Lane control and junction editors: a knob tap flips a toggle or opens a choice's list;
     /// paging and CLOSE as for blocks.
     fn site_param(&mut self, site: EditorSite, control: ParamControl) -> Vec<UiCommand> {
         match control {
@@ -746,11 +784,15 @@ impl UiState {
                             | ParameterKind::ComboBox { .. }
                     )
                 {
-                    return vec![UiCommand::NudgeSite {
-                        site,
-                        parameter: parameter.index,
-                        steps: 1,
-                    }];
+                    let parameter = parameter.index;
+                    let from = Control::Param(ParamControl::Knob(knob));
+                    if !self.open_parameter_choice(ParameterTarget::Site(site), parameter, from) {
+                        return vec![UiCommand::NudgeSite {
+                            site,
+                            parameter,
+                            steps: 1,
+                        }];
+                    }
                 }
             }
             ParamControl::Value(knob) => self.open_numeric(ParameterTarget::Site(site), knob),

@@ -779,9 +779,66 @@ pub(crate) fn parameters(
     specs: &Specs,
     media: &[MediaEntry],
 ) -> Vec<ParameterView> {
-    instance(layout, position)
-        .map(|block| instance_parameters(block, scene, specs, media))
-        .unwrap_or_default()
+    let (Some(block), Some(slot)) = (instance(layout, position), slot_of(position)) else {
+        return Vec::new();
+    };
+    let mut views = instance_parameters(block, scene, specs, media);
+    sidechain_source(&mut views, layout, slot, block, scene, specs);
+    views
+}
+
+/// A sidechain SOURCE has the steps the grid gives it, not the catalog's 45: Off, Follow
+/// Input, the 12 inputs, then the blocks before the sink (`setSteps`, `0x52ebf4`;
+/// `tetrad_engine::sidechain_steps`). Its list and value text follow the engine's step.
+fn sidechain_source(
+    views: &mut [ParameterView],
+    layout: &Layout,
+    slot: Slot,
+    block: &Instance,
+    scene: EngineScene,
+    specs: &Specs,
+) {
+    let Some(spec) = specs.model(block.model.0) else {
+        return;
+    };
+    let Some(index) = spec.sidechain.map(|sidechain| sidechain.source_param) else {
+        return;
+    };
+    let (Some(param), Some(view), Some(value)) = (
+        spec.parameter(index),
+        views.iter_mut().find(|view| u32::from(view.index) == index),
+        block.params.get(index as usize),
+    ) else {
+        return;
+    };
+    let names = &param.scale.labels.step_names;
+    let fixed = (0..14).map(|step| names.get(step).cloned().unwrap_or_else(|| step.to_string()));
+    let blocks = layout.sidechain_sources(slot).into_iter().map(|source| {
+        let name = (layout.instance(Site::Slot(source)))
+            .and_then(|block| specs.model(block.model.0))
+            .map_or("", |spec| spec.name.as_str());
+        let (row, column) = (source.row.index() + 1, source.column.index() + 1);
+        format!("{name} (R{row} C{column})")
+    });
+    let choices: Vec<String> = fixed.chain(blocks).collect();
+    let mut scale = param.scale.clone();
+    scale.set_steps(choices.len() as i32);
+    let Some(step) = (scale.step_index(value.at(scene)).ok())
+        .and_then(|step| usize::try_from(step).ok())
+        .filter(|&step| step < choices.len())
+    else {
+        return;
+    };
+    let position = step as f32 / (choices.len() - 1) as f32;
+    view.kind = match view.kind {
+        ParameterKind::Choice { .. } => ParameterKind::Choice {
+            position,
+            steps: choices.len() as u16,
+        },
+        _ => ParameterKind::ComboBox { position },
+    };
+    view.value = choices[step].clone();
+    view.choices = choices;
 }
 
 /// Visible parameters of any instance: a block, a lane control or a junction.
@@ -809,6 +866,7 @@ pub(crate) fn instance_parameters(
                     kind: ParameterKind::Media(kind),
                     entry: None,
                     scene: scene_mode(param.index),
+                    choices: Vec::new(),
                 });
             }
             if param.hidden && !ir_switch(spec, param.index) {
@@ -830,9 +888,39 @@ pub(crate) fn instance_parameters(
                 kind,
                 entry: numeric_range(&param.scale, normalized, kind),
                 scene: scene_mode(param.index),
+                choices: choices(&param.scale, kind),
             })
         })
         .collect()
+}
+
+/// The value text of each step of a choice, for its list (`ComboBoxSelector`): the catalog
+/// `stepNames`, else the number of each step. Empty for other kinds, without a step grid (no
+/// `steps`), with more than `MAX_LIST_ITEMS` steps, or when a step has no text; a tap then
+/// steps the choice.
+fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
+    let choice = matches!(
+        kind,
+        ParameterKind::Choice { .. } | ParameterKind::ComboBox { .. }
+    );
+    let too_many = usize::try_from(scale.steps()).is_ok_and(|steps| steps > MAX_LIST_ITEMS);
+    if !choice || scale.step_size() <= 0.0 || too_many {
+        return Vec::new();
+    }
+    let units = &scale.labels.units;
+    (0..i64::from(scale.steps()))
+        .map(|step| {
+            let value = scale.step_value(step)?;
+            // A choice without catalog `stepNames` lists its number texts.
+            scale.display_with_units(value).or_else(|_| {
+                (scale.value_text(value)).map(|text| match units.is_empty() {
+                    true => text,
+                    false => format!("{text} {units}"),
+                })
+            })
+        })
+        .collect::<Result<_, _>>()
+        .unwrap_or_default()
 }
 
 /// The numeric keyboard range of a continuous knob (`0x4c62d4`): the display value and the
@@ -1559,14 +1647,15 @@ defaultValue='0' units='dB'/></Model></Category></Models>";
 
     /// The kind keeps the stock types apart that drag differently (mask `0x1013`): a rotary
     /// switch carries its catalog step count (one step per 100 · step px, `0x5cc994`); Int and
-    /// ComboBox do not drag; FloatWithLed (type 12) shows and drags as a Float.
+    /// ComboBox do not drag; FloatWithLed (type 12) shows and drags as a Float. A choice lists
+    /// its `stepNames`, or the number of each step without them (issue #39).
     #[test]
     fn parameter_kinds_keep_the_stock_drag_types_and_step_count() {
         const MODELS: &str = "<Models><Category id='1' name='Amp'><Model id='1001' name='Amp' \
 blob='amp'><Parameter name='MODE' type='rotarySwitch' min='0' max='2' steps='3' \
 defaultValue='0'/><Parameter name='VOICES' type='int' min='1' max='4' steps='4' \
 defaultValue='1'/><Parameter name='SHAPE' type='comboBox' min='0' max='2' steps='3' \
-defaultValue='0'/><Parameter name='LEVEL' type='floatWithLed' min='0' max='10' \
+defaultValue='0' stepNames='Sine,Square,Saw'/><Parameter name='LEVEL' type='floatWithLed' min='0' max='10' \
 defaultValue='5'/></Model></Category></Models>";
         let specs =
             Specs::resolve(&tetrad_catalog::Catalog::parse(MODELS, "<ModuleReport/>").unwrap())
@@ -1592,6 +1681,11 @@ defaultValue='5'/></Model></Category></Models>";
         assert!(
             view[1].entry.is_some(),
             "an Int knob keeps the numeric keyboard"
+        );
+        let choices: Vec<&[String]> = view.iter().map(|view| &view.choices[..]).collect();
+        assert_eq!(
+            choices,
+            [&["0", "1", "2"][..], &[], &["Sine", "Square", "Saw"], &[]]
         );
     }
 

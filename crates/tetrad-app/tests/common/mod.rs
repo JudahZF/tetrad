@@ -99,7 +99,8 @@ pub const MODELS: &str = "<Models>\
 <Parameter name='MIX' type='float' defaultValue='0.5'/>\
 <Parameter name='SYNC' type='switch' min='0' max='1' defaultValue='0'/>\
 <Parameter name='P2' type='float' defaultValue='0'/>\
-<Parameter name='SCALE' type='rotarySwitch' min='0' max='4' steps='5' defaultValue='0'/>\
+<Parameter name='SCALE' type='comboBox' min='0' max='4' steps='5' defaultValue='0' \
+stepNames='Chromatic,Major,Natural Minor,Harmonic Minor,Melodic Minor'/>\
 <Parameter name='GLISSANDO' type='float' defaultValue='0'/>\
 <Parameter name='ACTIVE' type='switch' min='0' max='1' defaultValue='1'/>\
 <Parameter name='SEMITONES' type='rotarySwitch' min='-12' max='12' steps='25' defaultValue='0'/>\

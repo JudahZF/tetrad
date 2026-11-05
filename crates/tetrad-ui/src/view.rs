@@ -665,8 +665,8 @@ pub enum ParameterKind {
         position: f32,
         steps: u16,
     },
-    /// A choice that a drag does not change (stock type 11 ComboBox, mask `0x1013`); a tap
-    /// steps it. Drawn as [`Self::Choice`].
+    /// A choice that a drag does not change (stock type 11 ComboBox, mask `0x1013`). Drawn
+    /// as [`Self::Choice`].
     ComboBox {
         position: f32,
     },
@@ -816,6 +816,24 @@ pub struct ParameterView {
     /// Scene-assigned (`scene_mode`): the editor shows the stock A B / C D mark (manual
     /// "SCENE ASSIGNMENTS").
     pub scene: bool,
+    /// The value text of each step of a [`ParameterKind::Choice`] or
+    /// [`ParameterKind::ComboBox`], in step order: a tap opens them as a list (stock
+    /// `ComboBoxSelector`). Empty for other kinds, and a tap then steps the choice.
+    pub choices: Vec<String>,
+}
+
+impl ParameterView {
+    /// The current step of a choice with a list of [`Self::choices`].
+    pub(crate) fn choice_step(&self) -> Option<usize> {
+        let position = match self.kind {
+            ParameterKind::Choice { position, .. } | ParameterKind::ComboBox { position } => {
+                position
+            }
+            _ => return None,
+        };
+        let last = self.choices.len().checked_sub(1)?;
+        Some(((position.clamp(0.0, 1.0) * last as f32).round() as usize).min(last))
+    }
 }
 
 /// A parameter in display units (`Parameter::displayValue` `0x5cd110`).

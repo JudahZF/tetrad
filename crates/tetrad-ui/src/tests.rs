@@ -109,6 +109,7 @@ pub(crate) fn rich() -> UiSnapshot {
                 } else {
                     ParameterKind::Continuous { position: 0.5 }
                 },
+                choices: Vec::new(),
             })
             .collect(),
         ..UiSnapshot::default()
@@ -778,6 +779,7 @@ fn media_picker_commits_the_stored_text_of_the_tapped_item() {
         label: "MIC A".into(),
         value: "Mine".into(),
         kind: ParameterKind::Media(MediaKind::Ir),
+        choices: Vec::new(),
     };
     let entry = |folder, name: &str, value: &str| MediaEntry {
         folder,
@@ -838,6 +840,7 @@ fn media_picker_sorts_searches_and_checks_rows_as_the_directory() {
         label: "MIC A".into(),
         value: "Mine".into(),
         kind: ParameterKind::Media(MediaKind::Ir),
+        choices: Vec::new(),
     };
     let entry = |name: &str, value: &str| MediaEntry {
         folder: MediaFolder::MyIrs,
@@ -1425,6 +1428,61 @@ fn parameter_knobs_follow_the_page() {
         .is_empty()
     );
     assert_eq!(KnobIndex::new(10), Err(UiError::InvalidKnob));
+}
+
+/// Issue #39: a tap on a choice with step texts opens them as a list at its drop-down field
+/// (stock `ComboBoxSelector`), with the current step marked; a row sets that step and closes
+/// the list. A choice without step texts still steps.
+#[test]
+fn a_choice_tap_opens_its_steps_and_a_row_sets_the_step() {
+    let mut snapshot = UiSnapshot {
+        selected_block: Some(cell(0, 0)),
+        ..rich()
+    };
+    snapshot.parameters[4].kind = ParameterKind::ComboBox { position: 0.5 };
+    snapshot.parameters[4].choices = ["Low", "Mid", "High"].map(String::from).into();
+    snapshot.parameters[5].kind = ParameterKind::Choice {
+        position: 0.0,
+        steps: 2,
+    };
+    let mut ui = ui_with(snapshot);
+    let knob = |index| Control::Param(ParamControl::Knob(KnobIndex(index)));
+    let cell_bounds = (ui.hit_regions().into_iter())
+        .find(|region| region.control == knob(4))
+        .unwrap()
+        .bounds;
+    let (x, y) = cell_bounds.center();
+    assert!(tap(&mut ui, x, y).is_empty());
+    let rows: Vec<(String, Rect)> = (ui.hit_regions().into_iter())
+        .filter(|region| matches!(region.control, Control::Choose(_)))
+        .map(|region| (region.label, region.bounds))
+        .collect();
+    let labels: Vec<&str> = rows.iter().map(|(label, _)| label.as_str()).collect();
+    assert_eq!(labels, ["Low", "Mid", "High"]);
+    // The list opens just above or below the cell's drop-down field.
+    let field = crate::draw::dropdown_field(cell_bounds);
+    let (top, bottom) = (rows[0].1.y, rows[2].1.bottom());
+    assert!(
+        top == field.bottom() + 4 || bottom == field.y - 4,
+        "{field:?} {rows:?}"
+    );
+    assert_eq!(
+        activate(&mut ui, Control::Choose(2)),
+        vec![UiCommand::SetStep {
+            target: ParameterTarget::Block(cell(0, 0)),
+            parameter: 8,
+            step: 2,
+        }]
+    );
+    assert_eq!(ui.overlay, None);
+    assert_eq!(
+        activate(&mut ui, knob(5)),
+        vec![UiCommand::NudgeParameter {
+            position: cell(0, 0),
+            parameter: 10,
+            steps: 1,
+        }]
+    );
 }
 
 /// Stock knob drag law (`ParameterControl::mouseMoveEvent` `0x4c9e20`): the normalized value
@@ -5438,6 +5496,7 @@ fn continuous(index: u16, label: &str, position: f32) -> ParameterView {
         kind: ParameterKind::Continuous { position },
         entry: None,
         scene: false,
+        choices: Vec::new(),
     }
 }
 

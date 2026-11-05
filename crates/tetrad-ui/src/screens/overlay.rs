@@ -154,6 +154,7 @@ fn trigger(overlay: &Overlay) -> Option<Control> {
         Overlay::Choice(ChoicePurpose::Mapping(choice)) => {
             Control::Mapping(MappingControl::Choice(*choice))
         }
+        Overlay::Choice(ChoicePurpose::Parameter { from, .. }) => *from,
         // The ⋮ menu's grey veil instead of the scrim.
         Overlay::MappingActions(_) => Control::Mapping(MappingControl::Actions),
         Overlay::Menu(MenuKind::Main) => Control::OpenMainMenu,
@@ -1216,6 +1217,17 @@ fn choice(ui: &UiState, l: &mut Layout, purpose: ChoicePurpose, anchor: Option<R
             if let Screen::Settings(page) = ui.screen() {
                 super::settings::group_menu(ui, l, page.group());
             }
+            return;
+        }
+        ChoicePurpose::Parameter { parameter, .. } => {
+            let Some(view) = s.parameters.iter().find(|view| view.index == parameter) else {
+                return;
+            };
+            // The list opens at the cell's drop-down field.
+            let anchor = anchor.map_or_else(|| pointer_anchor(ui), crate::draw::dropdown_field);
+            let options: Vec<&str> = view.choices.iter().map(String::as_str).collect();
+            let offset = ui.offset(ListId::Choice);
+            crate::widgets::dropdown_list(l, anchor, &options, view.choice_step(), offset);
             return;
         }
     };
