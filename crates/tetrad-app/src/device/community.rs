@@ -665,4 +665,35 @@ mod tests {
         );
         assert_eq!(restarted, live);
     }
+
+    /// A stock grid block can be a placeholder; a paid plugin's model never is, so a community
+    /// block can never stand in for one.
+    #[test]
+    fn plugin_models_are_never_placeholders() {
+        let model = |id, plugin_id| ModelSpec {
+            id,
+            name: format!("model {id}"),
+            category_id: 0,
+            role: ModelRole::Block,
+            blob: None,
+            plugin_id,
+            hidden: false,
+            internal: false,
+            replaces: Vec::new(),
+            clones: Vec::new(),
+            sidechain: None,
+            secondary_stomp_parameter: None,
+            parameters: Vec::new(),
+            stats: None,
+            report_row: false,
+            reuse_pmco: true,
+            community: None,
+        };
+        let mut specs = Specs::default();
+        for spec in [model(3, None), model(4, Some(1))] {
+            specs.models.insert(spec.id, spec);
+        }
+        assert_eq!(placeholder(Some(3), &specs), 3);
+        assert_eq!(placeholder(Some(4), &specs), DEFAULT_PLACEHOLDER);
+    }
 }

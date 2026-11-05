@@ -70,6 +70,29 @@ describe("edit queue", () => {
     expect(sent.map((e) => (e.kind === "param" ? e.value : e.kind))).toEqual(["bypass", 7, "scene", 9]);
   });
 
+  it("drops the edits not sent yet when the preset changed elsewhere", async () => {
+    let current: Preset = demoPreset();
+    const sent: Edit[] = [];
+    let release: () => void = () => {};
+    const send = async (_: number, edit: Edit) => {
+      sent.push(edit);
+      await new Promise<void>((r) => (release = r));
+      return applyEdit(current, edit, DEMO_CATALOG);
+    };
+    const queue = new EditQueue(() => current, send, (p) => (current = p), (e) => {
+      throw e;
+    });
+    const at = { row: 0, column: 2 };
+    queue.push({ kind: "bypass", at, bypass: true });
+    queue.push({ kind: "param", at, param: "master", value: 7 });
+    expect(queue.pending).toHaveLength(1);
+    queue.dropPending();
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.map((e) => e.kind)).toEqual(["bypass"]);
+    expect(queue.busy).toBe(false);
+  });
+
   it("a refusal drops what waited after it and reports it", async () => {
     let current: Preset = demoPreset();
     const errors: unknown[] = [];
