@@ -496,14 +496,15 @@ mod tests {
 
     /// Review r25 Q2 (c): QSettings writes INI values with inner spaces unquoted, so a value
     /// after a name that starts its line runs to the line end; a query string still stops at `&`.
+    /// Review r26 S2: a bare multi-word value after a secret name in mid-line loses every word.
     #[test]
     fn an_ini_value_is_redacted_to_the_line_end() {
         let text = redacted(
-            "[Wifi]\npassphrase=my wifi pass\r\nnext=1\nGET /x?token=t-1&page=2\n",
+            "[Wifi]\npassphrase=my wifi pass\r\nwifi: psk=mid line pass\nnext=1\nGET /x?token=t-1&page=2\n",
             &[],
         );
         assert!(
-            !text.contains("wifi pass") && !text.contains("t-1"),
+            !text.contains("wifi pass") && !text.contains("mid line pass") && !text.contains("t-1"),
             "{text}"
         );
         assert!(text.contains("next=1") && text.contains("page=2"), "{text}");
@@ -525,20 +526,6 @@ next
             "{text}"
         );
         assert!(text.ends_with("\nnext\n"), "{text}");
-    }
-
-    /// Review r26 S2: a bare multi-word value after a secret name in mid-line loses every
-    /// word, not only the first.
-    #[test]
-    fn a_mid_line_multi_word_value_is_redacted_whole() {
-        let text = redacted(
-            "wifi: psk=my wifi pass
-ssid shown
-",
-            &[],
-        );
-        assert!(!text.contains("wifi pass"), "{text}");
-        assert!(text.contains("ssid shown"), "{text}");
     }
 
     /// Review r25 Q2 (d): a known value inside a longer base64 text (offsets 1 and 2), as

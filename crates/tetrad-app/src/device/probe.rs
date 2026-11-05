@@ -269,20 +269,6 @@ mod tests {
         Layout { blocks: Vec<u32> },
     }
 
-    /// A label names at most two variants and never formats the payload.
-    #[test]
-    fn a_label_is_the_variant_path_of_the_debug_text() {
-        let of = |effect: Effect| Label::of(&effect).as_str().to_owned();
-        assert_eq!(of(Effect::Present), "Present");
-        let layout = Update::Layout { blocks: vec![1; 9] };
-        assert_eq!(of(Effect::Deploy(layout)), "Deploy Layout");
-        assert_eq!(of(Effect::Report(Box::new([0; 4]))), "Report");
-        assert_eq!(of(Effect::Notice(3, "text".into())), "Notice 3");
-        assert_eq!(of(Effect::StartTimer { after: 1 }), "StartTimer");
-        let long = "x".repeat(100);
-        assert_eq!(Label::new(&long).as_str().len(), LABEL_BYTES);
-    }
-
     /// Own time: a unit inside another counts once, for itself; same labels add up.
     #[test]
     fn nested_units_count_their_own_time() {

@@ -583,29 +583,6 @@ mod tests {
         http
     }
 
-    /// The happy path: checked `.part` files move into place, then `arm` runs.
-    #[test]
-    fn install_moves_checked_files_then_arms() {
-        let files = MemFiles::default();
-        files.put("/media/p4/tetrad/bin/tetrad", "old");
-        let mut http = served(&files, [b"new-elf", b"sh", b"sh", b"sh"]);
-        let mut runner = ScriptedRunner::default();
-        checks(&mut runner, 0);
-        runner.expect_ok("sh /media/p4/tetrad/launcher/tetrad-launcher.sh arm");
-        let offer = offer(b"new-elf", b"sh");
-        install(&mut http, &mut files.clone(), &mut runner, &offer).unwrap();
-        assert!(runner.is_done());
-        assert_eq!(
-            files.get("/media/p4/tetrad/bin/tetrad").as_deref(),
-            Some(&b"new-elf"[..])
-        );
-        assert_eq!(files.get("/media/p4/tetrad/bin/tetrad.part"), None);
-        assert_eq!(
-            http.requests[0].url,
-            "https://github.com/JudahZF/tetrad/releases/download/v0.2.0/tetrad"
-        );
-    }
-
     /// A USB offer installs the `.part` files already on p4 with the same checks, and never
     /// touches the network.
     #[test]

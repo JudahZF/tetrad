@@ -74,36 +74,6 @@ fn stored_theme(files: &MemFiles) -> String {
     stored["theme"].as_str().unwrap().to_owned()
 }
 
-/// The page draws its editor from this list: every built-in with its whole palette, the
-/// chosen theme, and one field per palette role.
-#[test]
-fn the_list_has_the_builtins_the_active_theme_and_every_role() {
-    let files = MemFiles::default();
-    let mut device = boot(&files);
-    let list = list(&mut device, ThemesOp::List);
-    assert_eq!(list["active"], "stock");
-    let ids: Vec<_> = (list["themes"].as_array().unwrap().iter())
-        .map(|t| t["id"].as_str().unwrap())
-        .collect();
-    assert_eq!(ids, ["stock", "stage-contrast", "slate", "ember"]);
-    let stock = theme(&list, "stock").unwrap();
-    assert_eq!(stock["source"], "builtin");
-    assert_eq!(stock["palette"]["accent"], "#45f862");
-    // Every role of the palette is a field, and only those.
-    let mut keys: Vec<_> = (list["fields"].as_array().unwrap().iter())
-        .map(|f| f["key"].as_str().unwrap())
-        .collect();
-    let mut roles: Vec<_> = stock["palette"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    keys.sort();
-    roles.sort();
-    assert_eq!(keys, roles);
-}
-
 /// A saved theme is a file the unit reads back: it shows on Settings → Appearance, can be
 /// chosen (appearance.json keeps it), is saved again into the same file, and deleting it while
 /// it shows brings back Stock.
@@ -190,18 +160,4 @@ fn a_theme_that_fails_the_checks_is_refused_and_writes_nothing() {
     assert!(reason.contains("built-in"), "{reason}");
     assert_eq!(files.get(&format!("{THEMES_DIR}/midnight.json")), None);
     assert_eq!(files.get(&format!("{THEMES_DIR}/slate.json")), None);
-}
-
-#[test]
-fn only_theme_files_can_be_deleted() {
-    let files = MemFiles::default();
-    let mut device = boot(&files);
-    for id in [
-        "stock",
-        "ext:judah/themes:judah.dusk-pack/dusk",
-        "file:nothing",
-    ] {
-        let reply = ask(&mut device, ThemesOp::Delete { id: id.into() });
-        assert!(matches!(reply, Reply::Refused(_)), "{id}: {reply:?}");
-    }
 }

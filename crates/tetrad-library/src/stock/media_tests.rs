@@ -414,14 +414,11 @@ fn saving_destination_resolves_stock_keys_and_falls_back_to_the_root() {
     let top = root(&db, ProductType::Ir);
     let folder = create_media_folder(&mut db, ProductType::Ir, top, "Mine").unwrap();
     let view = db.view();
-    let key = media_folder_key(
-        view.folders()
-            .unwrap()
-            .iter()
-            .find(|f| f.id == folder)
-            .unwrap(),
-    );
+    let folders = view.folders().unwrap();
+    let key_of = |id: i64| media_folder_key(folders.iter().find(|f| f.id == id).unwrap());
+    let key = key_of(folder);
     assert_eq!(key.as_deref(), Some(format!("{folder}_q").as_str()));
+    assert_eq!(key_of(top).as_deref(), Some(IR_ROOT_KEY));
     for (stored, expected) in [
         (key.as_deref(), folder),
         (Some(IR_ROOT_KEY), top),

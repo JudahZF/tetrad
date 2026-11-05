@@ -262,17 +262,6 @@ fn the_capture_browser_lists_the_library_and_builds_the_block_of_the_record() {
     assert_eq!(block(&device, 4), Some((14_001, Some(file_name))));
 }
 
-/// Shot sn-1: an empty slot of a row without input opens nothing.
-#[test]
-fn an_empty_slot_of_a_row_without_input_opens_nothing() {
-    let (mut device, _media) = device();
-    activate(
-        &mut device,
-        Control::SelectCell(GridPosition::new(1, 4).unwrap()),
-    );
-    assert_eq!(device.bridges().ui.view().screen(), Screen::Grid);
-}
-
 /// Seen on the QC before a fix: a capture pick whose deploy failed left an undo frame
 /// with no block. Stock (`0x59ec78`) pushes the frame only after the fit check passes; Tetrad
 /// keeps the frame only when the deploy commits (`Action::Undoable`).

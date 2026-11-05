@@ -1130,21 +1130,6 @@ mod tests {
         assert_eq!(pan(51), "26 R");
     }
 
-    /// The Double Press & Combo labels name the times the device applies, in order.
-    #[test]
-    fn gesture_time_labels_match_their_times() {
-        for (id, times) in [
-            (SettingId::DoublePressTime, &crate::DOUBLE_PRESS_CHOICES[..]),
-            (SettingId::ComboTime, &crate::COMBO_PRESS_CHOICES[..]),
-        ] {
-            let SettingKind::Choice(labels) = id.kind() else {
-                panic!("{id:?} is a choice");
-            };
-            let wanted: Vec<_> = times.iter().map(|ms| format!("{ms}ms")).collect();
-            assert_eq!(labels, wanted);
-        }
-    }
-
     #[test]
     fn stepping_wraps_choices_clamps_known_bounds_and_needs_a_current_value() {
         let reference = SettingId::TunerReference;

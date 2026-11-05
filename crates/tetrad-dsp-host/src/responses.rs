@@ -587,10 +587,6 @@ mod tests {
     #[test]
     fn sibling_diagnostics_advance_soc1_fpex_holdoff() {
         sibling_fpex_holdoff(CORE0, DspCore::Core0);
-    }
-
-    #[test]
-    fn sibling_diagnostics_advance_soc2_fpex_holdoff() {
         sibling_fpex_holdoff(CORE2, DspCore::Core2);
     }
 

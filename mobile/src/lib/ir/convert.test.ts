@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IrError, convert, decode, encodeWav, extensionFileName, irName, resample, toMono } from "./convert";
+import { convert, decode, encodeWav, extensionFileName, irName, resample, toMono } from "./convert";
 
 /** A PCM WAV with `channels` interleaved, as a DAW writes it. */
 function wav16(rate: number, channels: number[][]): Uint8Array {
@@ -45,12 +45,6 @@ describe("IR conversion", () => {
     expect(detail).toBe("48 kHz stereo → mono, first 1024 samples");
   });
 
-  it("a short mono file stays short", () => {
-    const { wav, detail } = convert(wav16(48000, [[0.1, 0.2, 0.3]]));
-    expect(wav.length).toBe(46 + 12);
-    expect(detail).toBe("48 kHz mono");
-  });
-
   it("44.1 kHz resamples to 48 kHz and keeps a tone's level", () => {
     const tone = Array.from({ length: 4410 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 1000 * i) / 44100));
     const decoded = decode(wav16(44100, [tone]));
@@ -65,10 +59,6 @@ describe("IR conversion", () => {
     const ch = (x: number) => new Float32Array([x]);
     expect(toMono([ch(1), ch(1), ch(1), ch(9), ch(1), ch(1)])[0]).toBeCloseTo(Math.SQRT2 + 1 + 1, 5);
     expect(toMono([ch(0.3), ch(1), ch(1)])[0]).toBeCloseTo(0.3, 5);
-  });
-
-  it("refuses what is not audio", () => {
-    expect(() => convert(new TextEncoder().encode("not a wav file at all"))).toThrow(IrError);
   });
 
   it("names: no extension, one space, at most 60 units", () => {

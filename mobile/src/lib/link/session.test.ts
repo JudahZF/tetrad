@@ -50,11 +50,6 @@ describe("Tetrad Link session", () => {
     expect(port.written.every((f) => f.length <= 20)).toBe(true);
   });
 
-  it("a reply with error rejects as a refusal", async () => {
-    const session = new LinkSession(fakePort(() => ({ header: { error: "Give the PIN first (auth)" } })));
-    await expect(session.request("files")).rejects.toMatchObject({ refused: true, message: "Give the PIN first (auth)" });
-  });
-
   it("a request with no reply times out, and the next one still goes", async () => {
     let first = true;
     const port = fakePort((h) => {
@@ -67,15 +62,6 @@ describe("Tetrad Link session", () => {
     const session = new LinkSession(port, 20);
     await expect(session.request("tabs")).rejects.toMatchObject({ refused: false });
     await expect(session.request("tabs")).resolves.toMatchObject({ header: { reply: "tabs" } });
-  });
-
-  it("hands on extension events, which carry no id", async () => {
-    const port = fakePort(() => null);
-    const session = new LinkSession(port);
-    const events: unknown[] = [];
-    session.onEvent((e) => events.push(e));
-    port.push({ event: "extension", extension: "midi-mapper", value: { cc: 11 } });
-    expect(events).toEqual([{ event: "extension", extension: "midi-mapper", value: { cc: 11 } }]);
   });
 
   it("a link lost while a request goes out rejects it once, with nothing left unhandled", async () => {

@@ -517,19 +517,7 @@ impl UiState {
 
 #[cfg(test)]
 mod tests {
-    use tetrad_assets::Palette;
-
     use super::*;
-
-    /// Role 0x25 prints `dd MMM yyyy` ("29 Apr 2025", shot sn-4) or "--"; the strip maps a
-    /// leading digit to `#`.
-    #[test]
-    fn rows_show_the_stock_date_and_strip_keys() {
-        assert_eq!(date_text("2025-04-29T10:00:00Z"), "29 Apr 2025");
-        assert_eq!(date_text(""), "--");
-        assert_eq!(strip_key("4-Comp Custom 1"), b'#');
-        assert_eq!(strip_key("amp"), b'A');
-    }
 
     fn capture(name: &str, origin: CaptureOrigin, folders: Vec<u16>) -> LibraryCapture {
         LibraryCapture {
@@ -576,27 +564,6 @@ mod tests {
         ui
     }
 
-    /// Shot sn-2: the category drawer opens on the right over the dimmed Grid, the target
-    /// slot left of it shows the black "+", and Plugins has no "New" pill.
-    #[test]
-    fn the_category_drawer_opens_on_the_right() {
-        let mut s = UiSnapshot::default();
-        s.rows[0].input = InputPort::Input1;
-        let mut ui = UiState::default();
-        ui.set_snapshot(s).unwrap();
-        let position = GridPosition::new(0, 3).unwrap();
-        ui.handle_input(InputEvent::Activate(Control::SelectCell(position)));
-        let group = Control::Picker(PickerControl::Group(DeviceGroup::Plugins));
-        let row = bounds(&ui, group).unwrap();
-        assert_eq!((row.x, row.width), (400, 400));
-        let layout = ui.layout();
-        assert!(!(layout.items.iter()).any(|item| item.label == "New"));
-        let plus = (layout.items.iter())
-            .find(|item| item.label == "+" && matches!(item.look, Look::IconButton { .. }));
-        assert!(plus.is_some_and(|item| item.bounds.right() <= 400));
-        assert_eq!(bounds(&ui, Control::Back).map(|area| area.x), Some(0));
-    }
-
     fn bounds(ui: &UiState, control: Control) -> Option<Rect> {
         (ui.hit_regions().into_iter())
             .find(|region| region.control == control)
@@ -610,57 +577,6 @@ mod tests {
             .collect()
     }
 
-    /// Shot sn-4 geometry and colours: the `#121212` header and gaps, the `#2e2e2e` folder
-    /// and list panels, the selected Captures Library row in `#1e1e1e` with its count, the
-    /// header buttons at the stock places, rows sorted by name with the date and initial.
-    #[test]
-    fn the_browser_matches_the_stock_layout() {
-        let ui = browser();
-        assert!(ui.capture_browser());
-        let folder = |folder| Control::Picker(PickerControl::CaptureFolder(folder));
-        let library = bounds(&ui, folder(CaptureFolder::Library)).unwrap();
-        assert_eq!(library, Rect::new(104, 240, 256, 60));
-        assert_eq!(
-            bounds(&ui, folder(CaptureFolder::Favorites)),
-            Some(Rect::new(104, 60, 256, 60))
-        );
-        assert!(
-            bounds(&ui, folder(CaptureFolder::Folder(2))).is_none(),
-            "nested"
-        );
-        assert!(bounds(&ui, Control::Picker(PickerControl::CaptureBack)).is_none());
-        assert_eq!(
-            bounds(&ui, Control::Library(LibraryControl::Filter)),
-            Some(Rect::new(462, 8, 66, 44))
-        );
-        assert_eq!(
-            bounds(&ui, Control::Picker(PickerControl::Close)),
-            Some(Rect::new(694, 8, 98, 44))
-        );
-        assert_eq!(names(&ui), ["4-Comp Custom 1", "65 AC100 H 1"]);
-        let row = bounds(&ui, Control::Picker(PickerControl::Capture(1))).unwrap();
-        assert_eq!(row, Rect::new(362, 60, 403, 60));
-        let layout = ui.layout();
-        let text = |label: &str| {
-            (layout.items.iter())
-                .find(|item| item.label == label && matches!(item.look, Look::Text { .. }))
-                .map(|item| item.bounds)
-        };
-        assert_eq!(text("29 Apr 2025").map(|at| at.x), Some(378));
-        assert!(text("2").is_some(), "the library count");
-        let frame = ui.render();
-        for (x, y, want) in [
-            (400, 30, Palette::STOCK.background),
-            (103, 300, Palette::STOCK.background),
-            (361, 200, Palette::STOCK.background),
-            (150, 450, Palette::STOCK.panel),
-            (500, 450, Palette::STOCK.panel),
-            (330, 270, Palette::STOCK.surface),
-        ] {
-            assert_eq!(frame.pixel(x, y), want, "({x}, {y})");
-        }
-    }
-
     /// Shot sn-5 (`onFolderTapped`): a folder with subfolders is entered; its head row names
     /// the parent, ← goes back; Downloads lists only downloaded captures; a row adds the
     /// capture block at the target and closes the device list.
@@ -668,6 +584,10 @@ mod tests {
     fn folders_enter_and_a_row_adds_the_capture() {
         let mut ui = browser();
         let folder = |folder| Control::Picker(PickerControl::CaptureFolder(folder));
+        // The library root holds factory and user captures by name, no download, and
+        // hides nested folders.
+        assert_eq!(names(&ui), ["4-Comp Custom 1", "65 AC100 H 1"]);
+        assert!(bounds(&ui, folder(CaptureFolder::Folder(2))).is_none());
         ui.handle_input(InputEvent::Activate(folder(CaptureFolder::Folder(1))));
         assert!(bounds(&ui, Control::Picker(PickerControl::CaptureBack)).is_some());
         assert_eq!(

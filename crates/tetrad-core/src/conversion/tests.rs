@@ -81,6 +81,7 @@ fn step_cycle_nudge_and_encoder_follow_stock_rounding() {
     assert_eq!(p.next_step(0.5, 1.0).unwrap(), 0.75);
     assert_eq!(p.next_step(1.0, 1.0).unwrap(), 0.0);
     assert_eq!(p.next_step(0.5, 0.0).unwrap(), 0.5);
+    assert_eq!(p.next_step(0.5, f32::NAN).unwrap(), 0.5);
     assert_eq!(p.nudge(0.0, -1.0).unwrap(), 0.0);
     assert_eq!(p.nudge(1.0, 1.0).unwrap(), 1.0);
     assert_eq!(p.nudge(0.25, 1.0).unwrap(), 0.5);
@@ -95,32 +96,6 @@ fn step_cycle_nudge_and_encoder_follow_stock_rounding() {
     });
     let moved = fine.encoder(0.5, 3);
     assert!((moved - 0.53).abs() < 1e-6, "{moved}");
-}
-
-#[test]
-fn nan_press_leaves_the_step_unchanged() {
-    let p = scale(XmlParameter {
-        steps: Some("5"),
-        ..Default::default()
-    });
-    assert_eq!(p.next_step(0.5, f32::NAN).unwrap(), 0.5);
-}
-
-#[test]
-fn units_join_to_the_value_text_with_one_space() {
-    let hz = scale(XmlParameter {
-        min: Some("0"),
-        max: Some("10000"),
-        units: Some("Hz"),
-        ..Default::default()
-    });
-    assert_eq!(hz.display_with_units(0.575).unwrap(), "5750 Hz");
-    let bare = scale(XmlParameter {
-        min: Some("0"),
-        max: Some("10000"),
-        ..Default::default()
-    });
-    assert_eq!(bare.display_with_units(0.575).unwrap(), "5750");
 }
 
 #[test]

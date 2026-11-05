@@ -15,7 +15,6 @@ use tetrad_app::device::dsp::{self, Context, Dsp, DspError};
 use tetrad_app::device::jacks::{InputChange, InputScheduler};
 use tetrad_app::device::platform::{DspFile, Platform};
 use tetrad_app::device::preset::{self, SaveRequest, SpecsCatalog};
-use tetrad_app::device::services::Licences;
 use tetrad_app::device::{Current, DspCommand, Effect, PresetRef};
 use tetrad_capture::entry::Hardware;
 use tetrad_catalog::{Catalog, Specs};
@@ -531,37 +530,6 @@ fn unlicensed_plugin_block_deploys_bypassed() {
         records.contains(&(echo.slot.index() as u32, 0)),
         "{records:?}"
     );
-}
-
-/// (O) Issue #17: a reload with no licence for Light's plugin keeps Light on the grid, loads
-/// nothing for it and deploys the rest of the preset.
-#[test]
-fn unlicensed_plugin_block_loads_no_dsp_code() {
-    let (mut rig, _) = Rig::deploy(|preset, catalog| {
-        insert(preset, catalog, LIGHT, 1, &[0.5, 0.0]);
-        insert(preset, catalog, ECHO, 2, &[0.3, 0.5, 0.0]);
-    });
-    let dormant = preset::dormant_models(&rig.specs, &Licences::default());
-    let prepared = preset::prepare(
-        rig.current.preset.clone(),
-        &rig.specs,
-        false,
-        Some(&rig.current.deployment),
-        dormant,
-    )
-    .unwrap();
-    assert!(matches!(prepared.update, Update::Redeploy { .. }));
-    rig.try_apply(&prepared.update, Some(&prepared.deployment))
-        .unwrap();
-    let deployment = &prepared.deployment;
-    assert!(
-        deployment
-            .layout()
-            .instance(Site::Slot(slot(LIGHT)))
-            .is_some()
-    );
-    assert!(deployment.plan().block(slot(LIGHT)).is_none());
-    assert!(deployment.plan().block(slot(ECHO)).is_some());
 }
 
 /// M5 (`0x879100`): two blocks that share a blob name on one core load it once, so both

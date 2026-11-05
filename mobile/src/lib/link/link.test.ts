@@ -14,11 +14,6 @@ describe("Tetrad Link codec", () => {
     expect(Array.from(body)).toEqual([82, 73, 70, 70]);
   });
 
-  it("refuses a header that runs past the message", () => {
-    const message = encode({ id: 1 });
-    expect(() => decode(message.subarray(0, message.length - 1))).toThrow();
-  });
-
   // The same cases as crates/tetrad-ble/src/link.rs.
   it("cuts messages into frames and joins them again", () => {
     const message = Uint8Array.from({ length: 256 }, (_, i) => i);

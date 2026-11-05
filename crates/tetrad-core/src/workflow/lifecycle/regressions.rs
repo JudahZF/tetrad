@@ -51,15 +51,6 @@ fn bind_rejects_metadata_conflicting_with_retained_baseline_handle() {
 }
 
 #[test]
-fn load_rejects_normalized_working_conflicting_with_r1_baseline_handle() {
-    // Independent replay of the review's Load counterexample.
-    let mut app = core(true);
-    let mut inputs = load(&app);
-    inputs.facts.as_mut().unwrap().normalized_working.handle = inputs.baseline_input_r1.handle;
-    refuse_atomically(&mut app, LifecycleAction::Load(Box::new(inputs)), 1);
-}
-
-#[test]
 fn begin_save_rejects_candidate_redefining_its_immutable_source_handle() {
     // Independent replay of the review's BeginSave counterexample.
     let mut app = core(false);

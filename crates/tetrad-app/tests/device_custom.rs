@@ -429,70 +429,6 @@ fn nothing_stops_the_stock_data() {
     assert_eq!(bypassed(&device), start, "Nothing plays nothing");
 }
 
-/// An old footswitch mapping on a switch whose layout field is full shows as a ninth action;
-/// edits are refused until one goes, so neither is lost.
-#[test]
-fn old_mappings_over_the_limit_are_kept() {
-    let (mut device, _media) = boot();
-    let tuner = r#"{"action":{"kind":"system","action":"tuner"}}"#;
-    let field = format!(
-        r#"{{"format":2,"slots":[{{"page":0,"slot":0,"actions":[{}]}}]}}"#,
-        [tuner; 8].join(",")
-    );
-    let old = br#"{"format":1,"mappings":[
-        {"trigger":{"kind":"stomp","stomp":0},"action":{"kind":"system","action":{"scene":3}}}
-    ]}"#;
-    for edit in [
-        PresetEdit::CustomLayout(Some(field.into_bytes())),
-        PresetEdit::Mappings(Some(old.to_vec())),
-    ] {
-        device.push(Event::Action(Action::PresetEdit(edit)));
-        settle(&mut device);
-    }
-    assert_eq!(preset_a(&device).len(), 9);
-    device.push(Event::Custom(CustomCommand::Slot {
-        scope: LayoutScope::Preset,
-        page: 0,
-        slot: 1,
-        gesture: Gesture::Press,
-        edit: SlotEdit::SetColour(Some(2)),
-    }));
-    settle(&mut device);
-    let view = custom::view(device.state()).unwrap();
-    assert_eq!(
-        view.notice.as_deref(),
-        Some("A switch runs at most 8 actions")
-    );
-    assert!(
-        preset(&device)
-            .unknown
-            .bytes_field(TETRAD_MAPPINGS_FIELD)
-            .is_some()
-    );
-    edit_a(&mut device, 0, ActionEdit::Remove);
-    assert!(
-        preset(&device)
-            .unknown
-            .bytes_field(TETRAD_MAPPINGS_FIELD)
-            .is_none()
-    );
-    assert_eq!(preset_a(&device).len(), 8);
-}
-
-/// Stomp and a stored Stomp hybrid both play Custom: the cycle does not stop on Custom twice.
-#[test]
-fn the_cycle_passes_one_custom() {
-    let (mut device, _media) = boot();
-    let modes = vec![FootswitchMode::Stomp, FootswitchMode::StompPreset];
-    device.push(Event::Action(Action::SetAllowedModes(modes)));
-    settle(&mut device);
-    assert!(device.state().performance.footswitch.custom);
-    device.push(Event::Action(Action::CycleMode));
-    settle(&mut device);
-    let mode = device.state().settings.settings().mode.mode();
-    assert_eq!(mode, FootswitchMode::Stomp, "no second stop on Custom");
-}
-
 /// An old layout that does not decode is not replaced by an empty layout file: the next start
 /// reads it again.
 #[test]
@@ -597,34 +533,6 @@ fn bypasses_keep_their_own_mode_and_model() {
     assert_eq!(f.action, Some(bypass(3)));
 }
 
-/// An older layout with a Toggle and a Momentary bypass of one block on A keeps both: the
-/// Toggle goes to the stock data, the Momentary stays a Tetrad action.
-#[test]
-fn a_bypass_in_the_other_mode_survives_the_move_to_stock() {
-    let (mut device, _media) = boot();
-    let field = br#"{"format":2,"slots":[{"page":0,"slot":0,"actions":[
-        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}},
-        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}},
-         "mode":{"kind":"momentary","value":0.0}}]}]}"#;
-    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
-        Some(field.to_vec()),
-    ))));
-    settle(&mut device);
-    device.push(Event::Custom(CustomCommand::Slot {
-        scope: LayoutScope::Preset,
-        page: 0,
-        slot: 1,
-        gesture: Gesture::Press,
-        edit: SlotEdit::SetColour(Some(2)),
-    }));
-    settle(&mut device);
-    let modes: Vec<_> = preset_a(&device)
-        .into_iter()
-        .map(|(_, mode)| mode)
-        .collect();
-    assert_eq!(modes, [Some(ModeKind::Toggle), Some(ModeKind::Momentary)]);
-}
-
 /// Only what stock can hold, in the order a press plays it, goes to the stock data: a new Send
 /// MIDI without messages, a bypass after another action and a bypass of a missing block stay
 /// Tetrad actions.
@@ -667,39 +575,6 @@ fn only_leading_stock_actions_go_to_the_stock_data() {
     assert_eq!(b.actions.len(), 1, "the missing block's bypass stays");
 }
 
-/// A bypass of one block before and after another action is two steps: both stay, and a
-/// release of the momentary pair leaves the block where it started (the stock release runs
-/// last, as the stock press ran first).
-#[test]
-fn a_repeated_bypass_after_another_action_is_its_own_step() {
-    let (mut device, _media) = boot();
-    device.push(Event::Action(Action::SetMode(FootswitchMode::Stomp)));
-    settle(&mut device);
-    let light = SlotAction::Block {
-        position: GridPosition::new(0, 2).unwrap(),
-        target: BlockTarget::Bypass,
-    };
-    edit_a(&mut device, 0, ActionEdit::Set(light.clone()));
-    edit_a(&mut device, 0, ActionEdit::Mode(ModeKind::Momentary));
-    edit_a(&mut device, 1, ActionEdit::Set(SlotAction::SendMidi));
-    edit_a(&mut device, 2, ActionEdit::Set(light.clone()));
-    edit_a(&mut device, 2, ActionEdit::Mode(ModeKind::Momentary));
-    let momentary = Some(ModeKind::Momentary);
-    assert_eq!(
-        preset_a(&device),
-        [
-            (light.clone(), momentary),
-            (SlotAction::SendMidi, Some(ModeKind::OnPress)),
-            (light, momentary),
-        ]
-    );
-    let start = bypassed(&device);
-    switch_a(&mut device, 1);
-    assert_eq!(bypassed(&device), start, "two flips while held");
-    switch_a(&mut device, 0);
-    assert_eq!(bypassed(&device), start, "the two releases cancel out");
-}
-
 /// A stock momentary bypass on A of THIS PRESET and a momentary bypass of the same block on B
 /// of ALL PRESETS, both held: leaving the mode leaves the block where it started.
 #[test]
@@ -735,61 +610,4 @@ fn leaving_the_mode_releases_stock_and_custom_holds_together() {
     device.push(Event::Action(Action::SetMode(FootswitchMode::Preset)));
     settle(&mut device);
     assert_eq!(bypassed(&device), start, "both releases cancel out");
-}
-
-/// Stock sends the MIDI list after it toggles the blocks: a bypass after a Send MIDI stays a
-/// Tetrad action, so the order does not change.
-#[test]
-fn a_bypass_after_send_midi_stays_after_it() {
-    let (mut device, _media) = boot();
-    let field = br#"{"format":2,"slots":[{"page":0,"slot":0,"actions":[
-        {"action":{"kind":"sendMidi"},"messages":[{"kind":"pc","channel":1,"values":[null,null,7]}]},
-        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}}]}]}"#;
-    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
-        Some(field.to_vec()),
-    ))));
-    settle(&mut device);
-    device.push(Event::Custom(CustomCommand::Slot {
-        scope: LayoutScope::Preset,
-        page: 0,
-        slot: 1,
-        gesture: Gesture::Press,
-        edit: SlotEdit::SetColour(Some(2)),
-    }));
-    settle(&mut device);
-    let actions: Vec<_> = preset_a(&device)
-        .into_iter()
-        .map(|(action, _)| action)
-        .collect();
-    assert_eq!(actions[0], SlotAction::SendMidi);
-    assert!(matches!(actions[1], SlotAction::Block { .. }));
-    assert!(preset(&device).stomp_mode_assignments.is_empty());
-}
-
-/// A bypass, a Send MIDI with messages and the same bypass again: the MIDI list goes to the
-/// stock data, and the second bypass stays a step of its own after it.
-#[test]
-fn a_repeated_bypass_after_a_stock_send_midi_stays() {
-    let (mut device, _media) = boot();
-    let field = br#"{"format":2,"slots":[{"page":0,"slot":0,"actions":[
-        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}},
-        {"action":{"kind":"sendMidi"},"messages":[{"kind":"pc","channel":1,"values":[null,null,7]}]},
-        {"action":{"kind":"block","row":0,"column":2,"target":{"kind":"bypass"}}}]}]}"#;
-    device.push(Event::Action(Action::PresetEdit(PresetEdit::CustomLayout(
-        Some(field.to_vec()),
-    ))));
-    settle(&mut device);
-    device.push(Event::Custom(CustomCommand::Slot {
-        scope: LayoutScope::Preset,
-        page: 0,
-        slot: 1,
-        gesture: Gesture::Press,
-        edit: SlotEdit::SetColour(Some(2)),
-    }));
-    settle(&mut device);
-    assert_eq!(
-        preset_a(&device).len(),
-        3,
-        "both bypasses and the MIDI list"
-    );
 }

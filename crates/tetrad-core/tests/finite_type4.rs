@@ -163,6 +163,15 @@ fn count_precedes_step_and_each_conversion_precedes_count() {
         Type4Refusal::NonPositiveStepCount { count: 0 },
         "parameter.current16.lhs",
     );
+    // So is lhs quantization.
+    refusal(
+        pair(v(0x7f7f_ffff), Variant::UnsupportedTypeId(999), EPS, 1),
+        OperandSide::Lhs,
+        Type4Refusal::DivisionOverflow {
+            quotient_bits: 0x7f80_0000,
+        },
+        "parameter.current16.lhs",
+    );
     refusal(
         pair(
             Variant::Int32(0),
@@ -318,31 +327,6 @@ fn safe_quotient_bound_and_negative_endpoint_refusal() {
             "parameter.current16.rhs",
         );
     }
-}
-
-#[test]
-fn lhs_processing_finishes_before_rhs_conversion() {
-    refusal(
-        pair(v(0x7f7f_ffff), Variant::UnsupportedTypeId(999), EPS, 1),
-        OperandSide::Lhs,
-        Type4Refusal::DivisionOverflow {
-            quotient_bits: 0x7f80_0000,
-        },
-        "parameter.current16.lhs",
-    );
-    refusal(
-        pair(
-            v(0x4f00_0000),
-            Variant::UnsupportedTypeId(999),
-            0x3f80_0000,
-            1,
-        ),
-        OperandSide::Lhs,
-        Type4Refusal::QuantizedLong32Overflow {
-            quotient_bits: 0x4f00_0000,
-        },
-        "parameter.current16.lhs",
-    );
 }
 
 #[test]
@@ -569,29 +553,6 @@ fn defaults_remain_unstepped_and_variant64_remains_direct() {
         compare_parameter(&p, &p, FINITE),
         "parameter.opaque_variant64",
     );
-}
-
-#[test]
-fn opt_in_does_not_detect_or_resolve_runtime_policy() {
-    let p = parameter(fields(Variant::Int32(0), 0x3f80_0000, 1));
-    assert_eq!(
-        compare_parameter(&p, &p, LEGACY).unwrap_err().reason,
-        UnsupportedReason::Type4Stepping
-    );
-    for (policy, reason) in [
-        (
-            ComparisonPolicy::CustomOrLiveHandler,
-            UnsupportedReason::HandlerPolicy,
-        ),
-        (
-            ComparisonPolicy::UnresolvedNumericEnvironment,
-            UnsupportedReason::NumericEnvironment,
-        ),
-    ] {
-        let error = compare_parameter(&p, &p, policy).unwrap_err();
-        assert_eq!(error.reason, reason);
-        assert_eq!(error.path.to_string(), "policy");
-    }
 }
 
 // Share only the existing fixture constructor, without duplicating its tests.

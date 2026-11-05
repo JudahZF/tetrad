@@ -103,6 +103,13 @@ fn simulated_platform_boots_to_first_preset_and_powers_off_in_stock_order() {
             kinds[6], 0x23,
             "DSPController ctor tail: internal MIDI clock on"
         );
+        let clock = &log.requests[6];
+        assert_eq!((clock.ring, clock.word()), (CoreId::Control, Some(1)));
+        assert_eq!(
+            kinds.iter().filter(|&&kind| kind == 0x23).count(),
+            1,
+            "one enable per boot"
+        );
         assert_eq!(kinds[7], 0x4c, "dynamic delay compensation from settings");
         // Deploy: mute (cores 0, 1), 20 ms, start, sync, value push, unmute.
         let mute = log
@@ -295,26 +302,6 @@ fn simulated_platform_boots_to_first_preset_and_powers_off_in_stock_order() {
         .map(Mark::Power),
     );
     assert_eq!(log.trace[before..], expected);
-}
-
-/// The DSPController ctor tail (`0x877a84`) sends `0x23` EnableInternalMidiClock 1 to core 4
-/// once at boot, before the dynamic delay compensation (`0x4c`).
-#[test]
-fn boot_enables_the_internal_midi_clock_once_on_core_4() {
-    let media = media();
-    let log = Rc::new(RefCell::new(Log::default()));
-    let sim = Sim::new(STOCK, &media, &log);
-    let _device = Device::start(sim).unwrap();
-    let log = log.borrow();
-    let clocks: Vec<_> = (log.requests.iter())
-        .filter(|sent| sent.kind() == 0x23)
-        .collect();
-    assert_eq!(clocks.len(), 1, "one enable per boot");
-    assert_eq!(clocks[0].ring, CoreId::Control);
-    assert_eq!(clocks[0].word(), Some(1));
-    let clock = log.requests.iter().position(|sent| sent.kind() == 0x23);
-    let delay = log.requests.iter().position(|sent| sent.kind() == 0x4c);
-    assert!(clock.unwrap() < delay.unwrap());
 }
 
 /// Review w5 R10 (`0x5122c0`, `+0x88d0`): a preset load while a capture preset runs stores

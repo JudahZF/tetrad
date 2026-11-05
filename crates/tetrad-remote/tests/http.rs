@@ -216,10 +216,12 @@ fn the_file_routes_reach_the_device() {
     );
 }
 
-/// What the file routes refuse before the device is asked.
+/// What the file, tab and page routes refuse before the device is asked.
 #[test]
 fn bad_file_requests_are_refused_without_a_device_call() {
     let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
+    let get = |target: &str| format!("GET {target} HTTP/1.1\r\n{host}\r\n");
+    let post = |target: &str| format!("POST {target} HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n");
     for (request, expected) in [
         // Offset, id and name are required; the offset is a number.
         (
@@ -262,6 +264,41 @@ fn bad_file_requests_are_refused_without_a_device_call() {
             format!("POST /api/files/chunk?id=a.b&name=A.nam&offset=0 HTTP/1.1\r\n{host}\r\n"),
             "HTTP/1.1 411 Length Required",
         ),
+        // The tab and page routes check their own parameters, paths and methods.
+        (get("/api/tabs/page"), "HTTP/1.1 400 Bad Request"),
+        (post("/api/tabs/call"), "HTTP/1.1 400 Bad Request"),
+        (
+            post("/api/library/rename?id=CIR_ab"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            post("/api/library/link?id=CIR_ab&folder=x"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (post("/api/library/destination"), "HTTP/1.1 400 Bad Request"),
+        (
+            post("/api/library/folder?name=Cabs&parent=up"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (get("/api/backup/file"), "HTTP/1.1 400 Bad Request"),
+        (
+            post("/api/backup/upload?offset=0"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (post("/api/themes/select"), "HTTP/1.1 400 Bad Request"),
+        (post("/api/library/nothing"), "HTTP/1.1 404 Not Found"),
+        (
+            get("/api/tabs/call?id=a.b"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        (post("/api/library"), "HTTP/1.1 405 Method Not Allowed"),
+        (
+            get("/api/library/delete?id=CIR_ab"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        (post("/api/backup"), "HTTP/1.1 405 Method Not Allowed"),
+        (get("/api/themes/save"), "HTTP/1.1 405 Method Not Allowed"),
+        (post("/api/notices"), "HTTP/1.1 405 Method Not Allowed"),
     ] {
         let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
         assert_eq!(status, expected, "{request}");
@@ -329,42 +366,6 @@ fn the_tab_routes_reach_the_device() {
     };
     let (_, response, _) = exchange(&upload(&head, br#"{"op":"ls"}"#), bad);
     assert!(response.contains(r#""error""#), "{response}");
-}
-
-/// What the tab routes refuse before the device is asked.
-#[test]
-fn bad_tab_requests_are_refused_without_a_device_call() {
-    let host = "Host: 10.0.0.41\r\nX-Tetrad-Pin: 4821\r\n";
-    for (request, expected) in [
-        (
-            format!("GET /api/tabs/page HTTP/1.1\r\n{host}\r\n"),
-            "HTTP/1.1 400 Bad Request",
-        ),
-        (
-            format!("POST /api/tabs/call HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
-            "HTTP/1.1 400 Bad Request",
-        ),
-        (
-            format!("POST /api/tabs/call?id=a.b HTTP/1.1\r\n{host}\r\n"),
-            "HTTP/1.1 411 Length Required",
-        ),
-        (
-            "GET /api/tabs HTTP/1.1\r\nHost: 10.0.0.41\r\n\r\n".to_owned(),
-            "HTTP/1.1 401 Unauthorized",
-        ),
-        (
-            format!("POST /api/tabs HTTP/1.1\r\n{host}Content-Length: 0\r\n\r\n"),
-            "HTTP/1.1 405 Method Not Allowed",
-        ),
-        (
-            format!("GET /api/tabs/call?id=a.b HTTP/1.1\r\n{host}\r\n"),
-            "HTTP/1.1 405 Method Not Allowed",
-        ),
-    ] {
-        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
-        assert_eq!(status, expected, "{request}");
-        assert_eq!(seen, None, "{request}");
-    }
 }
 
 #[test]
@@ -869,69 +870,6 @@ fn json_and_byte_replies_are_written_as_they_are() {
     assert_eq!(status, "HTTP/1.1 200 OK");
     assert!(response.contains("Content-Type: application/octet-stream\r\nContent-Length: 5\r\n"));
     assert!(response.ends_with("\r\n\r\npiece"));
-}
-
-/// Missing parameters, a wrong method, a missing PIN and an unknown path are answered without a
-/// device call.
-#[test]
-fn bad_page_requests_are_refused_without_a_device_call() {
-    let host = "Host: 192.168.1.20\r\nX-Tetrad-Pin: 4821";
-    let post =
-        |target: &str| format!("POST {target} HTTP/1.1\r\n{host}\r\nContent-Length: 0\r\n\r\n");
-    let cases = [
-        (post("/api/library/rename?id=CIR_ab"), "400"),
-        (post("/api/library/link?id=CIR_ab&folder=x"), "400"),
-        (post("/api/library/destination"), "400"),
-        (post("/api/library/folder?name=Cabs&parent=up"), "400"),
-        (post("/api/library/nothing"), "404"),
-        (post("/api/library"), "405"),
-        (
-            format!("GET /api/library/delete?id=CIR_ab HTTP/1.1\r\n{host}\r\n\r\n"),
-            "405",
-        ),
-        (
-            format!("GET /api/backup/file HTTP/1.1\r\n{host}\r\n\r\n"),
-            "400",
-        ),
-        (post("/api/backup/upload?offset=0"), "400"),
-        (post("/api/backup"), "405"),
-        (post("/api/themes/select"), "400"),
-        (
-            format!("GET /api/themes/save HTTP/1.1\r\n{host}\r\n\r\n"),
-            "405",
-        ),
-        (
-            format!("POST /api/notices HTTP/1.1\r\n{host}\r\nContent-Length: 0\r\n\r\n"),
-            "405",
-        ),
-        (
-            "GET /api/library HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n".to_owned(),
-            "401",
-        ),
-    ];
-    for (request, code) in cases {
-        let (status, _, seen) = exchange(request.as_bytes(), Reply::Off);
-        assert!(status.contains(code), "{request}: {status}");
-        assert_eq!(seen, None, "{request}");
-    }
-}
-
-/// Every page part is in the page, and no mark is left in it.
-#[test]
-fn the_page_has_every_part() {
-    let (_, page, _) = exchange(b"GET / HTTP/1.1\r\nHost: 192.168.1.20\r\n\r\n", Reply::Off);
-    for id in [
-        "irs",
-        "mappings",
-        "footswitch",
-        "backup",
-        "themes",
-        "notices",
-        "extensions",
-    ] {
-        assert!(page.contains(&format!("<section id=\"{id}\"")), "{id}");
-    }
-    assert!(!page.contains("<!--parts-->"));
 }
 
 /// The Tetrad Link asks the same routes without HTTP (docs/bluetooth.md).

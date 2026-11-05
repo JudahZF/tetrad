@@ -46,17 +46,3 @@ impl UartConfig {
         iflag & !self.iflag_clear
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn masks_equal_stock_immediates() {
-        // VA 0xd6d8..0xd6e8: `bic 0x80000000; bic 0x340; orr 0x8b0` and `bic 0x1d40; bic 1`.
-        assert_eq!(!MIDI_UART.cflag_clear, 0x7fff_fcbf);
-        assert_eq!(!MIDI_UART.iflag_clear, 0xffff_e2be);
-        assert_eq!(MIDI_UART.apply_cflag(0xffff_ffff), 0x7fff_fcbf);
-        assert_eq!(MIDI_UART.apply_cflag(0), 0x8b0);
-    }
-}

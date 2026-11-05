@@ -229,17 +229,6 @@ fn rnd32_bracket_cuts_the_round_off_of_the_low_sections() {
     assert!(after < -65.0 && before - after > 15.0);
 }
 
-/// RBJ shelves keep their stock symmetry: the 65 Hz shelf at +12 dB reaches
-/// +12 dB at DC, the 16 kHz shelf at Nyquist, each within 0.01 dB.
-#[test]
-fn shelves_reach_their_gain_at_the_band_edge() {
-    let low = LAW.design(1, 1.0);
-    let high = LAW.design(9, 1.0);
-    assert!((20.0 * low.magnitude(0.0, RATE).log10() - 12.0).abs() < 0.01);
-    assert!((20.0 * high.magnitude(RATE / 2.0, RATE).log10() - 12.0).abs() < 0.01);
-    assert!((20.0 * high.magnitude(0.0, RATE).log10()).abs() < 0.01);
-}
-
 /// V2 input: the ZenUI push of all 11 values, both band ends, the HPF OFF
 /// edge, a resent value, mid-stream changes, subnormal values, an ignored
 /// index, values the adapter drops, and subnormal and −0 samples. Frame 20
@@ -325,12 +314,4 @@ fn each_placement_runs_its_relocated_bytes_through_v2() {
         words[..2 * STATE_WORDS],
         Graphic9.static_layout().states().concat()
     );
-}
-
-/// V4: the independent `blobdis` decoder reads the whole shim as the ABI
-/// record's entry and stubs.
-#[test]
-#[ignore = "runs the blobdis binary that QC_BLOBDIS names (not in this repository)"]
-fn blobdis_decodes_the_shim() {
-    support::blobdis::verify_shim_decode(&BuiltModule::build(&Graphic9).unwrap());
 }

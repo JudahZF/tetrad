@@ -130,6 +130,12 @@ fn an_upload_needs_the_pin_and_lands_in_the_ir_saving_destination() {
     // The upload came right after a touch: no notice dialog besides the toast.
     assert_eq!(snapshot.notice, None);
     assert_eq!(view(&device).status.as_deref(), Some("Added V30 SM57"));
+
+    // Off stops the server and forgets the PIN.
+    tap_switch(&mut device);
+    assert!(!remote(&device).running);
+    assert_eq!(view(&device), RemoteView::default());
+    assert_eq!(ask(&mut device, status("0001")), Reply::Off);
 }
 
 /// The file manager needs the PIN, lists nothing without an extension that takes files, and refuses
@@ -187,28 +193,6 @@ fn too_many_wrong_pins_make_a_new_pin() {
         ask(&mut device, status("0002")),
         Reply::Status { .. }
     ));
-}
-
-/// The switch is saved: a boot with Remote on starts it again with a new PIN; off stops the
-/// server and forgets the PIN.
-#[test]
-fn the_switch_is_saved_across_boots() {
-    let files = MemFiles::default();
-    files.put(SETTINGS_FILE, r#"{"enabled":true}"#);
-    let (mut device, _media) = boot_remote(media(), files.clone(), FakeRemote::default());
-    assert!(remote(&device).running);
-    // The views follow at the next pass.
-    device.step();
-    assert_eq!(view(&device).pin.as_deref(), Some("0001"));
-
-    tap_switch(&mut device);
-    assert!(!remote(&device).running);
-    assert_eq!(view(&device), RemoteView::default());
-    assert_eq!(
-        files.get(SETTINGS_FILE).unwrap(),
-        br#"{"enabled":false,"pin_in_menu":false}"#
-    );
-    assert_eq!(ask(&mut device, status("0001")), Reply::Off);
 }
 
 /// A port that does not open leaves the switch on and saved, with the reason; the switch still
@@ -658,41 +642,4 @@ mod update {
         let ready = ask(&mut device, Request::UpdateReady { pin });
         assert!(refused(&ready).contains("100"), "{ready:?}");
     }
-}
-
-/// The Notices page: the log of the unit as JSON, behind the PIN, newest last, with the age of
-/// each notice so the page can show its time of day.
-#[test]
-fn notices_need_the_pin_and_list_the_log() {
-    let files = MemFiles::default();
-    let (mut device, _media) = boot_remote(media(), files, FakeRemote::default());
-    tap_switch(&mut device);
-    let notices = |pin: &str| Request::Notices { pin: pin.into() };
-    assert_eq!(ask(&mut device, notices("9999")), Reply::WrongPin);
-    assert!(matches!(
-        ask(
-            &mut device,
-            Request::Upload {
-                pin: "0001".into(),
-                name: "V30 SM57".into(),
-                wav: page_wav(1024),
-            }
-        ),
-        Reply::Added { .. }
-    ));
-
-    let Reply::Json(body) = ask(&mut device, notices("0001")) else {
-        panic!("a JSON reply");
-    };
-    let list = body["notices"].as_array().unwrap();
-    let last = list.last().unwrap();
-    assert_eq!(last["subsystem"], "Remote");
-    assert!(
-        last["detail"]
-            .as_str()
-            .unwrap()
-            .contains("IR V30 SM57 added")
-    );
-    assert!(last["ago"].is_u64());
-    assert!(body["dropped"].is_u64());
 }

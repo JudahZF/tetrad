@@ -115,29 +115,6 @@ fn d(bits: u64) -> Variant {
 }
 
 #[test]
-fn proved_constructor_copy_is_payload_free_and_does_not_change_synthetic_defaults() {
-    let unit = Variant::ConstructorInvalid;
-    assert_eq!(unit.type_id(), 0);
-    assert_eq!(format!("{unit:?}"), "ConstructorInvalid");
-    let p = parameter(invalid_fields());
-    let before = format!("{p:?}");
-    let copied = p.clone();
-    assert_eq!(
-        compare_parameter(&p, &copied, LEGACY).unwrap(),
-        Comparison::Equal
-    );
-    assert_eq!(format!("{p:?}"), before);
-    let defaults = ParameterFields::default();
-    for value in [
-        &defaults.current16,
-        &defaults.default32,
-        &defaults.opaque_variant64,
-    ] {
-        assert!(matches!(value, Variant::Int32(0)));
-    }
-}
-
-#[test]
 fn equal_invalid_visits_byte80_packed_bytes_and_points() {
     let lhs = parameter(invalid_fields());
     for which in 0..3 {

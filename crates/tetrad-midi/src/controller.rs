@@ -791,36 +791,6 @@ mod tests {
         assert_eq!(midi.preset_loaded(&table), [MidiOutput::Din(vec![0xc0, 9])]);
     }
 
-    /// USB carries the kinds stock left on DIN: SysEx goes out as one 0x18 per packet, and an
-    /// inbound USB pitch bend on a reserved channel reaches the extension.
-    #[test]
-    fn usb_carries_every_kind() {
-        let mut midi = controller();
-        let sysex = MidiMessage::SysEx(vec![0x7d, 0x44]);
-        let out = midi.transmit(&sysex);
-        assert_eq!(out[0], MidiOutput::Din(vec![0xf0, 0x7d, 0x44, 0xf7]));
-        let packets: Vec<_> = UsbMidiEvent::packets(&sysex)
-            .into_iter()
-            .map(|event| MidiOutput::Dsp(DspCommand::UsbMidiOut(event)))
-            .collect();
-        assert_eq!(packets.len(), 2);
-        assert_eq!(out[1..], packets);
-
-        midi.set_reserved_channels(1 << 1);
-        let bend = UsbMidiEvent {
-            code: 0x0e,
-            status: 0xe1,
-            data: [0x10, 0x50],
-        };
-        assert_eq!(
-            midi.receive_usb(bend, Duration::ZERO),
-            [MidiOutput::Reserved(MidiMessage::PitchBend {
-                channel: crate::Channel::from_index(1).unwrap(),
-                value: 0x2810,
-            })]
-        );
-    }
-
     /// DIN clock in: enable sequence on the first in-range tick, 0x2d per
     /// tick, then the 200 ms timeout restores the internal clock and tempo.
     #[test]

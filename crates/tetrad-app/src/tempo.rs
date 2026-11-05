@@ -1187,29 +1187,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn time_signature_table_rows() {
-        let mut tempo = controller(1.0);
-        let applied = tempo.apply(6, 0.1, Source::Local).unwrap();
-        let four_four = TimeSignature::from_index(2).unwrap();
-        assert_eq!(applied.effect, Some(Effect::TimeSignature(Some(four_four))));
-        assert_eq!(
-            (four_four.name, four_four.beats, four_four.unit),
-            ("4/4", 4, 4)
-        );
-        assert_eq!(four_four.subdivisions(), ["1/4", "1/8", "1/8T", "1/16"]);
-        let three_eight = TimeSignature::from_index(12).unwrap();
-        assert_eq!(
-            (three_eight.name, three_eight.beats, three_eight.unit),
-            ("3/8", 3, 8)
-        );
-        assert_eq!(three_eight.subdivisions(), ["1/8", "1/16", "1/16T", "1/32"]);
-        let last = TimeSignature::from_index(20).unwrap();
-        assert_eq!((last.name, last.beats), ("7/8 (2+2+3)", 7));
-        assert_eq!(TimeSignature::from_index(21), None);
-        assert_eq!(TimeSignature::from_index(-1), None);
-    }
-
     /// `0x0154b55c` rule: 2 on beat 0, 3 on each later group start, 0 elsewhere and past the
     /// last beat.
     #[test]

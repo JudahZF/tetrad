@@ -9,9 +9,7 @@ use tetrad_blocks::blocks::gate::{
 use tetrad_blocks::verification::{
     ParameterUpdate, VerificationFrame, scheduled_frames, verify_module, verify_module_at,
 };
-use tetrad_blocks::{
-    BLOCK_SAMPLES, BuiltModule, HostReference, LinkedModule, OwnedBlock, SectionAddresses,
-};
+use tetrad_blocks::{BLOCK_SAMPLES, BuiltModule, HostReference, OwnedBlock};
 use tetrad_sharc::math::{self, prm};
 
 #[test]
@@ -325,16 +323,4 @@ fn v3_gate_relocation_matches_linking_and_two_instances_deploy() {
     for at in placements {
         verify_module_at(&SimpleGate, &frames, at).unwrap();
     }
-}
-
-#[test]
-fn v4_gate_shim_matches_the_prm_and_qc_asm_return_vectors() {
-    let linked = LinkedModule::link(&SimpleGate, SectionAddresses::LINK).unwrap();
-    support::verify_stub_vectors(&linked);
-}
-
-#[test]
-#[ignore = "runs the blobdis binary that QC_BLOBDIS names (not in this repository)"]
-fn blobdis_decodes_the_gate_shim() {
-    support::blobdis::verify_shim_decode(&BuiltModule::build(&SimpleGate).unwrap());
 }

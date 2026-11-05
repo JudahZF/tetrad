@@ -702,6 +702,7 @@ fn a_network_refuses_foreign_handles_and_holds_its_operation_limit() {
               const foreign = other.network();
               refuses("a foreign buffer", () => net.copy(foreign.buffer(1), y), "not a buffer");
               refuses("a signal as a buffer", () => net.copy(level, y), "not a buffer");
+              refuses("a foreign signal", () => b.mul(b.input(), other.input()), "another block builder");
               other.finish(other.input());
               refuses("a finished builder's network", () => foreign.buffer(1), "finished");
               refuses("a leaky ReLU slope above 1", () => net.activation(y, { leakyRelu: 2 }), "slope");
@@ -719,26 +720,6 @@ fn a_network_refuses_foreign_handles_and_holds_its_operation_limit() {
     };
     assert_eq!(ir["network"]["ops"].as_array().unwrap().len(), 4096);
     qcdsp::Block::from_json(&ir.to_string()).unwrap();
-}
-
-#[test]
-fn a_failing_provider_publishes_its_error() {
-    let mut h = Harness::start(
-        r#"export default { activate(ctx) {
-            ctx.blocks.provide("amp", () => {
-              const a = ctx.blocks.builder();
-              return ctx.blocks.builder().finish(a.input());
-            });
-        } };"#,
-        Limits::default(),
-    );
-    assert!(matches!(h.next(), RunnerMessage::Activated { .. }));
-    h.send(&build_block(2, ""));
-    let publish = published(&mut h, 2);
-    let BuildOutcome::Error(error) = publish.outcome else {
-        panic!("a foreign signal was accepted")
-    };
-    assert!(error.contains("another block builder"), "{error}");
 }
 
 /// A parameter whose range is empty as f32 (1 and 1 + 1e-9) would normalise to 0/0 on the

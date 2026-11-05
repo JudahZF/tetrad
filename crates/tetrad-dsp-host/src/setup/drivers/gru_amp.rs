@@ -264,11 +264,17 @@ mod tests {
         assert!(out.contains(&DspWrite::parameter(target, 5, 0.0)));
     }
 
-    /// 42 sends its topology from the stock table; other GRU models pass
-    /// every value.
+    /// 42 and 1154 send their topology from the stock table; other GRU models
+    /// pass every value.
     #[test]
     fn gru_42_uses_the_topology_table_and_passes_values() {
         let mut out = Vec::new();
+        build(identity(1154), &mut out).unwrap();
+        assert!(matches!(
+            out[0],
+            DspWrite::StockData { buffer: 0, payload, .. } if payload.len() == 0x38
+        ));
+        out.clear();
         let mut block = build(identity(42), &mut out).unwrap();
         assert!(matches!(
             out[0],
@@ -280,16 +286,5 @@ mod tests {
             .push(&values, BlockBypass::default(), None, &mut out)
             .unwrap();
         assert_eq!(out.len(), 3);
-    }
-
-    /// 1154 copies its topology from the stock table, not from code-built words.
-    #[test]
-    fn gru_1154_uses_the_stock_topology_table() {
-        let mut out = Vec::new();
-        build(identity(1154), &mut out).unwrap();
-        assert!(matches!(
-            out[0],
-            DspWrite::StockData { buffer: 0, payload, .. } if payload.len() == 0x38
-        ));
     }
 }

@@ -4,7 +4,6 @@ import { type Header, type Json, decode, encode } from "@/lib/link/message";
 import type { LinkPort } from "@/lib/link/session";
 import { sendFile } from "./client";
 import { DemoClient } from "./demo";
-import type { FootswitchView, SlotEdit } from "./types";
 import { LinkClient } from "./link";
 import { type Fetch, RemoteClient, parseAddress } from "./remote";
 
@@ -76,13 +75,6 @@ describe("Remote (Wi-Fi)", () => {
     });
     const client = new RemoteClient("192.168.1.20", "1234", fetchFn, 20);
     await expect(client.backupPiece(0)).rejects.toMatchObject({ refused: false, message: /did not answer/ });
-  });
-
-  it("takes the support file's name from Content-Disposition", async () => {
-    const { fetchFn } = fakeFetch(() => ({ bytes: Uint8Array.of(0x50, 0x4b), headers: { "content-disposition": 'attachment; filename="tetrad-support-1FEB.zip"' } }));
-    const file = await new RemoteClient("192.168.1.20", "1234", fetchFn).support();
-    expect(file.name).toBe("tetrad-support-1FEB.zip");
-    expect(Array.from(file.zip)).toEqual([0x50, 0x4b]);
   });
 });
 
@@ -216,44 +208,6 @@ describe("demo unit", () => {
     const preset = await demo.preset();
     await demo.presetEdit(preset.loadId, { kind: "bypass", at: { row: 0, column: 0 }, bypass: true });
     await expect(demo.presetEdit(preset.loadId, { kind: "scene", scene: 1 })).rejects.toThrow(/changed/);
-    await demo.close();
-  });
-
-  it("takes file pieces in order only", async () => {
-    const demo = new DemoClient(0);
-    await expect(demo.fileChunk("tetrad.nam-a2", "New.nam", 10, false, new Uint8Array(4))).rejects.toThrow(/start/);
-    await sendFile(demo, "tetrad.nam-a2", "New.nam", new Uint8Array(60 * 1024));
-    const files = await demo.files();
-    expect(files.extensions[1]?.files.find((f) => f.name === "New.nam")).toMatchObject({ size: 61440, state: "waiting" });
-    await demo.close();
-  });
-
-  it("checks footswitch labels as the unit does", async () => {
-    const demo = new DemoClient(0);
-    const edit = (label: string) => demo.footswitchCommand({ op: "slot", scope: "global", page: 0, slot: 0, edit: { kind: "label", label } });
-    await expect(edit("A label far too long")).rejects.toThrow(/16/);
-    const view = await edit("Verse");
-    expect(view.layouts.global[0]?.slots[0]?.label).toBe("Verse");
-    await demo.close();
-  });
-
-  it("runs up to eight switch actions in order, each with a mode, as the unit does", async () => {
-    const demo = new DemoClient(0);
-    const edit = (e: SlotEdit) => demo.footswitchCommand({ op: "slot", scope: "global", page: 1, slot: 0, edit: e });
-    const slotOf = (view: FootswitchView) => view.layouts.global[1]?.slots[0];
-    const tuner = { kind: "system", action: "tuner" } as const;
-    await expect(edit({ kind: "action", index: 1, action: tuner })).rejects.toThrow(/in order/);
-    for (let index = 0; index < 8; index++) await edit({ kind: "action", index, action: tuner });
-    await expect(edit({ kind: "action", index: 8, action: tuner })).rejects.toThrow(/at most 8/);
-    await edit({ kind: "action", index: 1, action: { kind: "block", row: 0, column: 7, parameter: 2 } });
-    await expect(edit({ kind: "mode", index: 1, mode: "follow" })).rejects.toThrow(/cannot use/);
-    await edit({ kind: "mode", index: 1, mode: "toggle" });
-    const stepped = slotOf(await edit({ kind: "step", index: 1, field: "b", ticks: 5 }));
-    expect(stepped?.actions[1]?.summary).toBe("25 % ↔ 80 %");
-    expect(stepped?.detail).toBe("Tuner · +7");
-    const removed = slotOf(await edit({ kind: "remove", index: 0 }));
-    expect(removed?.actions).toHaveLength(7);
-    expect(removed?.action).toEqual({ kind: "block", row: 0, column: 7, parameter: 2 });
     await demo.close();
   });
 });

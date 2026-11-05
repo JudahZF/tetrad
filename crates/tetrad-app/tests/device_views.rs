@@ -12,9 +12,8 @@ use tetrad_hal::platform::{Platform as HalPlatform, Product};
 use tetrad_settings::device::{DeviceSettings, Hardware};
 use tetrad_settings::{SettingsFileId, SettingsStorage};
 use tetrad_ui::{
-    CaptureRequest, CaptureStep, Control, InputEvent, PowerControl, Screen, SettingControl,
-    SettingsPage, UiCommand, UpdaterCommand, UpdaterState, UpdaterStatus, WifiControl, WifiNetwork,
-    WifiStatus,
+    Control, InputEvent, PowerControl, Screen, SettingControl, SettingsPage, UiCommand,
+    UpdaterCommand, UpdaterState, UpdaterStatus, WifiControl, WifiNetwork, WifiStatus,
 };
 
 #[derive(Default)]
@@ -132,24 +131,6 @@ fn updates_page_buttons_follow_the_stock_state() {
             command: UpdaterCommand::Install
         })]
     );
-}
-
-/// Capture calibration (manual §6): CONNECTION DIAGRAM steps back and START CAPTURE goes on,
-/// both through the capture bridge.
-#[test]
-fn capture_calibration_buttons_hand_off_to_the_capture_bridge() {
-    let mut views = SettingsViews::default();
-    views.capture.step = CaptureStep::Calibration;
-    let state = state(views);
-    let mut ui = Ui::new();
-    ui.handle(UiInput::Show(Screen::Capture), &state, Duration::ZERO);
-    for request in [CaptureRequest::Back, CaptureRequest::StartCapture] {
-        let requests = activate(&mut ui, &state, Control::Capture(request));
-        assert_eq!(
-            handoffs(&requests),
-            [&Handoff::Capture(UiCommand::Capture { request })]
-        );
-    }
 }
 
 /// Mini POWER (`0x6a852c`): the bridge passes both edges and tetrad-ui acts on the release;

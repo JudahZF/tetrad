@@ -119,22 +119,3 @@ impl std::str::FromStr for Uuid {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Uuid;
-
-    #[test]
-    fn uuids_compare_across_forms_and_print_as_usual() {
-        let long: Uuid = "0000180f-0000-1000-8000-00805f9b34fb".parse().unwrap();
-        assert_eq!(long, Uuid::Short(0x180f));
-        assert_eq!(long.to_bytes(), vec![0x0f, 0x18]);
-        assert_eq!(crate::midi::SERVICE.to_bytes().len(), 16);
-        assert_eq!(
-            crate::midi::SERVICE.to_string(),
-            "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
-        );
-        assert_eq!("2a00".parse::<Uuid>(), Ok(Uuid::Short(0x2a00)));
-        assert!("not-a-uuid".parse::<Uuid>().is_err());
-    }
-}

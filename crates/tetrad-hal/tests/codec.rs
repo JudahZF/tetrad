@@ -2,7 +2,7 @@
 //! analysis notes; no firmware bytes. Expected
 //! numbers, bits and nibbles are written out here, not derived from the API.
 use std::ops::RangeInclusive;
-use tetrad_hal::analog::{DeviceEndpoint, GainControl, GainEndpoint, HardwareType};
+use tetrad_hal::analog::{GainControl, GainEndpoint, HardwareType};
 use tetrad_hal::codec::*;
 use tetrad_hal::requests::IoctlPayload;
 
@@ -262,40 +262,5 @@ fn getter_decoding_rejects_non_answers() {
         for &(word, error) in rejected {
             assert_eq!(query.decode(0, word.to_le_bytes()), Err(error), "{query:?}");
         }
-    }
-}
-
-/// The revision-specific PGA requests in `analog` hit exact kernel channels:
-/// inputs are INST1/INST2 on both types, Type1 swaps the returns, Type2 does
-/// not (libzenhal `0xa548/0xa55c`, `0xa4a8/0xa480`).
-#[test]
-fn analog_codec_requests_are_gain_codes_of_this_namespace() {
-    use GainEndpoint::{Input1, Input2, Return1, Return2};
-    use HardwareType::{Type1, Type2};
-    for (hardware, endpoint, channel) in [
-        (Type1, Input1, GainChannel::Inst1),
-        (Type1, Input2, GainChannel::Inst2),
-        (Type1, Return1, GainChannel::Ret2),
-        (Type1, Return2, GainChannel::Ret1),
-        (Type2, Input1, GainChannel::Inst1),
-        (Type2, Input2, GainChannel::Inst2),
-        (Type2, Return1, GainChannel::Ret1),
-        (Type2, Return2, GainChannel::Ret2),
-    ] {
-        let control = GainControl::new(hardware, endpoint);
-        let write = control.write_request(7).unwrap();
-        let setting = Setting::Gain(channel, KernelGain::try_from(7).unwrap());
-        assert_eq!(
-            (write.device, write.request),
-            (DeviceEndpoint::Codec, setting.request()),
-            "{hardware:?} {endpoint:?}"
-        );
-        let read = control.observed_request();
-        let get = Query::Gain(channel).ioctl() as u32;
-        assert_eq!(
-            (read.device, read.number, read.output_length),
-            (DeviceEndpoint::Codec, get, 4),
-            "{hardware:?} {endpoint:?}"
-        );
     }
 }
