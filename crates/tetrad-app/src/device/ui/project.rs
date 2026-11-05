@@ -896,13 +896,15 @@ pub(crate) fn instance_parameters(
 
 /// The value text of each step of a choice, for its list (`ComboBoxSelector`): the catalog
 /// `stepNames`, else the number of each step. Empty for other kinds, without a step grid (no
-/// `steps`), or when a step has no text; a tap then steps the choice.
+/// `steps`), with more than `MAX_LIST_ITEMS` steps, or when a step has no text; a tap then
+/// steps the choice.
 fn choices(scale: &ParameterScale, kind: ParameterKind) -> Vec<String> {
     let choice = matches!(
         kind,
         ParameterKind::Choice { .. } | ParameterKind::ComboBox { .. }
     );
-    if !choice || scale.step_size() <= 0.0 {
+    let too_many = usize::try_from(scale.steps()).is_ok_and(|steps| steps > MAX_LIST_ITEMS);
+    if !choice || scale.step_size() <= 0.0 || too_many {
         return Vec::new();
     }
     let units = &scale.labels.units;
