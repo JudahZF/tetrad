@@ -779,7 +779,11 @@ pub struct State {
     pub model_preset_list: Option<(u64, tetrad_control::codecs::ModelPresetMessage)>,
     pub tuner_engine: bool,
     pub tuner_muted: bool,
+    /// The pitch the tuner views show; 0 Hz is no note.
     pub tuner_hz: f32,
+    /// The last tuner reading of the DSP, which drops a repeat ([`features::tuner_reading`]).
+    /// The idle timeout does not clear it, so a repeated stale pitch stays hidden.
+    pub tuner_reading: f32,
     pub tuner_meter_subscribed: bool,
     pub metronome: Option<crate::tempo::TempoController>,
     pub metronome_status: Option<MetronomeStatus>,
@@ -926,6 +930,7 @@ impl State {
             tuner_engine: false,
             tuner_muted: false,
             tuner_hz: 0.0,
+            tuner_reading: 0.0,
             tuner_meter_subscribed: false,
             metronome: None,
             metronome_status: None,

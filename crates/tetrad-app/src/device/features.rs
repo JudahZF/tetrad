@@ -92,12 +92,18 @@ pub fn tuner_poll_changed(state: &State, polled: bool) -> Option<Effect> {
 
 /// `0x4e13d8`: a reading (≥ 0 Hz) equal to the last one is dropped; a new one restarts the
 /// 500 ms idle timer. `None` is that timer running out (`0x4e12b0`): consumers get 0 Hz.
+/// Owned: the timeout keeps the last reading. With no input the DSP repeats its last pitch;
+/// compared with 0 Hz, each repeat would show the stale note again after every timeout, and
+/// the Tuner flashed.
 ///
 /// Only a shown tuner view repaints with it (the meter service feeds the views that consume
 /// it, [`tuner_view_shown`]); a Cortex Control subscription alone costs no frame.
 pub fn tuner_reading(state: &mut State, reading: Option<f32>) -> Vec<Effect> {
     let hz = match reading {
-        Some(hz) if hz >= 0.0 && hz != state.tuner_hz => hz,
+        Some(hz) if hz >= 0.0 && hz != state.tuner_reading => {
+            state.tuner_reading = hz;
+            hz
+        }
         Some(_) => return Vec::new(),
         None => 0.0,
     };
