@@ -69,6 +69,8 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Extensions (`controls.list`), the Mappings pages and Custom mode switch labels named every
   Neural Capture block "Eltron 30", the catalog name of the capture player. They now show the
   capture name, as the Grid does. A Stomp switch with no label also shows the capture name.
+- Bluetooth (experimental): a device that pairs without LE Secure Connections no longer keeps
+  the Tetrad app's PIN between connections ([docs/bluetooth.md](docs/bluetooth.md)).
 - Overlord Synth editor: the ARPEGGIATOR note buttons and the OSCILLATOR on and wave buttons
   work, and they show the values of a loaded preset (for example the factory preset "Arp 1").
   The Parallax LOW, MID and HIGH buttons work too. The catalog hides these parameters, and the
