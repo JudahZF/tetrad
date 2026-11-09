@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Reassembler, frames } from "./frames";
+import { MAX_MESSAGE, Reassembler, frames } from "./frames";
 import { type Header, decode, encode } from "./message";
 import { type LinkPort, LinkSession } from "./session";
 
@@ -38,6 +38,15 @@ function fakePort(answer: (header: Header, body: Uint8Array) => { header: Header
 }
 
 describe("Tetrad Link session", () => {
+  it("refuses a message over the unit's limit before it writes a frame", async () => {
+    const port = fakePort((h) => ({ header: { reply: h.op ?? null } }));
+    const session = new LinkSession(port, 50);
+    await expect(session.request("ir-upload", {}, new Uint8Array(MAX_MESSAGE + 1))).rejects.toThrow(/too large/i);
+    expect(port.written).toHaveLength(0);
+    // The next request is not held up behind it.
+    await expect(session.request("tabs")).resolves.toMatchObject({ header: { reply: "tabs" } });
+  });
+
   it("frames requests to the port size and matches replies by id", async () => {
     const port = fakePort((h, body) => ({ header: { reply: h.op ?? null, size: body.length } }));
     const session = new LinkSession(port);
