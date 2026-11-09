@@ -141,6 +141,9 @@ impl Services {
             effects.push(notice(text));
         }
         effects.extend(step.dhcp.map(|run| Effect::Service(ServiceJob::Dhcp(run))));
+        if step.reset {
+            effects.push(Effect::Service(ServiceJob::ResetInterface));
+        }
         effects
     }
 

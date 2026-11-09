@@ -171,6 +171,13 @@ pub fn bring_up(runner: &mut impl CommandRunner, files: &mut impl Files) -> Resu
     )
 }
 
+/// `ifconfig wlan0 down`, then `up`: recovery step 3 (`internet::RecoveryStep`). It blocks
+/// while the driver loads its firmware, so it runs on a service worker.
+pub fn reset_interface(runner: &mut impl CommandRunner) -> Result<(), WifiError> {
+    run(runner, "ifconfig", &[INTERFACE, "down"])?;
+    run(runner, "ifconfig", &[INTERFACE, "up"])
+}
+
 /// Stock first requests on a new command link (VAs 0x0088f974, 0x00892dcc), then `SCAN`.
 pub fn initialize(link: &mut impl SupplicantLink) -> Result<(), WifiError> {
     control(link, "INTERFACES", "INTERFACES")?;
@@ -213,11 +220,15 @@ pub struct DhcpRun {
     id: u32,
 }
 
-/// Result of a state-machine call: notices for the UI and at most one DHCP run to start.
+/// Result of a state-machine call: notices for the UI, at most one DHCP run to start and
+/// whether to reset the interface.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Step {
     pub notices: Vec<WifiNotice>,
     pub dhcp: Option<DhcpRun>,
+    /// The caller runs [`reset_interface`] off the device loop (O): `ifconfig up` loads the
+    /// driver firmware and takes too long for the loop.
+    pub reset: bool,
 }
 
 /// Wi-Fi state: the association state machine, the last scan, the lease and the DHCP run in
@@ -425,6 +436,7 @@ impl WifiService {
             return Ok(Step {
                 notices: vec![WifiNotice::RenewalFailed],
                 dhcp: None,
+                reset: false,
             });
         }
         self.lease = result.as_ref().ok().copied();
@@ -459,7 +471,8 @@ impl WifiService {
         Ok(step)
     }
 
-    /// Run actions in order. `StartDhcp` is not run here; it becomes [`Step::dhcp`].
+    /// Run actions in order. `StartDhcp` and `ResetInterface` are not run here; they become
+    /// [`Step::dhcp`] and [`Step::reset`].
     fn execute(
         &mut self,
         link: &mut impl SupplicantLink,
@@ -469,6 +482,7 @@ impl WifiService {
         let mut step = Step {
             notices: reaction.notices,
             dhcp: None,
+            reset: false,
         };
         for action in reaction.actions {
             match action {
@@ -479,10 +493,7 @@ impl WifiService {
                     step.dhcp = Some(run);
                 }
                 WifiAction::StopDhcp => self.stop_dhcp(runner)?,
-                WifiAction::ResetInterface => {
-                    run(runner, "ifconfig", &[INTERFACE, "down"])?;
-                    run(runner, "ifconfig", &[INTERFACE, "up"])?;
-                }
+                WifiAction::ResetInterface => step.reset = true,
                 WifiAction::DisableNetwork(id) => {
                     control(link, "DISABLE_NETWORK", &format!("DISABLE_NETWORK {id}"))?;
                     expect_ok(link, "SAVE_CONFIG", "SAVE_CONFIG")?;
@@ -593,6 +604,20 @@ mod tests {
 
     fn service() -> WifiService {
         WifiService::new(events::STOCK_ASSOCIATION_TIMEOUT_MS)
+    }
+
+    /// The reset is the caller's to run off the device loop: `recover` runs no `ifconfig` and
+    /// asks for it in the step.
+    #[test]
+    fn recovery_asks_for_the_interface_reset_and_runs_no_command() {
+        let mut wifi = service();
+        let mut link = ScriptedLink::default();
+        let mut runner = ScriptedRunner::default();
+        let step = wifi
+            .recover(&mut link, &mut runner, vec![WifiAction::ResetInterface])
+            .unwrap();
+        assert!(step.reset);
+        assert!(runner.lines().is_empty());
     }
 
     #[test]

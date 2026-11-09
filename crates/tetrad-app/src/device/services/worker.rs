@@ -10,6 +10,9 @@ pub fn run_job(backends: &mut impl ServiceBackends, job: ServiceJob) -> ServiceN
             run,
             result: dhcp::acquire(backends.runner()),
         },
+        ServiceJob::ResetInterface => ServiceNotice::InterfaceReset(
+            wifi::reset_interface(backends.runner()).map_err(|error| error.to_string()),
+        ),
         ServiceJob::Internet(work) => ServiceNotice::Internet(match backends.lend() {
             Some(io) => work.run(io.net, io.runner),
             None => work.failed(NetError::Io(JobError::NoBackends.to_string())),

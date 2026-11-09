@@ -196,6 +196,8 @@ impl<T> fmt::Debug for Handoff<T> {
 pub enum ServiceJob {
     /// `udhcpc` for this run ([`dhcp::acquire`]).
     Dhcp(DhcpRun),
+    /// The interface reset of the Wi-Fi recovery ([`wifi::reset_interface`]).
+    ResetInterface,
     /// The TCP reachability probe or the NTP sync ([`InternetWork::run`]).
     Internet(InternetWork),
     /// Size header, package, `gzip -t` ([`tetrad_services::updater::cloud::download_update`]).
@@ -232,7 +234,7 @@ impl Lane {
 impl ServiceJob {
     pub fn lane(&self) -> Lane {
         match self {
-            Self::Dhcp(_) | Self::Internet(_) => Lane::System,
+            Self::Dhcp(_) | Self::Internet(_) | Self::ResetInterface => Lane::System,
             Self::Cloud(_) => Lane::Cloud,
             Self::Download(_)
             | Self::Install
@@ -252,6 +254,7 @@ pub enum ServiceNotice {
         run: DhcpRun,
         result: Result<AppliedLease, DhcpError>,
     },
+    InterfaceReset(Result<(), String>),
     Internet(InternetResult),
     Download(Result<(), JobError>),
     Install(Result<InstallOutcome, JobError>),
@@ -290,6 +293,7 @@ impl ServiceJob {
                     reason: stopped.to_string(),
                 })),
             },
+            Self::ResetInterface => ServiceNotice::InterfaceReset(Err(stopped.to_string())),
             Self::Internet(work) => {
                 ServiceNotice::Internet(work.failed(NetError::Io(stopped.to_string())))
             }
@@ -779,6 +783,11 @@ impl Services {
                     .dhcp_finished(io.supplicant, io.runner, run, result)?;
                 self.wifi_step(step, now)
             }
+            ServiceNotice::InterfaceReset(result) => result
+                .err()
+                .map(|error| self::notice(format!("recovery interface reset failed: {error}")))
+                .into_iter()
+                .collect(),
             ServiceNotice::Internet(result) => {
                 let notices = self.internet.finish(result, now_ms);
                 let mut effects = self.internet_effects(&notices, now);
