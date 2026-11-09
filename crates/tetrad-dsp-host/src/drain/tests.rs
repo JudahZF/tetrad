@@ -100,3 +100,26 @@ fn the_drain_thread_empties_rings_while_the_session_does_not_poll() {
     std::thread::sleep(DRAIN_PERIOD * 4);
     assert_eq!(unread(&window.lock(), CoreId::Control), 1);
 }
+
+/// A record that core 1 cannot deliver stays on its ring (stock keeps it), but the pass still
+/// reads the rings after it: stock serves ring 1 on its own thread.
+#[test]
+fn a_bad_length_on_one_ring_does_not_stop_the_other_rings() {
+    let window = SharedFake::new(MESSAGE_MEMORY_BYTES);
+    let clock = FakeClock::new(window.clone(), |_, _| {});
+    let mut session = DspSession::new(DspTransport::new(window.clone()).unwrap(), clock);
+    session.open_soc2();
+    {
+        let mut memory = window.0.borrow_mut();
+        let layout = crate::transport::RingLayout::incoming(CoreId::Dsp(DspCore::Core1));
+        // One unread slot on core 1 whose length is one more than a slot holds.
+        let bad = layout.slot_bytes as u32 + 1;
+        memory.bytes[layout.producer_offset] = 1;
+        memory.bytes[layout.length_offset + 4..layout.length_offset + 8]
+            .copy_from_slice(&bad.to_le_bytes());
+        reply(&mut memory, CORE0, &meter(7));
+    }
+    assert!(session.poll().is_err());
+    let (_control, core0) = sequences(&mut session);
+    assert_eq!(core0, [7]);
+}

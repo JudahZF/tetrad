@@ -90,19 +90,32 @@ impl<M: SharedMemory> SharedRings<M> {
 }
 
 impl<M: SharedMemory> Rings<M> {
-    /// One pass in stock reader order; each ring until it is empty.
+    /// One pass in stock reader order; each ring until it is empty. A ring whose next record
+    /// cannot be read keeps it (as stock), and the pass goes on with the next ring (O): stock
+    /// serves ring 1 on its own thread, so one stuck ring does not stop the others there. The
+    /// first error of the pass is returned after every ring had its turn.
     fn drain(&mut self) -> Result<usize, TransportError> {
         let mut count = 0;
+        let mut first_error = None;
         for ring in RECEIVE_ORDER {
             if !self.soc2_open && !matches!(ring, CoreId::Dsp(DspCore::Core0 | DspCore::Core1)) {
                 continue;
             }
-            while let Some(bytes) = self.transport.try_receive(ring)? {
-                self.inbox.push_back((ring, Zeroizing::new(bytes)));
-                count += 1;
+            loop {
+                match self.transport.try_receive(ring) {
+                    Ok(Some(bytes)) => {
+                        self.inbox.push_back((ring, Zeroizing::new(bytes)));
+                        count += 1;
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                        break;
+                    }
+                }
             }
         }
-        Ok(count)
+        first_error.map_or(Ok(count), Err)
     }
 
     /// The session's poll: a catch-up drain, then every drained record, oldest first. Records
