@@ -10,6 +10,7 @@ import type { BlockModel } from "@/lib/preset/edit";
 import type { Edit, Preset } from "@/lib/preset/model";
 import { type Feature, UnitError } from "./client";
 import { type Fetch, RemoteClient } from "./remote";
+import * as S from "./schemas";
 
 /** The first Link protocol with the preset ops. */
 export const PRESET_PROTOCOL = 2;
@@ -92,7 +93,9 @@ export class LinkClient extends RemoteClient {
       for (let tries = 1; ; tries++) {
         try {
           const { header } = await session.request("hello", {}, undefined, helloWait);
-          return new LinkClient(session, fields<Hello>(header));
+          const hello = S.Hello.safeParse(fields(header));
+          if (!hello.success) throw new UnitError("This unit's Tetrad does not match the app. Update the app or Tetrad.", false);
+          return new LinkClient(session, hello.data);
         } catch (error) {
           if (!(error instanceof LinkError && error.timedOut) || tries >= HELLO_TRIES) throw error;
         }

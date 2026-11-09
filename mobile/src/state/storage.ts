@@ -5,10 +5,16 @@
 
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
+import { z } from "zod";
 
 export type SavedUnit =
   | { kind: "wifi"; host: string; pin: string; name: string }
   | { kind: "bluetooth"; id: string; name: string };
+
+const SavedUnitSchema: z.ZodType<SavedUnit> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("wifi"), host: z.string(), pin: z.string(), name: z.string() }),
+  z.object({ kind: z.literal("bluetooth"), id: z.string(), name: z.string() }),
+]);
 
 const KEY = "tetrad.units";
 
@@ -25,7 +31,12 @@ async function write(value: string) {
 export async function savedUnits(): Promise<SavedUnit[]> {
   try {
     const parsed: unknown = JSON.parse((await read()) ?? "[]");
-    return Array.isArray(parsed) ? (parsed as SavedUnit[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    // An entry that does not match (another app version wrote it) is dropped, not a crash.
+    return parsed.flatMap((entry) => {
+      const unit = SavedUnitSchema.safeParse(entry);
+      return unit.success ? [unit.data] : [];
+    });
   } catch {
     return [];
   }
