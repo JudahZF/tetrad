@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Reassembler, frames } from "@/lib/link/frames";
 import { type Header, type Json, decode, encode } from "@/lib/link/message";
 import type { LinkPort } from "@/lib/link/session";
-import { sendFile } from "./client";
+import { type UnitEvent, sendFile } from "./client";
 import { DemoClient } from "./demo";
 import { LinkClient } from "./link";
 import { type Fetch, RemoteClient, parseAddress } from "./remote";
@@ -50,6 +50,18 @@ describe("Remote (Wi-Fi)", () => {
     const client = new RemoteClient("192.168.1.20", "1111", fetchFn);
     await expect(client.uploadIr("x", new Uint8Array(4))).rejects.toMatchObject({ message: "An IR name has 1 to 60 characters", pin: false, status: 422 });
     await expect(client.notices()).rejects.toMatchObject({ pin: true });
+  });
+
+  it("sends nothing more after a refused PIN and reports the connection closed", async () => {
+    const { fetchFn, calls } = fakeFetch(() => ({ status: 401, json: { error: "Wrong PIN" } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    const events: UnitEvent[] = [];
+    client.onEvent((event) => events.push(event));
+    await expect(client.notices()).rejects.toMatchObject({ pin: true });
+    await expect(client.notices()).rejects.toMatchObject({ pin: true });
+    // A poll with the old PIN counts as a wrong PIN on the unit: only the first may go out.
+    expect(calls).toHaveLength(1);
+    expect(events).toEqual([{ kind: "closed", reason: expect.any(String) }]);
   });
 
   it("connects when the PIN is right even if the library is closed (422)", async () => {
