@@ -683,6 +683,11 @@ impl CommandRunner for SimRunner {
 
     fn run(&mut self, command: &Command) -> Result<Output, CommandError> {
         let line = command.line();
+        if self.cloud.borrow().online && line == "pidof wpa_supplicant" {
+            // No supplicant runs yet, so the bring-up starts one.
+            self.script.calls.push(command.clone());
+            return Ok(Output::code(1));
+        }
         let stdout = match line.as_str() {
             _ if !self.cloud.borrow().online => None,
             "modprobe wilc-spi" | "ifconfig wlan0 up" => Some(""),
