@@ -196,7 +196,7 @@ impl<T> fmt::Debug for Handoff<T> {
 pub enum ServiceJob {
     /// `udhcpc` for this run ([`dhcp::acquire`]).
     Dhcp(DhcpRun),
-    /// The interface reset of the Wi-Fi recovery ([`wifi::reset_interface`]).
+    /// The Wi-Fi interface reset ([`wifi::reset_interface`]).
     ResetInterface,
     /// The TCP reachability probe or the NTP sync ([`InternetWork::run`]).
     Internet(InternetWork),
@@ -785,7 +785,7 @@ impl Services {
             }
             ServiceNotice::InterfaceReset(result) => result
                 .err()
-                .map(|error| self::notice(format!("recovery interface reset failed: {error}")))
+                .map(|error| self::notice(format!("Wi-Fi interface reset failed: {error}")))
                 .into_iter()
                 .collect(),
             ServiceNotice::Internet(result) => {

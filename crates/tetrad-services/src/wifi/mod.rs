@@ -171,8 +171,9 @@ pub fn bring_up(runner: &mut impl CommandRunner, files: &mut impl Files) -> Resu
     )
 }
 
-/// `ifconfig wlan0 down`, then `up`: recovery step 3 (`internet::RecoveryStep`). It blocks
-/// while the driver loads its firmware, so it runs on a service worker.
+/// `ifconfig wlan0 down`, then `up`: the interface reset of `WifiAction::ResetInterface`.
+/// A rejected association, a connect time-out and recovery step 3 (`internet::RecoveryStep`)
+/// ask for it. It blocks while the driver loads its firmware, so it runs on a service worker.
 pub fn reset_interface(runner: &mut impl CommandRunner) -> Result<(), WifiError> {
     run(runner, "ifconfig", &[INTERFACE, "down"])?;
     run(runner, "ifconfig", &[INTERFACE, "up"])
