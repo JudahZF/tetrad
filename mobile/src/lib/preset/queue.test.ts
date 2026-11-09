@@ -46,6 +46,35 @@ describe("edit queue", () => {
     expect(current.grid[0]?.[2]?.params.find((p) => p.id === "master")?.value).toBe(6.6);
   });
 
+  it("does nothing more after dispose: no send, no reply, no error, no idle call", async () => {
+    const current: Preset = demoPreset();
+    const sent: Edit[] = [];
+    let release: () => void = () => {};
+    const calls: string[] = [];
+    const queue = new EditQueue(
+      () => current,
+      async (_loadId, edit) => {
+        sent.push(edit);
+        await new Promise<void>((r) => (release = r));
+        return applyEdit(current, edit, DEMO_CATALOG);
+      },
+      () => calls.push("preset"),
+      () => calls.push("error"),
+      () => calls.push("idle"),
+    );
+    const at = { row: 0, column: 2 };
+    queue.push({ kind: "param", at, param: "master", value: 6.3 });
+    queue.push({ kind: "bypass", at, bypass: true });
+    await Promise.resolve();
+    queue.dispose();
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    queue.push({ kind: "param", at, param: "master", value: 6.4 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toHaveLength(1);
+    expect(calls).toEqual([]);
+  });
+
   it("keeps a scene change between the edits made before and after it", async () => {
     let current: Preset = demoPreset();
     const sent: Edit[] = [];

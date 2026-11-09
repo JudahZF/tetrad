@@ -105,6 +105,10 @@ export function UnitProvider({ children }: { children: ReactNode }) {
         showPreset(event.preset, edits.pending);
       }
       if (event.kind === "closed") {
+        // As `disconnect`: a lost link leaves no preset and no theme of the unit behind.
+        presetRef.current = null;
+        setPreset(null);
+        setPalette(STOCK);
         setClient(null);
         toast.error(event.reason);
       }
@@ -122,9 +126,12 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     return () => {
       live = false;
       off();
+      // A disposed queue does not report idle: an edit on its way ends with it.
+      edits.dispose();
+      setSending(false);
       queue.current = null;
     };
-  }, [client, showPreset, reloadPreset, followTheme, toast]);
+  }, [client, showPreset, reloadPreset, followTheme, toast, setPalette]);
 
   const value = useMemo<UnitState>(
     () => ({
