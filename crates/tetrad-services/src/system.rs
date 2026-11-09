@@ -253,6 +253,29 @@ impl Files for SystemFiles {
         std::fs::write(path, data).map_err(file_error("write", path))
     }
 
+    /// Owned (O): syncs the temporary file and then the folder, not every file system as the
+    /// default's `/bin/sync` does. The device loop saves small files with this; a global sync
+    /// there waits for whatever a worker thread is writing.
+    fn write_atomic(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
+        let mut temp = path.as_os_str().to_owned();
+        temp.push(".tmp");
+        let temp = std::path::PathBuf::from(temp);
+        std::fs::File::create(&temp)
+            .and_then(|mut file| {
+                file.write_all(data)?;
+                file.sync_all()
+            })
+            .map_err(file_error("write", &temp))?;
+        std::fs::rename(&temp, path).map_err(file_error("rename", path))?;
+        // The rename is durable when its folder is synced.
+        match path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+            Some(dir) => std::fs::File::open(dir)
+                .and_then(|dir| dir.sync_all())
+                .map_err(file_error("sync", dir)),
+            None => Ok(()),
+        }
+    }
+
     fn append(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
         std::fs::OpenOptions::new()
             .create(true)
@@ -386,6 +409,23 @@ impl NetIo for SystemNet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `write_atomic` replaces the file and leaves no temporary file next to it.
+    #[test]
+    fn write_atomic_replaces_the_file_and_leaves_no_temp() {
+        let dir = std::env::temp_dir().join(format!("tetrad-write-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("layout.json");
+        SystemFiles.write_atomic(&path, b"old").unwrap();
+        SystemFiles.write_atomic(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["layout.json"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// The seek of `read_at` gives what the default (a whole read, here `MemFiles`) gives: the
     /// piece, a short last piece, nothing past the end, and `None` for a missing file.
