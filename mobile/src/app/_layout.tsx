@@ -15,6 +15,9 @@ import { ToastProvider } from "@/state/toast";
 import { UnitProvider, useUnit } from "@/state/unit";
 import { ThemeProvider, usePalette } from "@/ui/theme";
 
+// A crash in a screen shows Expo Router's error screen with a retry, not a blank page.
+export { ErrorBoundary } from "expo-router";
+
 void SplashScreen.preventAutoHideAsync();
 
 function Navigator() {
