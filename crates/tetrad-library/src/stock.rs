@@ -566,9 +566,9 @@ impl StockLibrary {
         self.preset_file_in(path, false)
     }
 
-    /// Writes changed preset bytes, then a changed sidecar. The file name and
-    /// slot stay (use [`Self::rename_preset`] to rename). No-op saves write
-    /// nothing.
+    /// Stages a changed sidecar, writes changed preset bytes, then commits the
+    /// sidecar. The file name and slot stay (use [`Self::rename_preset`] to
+    /// rename). No-op saves write nothing.
     pub fn save(&mut self, preset: &mut StockPreset) -> Result<StockSave> {
         let file = self.preset_file(&preset.path)?;
         let raw = preset.document.to_bytes();
@@ -580,18 +580,24 @@ impl StockLibrary {
         if raw == preset.raw && !sidecar_changed {
             return Ok(StockSave::Unchanged);
         }
+        let json = file.with_extension("json");
+        // The sidecar is staged before the document is renamed: a write error changes nothing,
+        // so a sidecar never describes a document it did not come with (as `replace_committed`).
+        let staged_sidecar = match (&sidecar, sidecar_changed) {
+            (Some(bytes), true) => Some(Staged::write(&json, bytes)?),
+            _ => None,
+        };
         if raw != preset.raw {
             write_atomic(&file, &raw)?;
             preset.raw = raw;
         }
         if sidecar_changed {
-            let json = file.with_extension("json");
-            match sidecar {
-                Some(bytes) => {
-                    write_atomic(&json, &bytes)?;
+            match (staged_sidecar, sidecar) {
+                (Some(staged), Some(bytes)) => {
+                    staged.commit()?;
                     preset.sidecar_raw = Some(bytes);
                 }
-                None => {
+                _ => {
                     fs::remove_file(json)?;
                     preset.sidecar_raw = None;
                 }

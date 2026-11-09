@@ -1025,6 +1025,34 @@ fn a_rename_returns_its_new_path_when_a_later_step_fails() {
     assert!(library.load(&renamed.value).is_ok());
 }
 
+/// A sidecar that cannot be written fails the save before the document changes, so a sidecar
+/// never describes a document it did not come with.
+#[test]
+fn a_save_whose_sidecar_cannot_be_written_keeps_the_old_document() {
+    let media = Media::new();
+    let mut library = media.library();
+    let path = saved(library.store(
+        DEFAULT_SETLIST,
+        0,
+        "Lead",
+        &document("Lead"),
+        &sidecar("Lead"),
+    ));
+    let mut preset = library.load(&path).unwrap();
+    let before = fs::read(media.0.join("Presets/My Presets/Lead.pb")).unwrap();
+    preset.document.rename("Solo").unwrap();
+    preset.sidecar.as_mut().unwrap().set_text("name", "Solo");
+    // A directory in the sidecar's place: the sidecar cannot be staged.
+    let json = media.0.join("Presets/My Presets/Lead.json");
+    fs::remove_file(&json).unwrap();
+    fs::create_dir(&json).unwrap();
+    assert!(library.save(&mut preset).is_err());
+    assert_eq!(
+        fs::read(media.0.join("Presets/My Presets/Lead.pb")).unwrap(),
+        before
+    );
+}
+
 /// `0x1dd61c` → `0x1dcf2c` → `0x742990`: a cloud preset goes into an empty slot as a free
 /// `<name>.pb` with the hash of its path and the Downloads-row sidecar (`cloudId` set); an
 /// occupied slot without an agreed overwrite is refused before any write.
