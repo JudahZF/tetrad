@@ -9,6 +9,7 @@
 //! All file access goes through [`Files`], whole files at a time, so an archive is held in
 //! memory once (owned).
 
+use std::cell::RefCell;
 use std::io::{self, Read, Write};
 use std::ops::ControlFlow;
 use std::path::{Component, Path, PathBuf};
@@ -274,6 +275,36 @@ pub fn decode_download(body: &[u8]) -> Option<Vec<u8>> {
     STANDARD.decode(text).ok()
 }
 
+/// The size of one archive read and of one member write in a restore.
+const PIECE: u64 = 64 * 1024;
+
+/// Reads a file in pieces through [`Files::read_at`], so a restore never holds the archive
+/// (O): a backup can be hundreds of MiB, and the unit has little RAM.
+struct PieceReader<'a, 'f, F: Files + ?Sized> {
+    files: &'a RefCell<&'f mut F>,
+    path: &'a Path,
+    offset: u64,
+    piece: Vec<u8>,
+    at: usize,
+}
+
+impl<F: Files + ?Sized> Read for PieceReader<'_, '_, F> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if self.at == self.piece.len() {
+            self.piece = (self.files.borrow_mut())
+                .read_at(self.path, self.offset, PIECE)
+                .map_err(|error| io::Error::other(error.to_string()))?
+                .unwrap_or_default();
+            self.offset += self.piece.len() as u64;
+            self.at = 0;
+        }
+        let count = out.len().min(self.piece.len() - self.at);
+        out[..count].copy_from_slice(&self.piece[self.at..self.at + count]);
+        self.at += count;
+        Ok(count)
+    }
+}
+
 /// Restores the backup at `archive` under `root` (`0x406844`): header check, the four trees
 /// and three favourites files removed, the Wi-Fi config saved, extract, the Wi-Fi config put
 /// back. Returns the number of members written. A member outside `scope` fails the check.
@@ -291,11 +322,19 @@ pub fn restore(
     archive: &Path,
     scope: Scope,
 ) -> Result<usize, BackupError> {
-    let data = files
-        .read(archive)?
-        .filter(|data| !data.is_empty())
-        .ok_or(BackupError::Empty)?;
-    read_members(&data, |member| match scope.takes(&member.path) {
+    if files.size(archive)?.unwrap_or(0) == 0 {
+        return Err(BackupError::Empty);
+    }
+    let files = RefCell::new(files);
+    let open = || PieceReader {
+        files: &files,
+        path: archive,
+        offset: 0,
+        piece: Vec::new(),
+        at: 0,
+    };
+    let mut handle = &files;
+    read_members(open(), |member| match scope.takes(&member.path) {
         true => Ok(()),
         false => Err(corrupt(format!(
             "{} is not in a Quad Cortex backup",
@@ -304,32 +343,32 @@ pub fn restore(
     })?;
 
     for name in RESTORE_CLEARS_TREES {
-        files.remove_tree(&root.join(name))?;
+        handle.remove_tree(&root.join(name))?;
     }
     for name in RESTORE_CLEARS_FILES {
-        files.remove(&root.join(name))?;
+        handle.remove(&root.join(name))?;
     }
     let (config, saved) = (root.join(WIFI_CONFIG), root.join(WIFI_CONFIG_SAVED));
-    files.remove(&saved)?;
-    if let Some(conf) = files.read(&config)? {
-        files.write(&saved, &conf)?;
+    handle.remove(&saved)?;
+    if let Some(conf) = handle.read(&config)? {
+        handle.write(&saved, &conf)?;
     }
-    files.sync()?;
+    handle.sync()?;
 
     let mut written = 0;
-    read_members(&data, |member| {
-        extract(files, root, &member).map_err(BackupError::Extract)?;
+    read_members(open(), |member| {
+        extract(&mut handle, root, &member).map_err(BackupError::Extract)?;
         written += 1;
         Ok(())
     })?;
-    files.sync()?;
+    handle.sync()?;
 
-    if let (Some(conf), true) = (files.read(&saved)?, files.size(&config)?.is_some()) {
-        files.remove(&config)?;
-        files.sync()?;
-        files.write(&config, &conf)?;
-        files.remove(&saved)?;
-        files.sync()?;
+    if let (Some(conf), true) = (handle.read(&saved)?, handle.size(&config)?.is_some()) {
+        handle.remove(&config)?;
+        handle.sync()?;
+        handle.write(&config, &conf)?;
+        handle.remove(&saved)?;
+        handle.sync()?;
     }
     Ok(written)
 }
@@ -608,7 +647,7 @@ pub fn unpack(
 /// Reads every member of a gzip tar in order: the header pass of `0x6b44e4` plus the
 /// owned path and type checks. The gzip trailer (CRC, length) is checked at the end.
 fn read_members(
-    archive: &[u8],
+    archive: impl Read,
     mut visit: impl FnMut(TarMember) -> Result<(), BackupError>,
 ) -> Result<(), BackupError> {
     read_tar(GzDecoder::new(archive), MEMBER_LIMIT, |member| {
@@ -723,7 +762,7 @@ mod tests {
 
         let archive = files.get("/media/p4/backup.tar.gz").unwrap();
         let mut names = Vec::new();
-        read_members(&archive, |m| {
+        read_members(&archive[..], |m| {
             names.push(format!(
                 "{}{}",
                 m.path.display(),
@@ -882,7 +921,7 @@ mod tests {
         let body = STANDARD.encode(&archive).into_bytes();
         let mut seen = Vec::new();
         assert_eq!(decode_download(&archive), None);
-        read_members(&decode_download(&body).unwrap(), |m| {
+        read_members(&decode_download(&body).unwrap()[..], |m| {
             seen.push((m.path, m.data));
             Ok(())
         })
