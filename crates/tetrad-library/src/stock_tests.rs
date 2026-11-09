@@ -1002,6 +1002,29 @@ fn a_swap_returns_its_new_paths_when_a_later_step_fails() {
     );
 }
 
+/// Once the slot names the new file the rename is done: a failed favorites step comes back
+/// with the new path, so the caller follows it and a later save goes to a named file.
+#[test]
+fn a_rename_returns_its_new_path_when_a_later_step_fails() {
+    let media = Media::new();
+    let mut library = media.library();
+    saved(library.store(
+        DEFAULT_SETLIST,
+        3,
+        "Lead",
+        &document("Lead"),
+        &sidecar("Lead"),
+    ));
+    fs::create_dir(media.0.join("favorites")).unwrap();
+    let renamed = library.rename_preset(DEFAULT_SETLIST, 3, "Solo").unwrap();
+    assert!(renamed.tail_error.is_some());
+    assert_eq!(
+        library.slots(DEFAULT_SETLIST).unwrap()[3],
+        Some(renamed.value.clone())
+    );
+    assert!(library.load(&renamed.value).is_ok());
+}
+
 /// `0x1dd61c` → `0x1dcf2c` → `0x742990`: a cloud preset goes into an empty slot as a free
 /// `<name>.pb` with the hash of its path and the Downloads-row sidecar (`cloudId` set); an
 /// occupied slot without an agreed overwrite is refused before any write.
