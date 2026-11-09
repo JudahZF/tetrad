@@ -45,8 +45,24 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      # The dev build takes unsigned updates on a unit (docs/development.md, "Dev build").
+      - name: Clippy (dev feature)
+        run: cargo clippy --locked -p tetrad-app -p tetrad-ui -p tetrad-remote --all-targets --features dev -- -D warnings
+
+      - name: Test (dev feature)
+        env:
+          TETRAD_EXTENSIONS_DIR: ${{ runner.temp }}/extensions
+        run: cargo test --locked -p tetrad-app -p tetrad-ui -p tetrad-remote --features dev
+
       - name: Format
         run: cargo fmt --all -- --check
+
+      # The launcher scripts run on BusyBox ash 1.23 on the unit: POSIX sh only.
+      - name: ShellCheck
+        run: |
+          shellcheck -s sh scripts/launcher/*.sh scripts/install.sh scripts/dev-update.sh \
+            scripts/build-dev.sh scripts/fetch-extensions.sh .cursor/install.sh
+          shellcheck scripts/bringup/*.sh
 
       - name: Rustdoc
         env:
