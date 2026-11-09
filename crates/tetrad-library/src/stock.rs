@@ -820,13 +820,14 @@ impl StockLibrary {
     /// renamed document and sidecar go to a free `<name>.pb` first; then the
     /// slot points at it. When no other slot names the old path, favorites and
     /// recents follow and the old files go (inferred from the stock naming
-    /// rule). Returns the new path.
+    /// rule). Returns the new path. The setlist write is the commit point: a
+    /// later failed step is [`Committed::tail_error`], and the new path holds.
     pub fn rename_preset(
         &mut self,
         setlist: &str,
         slot: usize,
         name: &str,
-    ) -> Result<Saved<String>> {
+    ) -> Result<Committed<String>> {
         let mut slots = self.slots(setlist)?;
         let old = slots
             .get(slot)
@@ -841,45 +842,63 @@ impl StockLibrary {
             .set_text("name", name);
         if old == format!("{}/{name}.pb", self.setlist_path(setlist)?) {
             self.save(&mut preset)?;
-            return Ok(Saved {
+            return Ok(Committed {
                 value: old,
                 search_index: None,
+                tail_error: None,
             });
         }
         let old_file = self.preset_file(&old)?;
         let new = self.free_preset_path(&self.setlist_path(setlist)?, name)?;
         let new_file = self.media.resolve(&new)?;
-        write_atomic(&new_file, &preset.document.to_bytes())?;
-        if let Some(sidecar) = &preset.sidecar {
-            write_atomic(&new_file.with_extension("json"), &sidecar.encode())?;
+        // Both files are staged before either is renamed: a write error changes nothing.
+        let staged_sidecar = match &preset.sidecar {
+            Some(sidecar) => Some(Staged::write(
+                &new_file.with_extension("json"),
+                &sidecar.encode(),
+            )?),
+            None => None,
+        };
+        Staged::write(&new_file, &preset.document.to_bytes())?.commit()?;
+        if let Some(staged) = staged_sidecar
+            && let Err(error) = staged.commit()
+        {
+            // The path was free, so the document is ours.
+            let _ = fs::remove_file(&new_file);
+            return Err(error.into());
         }
         slots[slot] = Some(new.clone());
-        self.write_slots(setlist, &slots)?;
-        if self.referenced(&old) {
-            let search_index = self.update_search_index(&[&new], &[]);
-            return Ok(Saved {
-                value: new,
-                search_index,
-            });
+        if let Err(error) = self.write_slots(setlist, &slots) {
+            let _ = remove_preset_files(&new_file);
+            return Err(error);
         }
-        for list in PRESET_LISTS {
-            let entries: Vec<_> = self
-                .items(list)?
-                .into_iter()
-                .map(|mut entry| {
-                    if entry.item == old {
-                        entry.item.clone_from(&new);
-                    }
-                    entry
-                })
-                .collect();
-            self.write_items(list, &entries)?;
-        }
-        remove_preset_files(&old_file)?;
-        let search_index = self.update_search_index(&[&new], &[&old]);
-        Ok(Saved {
+        // The commit point: the slot names the new file. A failed later step (favorites,
+        // recents, the old files) is `tail_error`, so the caller still follows the new path.
+        let unnamed = !self.referenced(&old);
+        let tail = (|| {
+            if !unnamed {
+                return Ok(());
+            }
+            for list in PRESET_LISTS {
+                let entries: Vec<_> = self
+                    .items(list)?
+                    .into_iter()
+                    .map(|mut entry| {
+                        if entry.item == old {
+                            entry.item.clone_from(&new);
+                        }
+                        entry
+                    })
+                    .collect();
+                self.write_items(list, &entries)?;
+            }
+            remove_preset_files(&old_file)
+        })();
+        let removed: &[&str] = if unnamed { &[&old] } else { &[] };
+        Ok(Committed {
+            search_index: self.update_search_index(&[&new], removed),
             value: new,
-            search_index,
+            tail_error: tail.err(),
         })
     }
 

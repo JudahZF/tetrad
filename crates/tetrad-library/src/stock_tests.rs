@@ -239,7 +239,7 @@ fn setlist_and_preset_renames_rewrite_every_reference() {
         "/media/p4/Presets/My Presets\n/media/p4/Presets/Tour\n"
     );
 
-    let renamed = saved(library.rename_preset("Tour", 5, "Lead"));
+    let renamed = committed(library.rename_preset("Tour", 5, "Lead"));
     assert_eq!(renamed, "/media/p4/Presets/Tour/Lead.pb");
     assert!(!media.0.join("Presets/Tour/Solo.pb").exists());
     let preset = library.load(&renamed).unwrap();
@@ -571,7 +571,7 @@ fn delete_and_rename_keep_files_that_another_slot_names() {
     .unwrap();
     let lead_file = media.0.join("Presets/My Presets/Lead.pb");
 
-    saved(library.rename_preset(DEFAULT_SETLIST, 0, "Solo"));
+    committed(library.rename_preset(DEFAULT_SETLIST, 0, "Solo"));
     assert!(lead_file.exists());
     saved(library.delete(DEFAULT_SETLIST, 0));
     assert!(!media.0.join("Presets/My Presets/Solo.pb").exists());
