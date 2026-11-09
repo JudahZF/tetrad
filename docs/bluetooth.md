@@ -177,8 +177,9 @@ For developers.
   that saw another table gets a Service Changed indication when it comes back.
 - **Files:** `/media/p4/tetrad/bluetooth.json` holds the switches
   (`{"enabled":true,"host_mode":true,"midi":true}`). `/media/p4/tetrad/bluetooth-bonds.json`
-  holds the pairings, with their keys. The support file never takes the keys: its
-  `bluetooth.txt` has the switches, the state and the names of the paired devices.
+  holds the pairings, with their keys. The support file never takes the keys. Its
+  `bluetooth.txt` has the switches, the state and the name of each paired device (or its
+  address when it has no name).
 - **A check without Tetrad:** `cargo run -p tetrad-sys --example ble_peripheral`, built for ARM,
   runs the stack alone on a unit as a BLE MIDI device that answers each message (stop Tetrad's
   Bluetooth first).
