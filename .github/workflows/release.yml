@@ -8,7 +8,8 @@
 #                                     installs (crates/tetrad-services/src/updater/tetrad.rs)
 # The manifest is signed with the Ed25519 secret TETRAD_RELEASE_KEY (PEM); the device checks
 # the signature with RELEASE_KEY in tetrad.rs.
-# A manual run (workflow_dispatch) builds and uploads a workflow artifact only.
+# A manual run (workflow_dispatch) builds and uploads a workflow artifact only. It does not
+# sign: its artifact has tetrad-update.json but no tetrad-update.json.sig.
 name: release
 
 on:
@@ -84,7 +85,10 @@ jobs:
           } | jq -s --arg version "$version" '{version: $version, files: add}' > dist/tetrad-update.json
           { echo '```json'; cat dist/tetrad-update.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # Only a tag is a release. A manual run must not put the release key's signature on a
+      # branch build: a unit installs any signed version over USB (docs/usb.md).
       - name: Sign the Tetrad update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           TETRAD_RELEASE_KEY: ${{ secrets.TETRAD_RELEASE_KEY }}
         run: |
