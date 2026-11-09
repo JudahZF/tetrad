@@ -78,6 +78,19 @@ describe("Remote (Wi-Fi)", () => {
     expect(calls[0]?.body).toBe('{"op":"reset"}');
   });
 
+  it("refuses a reply whose shape it does not know", async () => {
+    // A string destination and no lists: an older or newer Tetrad, not this app's shape.
+    const { fetchFn } = fakeFetch(() => ({ json: { destination: "root" } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.library()).rejects.toThrow(/does not know|update/i);
+  });
+
+  it("accepts a reply with fields it does not know", async () => {
+    const { fetchFn } = fakeFetch(() => ({ json: { folder: "/media/p4/CustomIRs", somethingNew: 1 } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.status()).resolves.toMatchObject({ folder: "/media/p4/CustomIRs" });
+  });
+
   it("a reply whose body stops coming times out", async () => {
     const fetchFn: Fetch = async (_url, init) => ({
       status: 200,
