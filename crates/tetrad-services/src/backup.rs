@@ -6,8 +6,8 @@
 //! - Restore (`0x406844`): header check `0x6b44e4`, clear, Wi-Fi config save, extract
 //!   `0x6b4608` under `/media/p4`, Wi-Fi config back.
 //!
-//! All file access goes through [`Files`], whole files at a time, so an archive is held in
-//! memory once (owned).
+//! All file access goes through [`Files`]. A create holds the archive in memory once; a restore
+//! reads the archive and writes each member in pieces (owned).
 
 use std::cell::RefCell;
 use std::io::{self, Read, Write};
@@ -104,8 +104,11 @@ impl Scope {
 const BLOCK: usize = 512;
 /// libarchive's default record: the archive is padded to whole records.
 const RECORD: usize = 20 * BLOCK;
-/// Largest member a restore takes (O): bounds memory against a hostile size field.
+/// Largest member a restore takes (O): a sanity bound on a size field; no member is held in
+/// memory.
 const MEMBER_LIMIT: u64 = 512 << 20;
+/// Largest pax or long-name record (O): names and attributes, never file data.
+const RECORD_DATA_LIMIT: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BackupError {
@@ -334,7 +337,7 @@ pub fn restore(
         at: 0,
     };
     let mut handle = &files;
-    read_members(open(), |member| match scope.takes(&member.path) {
+    read_members(open(), |member, _| match scope.takes(&member.path) {
         true => Ok(()),
         false => Err(corrupt(format!(
             "{} is not in a Quad Cortex backup",
@@ -356,8 +359,8 @@ pub fn restore(
     handle.sync()?;
 
     let mut written = 0;
-    read_members(open(), |member| {
-        extract(&mut handle, root, &member).map_err(BackupError::Extract)?;
+    read_members(open(), |member, body| {
+        extract(&mut handle, root, member, body)?;
         written += 1;
         Ok(())
     })?;
@@ -373,19 +376,34 @@ pub fn restore(
     Ok(written)
 }
 
-fn extract(files: &mut impl Files, root: &Path, member: &TarMember) -> Result<(), FileError> {
+fn extract(
+    files: &mut impl Files,
+    root: &Path,
+    member: &TarMember,
+    body: &mut dyn Read,
+) -> Result<(), BackupError> {
     let path = root.join(&member.path);
     match member.kind {
-        Kind::Dir => files.create_dirs(&path),
+        Kind::Dir => files.create_dirs(&path).map_err(BackupError::Extract),
         Kind::File => {
             if let Some(parent) = path.parent() {
-                files.create_dirs(parent)?;
+                files.create_dirs(parent).map_err(BackupError::Extract)?;
             }
             let mut temp = path.clone().into_os_string();
             temp.push(".restore");
             let temp = PathBuf::from(temp);
-            files.write(&temp, &member.data)?;
-            files.rename(&temp, &path)
+            files.write(&temp, &[]).map_err(BackupError::Extract)?;
+            let mut piece = vec![0; PIECE as usize];
+            loop {
+                let count = body.read(&mut piece).map_err(|e| corrupt(e.to_string()))?;
+                if count == 0 {
+                    break;
+                }
+                files
+                    .append(&temp, &piece[..count])
+                    .map_err(BackupError::Extract)?;
+            }
+            files.rename(&temp, &path).map_err(BackupError::Extract)
         }
     }
 }
@@ -396,12 +414,12 @@ enum Kind {
     Dir,
 }
 
-/// One checked member: `path` is relative, without `.` or `..` components.
+/// One checked member: `path` is relative, without `.` or `..` components. [`read_tar`] gives
+/// its data as a reader beside it.
 #[derive(Debug)]
 struct TarMember {
     path: PathBuf,
     kind: Kind,
-    data: Vec<u8>,
 }
 
 /// ustar writer with pax `path` records for long names (libarchive `pax_restricted`).
@@ -627,9 +645,12 @@ pub fn unpack(
     limit: u64,
 ) -> Result<Vec<(String, Vec<u8>)>, BackupError> {
     let mut found = Vec::new();
-    let visit = |member: TarMember| {
+    let visit = |member: &TarMember, body: &mut dyn Read| {
         if member.kind == Kind::File {
-            found.push((member.path.display().to_string(), member.data));
+            let mut data = Vec::new();
+            body.read_to_end(&mut data)
+                .map_err(|e| corrupt(e.to_string()))?;
+            found.push((member.path.display().to_string(), data));
         }
         Ok(match found.len() < files {
             true => ControlFlow::Continue(()),
@@ -648,19 +669,20 @@ pub fn unpack(
 /// owned path and type checks. The gzip trailer (CRC, length) is checked at the end.
 fn read_members(
     archive: impl Read,
-    mut visit: impl FnMut(TarMember) -> Result<(), BackupError>,
+    mut visit: impl FnMut(&TarMember, &mut dyn Read) -> Result<(), BackupError>,
 ) -> Result<(), BackupError> {
-    read_tar(GzDecoder::new(archive), MEMBER_LIMIT, |member| {
-        visit(member).map(ControlFlow::Continue)
+    read_tar(GzDecoder::new(archive), MEMBER_LIMIT, |member, body| {
+        visit(member, body).map(ControlFlow::Continue)
     })
 }
 
-/// The members in order, each at most `limit` bytes; a `Break` from `visit` ends the read
-/// there (the rest and the gzip trailer are not read).
+/// The members in order, each at most `limit` bytes. `visit` gets each member with a reader
+/// over its data; what it leaves unread is skipped. A `Break` from `visit` ends the read there
+/// (the rest and the gzip trailer are not read).
 fn read_tar(
     mut input: impl Read,
     limit: u64,
-    mut visit: impl FnMut(TarMember) -> Result<ControlFlow<()>, BackupError>,
+    mut visit: impl FnMut(&TarMember, &mut dyn Read) -> Result<ControlFlow<()>, BackupError>,
 ) -> Result<(), BackupError> {
     let mut long_path: Option<String> = None;
     loop {
@@ -676,15 +698,16 @@ fn read_tar(
         let kind = h[156];
         match kind {
             b'x' => {
-                long_path = pax_path(&read_data(&mut input, size, limit)?)?.or(long_path);
+                long_path = pax_path(&read_data(&mut input, size, RECORD_DATA_LIMIT.min(limit))?)?
+                    .or(long_path);
                 continue;
             }
             b'g' => {
-                read_data(&mut input, size, limit)?;
+                read_data(&mut input, size, RECORD_DATA_LIMIT.min(limit))?;
                 continue;
             }
             b'L' => {
-                let name = read_data(&mut input, size, limit)?;
+                let name = read_data(&mut input, size, RECORD_DATA_LIMIT.min(limit))?;
                 long_path = Some(
                     String::from_utf8(field_text(&name).to_vec())
                         .map_err(|_| corrupt("long name is not UTF-8"))?,
@@ -717,8 +740,21 @@ fn read_tar(
                 )));
             }
         };
-        let data = read_data(&mut input, size, limit)?;
-        if visit(TarMember { path, kind, data })?.is_break() {
+        if size > limit {
+            return Err(corrupt(format!("member of {size} bytes")));
+        }
+        let member = TarMember { path, kind };
+        let mut body = input.by_ref().take(size);
+        let flow = visit(&member, &mut body)?;
+        // What the visitor did not read, then the padding to the next block.
+        io::copy(&mut body, &mut io::sink()).map_err(|e| corrupt(e.to_string()))?;
+        if body.limit() != 0 {
+            return Err(corrupt("truncated member"));
+        }
+        let block = BLOCK as u64;
+        let pad = ((block - size % block) % block) as usize;
+        read_exact_or_corrupt(&mut input, &mut [0; BLOCK][..pad])?;
+        if flow.is_break() {
             return Ok(());
         }
     }
@@ -762,7 +798,7 @@ mod tests {
 
         let archive = files.get("/media/p4/backup.tar.gz").unwrap();
         let mut names = Vec::new();
-        read_members(&archive[..], |m| {
+        read_members(&archive[..], |m, _| {
             names.push(format!(
                 "{}{}",
                 m.path.display(),
@@ -921,8 +957,10 @@ mod tests {
         let body = STANDARD.encode(&archive).into_bytes();
         let mut seen = Vec::new();
         assert_eq!(decode_download(&archive), None);
-        read_members(&decode_download(&body).unwrap()[..], |m| {
-            seen.push((m.path, m.data));
+        read_members(&decode_download(&body).unwrap()[..], |m, body| {
+            let mut data = Vec::new();
+            body.read_to_end(&mut data).unwrap();
+            seen.push((m.path.clone(), data));
             Ok(())
         })
         .unwrap();
