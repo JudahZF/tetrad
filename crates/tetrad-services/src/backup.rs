@@ -774,6 +774,19 @@ mod tests {
         assert_eq!(files.get("/media/p4/logs/zenui.log").unwrap(), b"log");
     }
 
+    /// A member larger than one read piece and one write piece comes back byte for byte.
+    #[test]
+    fn a_large_member_restores_in_pieces() {
+        let mut files = device_data();
+        let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        files.put("/media/p4/Plugins/big.bin", big.clone());
+        let path = Path::new(DOWNLOADED_BACKUP);
+        create(&mut files, root(), &root().join("zenui.db"), path).unwrap();
+        files.put("/media/p4/Plugins/big.bin", "changed since backup");
+        assert_eq!(restore(&mut files, root(), path, Scope::Any), Ok(8));
+        assert_eq!(files.get("/media/p4/Plugins/big.bin"), Some(big));
+    }
+
     /// An empty download, a broken archive and an unsafe member all fail before anything is
     /// removed (stock `0x6b44e4` runs first; the path rules are owned).
     #[test]
