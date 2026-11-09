@@ -85,6 +85,10 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Remote: a correct PIN no longer resets the count of wrong PINs, so an open Remote page does
   not keep the PIN from changing. After 30 wrong PINs Remote stops until you turn it off and on
   ([docs/remote.md](docs/remote.md#the-pin-and-your-network)).
+- Boot: a read error on a stock firmware file at start-up no longer turns Tetrad off until a
+  manual `arm`. It counts as one failed start, as other failures do
+  ([docs/launcher.md](docs/launcher.md#exit-codes-of-tetrad-run)).
+- Boot selector: a touched choice starts also when the boot splash could not be put back.
 
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 

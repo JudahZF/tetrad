@@ -86,10 +86,28 @@ use super::{Notice, Subsystem};
 pub const STOCK_COMM: &str = "ZenUI";
 /// The comm name of this process ([`LinuxRoot::take_stock_comm`]).
 const SELF_COMM: &str = "/proc/self/comm";
-/// Exit code of `tetrad run` when [`LinuxRoot::check_pinned_firmware`] fails. Nothing was opened
-/// or written, so the boot launcher (`scripts/launcher/tetrad-launch.sh`, `TD_WRONG_FIRMWARE`)
-/// starts stock ZenUI in the same boot (docs/launcher.md).
+/// Exit code of `tetrad run` when [`LinuxRoot::check_pinned_firmware`] finds a build that Tetrad
+/// does not support ([`firmware_check_exit`]). Nothing was opened or written, so the boot
+/// launcher (`scripts/launcher/tetrad-launch.sh`, `TD_WRONG_FIRMWARE`) starts stock ZenUI in the
+/// same boot (docs/launcher.md).
 pub const WRONG_FIRMWARE_EXIT: u8 = 4;
+
+/// The exit code of the `tetrad run` firmware check. Only a build that Tetrad does not support
+/// is [`WRONG_FIRMWARE_EXIT`], which the launcher answers with `disabled`. A file that could
+/// not be read is an ordinary failure (O): the launcher counts the start, so one bad read does
+/// not turn Tetrad off until a manual `arm`.
+pub fn firmware_check_exit(check: &Result<&'static Profile, LinuxError>) -> u8 {
+    match check {
+        Ok(_) => 0,
+        Err(
+            LinuxError::WrongImage(_)
+            | LinuxError::Firmware(_)
+            // A known build whose profile has no address for a ZenUI read site.
+            | LinuxError::StockImage(TableError::Unrelocated { .. }),
+        ) => WRONG_FIRMWARE_EXIT,
+        Err(_) => 1,
+    }
+}
 const CMDLINE: &str = "/proc/cmdline";
 /// The stock ZenUI ELF: source of the secret seed. Keep the stock copy here when tetrad runs.
 const ZENUI_IMAGE: &str = "/opt/neuraldsp/ZenUI";

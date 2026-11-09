@@ -684,17 +684,18 @@ fn stock_umask() -> String {
 /// `tetrad run`. The firmware check comes first, after the comm name `ZenUI`
 /// ([`LinuxRoot::start_as_stock`]): ZenWatchdog reboots the unit when `pidof ZenUI` fails for
 /// 3 s (o-lifecycle §2), and hashing the 22 MB image takes about 3 to 6 s on the unit. The
-/// check selects the running build (`tetrad_firmware::select`) before any stock read. A failed
-/// check exits
-/// [`WRONG_FIRMWARE_EXIT`] with nothing opened, so the boot launcher can start stock ZenUI in
-/// the same boot.
+/// check selects the running build (`tetrad_firmware::select`) before any stock read. A build
+/// that Tetrad does not support exits [`WRONG_FIRMWARE_EXIT`] with nothing opened, so the boot
+/// launcher can start stock ZenUI in the same boot; a stock file that cannot be read exits 1
+/// ([`firmware_check_exit`]).
 ///
 /// [`LinuxRoot::start_as_stock`]: tetrad_app::device::linux::LinuxRoot::start_as_stock
 /// [`WRONG_FIRMWARE_EXIT`]: tetrad_app::device::linux::WRONG_FIRMWARE_EXIT
+/// [`firmware_check_exit`]: tetrad_app::device::linux::firmware_check_exit
 #[cfg(target_os = "linux")]
 fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
     use tetrad_app::device::bringup::RunOptions;
-    use tetrad_app::device::linux::{LinuxError, LinuxPlatform, LinuxRoot, WRONG_FIRMWARE_EXIT};
+    use tetrad_app::device::linux::{LinuxError, LinuxPlatform, LinuxRoot, firmware_check_exit};
 
     #[cfg(feature = "dev")]
     if args.dev {
@@ -719,7 +720,7 @@ fn run_device(args: RunArgs) -> Result<ExitCode, Error> {
             Err(error) => format!("{error}; stock ZenUI must run"),
         };
         let _ = writeln!(std::io::stderr().lock(), "tetrad run: {umask}; {firmware}");
-        return Ok(pinned.map_or(ExitCode::from(WRONG_FIRMWARE_EXIT), |_| ExitCode::SUCCESS));
+        return Ok(ExitCode::from(firmware_check_exit(&pinned)));
     }
     // Prints nothing from here: after the power teardown stderr may have no reader. The
     // device logs through `Platform::log`, which ignores write errors. The root keeps the ZenUI

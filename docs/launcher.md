@@ -64,10 +64,10 @@ Stock always starts as `exec ./ZenUI`: it is the same process that init starts w
 | 0 | A power action (restart or power off). The stock teardown runs | none |
 | 4 | The stock firmware is not a supported CorOS build. Nothing was opened | writes `disabled`, starts stock in the same boot |
 | 126, 127 | The binary could not start | starts stock in the same boot |
-| other | A failure | none: ZenWatchdog restarts the unit, and `pending` counts the start |
+| other | A failure. A stock firmware file that Tetrad could not read is such a failure (exit 1) | none: ZenWatchdog restarts the unit, and `pending` counts the start |
 
-`tetrad run --check` opens nothing. It exits 0 for a supported build and 4 for an unsupported
-build.
+`tetrad run --check` opens nothing. It exits 0 for a supported build, 4 for an unsupported
+build and 1 when it could not read a stock firmware file.
 
 ## Boot selector
 

@@ -1183,9 +1183,9 @@ fn run_and_bringup_set_the_init_umask() {
     };
     let bringup = "bringup --check --stage probe --time-limit 10 --log-dir /nonexistent/zr";
     assert_eq!(check(bringup), Some(0));
-    // No host has a supported CorOS ZenUI at /opt/neuraldsp: the firmware exit.
-    let firmware = tetrad_app::device::linux::WRONG_FIRMWARE_EXIT;
-    assert_eq!(check("run --check"), Some(i32::from(firmware)));
+    // No host has a stock ZenUI at /opt/neuraldsp: a file that cannot be read, exit 1, and
+    // not the firmware exit (`firmware_check_exit`).
+    assert_eq!(check("run --check"), Some(1));
 }
 
 /// The scripted QC of `tests/common` (SOC1/SOC2 boot, keys, catalog, deploys) with scripted
