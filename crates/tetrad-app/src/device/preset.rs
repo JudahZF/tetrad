@@ -26,7 +26,7 @@ use tetrad_engine::{
 };
 use tetrad_library::sidecar::{Creator, Instrument, PresetSave, Sidecar, utc_date};
 use tetrad_library::stock::{
-    ItemList, ReadOnlyFolder, Setlist, StaleSearchIndex, StockLibrary, StockSave,
+    Committed, ItemList, ReadOnlyFolder, Setlist, StaleSearchIndex, StockLibrary, StockSave,
 };
 use tetrad_preset::{
     CatalogModel, CatalogParam, ColBypass, MigrationReport, Model, ModelCatalog, Param, ParamValue,
@@ -2255,7 +2255,7 @@ pub fn follow_name(
     current: &mut Current,
     slot: &PresetRef,
     name: &str,
-) -> Result<Option<StaleSearchIndex>, PresetError> {
+) -> Result<Option<Committed<()>>, PresetError> {
     let Some(path) = current.path.clone() else {
         return Ok(None);
     };
@@ -2271,7 +2271,11 @@ pub fn follow_name(
     }
     let renamed = library.rename_preset(&setlist.name, index, name)?;
     current.path = Some(renamed.value);
-    Ok(renamed.search_index)
+    Ok(Some(Committed {
+        value: (),
+        search_index: renamed.search_index,
+        tail_error: renamed.tail_error,
+    }))
 }
 
 /// Copy a preset of setlist `from` into slot `to_slot` of setlist `to`, or into its first
