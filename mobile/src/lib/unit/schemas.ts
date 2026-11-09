@@ -52,14 +52,9 @@ export const TabCallReply: z.ZodType<{ result?: unknown; error?: string }> = z.o
   error: z.string().optional(),
 });
 
-const Subsystem: z.ZodType<T.Subsystem> = z.enum([
-  "Platform", "Splash", "Settings", "Library", "Dsp", "Preset", "Ui", "Control",
-  "Input", "Midi", "Services", "Capture", "Power", "Extensions", "Remote", "Usb",
-  "Bluetooth",
-]);
-
 export const NoticesReply: z.ZodType<T.NoticesReply> = z.object({
-  notices: z.array(z.object({ ago: z.number(), subsystem: Subsystem, detail: z.string() })),
+  // A label that the app only shows stays a string, so a newer Tetrad can add one.
+  notices: z.array(z.object({ ago: z.number(), subsystem: z.string(), detail: z.string() })),
   dropped: z.number(),
   repeats: z.number(),
 });
@@ -274,7 +269,8 @@ export const FootswitchView: z.ZodType<T.FootswitchView> = z.object({
   layouts: z.object({ global: z.array(LayoutPage), preset: z.array(LayoutPage).nullable() }),
   systems: z.array(
     z.object({
-      group: z.enum(["Preset", "Scene", "Tuner", "Tempo", "Mode", "Gig View", "Looper", "Page"]),
+      // A label that the app only shows stays a string, so a newer Tetrad can add one.
+      group: z.string(),
       label: z.string(),
       action: SystemAction,
     }),

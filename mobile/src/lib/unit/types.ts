@@ -71,14 +71,11 @@ export interface SupportFile {
   zip: Uint8Array;
 }
 
-export type Subsystem =
-  | "Platform" | "Splash" | "Settings" | "Library" | "Dsp" | "Preset" | "Ui" | "Control"
-  | "Input" | "Midi" | "Services" | "Capture" | "Power" | "Extensions" | "Remote" | "Usb"
-  | "Bluetooth";
 export interface Notice {
   /** Seconds before the reply. */
   ago: number;
-  subsystem: Subsystem;
+  /** A label from the unit, such as "Dsp". A newer Tetrad can send values this app does not know. */
+  subsystem: string;
   detail: string;
 }
 export interface NoticesReply {
@@ -275,7 +272,8 @@ export type SystemAction =
   | { looper: LooperButton }
   | { customPage: "next" | "previous" | { go: number } }
   | { customSlot: number };
-export type SystemGroup = "Preset" | "Scene" | "Tuner" | "Tempo" | "Mode" | "Gig View" | "Looper" | "Page";
+/** A label from the unit, such as "Preset" or "Tuner". A newer Tetrad can send values this app does not know. */
+export type SystemGroup = string;
 export type MidiMessage =
   | { kind: "cc"; channel: number; values: [number, number, number | null] }
   | { kind: "ccToggle"; channel: number; values: [number, number, number] }

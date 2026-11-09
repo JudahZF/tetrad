@@ -91,6 +91,13 @@ describe("Remote (Wi-Fi)", () => {
     await expect(client.status()).resolves.toMatchObject({ folder: "/media/p4/CustomIRs" });
   });
 
+  it("accepts a notice from a subsystem it does not know", async () => {
+    const notice = { ago: 3, subsystem: "Telemetry", detail: "started" };
+    const { fetchFn } = fakeFetch(() => ({ json: { notices: [notice], dropped: 0, repeats: 0 } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.notices()).resolves.toMatchObject({ notices: [notice] });
+  });
+
   it("a reply whose body stops coming times out", async () => {
     const fetchFn: Fetch = async (_url, init) => ({
       status: 200,
