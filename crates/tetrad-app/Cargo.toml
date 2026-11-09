@@ -65,7 +65,7 @@ libc.workspace = true
 base64.workspace = true
 ed25519-dalek.workspace = true
 # Builds a synthetic zenui.db for the device boot test; tetrad-storage already links it.
-rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled"] }
 
 [lints]
 workspace = true
