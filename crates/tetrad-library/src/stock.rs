@@ -652,7 +652,11 @@ impl StockLibrary {
         write_atomic(&file, &document.to_bytes())?;
         write_atomic(&file.with_extension("json"), &sidecar.encode())?;
         slots[slot] = Some(path.clone());
-        self.write_slots(setlist, &slots)?;
+        if let Err(error) = self.write_slots(setlist, &slots) {
+            // The path was free, so both files are ours: no orphan stays.
+            let _ = remove_preset_files(&file);
+            return Err(error);
+        }
         let search_index = self.update_search_index(&[&path], &[]);
         Ok(Saved {
             value: path,
