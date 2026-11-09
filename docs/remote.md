@@ -359,7 +359,9 @@ import does.
 
 - The page asks for the PIN before it shows anything from the unit or takes an upload.
 - Each wrong PIN gets its answer after 1 second. After 10 wrong PINs the unit makes a new PIN,
-  and the browsers that knew the old PIN ask again.
+  and the browsers that knew the old PIN ask again. A correct PIN between the wrong ones does
+  not reset this count. After 30 wrong PINs Remote stops: turn Remote off and on again on the
+  unit (Settings → Tetrad → Remote).
 - The page uses plain HTTP on port 80, because the unit has no certificate. Someone who can read
   the traffic on your network can read the PIN. Turn Remote off on networks you do not trust,
   for example at a venue.

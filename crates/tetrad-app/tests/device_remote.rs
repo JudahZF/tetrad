@@ -8,7 +8,7 @@ mod common;
 use common::{FakeRemote, Media, STOCK, Sim, boot_remote, light_preset, target};
 use tetrad_app::device::boot_selector::NO_CHOOSER_FILE;
 use tetrad_app::device::platform::TouchSample;
-use tetrad_app::device::remote::{MAX_WRONG_PINS, SETTINGS_FILE};
+use tetrad_app::device::remote::{MAX_PIN_CHANGES, MAX_WRONG_PINS, SETTINGS_FILE};
 use tetrad_app::device::ui::UiInput;
 use tetrad_app::device::{Device, Event};
 use tetrad_remote::{Call, Reply, Request};
@@ -193,6 +193,33 @@ fn too_many_wrong_pins_make_a_new_pin() {
         ask(&mut device, status("0002")),
         Reply::Status { .. }
     ));
+}
+
+/// A correct PIN between wrong ones does not reset the count: an open page sends the correct
+/// PIN every 8 s, and that must not give a guesser a new set of tries.
+#[test]
+fn a_correct_pin_does_not_reset_the_wrong_pin_count() {
+    let (mut device, _media) = boot_remote(media(), MemFiles::default(), FakeRemote::default());
+    tap_switch(&mut device);
+    for _ in 0..MAX_WRONG_PINS - 1 {
+        assert_eq!(ask(&mut device, status("9999")), Reply::WrongPin);
+        // The correct PIN, as the page's poll sends it.
+        assert_ne!(ask(&mut device, status("0001")), Reply::WrongPin);
+    }
+    assert_eq!(ask(&mut device, status("9999")), Reply::WrongPin);
+    // The tenth wrong PIN made a new PIN: the old one no longer works.
+    assert_eq!(ask(&mut device, status("0001")), Reply::WrongPin);
+}
+
+/// After [`MAX_PIN_CHANGES`] new PINs Remote stops: every request then gets `Off`.
+#[test]
+fn remote_stops_after_too_many_new_pins() {
+    let (mut device, _media) = boot_remote(media(), MemFiles::default(), FakeRemote::default());
+    tap_switch(&mut device);
+    for _ in 0..u16::from(MAX_WRONG_PINS) * u16::from(MAX_PIN_CHANGES) {
+        assert_eq!(ask(&mut device, status("9999")), Reply::WrongPin);
+    }
+    assert_eq!(ask(&mut device, status("9999")), Reply::Off);
 }
 
 /// A port that does not open leaves the switch on and saved, with the reason; the switch still

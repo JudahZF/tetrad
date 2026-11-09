@@ -79,6 +79,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
   option. This works on the parameter pages, the I/O and junction editors and the model editors.
   A sidechain **SOURCE** lists Off, Follow Input, the inputs and then the blocks before it, such
   as **Light (R1 C1)** (#39).
+- Remote: a correct PIN no longer resets the count of wrong PINs, so an open Remote page does
+  not keep the PIN from changing. After 30 wrong PINs Remote stops until you turn it off and on
+  ([docs/remote.md](docs/remote.md#the-pin-and-your-network)).
 
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
