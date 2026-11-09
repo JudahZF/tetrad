@@ -5,7 +5,9 @@
  */
 
 import { BaseClient } from "./base";
+import { z } from "zod";
 import { type Feature, type Transport, type UnitClient, UnitError } from "./client";
+import * as S from "./schemas";
 import type * as T from "./types";
 
 export interface FetchReply {
@@ -20,6 +22,7 @@ export type Fetch = (
 ) => Promise<FetchReply>;
 
 const PIN_CHANGED = "The unit has a new PIN. Connect again and enter it.";
+const UNKNOWN_REPLY = "The unit sent a reply that this app does not know. Update the app or Tetrad.";
 
 const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
@@ -120,41 +123,45 @@ export class RemoteClient extends BaseClient implements UnitClient {
     throw new UnitError(text, true, status === 401, status);
   }
 
-  private json<R>(method: "GET" | "POST", path: string, query: Record<string, string | number | boolean | undefined> = {}, body?: Uint8Array | string): Promise<R> {
-    return this.call(method, path, query, body, async (reply) => JSON.parse(await reply.text()) as R);
+  private json<R>(schema: z.ZodType<R>, method: "GET" | "POST", path: string, query: Record<string, string | number | boolean | undefined> = {}, body?: Uint8Array | string): Promise<R> {
+    return this.call(method, path, query, body, async (reply) => {
+      const parsed = schema.safeParse(JSON.parse(await reply.text()));
+      if (!parsed.success) throw new UnitError(UNKNOWN_REPLY, false);
+      return parsed.data;
+    });
   }
 
   status() {
-    return this.json<T.StatusReply>("GET", "/api/status");
+    return this.json(S.StatusReply, "GET", "/api/status");
   }
   uploadIr(name: string, wav: Uint8Array) {
-    return this.json<T.IrAddedReply>("POST", "/api/irs", { name }, wav);
+    return this.json(S.IrAddedReply, "POST", "/api/irs", { name }, wav);
   }
   library() {
-    return this.json<T.IrLibrary>("GET", "/api/library");
+    return this.json(S.IrLibrary, "GET", "/api/library");
   }
   libraryOp(op: T.LibraryOp) {
     const { op: kind, ...query } = op;
-    return this.json<T.IrLibrary>("POST", `/api/library/${kind}`, query);
+    return this.json(S.IrLibrary, "POST", `/api/library/${kind}`, query);
   }
   files() {
-    return this.json<T.FilesReply>("GET", "/api/files");
+    return this.json(S.FilesReply, "GET", "/api/files");
   }
   fileChunk(extension: string, name: string, offset: number, last: boolean, bytes: Uint8Array) {
-    return this.json<T.FileChunkReply>("POST", "/api/files/chunk", { id: extension, name, offset, last: last || undefined }, bytes);
+    return this.json(S.FileChunkReply, "POST", "/api/files/chunk", { id: extension, name, offset, last: last || undefined }, bytes);
   }
   async fileDelete(extension: string, name: string) {
-    await this.json("POST", "/api/files/delete", { id: extension, name });
+    await this.json(z.unknown(), "POST", "/api/files/delete", { id: extension, name });
   }
   async tabs() {
-    return (await this.json<{ tabs: T.ExtensionTab[] }>("GET", "/api/tabs")).tabs;
+    return (await this.json(S.TabsReply, "GET", "/api/tabs")).tabs;
   }
   async tabPage(extension: string) {
-    return (await this.json<{ html: string }>("GET", "/api/tabs/page", { id: extension })).html;
+    return (await this.json(S.TabPageReply, "GET", "/api/tabs/page", { id: extension })).html;
   }
   async tabCall(extension: string, message: unknown) {
     // 200 can still carry { error } when the extension answers with bad JSON.
-    const reply = await this.json<{ result?: unknown; error?: string }>("POST", "/api/tabs/call", { id: extension }, JSON.stringify(message ?? null));
+    const reply = await this.json(S.TabCallReply, "POST", "/api/tabs/call", { id: extension }, JSON.stringify(message ?? null));
     if (typeof reply.error === "string") throw new UnitError(reply.error);
     return reply.result;
   }
@@ -166,45 +173,45 @@ export class RemoteClient extends BaseClient implements UnitClient {
     });
   }
   notices() {
-    return this.json<T.NoticesReply>("GET", "/api/notices");
+    return this.json(S.NoticesReply, "GET", "/api/notices");
   }
   backup() {
-    return this.json<T.BackupStatus>("GET", "/api/backup");
+    return this.json(S.BackupStatus, "GET", "/api/backup");
   }
   backupCreate() {
-    return this.json<T.BackupStatus>("POST", "/api/backup/create");
+    return this.json(S.BackupStatus, "POST", "/api/backup/create");
   }
   backupPiece(offset: number) {
     return this.call("GET", "/api/backup/file", { offset }, undefined, async (reply) => new Uint8Array(await reply.arrayBuffer()));
   }
   backupUpload(name: string, offset: number, last: boolean, bytes: Uint8Array) {
-    return this.json<T.BackupStatus>("POST", "/api/backup/upload", { name, offset, last: last || undefined }, bytes);
+    return this.json(S.BackupStatus, "POST", "/api/backup/upload", { name, offset, last: last || undefined }, bytes);
   }
   backupDiscard() {
-    return this.json<T.BackupStatus>("POST", "/api/backup/discard");
+    return this.json(S.BackupStatus, "POST", "/api/backup/discard");
   }
   extensions() {
-    return this.json<T.ExtensionsList>("GET", "/api/extensions");
+    return this.json(S.ExtensionsList, "GET", "/api/extensions");
   }
   extensionCommand(command: T.ExtensionCommand) {
-    return this.json<T.ExtensionsList>("POST", "/api/extensions/command", {}, JSON.stringify(command));
+    return this.json(S.ExtensionsList, "POST", "/api/extensions/command", {}, JSON.stringify(command));
   }
   themes() {
-    return this.json<T.ThemesList>("GET", "/api/themes");
+    return this.json(S.ThemesList, "GET", "/api/themes");
   }
   themeSelect(id: string) {
-    return this.json<T.ThemesList>("POST", "/api/themes/select", { id });
+    return this.json(S.ThemesList, "POST", "/api/themes/select", { id });
   }
   mappings() {
-    return this.json<T.MappingsView>("GET", "/api/mappings");
+    return this.json(S.MappingsView, "GET", "/api/mappings");
   }
   mappingCommand(command: T.MappingCommand) {
-    return this.json<T.MappingsView>("POST", "/api/mappings/command", {}, JSON.stringify(command));
+    return this.json(S.MappingsView, "POST", "/api/mappings/command", {}, JSON.stringify(command));
   }
   footswitch() {
-    return this.json<T.FootswitchView>("GET", "/api/footswitch");
+    return this.json(S.FootswitchView, "GET", "/api/footswitch");
   }
   footswitchCommand(command: T.FootswitchCommand) {
-    return this.json<T.FootswitchView>("POST", "/api/footswitch/command", {}, JSON.stringify(command));
+    return this.json(S.FootswitchView, "POST", "/api/footswitch/command", {}, JSON.stringify(command));
   }
 }
