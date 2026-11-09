@@ -450,6 +450,53 @@ fn tuner_engine_screen_and_meter_have_separate_lifetimes() {
     assert_eq!(sent, [0x36, 0x36]);
 }
 
+/// With no input the DSP repeats its last pitch on every 50 ms poll. After the 500 ms idle
+/// timeout the Tuner shows no note, and the repeated reading must not bring the note back:
+/// that made the screen flash about twice a second. A new pitch shows at once.
+#[test]
+fn tuner_stays_idle_while_the_dsp_repeats_its_last_pitch() {
+    use tetrad_dsp_host::responses::Event as DspEvent;
+    use tetrad_dsp_protocol::responses::MeterRecord;
+    let (mut device, _log, _media) = boot();
+    device.push(Event::UiInput(UiInput::Show(Screen::Tuner)));
+    device.step();
+    let mut clock = device.platform().clock.clone();
+    let note_shown =
+        |device: &Device<Sim>| device.bridges().ui.view().snapshot().tuner.note.is_some();
+    let reading = |device: &mut Device<Sim>, hz: f32| {
+        device.push(Event::Dsp(
+            CoreId::Control,
+            DspEvent::Meter(MeterRecord {
+                core: 4,
+                column: 0,
+                index: 0x4020,
+                value_bits: hz.to_bits(),
+            }),
+        ));
+        device.step();
+    };
+    reading(&mut device, 82.41);
+    assert!(note_shown(&device), "a new pitch shows");
+    // Each 50 ms poll: the timers run, then the same reading comes back.
+    let mut shown = Vec::new();
+    for _ in 0..40 {
+        clock.sleep(Duration::from_millis(50));
+        device.step();
+        shown.push(note_shown(&device));
+        reading(&mut device, 82.41);
+        shown.push(note_shown(&device));
+    }
+    // The note shows until the idle timeout at 500 ms (the 10th poll), then stays hidden.
+    let idle = shown
+        .iter()
+        .position(|note| !note)
+        .expect("the reading goes idle");
+    assert_eq!(idle, 18, "{shown:?}");
+    assert!(shown[idle..].iter().all(|note| !note), "{shown:?}");
+    reading(&mut device, 110.0);
+    assert!(note_shown(&device), "a new pitch shows again");
+}
+
 /// The footswitch bank overlay (UP/DOWN hold) is the bank preview on screen, with its armed
 /// slot; the touch preview writes that same overlay.
 #[test]

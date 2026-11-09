@@ -62,6 +62,10 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Fixed
 
+- The Tuner flashed when there was no input: the last note came back for a moment about twice a
+  second. With no input the DSP repeats its last pitch, and each repeat after the 500 ms idle
+  timeout showed that note again. Now the note goes away after 500 ms and stays away until a new
+  pitch comes in. Gig View with LIVE TUNER on had the same flash.
 - Extensions (`controls.list`), the Mappings pages and Custom mode switch labels named every
   Neural Capture block "Eltron 30", the catalog name of the capture player. They now show the
   capture name, as the Grid does. A Stomp switch with no label also shows the capture name.
