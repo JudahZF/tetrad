@@ -653,8 +653,11 @@ impl StockLibrary {
         write_atomic(&file.with_extension("json"), &sidecar.encode())?;
         slots[slot] = Some(path.clone());
         if let Err(error) = self.write_slots(setlist, &slots) {
-            // The path was free, so both files are ours: no orphan stays.
-            let _ = remove_preset_files(&file);
+            // The path was free, so both files are ours: no orphan stays. The setlist can be
+            // in place when only its folder sync failed; then the slot names the files.
+            if !self.referenced(&path) {
+                let _ = remove_preset_files(&file);
+            }
             return Err(error);
         }
         let search_index = self.update_search_index(&[&path], &[]);
@@ -879,7 +882,11 @@ impl StockLibrary {
         }
         slots[slot] = Some(new.clone());
         if let Err(error) = self.write_slots(setlist, &slots) {
-            let _ = remove_preset_files(&new_file);
+            // The setlist can be in place when only its folder sync failed; then the slot
+            // names the new files.
+            if !self.referenced(&new) {
+                let _ = remove_preset_files(&new_file);
+            }
             return Err(error);
         }
         // The commit point: the slot names the new file. A failed later step (favorites,
