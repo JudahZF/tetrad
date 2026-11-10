@@ -172,8 +172,9 @@ pub fn bring_up(runner: &mut impl CommandRunner, files: &mut impl Files) -> Resu
 }
 
 /// `ifconfig wlan0 down`, then `up`: the interface reset of `WifiAction::ResetInterface`.
-/// A rejected association, a connect time-out and recovery step 3 (`internet::RecoveryStep`)
-/// ask for it. It blocks while the driver loads its firmware, so it runs on a service worker.
+/// It blocks while the driver loads its firmware. Recovery step 3 (`internet::RecoveryStep`),
+/// which repeats, runs it on a service worker ([`Step::reset`]). A rejected association and a
+/// connect time-out run it in place.
 pub fn reset_interface(runner: &mut impl CommandRunner) -> Result<(), WifiError> {
     run(runner, "ifconfig", &[INTERFACE, "down"])?;
     run(runner, "ifconfig", &[INTERFACE, "up"])
@@ -221,14 +222,14 @@ pub struct DhcpRun {
     id: u32,
 }
 
-/// Result of a state-machine call: notices for the UI, at most one DHCP run to start and
-/// whether to reset the interface.
+/// Result of a state-machine call: notices for the UI, at most one DHCP run to start and,
+/// from the recovery, an interface reset to run.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Step {
     pub notices: Vec<WifiNotice>,
     pub dhcp: Option<DhcpRun>,
-    /// The caller runs [`reset_interface`] off the device loop (O): `ifconfig up` loads the
-    /// driver firmware and takes too long for the loop.
+    /// Only from [`WifiService::recover`]: the caller runs [`reset_interface`] off the device
+    /// loop (O). `ifconfig up` loads the driver firmware, and the recovery repeats this step.
     pub reset: bool,
 }
 
@@ -461,19 +462,25 @@ impl WifiService {
         {
             return Ok(Step::default());
         }
+        // The recovery's reset goes to the caller ([`Step::reset`]): nothing waits for it.
+        let reset = actions.contains(&WifiAction::ResetInterface);
         let reaction = Reaction {
-            actions,
+            actions: (actions.into_iter())
+                .filter(|action| *action != WifiAction::ResetInterface)
+                .collect(),
             notices: Vec::new(),
         };
-        let step = self.execute(link, runner, reaction)?;
+        let mut step = self.execute(link, runner, reaction)?;
+        step.reset = reset;
         if step.dhcp.is_some() {
             self.renewal = step.dhcp;
         }
         Ok(step)
     }
 
-    /// Run actions in order. `StartDhcp` and `ResetInterface` are not run here; they become
-    /// [`Step::dhcp`] and [`Step::reset`].
+    /// Run actions in order. `StartDhcp` is not run here; it becomes [`Step::dhcp`]. A reset
+    /// runs here: after a rejected association or a connect time-out the associating timer
+    /// counts from the reset, as stock.
     fn execute(
         &mut self,
         link: &mut impl SupplicantLink,
@@ -494,7 +501,7 @@ impl WifiService {
                     step.dhcp = Some(run);
                 }
                 WifiAction::StopDhcp => self.stop_dhcp(runner)?,
-                WifiAction::ResetInterface => step.reset = true,
+                WifiAction::ResetInterface => reset_interface(runner)?,
                 WifiAction::DisableNetwork(id) => {
                     control(link, "DISABLE_NETWORK", &format!("DISABLE_NETWORK {id}"))?;
                     expect_ok(link, "SAVE_CONFIG", "SAVE_CONFIG")?;
@@ -619,6 +626,25 @@ mod tests {
             .unwrap();
         assert!(step.reset);
         assert!(runner.lines().is_empty());
+    }
+
+    /// A rejected association and a connect time-out reset in place: the associating timer
+    /// counts from the reset, so the reset must not wait behind a job on a worker.
+    #[test]
+    fn a_reset_outside_the_recovery_runs_in_place() {
+        let mut wifi = service();
+        let mut link = ScriptedLink::default();
+        let mut runner = ScriptedRunner::default();
+        runner
+            .expect_ok("ifconfig wlan0 down")
+            .expect_ok("ifconfig wlan0 up");
+        let reaction = Reaction {
+            actions: vec![WifiAction::ResetInterface],
+            notices: Vec::new(),
+        };
+        let step = wifi.execute(&mut link, &mut runner, reaction).unwrap();
+        assert!(!step.reset);
+        assert!(runner.is_done());
     }
 
     #[test]
