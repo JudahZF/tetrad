@@ -57,12 +57,14 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
-      # The launcher scripts run on BusyBox ash 1.23 on the unit: POSIX sh only.
+      # The launcher scripts run on BusyBox ash 1.23 on the unit: POSIX sh only. Warnings and
+      # errors fail the step. Info and style notes differ between ShellCheck versions (0.9.0 on
+      # the runner gives SC2015 for a correct `A && B || die` in install.sh; 0.11.0 does not).
       - name: ShellCheck
         run: |
-          shellcheck -s sh scripts/launcher/*.sh scripts/install.sh scripts/dev-update.sh \
-            scripts/build-dev.sh scripts/fetch-extensions.sh .cursor/install.sh
-          shellcheck scripts/bringup/*.sh
+          shellcheck --severity=warning -s sh scripts/launcher/*.sh scripts/install.sh \
+            scripts/dev-update.sh scripts/build-dev.sh scripts/fetch-extensions.sh .cursor/install.sh
+          shellcheck --severity=warning scripts/bringup/*.sh
 
       - name: Rustdoc
         env:
