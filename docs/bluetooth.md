@@ -42,6 +42,8 @@ A phone or computer pairs once. After that it connects again without a new pairi
   other device has it (all current phones and computers do), so someone who only listens to the
   radio cannot read the keys. A pairing without a code cannot stop a device that pretends to be
   the other side while you pair: pair at home, not at a venue.
+  A device with only the older pairing can still use Bluetooth MIDI, but the Tetrad app on
+  such a device gives the PIN at each connection.
 - BLE MIDI needs the pairing: the unit takes and sends MIDI only on an encrypted link.
 
 How to connect:

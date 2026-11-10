@@ -107,6 +107,41 @@ fn a_remembered_pin_counts_only_after_the_saved_key_encrypts_the_link() {
     assert!(ask(&mut device, files)["extensions"].is_array());
 }
 
+/// A legacy bond's key can be computed by someone who recorded the pairing, so it never
+/// carries the remembered PIN: its app gives the PIN on each connection.
+#[test]
+fn a_legacy_bond_does_not_keep_the_remembered_pin() {
+    let files = MemFiles::default();
+    files.put(SETTINGS_FILE, r#"{"enabled":true}"#);
+    let legacy = Bond {
+        secure: false,
+        ..bond(1, true)
+    };
+    files.put(BONDS_FILE, serde_json::to_string(&vec![legacy]).unwrap());
+    let media = Media::new([("Light", light_preset(&STOCK.specs(), 0))]);
+    let (mut device, _media) = boot_bluetooth(media, files.clone());
+    push(
+        &mut device,
+        Ble::HostConnected {
+            address: PHONE,
+            bonded: true,
+        },
+    );
+    push(
+        &mut device,
+        Ble::HostSecured {
+            address: PHONE,
+            paired: false,
+            connection: 0,
+        },
+    );
+    let request = json!({"id": 1, "op": "files"});
+    assert_eq!(
+        ask(&mut device, request)["error"],
+        "Give the PIN first (auth)"
+    );
+}
+
 #[test]
 fn a_new_pairing_with_a_known_address_must_give_the_pin_again() {
     let (mut device, files) = boot();

@@ -309,6 +309,7 @@ impl<P: Platform> Device<P> {
         let host = bluetooth.host;
         let known = (bluetooth.bonds.iter_mut()).find(|bond| Some(bond.address) == host);
         if let Some(bond) = known
+            && bond.secure
             && !bond.app
         {
             bond.app = true;
@@ -457,7 +458,10 @@ impl<P: Platform> Device<P> {
                         bluetooth.link.authorized = false;
                     }
                 } else {
-                    let known = (bluetooth.bonds.iter()).any(|b| b.address == address && b.app);
+                    // Only a Secure Connections bond keeps the PIN (O): a legacy key can be
+                    // computed from a recorded pairing.
+                    let known =
+                        (bluetooth.bonds.iter()).any(|b| b.address == address && b.app && b.secure);
                     bluetooth.link.authorized = known;
                 }
                 self.sync_app_listening();
