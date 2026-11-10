@@ -1227,6 +1227,31 @@ fn the_recovery_waits_for_an_install_and_ends_on_a_user_disconnect() {
     assert!(b.runner.is_done());
 }
 
+/// The recovery's interface reset can wait on the worker behind an internet probe. When the
+/// user changes the Wi-Fi in that time, the reset must not run: it would take the new link down.
+#[test]
+fn a_waiting_recovery_reset_does_not_run_after_a_user_disconnect() {
+    let (mut services, mut b, mut settings) = internet_lost();
+    b.runner
+        .expect("udhcpc --now --quit -i wlan0", Ok(Output::code(1)));
+    recovery_tick(&mut services, &mut b, &mut settings, 65_000);
+    recovery_tick(&mut services, &mut b, &mut settings, 125_000);
+    let effects = services.tick(&mut b, &mut settings, ms(185_000)).unwrap();
+    let reset = effects.into_iter().find_map(|effect| match effect {
+        Effect::Service(job @ ServiceJob::ResetInterface(_)) => Some(job),
+        _ => None,
+    });
+    let reset = reset.expect("recovery step 3 asks for the reset");
+
+    services.disconnect(&mut b).unwrap();
+    // The strict runner expects no command: an `ifconfig` would fail the job.
+    assert_eq!(
+        run_job(&mut b, reset),
+        ServiceNotice::InterfaceReset(Ok(()))
+    );
+    assert!(b.runner.is_done());
+}
+
 #[test]
 fn ntp_failure_is_reported_after_a_reachable_probe() {
     let mut services = Services::new();

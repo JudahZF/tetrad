@@ -196,8 +196,9 @@ impl<T> fmt::Debug for Handoff<T> {
 pub enum ServiceJob {
     /// `udhcpc` for this run ([`dhcp::acquire`]).
     Dhcp(DhcpRun),
-    /// The interface reset of the internet recovery ([`wifi::reset_interface`]).
-    ResetInterface,
+    /// The interface reset of the internet recovery ([`wifi::reset_interface`]). It does not
+    /// run when its token was cancelled while it waited (a Wi-Fi change by the user).
+    ResetInterface(CancelToken),
     /// The TCP reachability probe or the NTP sync ([`InternetWork::run`]).
     Internet(InternetWork),
     /// Size header, package, `gzip -t` ([`tetrad_services::updater::cloud::download_update`]).
@@ -234,7 +235,7 @@ impl Lane {
 impl ServiceJob {
     pub fn lane(&self) -> Lane {
         match self {
-            Self::Dhcp(_) | Self::Internet(_) | Self::ResetInterface => Lane::System,
+            Self::Dhcp(_) | Self::Internet(_) | Self::ResetInterface(_) => Lane::System,
             Self::Cloud(_) => Lane::Cloud,
             Self::Download(_)
             | Self::Install
@@ -293,7 +294,7 @@ impl ServiceJob {
                     reason: stopped.to_string(),
                 })),
             },
-            Self::ResetInterface => ServiceNotice::InterfaceReset(Err(stopped.to_string())),
+            Self::ResetInterface(_) => ServiceNotice::InterfaceReset(Err(stopped.to_string())),
             Self::Internet(work) => {
                 ServiceNotice::Internet(work.failed(NetError::Io(stopped.to_string())))
             }
@@ -360,6 +361,9 @@ pub struct Services {
     saved: Vec<SavedNetwork>,
     /// Last internet probe result; `None` before the first.
     online: Option<bool>,
+    /// The recovery's interface reset while it can still wait on the worker: a Wi-Fi change
+    /// by the user cancels it.
+    recovery_reset: Option<CancelToken>,
     /// Last failed attempt for the Connection page; a new attempt clears it.
     alert: Option<WifiAlert>,
     /// The network of the last attempt ([`WifiView::joining`]).
@@ -556,6 +560,7 @@ impl Services {
             inputs_masked: false,
             saved: Vec::new(),
             online: None,
+            recovery_reset: None,
             alert: None,
             joining: None,
             backups: Vec::new(),
