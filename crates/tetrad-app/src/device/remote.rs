@@ -29,8 +29,12 @@ const NONCE_LIFE: std::time::Duration = std::time::Duration::from_secs(60);
 const MAX_NONCES: usize = 4;
 #[cfg(feature = "dev")]
 const MAX_KEYS: usize = 8;
-/// Wrong PINs before the unit makes a new PIN.
+/// Wrong PINs before the unit makes a new PIN. A correct PIN between them does not reset the
+/// count (O): an open page sends the correct PIN every 8 s.
 pub const MAX_WRONG_PINS: u8 = 10;
+/// New PINs for wrong PINs before Remote stops (O). The player then turns Remote off and
+/// on, so a guesser gets at most 30 tries for each action on the unit.
+pub const MAX_PIN_CHANGES: u8 = 3;
 /// The page sends 1,024 samples (4,142 bytes); the stock extractor keeps no more.
 const WAV_LIMITS: IrLimits = IrLimits {
     max_asset_bytes: tetrad_remote::MAX_BODY,
@@ -71,6 +75,8 @@ pub struct Remote {
     /// `Some` while the server runs.
     pin: Option<String>,
     wrong: u8,
+    /// New PINs made for wrong PINs since Remote started.
+    changes: u8,
     status: Option<String>,
     toast: Option<ToastView>,
     /// Challenges that were given out, each with the time it was given (a challenge works once).
@@ -188,6 +194,7 @@ impl<P: Platform> Device<P> {
             Ok(pin) => {
                 remote.pin = Some(pin);
                 remote.wrong = 0;
+                remote.changes = 0;
                 remote.status = None;
             }
             Err(reason) => {
@@ -241,7 +248,6 @@ impl<P: Platform> Device<P> {
             }
             return Some(Reply::WrongPin);
         }
-        remote.wrong = 0;
         self.remote_answer(call, request)
     }
 
@@ -656,8 +662,18 @@ impl<P: Platform> Device<P> {
         }
     }
 
-    /// After [`MAX_WRONG_PINS`] wrong PINs: the old PIN no longer works.
+    /// After [`MAX_WRONG_PINS`] wrong PINs: the old PIN no longer works. The
+    /// [`MAX_PIN_CHANGES`]th time, Remote stops instead.
     fn new_remote_pin(&mut self) {
+        let remote = &mut self.bridges.remote;
+        remote.changes += 1;
+        if remote.changes >= MAX_PIN_CHANGES {
+            let wrong = u16::from(MAX_WRONG_PINS) * u16::from(MAX_PIN_CHANGES);
+            let text = format!("Remote stopped after {wrong} wrong PINs. Turn Remote off and on");
+            self.notice(Subsystem::Remote, format!("Remote: {text}"));
+            self.stop_remote(Some(text));
+            return;
+        }
         let pin = self.platform.remote().map(|backend| backend.new_pin());
         let notice = format!("Remote: a new PIN after {MAX_WRONG_PINS} wrong PINs");
         self.notice(Subsystem::Remote, notice);
