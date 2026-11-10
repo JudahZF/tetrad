@@ -1109,6 +1109,11 @@ pub fn reduce(action: Action, state: &mut State) -> Result<Vec<Effect>, ActionEr
             let library = library(state)?;
             let old = library.slots(&setlist)?.get(slot).cloned().flatten();
             let renamed = library.rename_preset(&setlist, slot, &name)?;
+            // The rename is done; a failed later step (favorites, recents, old files) is named.
+            if let Some(error) = &renamed.tail_error {
+                let detail = format!("rename done, a later step failed: {error}");
+                effects.push(Effect::Notice(Subsystem::Library, detail));
+            }
             if let Some(current) = state.current.get_mut().as_mut().filter(|c| c.path == old) {
                 current.path = Some(renamed.value);
                 current.preset.name = Some(name);

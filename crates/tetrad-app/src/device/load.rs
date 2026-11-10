@@ -341,7 +341,15 @@ impl<P: Platform> Device<P> {
             self.schedule_settings_flush();
         }
         let stale = match followed {
-            Ok(renamed) => saved.search_index.or(renamed),
+            Ok(None) => saved.search_index,
+            Ok(Some(renamed)) => {
+                // The rename is done; a failed later step (favorites, recents, old files) is named.
+                if let Some(error) = &renamed.tail_error {
+                    let detail = format!("rename done, a later step failed: {error}");
+                    self.notice(Subsystem::Library, detail);
+                }
+                saved.search_index.or(renamed.search_index)
+            }
             Err(error) => {
                 let detail = format!("saved, but the file keeps its name: rename refused: {error}");
                 self.notice(Subsystem::Library, detail);

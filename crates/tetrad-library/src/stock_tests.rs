@@ -239,7 +239,7 @@ fn setlist_and_preset_renames_rewrite_every_reference() {
         "/media/p4/Presets/My Presets\n/media/p4/Presets/Tour\n"
     );
 
-    let renamed = saved(library.rename_preset("Tour", 5, "Lead"));
+    let renamed = committed(library.rename_preset("Tour", 5, "Lead"));
     assert_eq!(renamed, "/media/p4/Presets/Tour/Lead.pb");
     assert!(!media.0.join("Presets/Tour/Solo.pb").exists());
     let preset = library.load(&renamed).unwrap();
@@ -571,7 +571,7 @@ fn delete_and_rename_keep_files_that_another_slot_names() {
     .unwrap();
     let lead_file = media.0.join("Presets/My Presets/Lead.pb");
 
-    saved(library.rename_preset(DEFAULT_SETLIST, 0, "Solo"));
+    committed(library.rename_preset(DEFAULT_SETLIST, 0, "Solo"));
     assert!(lead_file.exists());
     saved(library.delete(DEFAULT_SETLIST, 0));
     assert!(!media.0.join("Presets/My Presets/Solo.pb").exists());
@@ -999,6 +999,57 @@ fn a_swap_returns_its_new_paths_when_a_later_step_fails() {
     assert!(
         library.load(&lead).is_ok(),
         "the tail stopped before the old files"
+    );
+}
+
+/// Once the slot names the new file the rename is done: a failed favorites step comes back
+/// with the new path, so the caller follows it and a later save goes to a named file.
+#[test]
+fn a_rename_returns_its_new_path_when_a_later_step_fails() {
+    let media = Media::new();
+    let mut library = media.library();
+    saved(library.store(
+        DEFAULT_SETLIST,
+        3,
+        "Lead",
+        &document("Lead"),
+        &sidecar("Lead"),
+    ));
+    fs::create_dir(media.0.join("favorites")).unwrap();
+    let renamed = library.rename_preset(DEFAULT_SETLIST, 3, "Solo").unwrap();
+    assert!(renamed.tail_error.is_some());
+    assert_eq!(
+        library.slots(DEFAULT_SETLIST).unwrap()[3],
+        Some(renamed.value.clone())
+    );
+    assert!(library.load(&renamed.value).is_ok());
+}
+
+/// A sidecar that cannot be written fails the save before the document changes, so a sidecar
+/// never describes a document it did not come with.
+#[test]
+fn a_save_whose_sidecar_cannot_be_written_keeps_the_old_document() {
+    let media = Media::new();
+    let mut library = media.library();
+    let path = saved(library.store(
+        DEFAULT_SETLIST,
+        0,
+        "Lead",
+        &document("Lead"),
+        &sidecar("Lead"),
+    ));
+    let mut preset = library.load(&path).unwrap();
+    let before = fs::read(media.0.join("Presets/My Presets/Lead.pb")).unwrap();
+    preset.document.rename("Solo").unwrap();
+    preset.sidecar.as_mut().unwrap().set_text("name", "Solo");
+    // A directory in the sidecar's place: the sidecar cannot be staged.
+    let json = media.0.join("Presets/My Presets/Lead.json");
+    fs::remove_file(&json).unwrap();
+    fs::create_dir(&json).unwrap();
+    assert!(library.save(&mut preset).is_err());
+    assert_eq!(
+        fs::read(media.0.join("Presets/My Presets/Lead.pb")).unwrap(),
+        before
     );
 }
 
