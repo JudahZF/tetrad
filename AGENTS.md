@@ -23,14 +23,15 @@ Run these before you say that a task is done. CI runs the same commands.
 | Clippy | `cargo clippy --locked --workspace --all-targets -- -D warnings` |
 | Format | `cargo fmt --all -- --check` |
 | Rustdoc | `RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --no-deps` |
-| Dev feature | `cargo test --locked -p tetrad-app -p tetrad-ui --features dev` |
+| Dev feature | `cargo test --locked -p tetrad-app -p tetrad-ui -p tetrad-remote --features dev` |
 | Phone app | `cd mobile && pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test` |
 
 - Always use `--locked`.
 - Some tests read the published extensions. Run `scripts/fetch-extensions.sh /tmp/extensions`
   and set `TETRAD_EXTENSIONS_DIR=/tmp/extensions` (an absolute path). Without it they skip.
-- Tests marked `#[ignore]` need stock files from a unit (`QC_CORPUS_DIR`). Do not run them
-  and do not remove the mark.
+- Tests marked `#[ignore]` are corpus tests, which need stock files from a unit
+  (`QC_CORPUS_DIR`), or slow timing benches. They do not run by default. Do not remove the
+  mark.
 - `cargo build` makes a host binary. Only the device build
   (`nix develop path:./qc-dev -c ./qc-dev/build-arm.sh . dist`) runs on a unit.
 
@@ -50,10 +51,13 @@ Run these before you say that a task is done. CI runs the same commands.
   bashisms, no GNU-only flags. A change that can stop the fall-back to stock CorOS is a blocker.
 - **`ZenUI` name first.** `tetrad run`, `tetrad bringup` and `tetrad select` take the process
   name `ZenUI` before any slow work. The watchdog restarts the unit after about 3 s without it.
-- **Signatures.** Check the signature and the SHA-256 of an update, a catalog or a package
-  before you install, run or trust it.
+- **Signatures.** Check the signature and the SHA-256 of a release update, an extension
+  catalog or a package before you install, run or trust it. The Remote update of a dev build
+  (`--features dev`) is unsigned by design.
 - **Plugin licences.** The licence checks are deliberate. Never weaken, bypass or remove one.
-- **Themes.** Screens take colours from `l.palette`, never from colour constants.
+- **Themes.** Screens take colours from `l.palette`, never from colour constants. A stock
+  shade that is not a palette role is drawn as `p.tone(CONST)`. Block colours, scene swatches
+  and the tuner green are data and stay fixed.
 - **Extension API.** A new manifest field, capability or host call needs a new API version.
 - **Comment marks.** **(C)** is confirmed stock behaviour, **(I)** is inferred and **(O)** is
   an owned choice. Mark new behaviour that copies or differs from stock.
