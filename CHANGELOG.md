@@ -233,6 +233,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
   PIN and asks for the new one. Edits that wait stop when the connection ends, a lost link no
   longer leaves the unit's preset and theme in the app, and a Bluetooth message over 64 KiB
   fails at once ([mobile/README.md](mobile/README.md)).
+- Tetrad app: a reply that the app does not know, for example from another Tetrad version,
+  gives the message "Update the app or Tetrad" and no longer a blank screen
+  ([mobile/README.md](mobile/README.md)).
 - A preset with a Petrucci Wah you do not own made the unit restart ("Something went wrong")
   at the next block edit or preset change: the DSP never finished clearing that block. Stock
   CorOS 4.1.1 does the same. A block of a plugin you have no licence for now stays on the grid
