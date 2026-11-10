@@ -267,13 +267,15 @@ impl Files for SystemFiles {
             })
             .map_err(file_error("write", &temp))?;
         std::fs::rename(&temp, path).map_err(file_error("rename", path))?;
-        // The rename is durable when its folder is synced.
-        match path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            Some(dir) => std::fs::File::open(dir)
-                .and_then(|dir| dir.sync_all())
-                .map_err(file_error("sync", dir)),
-            None => Ok(()),
-        }
+        // The rename is durable when its folder is synced. A bare file name is in the current
+        // folder.
+        let dir = match path.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir,
+            _ => Path::new("."),
+        };
+        std::fs::File::open(dir)
+            .and_then(|dir| dir.sync_all())
+            .map_err(file_error("sync", dir))
     }
 
     fn append(&mut self, path: &Path, data: &[u8]) -> Result<(), FileError> {
