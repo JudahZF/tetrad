@@ -282,8 +282,9 @@ fn firmware_refuses_an_unpinned_loadsharc() {
     );
 }
 
-/// The `run` preflight (C6): a missing or unpinned stock ZenUI fails it (exit 4 in `main`);
-/// with the CorOS 4.1.0 rootfs extract next to the repo (`qc-dev`, not in git) it passes.
+/// The `run` preflight (C6): a missing or unpinned stock ZenUI fails it (an unpinned one exits
+/// 4 in `main`, a missing one exits 1); with the CorOS 4.1.0 rootfs extract next to the repo
+/// (`qc-dev`, not in git) it passes.
 #[test]
 fn pinned_firmware_check_needs_the_coros_4_1_0_images() {
     let fake = FakeRoot::new("pins");
@@ -304,6 +305,35 @@ fn pinned_firmware_check_needs_the_coros_4_1_0_images() {
             .check_pinned_firmware()
             .unwrap();
     }
+}
+
+/// Exit 4 makes the launcher write `disabled`, so only an unsupported build may give it: a
+/// stock file that cannot be read is exit 1, a counted failed start.
+#[test]
+fn only_an_unsupported_build_exits_with_the_wrong_firmware_code() {
+    use tetrad_app::device::linux::{WRONG_FIRMWARE_EXIT, firmware_check_exit};
+    use tetrad_dsp_host::setup::TableError;
+
+    let fake = FakeRoot::new("exit");
+    let missing = fake.linux().check_pinned_firmware();
+    assert!(matches!(missing, Err(LinuxError::File { .. })));
+    assert_eq!(firmware_check_exit(&missing), 1);
+
+    fake.put("/opt/neuraldsp/ZenUI", b"\x7fELF invented");
+    fake.put("/usr/bin/loadsharc_SC589", b"\x7fELF invented");
+    let unknown = fake.linux().check_pinned_firmware();
+    assert!(matches!(unknown, Err(LinuxError::WrongImage(_))));
+    assert_eq!(firmware_check_exit(&unknown), WRONG_FIRMWARE_EXIT);
+
+    let unrelocated = Err(LinuxError::StockImage(TableError::Unrelocated {
+        va: 0,
+        len: 0,
+    }));
+    assert_eq!(firmware_check_exit(&unrelocated), WRONG_FIRMWARE_EXIT);
+    assert_eq!(
+        firmware_check_exit(&Err(LinuxError::StockImage(TableError::Absent))),
+        1
+    );
 }
 
 /// `run` and `bringup` take the comm name `ZenUI` before the slow firmware hash: a stage that

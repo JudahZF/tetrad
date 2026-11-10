@@ -128,7 +128,8 @@ impl Selector {
 /// then shows the selector over the boot splash and puts the splash pixels back before it
 /// returns, so each UI takes over the screen it expects. Without a framebuffer or a touch
 /// screen, or after a read or write failure, it returns the error and the launcher starts the
-/// saved choice. A failed save of a touched choice is only logged: the choice still starts.
+/// saved choice. A failed save of a touched choice is only logged: the choice still starts. A
+/// failed restore of the splash is also only logged.
 #[cfg(target_os = "linux")]
 pub fn run(file: &Path) -> io::Result<BootChoice> {
     use crate::device::linux::{LinuxRoot, Touch};
@@ -143,7 +144,10 @@ pub fn run(file: &Path) -> io::Result<BootChoice> {
     let chosen = choose(&mut framebuffer, &mut touch, default);
     let restored = framebuffer.restore(&splash);
     let choice = chosen?;
-    restored?;
+    // The choice counts more than the splash pixels: a touch on CorOS must start CorOS.
+    if let Err(error) = restored {
+        notes.push(format!("the boot splash was not put back: {error}"));
+    }
     if choice != default
         && let Err(error) = write_choice(file, choice)
     {
