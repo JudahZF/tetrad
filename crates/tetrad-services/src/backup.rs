@@ -312,6 +312,9 @@ impl<F: Files + ?Sized> Read for PieceReader<'_, '_, F> {
 /// and three favourites files removed, the Wi-Fi config saved, extract, the Wi-Fi config put
 /// back. Returns the number of members written. A member outside `scope` fails the check.
 ///
+/// `archive` is read again after the clear, so it must not be inside a tree that the restore
+/// removes.
+///
 /// The caller closes the media library first (`0x69daac` closes the default database before
 /// the extract) and reloads after it (`0x3fcf64`; tetrad-app restarts instead after a good
 /// extract). Members land through a rename, so an open database keeps its old file (O).
