@@ -6,9 +6,10 @@
 //! - Restore (`0x406844`): header check `0x6b44e4`, clear, Wi-Fi config save, extract
 //!   `0x6b4608` under `/media/p4`, Wi-Fi config back.
 //!
-//! All file access goes through [`Files`], whole files at a time, so an archive is held in
-//! memory once (owned).
+//! All file access goes through [`Files`]. A create holds the archive in memory once; a restore
+//! reads the archive and writes each member in pieces (owned).
 
+use std::cell::RefCell;
 use std::io::{self, Read, Write};
 use std::ops::ControlFlow;
 use std::path::{Component, Path, PathBuf};
@@ -103,8 +104,11 @@ impl Scope {
 const BLOCK: usize = 512;
 /// libarchive's default record: the archive is padded to whole records.
 const RECORD: usize = 20 * BLOCK;
-/// Largest member a restore takes (O): bounds memory against a hostile size field.
+/// Largest member a restore takes (O): a sanity bound on a size field; no member is held in
+/// memory.
 const MEMBER_LIMIT: u64 = 512 << 20;
+/// Largest pax or long-name record (O): names and attributes, never file data.
+const RECORD_DATA_LIMIT: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BackupError {
@@ -274,9 +278,42 @@ pub fn decode_download(body: &[u8]) -> Option<Vec<u8>> {
     STANDARD.decode(text).ok()
 }
 
+/// The size of one archive read and of one member write in a restore.
+const PIECE: u64 = 64 * 1024;
+
+/// Reads a file in pieces through [`Files::read_at`], so a restore never holds the archive
+/// (O): a backup can be hundreds of MiB, and the unit has little RAM.
+struct PieceReader<'a, 'f, F: Files + ?Sized> {
+    files: &'a RefCell<&'f mut F>,
+    path: &'a Path,
+    offset: u64,
+    piece: Vec<u8>,
+    at: usize,
+}
+
+impl<F: Files + ?Sized> Read for PieceReader<'_, '_, F> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if self.at == self.piece.len() {
+            self.piece = (self.files.borrow_mut())
+                .read_at(self.path, self.offset, PIECE)
+                .map_err(|error| io::Error::other(error.to_string()))?
+                .unwrap_or_default();
+            self.offset += self.piece.len() as u64;
+            self.at = 0;
+        }
+        let count = out.len().min(self.piece.len() - self.at);
+        out[..count].copy_from_slice(&self.piece[self.at..self.at + count]);
+        self.at += count;
+        Ok(count)
+    }
+}
+
 /// Restores the backup at `archive` under `root` (`0x406844`): header check, the four trees
 /// and three favourites files removed, the Wi-Fi config saved, extract, the Wi-Fi config put
 /// back. Returns the number of members written. A member outside `scope` fails the check.
+///
+/// `archive` is read again after the clear, so it must not be inside a tree that the restore
+/// removes.
 ///
 /// The caller closes the media library first (`0x69daac` closes the default database before
 /// the extract) and reloads after it (`0x3fcf64`; tetrad-app restarts instead after a good
@@ -291,11 +328,19 @@ pub fn restore(
     archive: &Path,
     scope: Scope,
 ) -> Result<usize, BackupError> {
-    let data = files
-        .read(archive)?
-        .filter(|data| !data.is_empty())
-        .ok_or(BackupError::Empty)?;
-    read_members(&data, |member| match scope.takes(&member.path) {
+    if files.size(archive)?.unwrap_or(0) == 0 {
+        return Err(BackupError::Empty);
+    }
+    let files = RefCell::new(files);
+    let open = || PieceReader {
+        files: &files,
+        path: archive,
+        offset: 0,
+        piece: Vec::new(),
+        at: 0,
+    };
+    let mut handle = &files;
+    read_members(open(), |member, _| match scope.takes(&member.path) {
         true => Ok(()),
         false => Err(corrupt(format!(
             "{} is not in a Quad Cortex backup",
@@ -304,49 +349,64 @@ pub fn restore(
     })?;
 
     for name in RESTORE_CLEARS_TREES {
-        files.remove_tree(&root.join(name))?;
+        handle.remove_tree(&root.join(name))?;
     }
     for name in RESTORE_CLEARS_FILES {
-        files.remove(&root.join(name))?;
+        handle.remove(&root.join(name))?;
     }
     let (config, saved) = (root.join(WIFI_CONFIG), root.join(WIFI_CONFIG_SAVED));
-    files.remove(&saved)?;
-    if let Some(conf) = files.read(&config)? {
-        files.write(&saved, &conf)?;
+    handle.remove(&saved)?;
+    if let Some(conf) = handle.read(&config)? {
+        handle.write(&saved, &conf)?;
     }
-    files.sync()?;
+    handle.sync()?;
 
     let mut written = 0;
-    read_members(&data, |member| {
-        extract(files, root, &member).map_err(BackupError::Extract)?;
+    read_members(open(), |member, body| {
+        extract(&mut handle, root, member, body)?;
         written += 1;
         Ok(())
     })?;
-    files.sync()?;
+    handle.sync()?;
 
-    if let (Some(conf), true) = (files.read(&saved)?, files.size(&config)?.is_some()) {
-        files.remove(&config)?;
-        files.sync()?;
-        files.write(&config, &conf)?;
-        files.remove(&saved)?;
-        files.sync()?;
+    if let (Some(conf), true) = (handle.read(&saved)?, handle.size(&config)?.is_some()) {
+        handle.remove(&config)?;
+        handle.sync()?;
+        handle.write(&config, &conf)?;
+        handle.remove(&saved)?;
+        handle.sync()?;
     }
     Ok(written)
 }
 
-fn extract(files: &mut impl Files, root: &Path, member: &TarMember) -> Result<(), FileError> {
+fn extract(
+    files: &mut impl Files,
+    root: &Path,
+    member: &TarMember,
+    body: &mut dyn Read,
+) -> Result<(), BackupError> {
     let path = root.join(&member.path);
     match member.kind {
-        Kind::Dir => files.create_dirs(&path),
+        Kind::Dir => files.create_dirs(&path).map_err(BackupError::Extract),
         Kind::File => {
             if let Some(parent) = path.parent() {
-                files.create_dirs(parent)?;
+                files.create_dirs(parent).map_err(BackupError::Extract)?;
             }
             let mut temp = path.clone().into_os_string();
             temp.push(".restore");
             let temp = PathBuf::from(temp);
-            files.write(&temp, &member.data)?;
-            files.rename(&temp, &path)
+            files.write(&temp, &[]).map_err(BackupError::Extract)?;
+            let mut piece = vec![0; PIECE as usize];
+            loop {
+                let count = body.read(&mut piece).map_err(|e| corrupt(e.to_string()))?;
+                if count == 0 {
+                    break;
+                }
+                files
+                    .append(&temp, &piece[..count])
+                    .map_err(BackupError::Extract)?;
+            }
+            files.rename(&temp, &path).map_err(BackupError::Extract)
         }
     }
 }
@@ -357,12 +417,12 @@ enum Kind {
     Dir,
 }
 
-/// One checked member: `path` is relative, without `.` or `..` components.
+/// One checked member: `path` is relative, without `.` or `..` components. [`read_tar`] gives
+/// its data as a reader beside it.
 #[derive(Debug)]
 struct TarMember {
     path: PathBuf,
     kind: Kind,
-    data: Vec<u8>,
 }
 
 /// ustar writer with pax `path` records for long names (libarchive `pax_restricted`).
@@ -588,9 +648,12 @@ pub fn unpack(
     limit: u64,
 ) -> Result<Vec<(String, Vec<u8>)>, BackupError> {
     let mut found = Vec::new();
-    let visit = |member: TarMember| {
+    let visit = |member: &TarMember, body: &mut dyn Read| {
         if member.kind == Kind::File {
-            found.push((member.path.display().to_string(), member.data));
+            let mut data = Vec::new();
+            body.read_to_end(&mut data)
+                .map_err(|e| corrupt(e.to_string()))?;
+            found.push((member.path.display().to_string(), data));
         }
         Ok(match found.len() < files {
             true => ControlFlow::Continue(()),
@@ -608,20 +671,21 @@ pub fn unpack(
 /// Reads every member of a gzip tar in order: the header pass of `0x6b44e4` plus the
 /// owned path and type checks. The gzip trailer (CRC, length) is checked at the end.
 fn read_members(
-    archive: &[u8],
-    mut visit: impl FnMut(TarMember) -> Result<(), BackupError>,
+    archive: impl Read,
+    mut visit: impl FnMut(&TarMember, &mut dyn Read) -> Result<(), BackupError>,
 ) -> Result<(), BackupError> {
-    read_tar(GzDecoder::new(archive), MEMBER_LIMIT, |member| {
-        visit(member).map(ControlFlow::Continue)
+    read_tar(GzDecoder::new(archive), MEMBER_LIMIT, |member, body| {
+        visit(member, body).map(ControlFlow::Continue)
     })
 }
 
-/// The members in order, each at most `limit` bytes; a `Break` from `visit` ends the read
-/// there (the rest and the gzip trailer are not read).
+/// The members in order, each at most `limit` bytes. `visit` gets each member with a reader
+/// over its data; what it leaves unread is skipped. A `Break` from `visit` ends the read there
+/// (the rest and the gzip trailer are not read).
 fn read_tar(
     mut input: impl Read,
     limit: u64,
-    mut visit: impl FnMut(TarMember) -> Result<ControlFlow<()>, BackupError>,
+    mut visit: impl FnMut(&TarMember, &mut dyn Read) -> Result<ControlFlow<()>, BackupError>,
 ) -> Result<(), BackupError> {
     let mut long_path: Option<String> = None;
     loop {
@@ -637,15 +701,16 @@ fn read_tar(
         let kind = h[156];
         match kind {
             b'x' => {
-                long_path = pax_path(&read_data(&mut input, size, limit)?)?.or(long_path);
+                long_path = pax_path(&read_data(&mut input, size, RECORD_DATA_LIMIT.min(limit))?)?
+                    .or(long_path);
                 continue;
             }
             b'g' => {
-                read_data(&mut input, size, limit)?;
+                read_data(&mut input, size, RECORD_DATA_LIMIT.min(limit))?;
                 continue;
             }
             b'L' => {
-                let name = read_data(&mut input, size, limit)?;
+                let name = read_data(&mut input, size, RECORD_DATA_LIMIT.min(limit))?;
                 long_path = Some(
                     String::from_utf8(field_text(&name).to_vec())
                         .map_err(|_| corrupt("long name is not UTF-8"))?,
@@ -678,8 +743,21 @@ fn read_tar(
                 )));
             }
         };
-        let data = read_data(&mut input, size, limit)?;
-        if visit(TarMember { path, kind, data })?.is_break() {
+        if size > limit {
+            return Err(corrupt(format!("member of {size} bytes")));
+        }
+        let member = TarMember { path, kind };
+        let mut body = input.by_ref().take(size);
+        let flow = visit(&member, &mut body)?;
+        // What the visitor did not read, then the padding to the next block.
+        io::copy(&mut body, &mut io::sink()).map_err(|e| corrupt(e.to_string()))?;
+        if body.limit() != 0 {
+            return Err(corrupt("truncated member"));
+        }
+        let block = BLOCK as u64;
+        let pad = ((block - size % block) % block) as usize;
+        read_exact_or_corrupt(&mut input, &mut [0; BLOCK][..pad])?;
+        if flow.is_break() {
             return Ok(());
         }
     }
@@ -723,7 +801,7 @@ mod tests {
 
         let archive = files.get("/media/p4/backup.tar.gz").unwrap();
         let mut names = Vec::new();
-        read_members(&archive, |m| {
+        read_members(&archive[..], |m, _| {
             names.push(format!(
                 "{}{}",
                 m.path.display(),
@@ -772,6 +850,19 @@ mod tests {
             b"network={}"
         );
         assert_eq!(files.get("/media/p4/logs/zenui.log").unwrap(), b"log");
+    }
+
+    /// A member larger than one read piece and one write piece comes back byte for byte.
+    #[test]
+    fn a_large_member_restores_in_pieces() {
+        let mut files = device_data();
+        let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        files.put("/media/p4/Plugins/big.bin", big.clone());
+        let path = Path::new(DOWNLOADED_BACKUP);
+        create(&mut files, root(), &root().join("zenui.db"), path).unwrap();
+        files.put("/media/p4/Plugins/big.bin", "changed since backup");
+        assert_eq!(restore(&mut files, root(), path, Scope::Any), Ok(8));
+        assert_eq!(files.get("/media/p4/Plugins/big.bin"), Some(big));
     }
 
     /// An empty download, a broken archive and an unsafe member all fail before anything is
@@ -869,8 +960,10 @@ mod tests {
         let body = STANDARD.encode(&archive).into_bytes();
         let mut seen = Vec::new();
         assert_eq!(decode_download(&archive), None);
-        read_members(&decode_download(&body).unwrap(), |m| {
-            seen.push((m.path, m.data));
+        read_members(&decode_download(&body).unwrap()[..], |m, body| {
+            let mut data = Vec::new();
+            body.read_to_end(&mut data).unwrap();
+            seen.push((m.path.clone(), data));
             Ok(())
         })
         .unwrap();
