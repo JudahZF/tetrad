@@ -226,11 +226,13 @@ const SlotActionView: z.ZodType<T.SlotActionView> = z.discriminatedUnion("kind",
   z.object({ kind: z.literal("nothing") }),
 ]);
 
-const MidiMessage: z.ZodType<T.MidiMessage> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("cc"), channel: z.number(), values: z.tuple([z.number(), z.number(), z.number().nullable()]) }),
-  z.object({ kind: z.literal("ccToggle"), channel: z.number(), values: z.tuple([z.number(), z.number(), z.number()]) }),
-  z.object({ kind: z.literal("pc"), channel: z.number(), values: z.tuple([z.number().nullable(), z.number().nullable(), z.number()]) }),
-]);
+// A part that a preset leaves out is null in any place (`project.rs`, `part`).
+const MidiValues = z.tuple([z.number().nullable(), z.number().nullable(), z.number().nullable()]);
+const MidiMessage: z.ZodType<T.MidiMessage> = z.object({
+  kind: z.enum(["cc", "ccToggle", "pc"]),
+  channel: z.number(),
+  values: MidiValues,
+});
 
 const SlotView = z.object({
   action: SlotActionView.nullable(),

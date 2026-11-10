@@ -3,6 +3,7 @@ import { Reassembler, frames } from "@/lib/link/frames";
 import { type Header, type Json, decode, encode } from "@/lib/link/message";
 import type { LinkPort } from "@/lib/link/session";
 import { type UnitEvent, sendFile } from "./client";
+import { demoFootswitch } from "@/lib/demo/data";
 import { DemoClient } from "./demo";
 import { LinkClient } from "./link";
 import { type Fetch, RemoteClient, parseAddress } from "./remote";
@@ -96,6 +97,20 @@ describe("Remote (Wi-Fi)", () => {
     const { fetchFn } = fakeFetch(() => ({ json: { notices: [notice], dropped: 0, repeats: 0 } }));
     const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
     await expect(client.notices()).resolves.toMatchObject({ notices: [notice] });
+  });
+
+  it("accepts a MIDI message with a part that the preset leaves out", async () => {
+    // The unit sends null for a part that a preset does not have, in any place.
+    const view = demoFootswitch();
+    const row = view.layouts.global.flatMap((page) => page.slots).flatMap((slot) => slot.actions)[0];
+    if (!row) throw new Error("the demo layout has no action");
+    row.messages = [
+      { kind: "cc", channel: 1, values: [null, 7, null] },
+      { kind: "pc", channel: 1, values: [0, null, null] },
+    ];
+    const { fetchFn } = fakeFetch(() => ({ json: view }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.footswitch()).resolves.toMatchObject({ preset: view.preset });
   });
 
   it("a reply whose body stops coming times out", async () => {

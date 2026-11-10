@@ -274,10 +274,12 @@ export type SystemAction =
   | { customSlot: number };
 /** A label from the unit, such as "Preset" or "Tuner". A newer Tetrad can send values this app does not know. */
 export type SystemGroup = string;
+/** A part that a preset leaves out is null: the unit sends what the preset has. */
+type MidiPart = number | null;
 export type MidiMessage =
-  | { kind: "cc"; channel: number; values: [number, number, number | null] }
-  | { kind: "ccToggle"; channel: number; values: [number, number, number] }
-  | { kind: "pc"; channel: number; values: [number | null, number | null, number] };
+  | { kind: "cc"; channel: number; values: [MidiPart, MidiPart, MidiPart] }
+  | { kind: "ccToggle"; channel: number; values: [MidiPart, MidiPart, MidiPart] }
+  | { kind: "pc"; channel: number; values: [MidiPart, MidiPart, MidiPart] };
 export type SlotActionView =
   | { kind: "system"; action: SystemAction }
   | { kind: "block"; row: number; column: number; parameter: number | null }
