@@ -114,7 +114,7 @@ nix develop path:./qc-dev -c ./scripts/build-dev.sh --scripts dist-dev
 `--scripts` the launcher scripts of the checkout). `qc-dev/build-arm.sh` has no option for
 features (it belongs to the `qc-dev` repository), so the script puts a `cargo-zigbuild`
 stand-in in front of it that adds `--features dev`; every other step is the release build. On the
-host: `cargo test --locked -p tetrad-app -p tetrad-ui --features dev`.
+host: `cargo test --locked -p tetrad-app -p tetrad-ui -p tetrad-remote --features dev`.
 
 ### Your own updates
 
