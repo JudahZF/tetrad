@@ -139,12 +139,26 @@ fn run(runner: &mut impl CommandRunner, program: &str, args: &[&str]) -> Result<
     Ok(())
 }
 
+/// Whether a `wpa_supplicant` already runs (O). A retry of the services start comes here
+/// again after a failed [`initialize`]; a second supplicant exits 255 while the first runs.
+/// A `pidof` that cannot start counts as "none runs", which is the behaviour without this
+/// check.
+fn supplicant_runs(runner: &mut impl CommandRunner) -> bool {
+    runner
+        .run(&Command::new("pidof", ["wpa_supplicant"]))
+        .is_ok_and(|output| output.status.success())
+}
+
 /// Load the driver, raise the interface, prepare the saved config and start the supplicant in
-/// the background. Each step needs exit 0 before the next, as stock.
+/// the background. Each step needs exit 0 before the next, as stock. A supplicant that already
+/// runs is kept (O).
 pub fn bring_up(runner: &mut impl CommandRunner, files: &mut impl Files) -> Result<(), WifiError> {
     run(runner, "modprobe", &["wilc-spi"])?;
     run(runner, "ifconfig", &[INTERFACE, "up"])?;
     config::prepare(files)?;
+    if supplicant_runs(runner) {
+        return Ok(());
+    }
     run(
         runner,
         "wpa_supplicant",
@@ -521,8 +535,28 @@ impl WifiService {
 mod tests {
     use super::*;
     use crate::exec::Output;
-    use crate::fake::ScriptedRunner;
+    use crate::fake::{MemFiles, ScriptedRunner};
     use std::collections::VecDeque;
+
+    /// A retry after a failed `initialize` finds the supplicant of the first try: it must not
+    /// start a second one, which exits 255 and fails every later retry.
+    #[test]
+    fn bring_up_does_not_start_a_second_supplicant() {
+        let mut runner = ScriptedRunner::default();
+        let mut files = MemFiles::default();
+        runner
+            .expect_ok("modprobe wilc-spi")
+            .expect_ok("ifconfig wlan0 up")
+            .expect_ok("pidof wpa_supplicant");
+        bring_up(&mut runner, &mut files).unwrap();
+        assert!(runner.is_done());
+        assert!(
+            !runner
+                .lines()
+                .iter()
+                .any(|line| line.starts_with("wpa_supplicant "))
+        );
+    }
 
     /// Answers by command prefix, in order, and records every command sent.
     #[derive(Default)]
