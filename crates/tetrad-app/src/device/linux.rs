@@ -1350,7 +1350,9 @@ impl LinuxPlatform {
             .path("/media/p4")
             .join(crate::device::extension_jobs::STORE_DIR);
         let fetch = crate::device::extension_jobs::HttpFetch(CurlHttp {
-            runner: SystemRunner::default(),
+            runner: SystemRunner {
+                output_limit: crate::device::extension_jobs::FETCH_OUTPUT_LIMIT,
+            },
             files: SystemFiles,
             scratch: PathBuf::from(EXTENSION_HTTP_SCRATCH),
         });

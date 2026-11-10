@@ -463,6 +463,17 @@ fn loaded(store: &Store, installed: Installed) -> Result<Loaded, String> {
     })
 }
 
+/// The most curl output the extension fetcher takes (O): the largest file of a package
+/// (`MAX_APP_FILE`; a package itself is smaller) and curl's status trailer. The services
+/// runner's 1 MiB default refused every larger file.
+pub const FETCH_OUTPUT_LIMIT: usize = tetrad_extensions::package::MAX_APP_FILE as usize + 16;
+
+// A larger file limit in the package format must raise the fetcher's limit with it.
+const _: () = assert!(
+    FETCH_OUTPUT_LIMIT > tetrad_extensions::package::MAX_PACKAGE
+        && FETCH_OUTPUT_LIMIT as u64 > tetrad_extensions::package::MAX_APP_FILE
+);
+
 /// [`Fetch`] over the device's direct HTTP client: GET, HTTPS redirects followed.
 pub struct HttpFetch<H>(pub H);
 

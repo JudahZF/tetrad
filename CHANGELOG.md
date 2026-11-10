@@ -62,6 +62,9 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Fixed
 
+- Extensions: a package or a program file larger than 1 MiB now downloads from a repository.
+  Before, the install failed with "output of curl is larger than 1048576 bytes"
+  ([docs/extensions.md](docs/extensions.md)).
 - The Tuner flashed when there was no input: the last note came back for a moment about twice a
   second. With no input the DSP repeats its last pitch, and each repeat after the 500 ms idle
   timeout showed that note again. Now the note goes away after 500 ms and stays away until a new
