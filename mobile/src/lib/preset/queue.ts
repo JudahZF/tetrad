@@ -25,6 +25,7 @@ function key(edit: Edit): string | null {
 export class EditQueue {
   private waiting: Edit[] = [];
   private running = false;
+  private disposed = false;
 
   constructor(
     private preset: () => Preset | null,
@@ -37,6 +38,7 @@ export class EditQueue {
   ) {}
 
   push(edit: Edit) {
+    if (this.disposed) return;
     // Only the last: an edit after a scene change must not move before it.
     const last = this.waiting.at(-1);
     const k = key(edit);
@@ -62,6 +64,12 @@ export class EditQueue {
     this.waiting = [];
   }
 
+  /** The connection of this queue ended: it sends nothing more and calls nothing back. */
+  dispose() {
+    this.disposed = true;
+    this.waiting = [];
+  }
+
   private async run() {
     if (this.running) return;
     this.running = true;
@@ -71,8 +79,10 @@ export class EditQueue {
         if (!preset) break;
         try {
           const reply = await this.send(preset.loadId, edit);
+          if (this.disposed) return;
           this.onPreset(reply, this.pending);
         } catch (error) {
+          if (this.disposed) return;
           // A refused edit drops the ones queued after it: they were made on what it would have changed.
           this.waiting = [];
           this.onError(error);
@@ -80,7 +90,7 @@ export class EditQueue {
       }
     } finally {
       this.running = false;
-      this.onIdle();
+      if (!this.disposed) this.onIdle();
     }
   }
 }

@@ -5,7 +5,7 @@
  * wait for the one before them.
  */
 
-import { Reassembler, frames } from "./frames";
+import { MAX_MESSAGE, Reassembler, frames } from "./frames";
 import { type Header, type Json, type Message, decode, encode } from "./message";
 
 /** The radio side: frames to and from the unit's GATT characteristics. */
@@ -90,6 +90,9 @@ export class LinkSession {
   private async send(op: string, fields: Header, body: Uint8Array | undefined, timeoutMs: number) {
     if (this.closed) throw new LinkError("The Bluetooth link closed", false);
     const id = this.nextId++;
+    const message = encode({ ...fields, id, op }, body);
+    // The unit drops a larger message with no reply, and every request behind it would wait.
+    if (message.length > MAX_MESSAGE) throw new LinkError(`The message is too large for the Bluetooth link (${op})`, true);
     const reply = new Promise<Message>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -100,7 +103,7 @@ export class LinkSession {
     // A timeout or a lost link can reject it while the frames still go out, before the await.
     reply.catch(() => undefined);
     try {
-      for (const frame of frames(encode({ ...fields, id, op }, body), this.port.frameSize)) {
+      for (const frame of frames(message, this.port.frameSize)) {
         await this.port.write(frame);
       }
     } catch (error) {
@@ -111,10 +114,10 @@ export class LinkSession {
       }
       throw new LinkError(`Bluetooth write failed: ${String(error)}`, false);
     }
-    const message = await reply;
-    const refusal = message.header.error;
+    const answer = await reply;
+    const refusal = answer.header.error;
     if (typeof refusal === "string") throw new LinkError(refusal, true);
-    return message;
+    return answer;
   }
 
   private onFrame(frame: Uint8Array) {
