@@ -239,6 +239,8 @@ impl Services {
         }
         self.install_progress = None;
         self.inputs_masked = true;
+        // No recovery step runs during an install, also one that waits on the worker.
+        self.cancel_recovery_reset();
         let mut effects = self.report(UpdaterState::Updating);
         effects.push(super::control::lock_notice(true));
         effects.push(Effect::Dsp(DspCommand::MasterMute(1 | 1 << 1)));

@@ -1176,6 +1176,7 @@ fn service_kind(notice: &ServiceNotice) -> &'static str {
     match notice {
         ServiceNotice::Supplicant(_) => "supplicant event",
         ServiceNotice::Dhcp { .. } => "DHCP result",
+        ServiceNotice::InterfaceReset(_) => "interface reset result",
         ServiceNotice::Internet(_) => "internet probe result",
         ServiceNotice::Download(_) => "update download result",
         ServiceNotice::Install(_) => "update install result",

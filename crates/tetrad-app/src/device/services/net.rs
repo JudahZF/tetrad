@@ -28,6 +28,20 @@ impl Services {
             .map(|work| Effect::Service(ServiceJob::Internet(work)))
     }
 
+    /// Ends the owned recovery: the user changed the Wi-Fi.
+    fn stop_recovery(&mut self) {
+        self.internet.stop_recovery();
+        self.cancel_recovery_reset();
+    }
+
+    /// A recovery reset that still waits behind another job on the worker (an internet probe
+    /// can take 40 s) must not take down the link that the user made in that time.
+    pub(super) fn cancel_recovery_reset(&mut self) {
+        if let Some(reset) = self.recovery_reset.take() {
+            reset.cancel();
+        }
+    }
+
     /// The owned internet recovery ([`InternetManager::recovery_due`]) as Wi-Fi actions: a DHCP
     /// renewal, `REASSOCIATE`, then `REASSOCIATE` and the interface reset. The second
     /// `REASSOCIATE` ends a `DISCONNECT` that the stock DHCP rule sends after four failed runs
@@ -141,6 +155,11 @@ impl Services {
             effects.push(notice(text));
         }
         effects.extend(step.dhcp.map(|run| Effect::Service(ServiceJob::Dhcp(run))));
+        if step.reset {
+            let cancel = CancelToken::default();
+            self.recovery_reset = Some(cancel.clone());
+            effects.push(Effect::Service(ServiceJob::ResetInterface(cancel)));
+        }
         effects
     }
 
@@ -198,7 +217,7 @@ impl Services {
     ) -> Result<u32, ServiceError> {
         self.alert = None;
         self.joining = Some(ssid.to_owned());
-        self.internet.stop_recovery();
+        self.stop_recovery();
         let link = backends.supplicant();
         let id = self.wifi.connect(link, ssid, passphrase, millis(now))?;
         self.saved = wifi::saved_networks(link)?;
@@ -226,7 +245,7 @@ impl Services {
 
     /// Leave the joined network (stock cell tap `0x5d4834`).
     pub fn disconnect(&mut self, backends: &mut impl ServiceBackends) -> Result<(), ServiceError> {
-        self.internet.stop_recovery();
+        self.stop_recovery();
         Ok(wifi::disconnect(backends.supplicant())?)
     }
 
@@ -244,7 +263,7 @@ impl Services {
         link: &mut impl SupplicantLink,
         id: Option<u32>,
     ) -> Result<(), WifiError> {
-        self.internet.stop_recovery();
+        self.stop_recovery();
         wifi::forget(link, id)?;
         self.saved = wifi::saved_networks(link)?;
         Ok(())
