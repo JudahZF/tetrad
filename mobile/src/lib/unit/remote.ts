@@ -19,6 +19,8 @@ export type Fetch = (
   init: { method: string; headers: Record<string, string>; body?: Uint8Array | string; signal?: AbortSignal },
 ) => Promise<FetchReply>;
 
+const PIN_CHANGED = "The unit has a new PIN. Connect again and enter it.";
+
 const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
 /**
@@ -39,6 +41,8 @@ export function parseAddress(input: string): { host: string; pin: string | null 
 export class RemoteClient extends BaseClient implements UnitClient {
   readonly transport: Transport = "wifi";
   protected readonly features: ReadonlySet<Feature> = new Set();
+  /** The unit refused the PIN once. Each more request with it counts as a wrong PIN there. */
+  private pinRefused = false;
 
   constructor(
     readonly host: string,
@@ -73,6 +77,7 @@ export class RemoteClient extends BaseClient implements UnitClient {
     body: Uint8Array | string | undefined,
     read: (reply: FetchReply) => Promise<R>,
   ): Promise<R> {
+    if (this.pinRefused) throw new UnitError(PIN_CHANGED, true, true, 401);
     const params = Object.entries(query)
       .filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined)
       .map(([k, v]) => `${k}=${encodeURIComponent(typeof v === "boolean" ? (v ? "1" : "0") : String(v))}`)
@@ -108,6 +113,10 @@ export class RemoteClient extends BaseClient implements UnitClient {
       const parsed: unknown = JSON.parse(refusal);
       if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") text = parsed.error;
     } catch {}
+    if (status === 401) {
+      this.pinRefused = true;
+      this.emit({ kind: "closed", reason: PIN_CHANGED });
+    }
     throw new UnitError(text, true, status === 401, status);
   }
 
