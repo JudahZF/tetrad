@@ -3,6 +3,7 @@ import { Reassembler, frames } from "@/lib/link/frames";
 import { type Header, type Json, decode, encode } from "@/lib/link/message";
 import type { LinkPort } from "@/lib/link/session";
 import { type UnitEvent, sendFile } from "./client";
+import { demoFootswitch } from "@/lib/demo/data";
 import { DemoClient } from "./demo";
 import { LinkClient } from "./link";
 import { type Fetch, RemoteClient, parseAddress } from "./remote";
@@ -76,6 +77,40 @@ describe("Remote (Wi-Fi)", () => {
     const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
     await expect(client.tabCall("midi-mapper", { op: "reset" })).rejects.toThrow("bad JSON");
     expect(calls[0]?.body).toBe('{"op":"reset"}');
+  });
+
+  it("refuses a reply whose shape it does not know", async () => {
+    // A string destination and no lists: an older or newer Tetrad, not this app's shape.
+    const { fetchFn } = fakeFetch(() => ({ json: { destination: "root" } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.library()).rejects.toThrow(/does not know|update/i);
+  });
+
+  it("accepts a reply with fields it does not know", async () => {
+    const { fetchFn } = fakeFetch(() => ({ json: { folder: "/media/p4/CustomIRs", somethingNew: 1 } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.status()).resolves.toMatchObject({ folder: "/media/p4/CustomIRs" });
+  });
+
+  it("accepts a notice from a subsystem it does not know", async () => {
+    const notice = { ago: 3, subsystem: "Telemetry", detail: "started" };
+    const { fetchFn } = fakeFetch(() => ({ json: { notices: [notice], dropped: 0, repeats: 0 } }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.notices()).resolves.toMatchObject({ notices: [notice] });
+  });
+
+  it("accepts a MIDI message with a part that the preset leaves out", async () => {
+    // The unit sends null for a part that a preset does not have, in any place.
+    const view = demoFootswitch();
+    const row = view.layouts.global.flatMap((page) => page.slots).flatMap((slot) => slot.actions)[0];
+    if (!row) throw new Error("the demo layout has no action");
+    row.messages = [
+      { kind: "cc", channel: 1, values: [null, 7, null] },
+      { kind: "pc", channel: 1, values: [0, null, null] },
+    ];
+    const { fetchFn } = fakeFetch(() => ({ json: view }));
+    const client = new RemoteClient("192.168.1.20", "1234", fetchFn);
+    await expect(client.footswitch()).resolves.toMatchObject({ preset: view.preset });
   });
 
   it("a reply whose body stops coming times out", async () => {

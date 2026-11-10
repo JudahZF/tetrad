@@ -71,14 +71,11 @@ export interface SupportFile {
   zip: Uint8Array;
 }
 
-export type Subsystem =
-  | "Platform" | "Splash" | "Settings" | "Library" | "Dsp" | "Preset" | "Ui" | "Control"
-  | "Input" | "Midi" | "Services" | "Capture" | "Power" | "Extensions" | "Remote" | "Usb"
-  | "Bluetooth";
 export interface Notice {
   /** Seconds before the reply. */
   ago: number;
-  subsystem: Subsystem;
+  /** A label from the unit, such as "Dsp". A newer Tetrad can send values this app does not know. */
+  subsystem: string;
   detail: string;
 }
 export interface NoticesReply {
@@ -275,11 +272,14 @@ export type SystemAction =
   | { looper: LooperButton }
   | { customPage: "next" | "previous" | { go: number } }
   | { customSlot: number };
-export type SystemGroup = "Preset" | "Scene" | "Tuner" | "Tempo" | "Mode" | "Gig View" | "Looper" | "Page";
+/** A label from the unit, such as "Preset" or "Tuner". A newer Tetrad can send values this app does not know. */
+export type SystemGroup = string;
+/** A part that a preset leaves out is null: the unit sends what the preset has. */
+type MidiPart = number | null;
 export type MidiMessage =
-  | { kind: "cc"; channel: number; values: [number, number, number | null] }
-  | { kind: "ccToggle"; channel: number; values: [number, number, number] }
-  | { kind: "pc"; channel: number; values: [number | null, number | null, number] };
+  | { kind: "cc"; channel: number; values: [MidiPart, MidiPart, MidiPart] }
+  | { kind: "ccToggle"; channel: number; values: [MidiPart, MidiPart, MidiPart] }
+  | { kind: "pc"; channel: number; values: [MidiPart, MidiPart, MidiPart] };
 export type SlotActionView =
   | { kind: "system"; action: SystemAction }
   | { kind: "block"; row: number; column: number; parameter: number | null }
