@@ -222,6 +222,7 @@ These actions do nothing while the Custom mode is off.
   Stomp-mode data in the stock fields.
 - A layout from Tetrad 0.1.0-alpha.10 or earlier (one action per switch) reads as before: a
   parameter's value becomes Set, a momentary bypass and a Looper button become Momentary. Tetrad
-  writes it in the new format, which older Tetrad builds do not read.
+  writes it in the new format (format 2), which older Tetrad builds do not read. Tetrad 0.1.x
+  stays on format 2: each 0.1.x release reads a layout that 0.1.0 writes.
 - The double press and combo times: `/media/p4/tetrad/footswitch-mode.json`.
 - The mode: the stock footswitch mode setting (Stomp).

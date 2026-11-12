@@ -5,6 +5,25 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ## Unreleased
 
+## [0.1.0](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0) (2026-11-12)
+
+The first stable release. It has all the changes since 0.1.0-alpha.10. From this release, a
+stable release has a `v` tag and the untested `nightly` build of `main` is for testers
+([docs/releases.md](docs/releases.md)).
+
+### Upgrade notes
+
+- A unit on 0.1.0-alpha.5 to 0.1.0-alpha.10 gets 0.1.0 from its own Tetrad Updates
+  (Settings → Tetrad → Tetrad Updates, CHECK TETRAD; on 0.1.0-alpha.8 and earlier, Settings →
+  System → Tetrad Updates). You do not need to install again. After
+  this update, the unit offers only stable releases until you set the Update channel to Nightly.
+- 0.1.x releases keep extension API 8 and footswitch layout format 2. An extension for API 8
+  and a layout that 0.1.0 writes work with each later 0.1.x release.
+- Tetrad 0.1.0-alpha.10 and earlier do not read footswitch layout format 2. 0.1.0 writes the
+  Custom mode layout in this format, so make a backup before the update if you can go back to
+  an alpha.
+- Bluetooth (BLE MIDI and the Tetrad Link, on Tetrad's own BLE host) is still experimental.
+
 ### Added
 
 - Tetrad Updates has an **Update channel**: Stable (the default, tested releases) or Nightly
@@ -110,6 +129,21 @@ All notable changes to Tetrad are in this file. The version numbers follow
 - Tetrad app: a reply that the app does not know, for example from another Tetrad version,
   gives the message "Update the app or Tetrad" and no longer a blank screen
   ([mobile/README.md](mobile/README.md)).
+- Preset library: when a rename or a save fails part way, the library stays consistent. The
+  stock files have the same bytes and are written in the same order as before.
+- Backups: a restore of a large backup no longer reads the whole archive into memory, so it
+  does not run out of memory on the unit.
+- DSP: one DSP response ring with a bad record no longer stops the responses of the other
+  rings.
+- Settings: a small settings save no longer waits for every file system to sync, so the screen
+  does not stop for it.
+- Wi-Fi: when the first start of the Wi-Fi services fails, the next start works. Before, a
+  second `wpa_supplicant` started and every later start failed.
+- Wi-Fi: on a network with no internet, the internet recovery each 10 minutes no longer
+  freezes the screen and the footswitches.
+- Releases: a manual run of the release workflow no longer signs a build with the release key.
+  Only a `v` tag and the nightly of `main` are signed ([docs/releases.md](docs/releases.md)).
+- rusqlite is 0.41.1 (libsqlite3-sys 0.39.1), which fixes the advisory RUSTSEC-2026-0459.
 
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
