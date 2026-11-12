@@ -23,6 +23,7 @@ export type Fetch = (
 
 const PIN_CHANGED = "The unit has a new PIN. Connect again and enter it.";
 const UNKNOWN_REPLY = "The unit sent a reply that this app does not know. Update the app or Tetrad.";
+const NO_CHANNEL = "This Tetrad has no Update channel. Update Tetrad on the unit first.";
 
 const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
@@ -201,6 +202,17 @@ export class RemoteClient extends BaseClient implements UnitClient {
   }
   themeSelect(id: string) {
     return this.json(S.ThemesList, "POST", "/api/themes/select", { id });
+  }
+  async updates() {
+    try {
+      return await this.json(S.UpdatesView, "GET", "/api/updates");
+    } catch (error) {
+      if (error instanceof UnitError && error.status === 404) throw new UnitError(NO_CHANNEL);
+      throw error;
+    }
+  }
+  updateChannel(channel: T.ReleaseChannel) {
+    return this.json(S.UpdatesView, "POST", "/api/updates/channel", { channel });
   }
   mappings() {
     return this.json(S.MappingsView, "GET", "/api/mappings");

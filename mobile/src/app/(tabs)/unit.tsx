@@ -1,17 +1,27 @@
-/** Unit: the connected unit, its theme, and the pages of backup, extensions, notices and the support file. */
+/** Unit: the connected unit, its theme, its Update channel, and the pages of backup, extensions, notices and the support file. */
 
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
 import { BUILTIN_THEMES } from "@/lib/themes";
-import type { ThemeEntry } from "@/lib/unit/types";
+import type { ReleaseChannel, ThemeEntry } from "@/lib/unit/types";
 import { shareFile } from "@/state/files";
 import { useToast } from "@/state/toast";
 import { useClient, useUnit } from "@/state/unit";
 import { useLoad } from "@/state/useLoad";
 import { Icon } from "@/ui/Icon";
-import { Button, Card, Empty, Pill, Row, Rows, Screen, Section, Spinner, T } from "@/ui/kit";
+import { Button, Card, Empty, Pill, Row, Rows, Screen, Section, Segmented, Spinner, T } from "@/ui/kit";
 import { usePalette } from "@/ui/theme";
+
+const CHANNELS = [
+  { key: "stable", label: "Stable" },
+  { key: "nightly", label: "Nightly" },
+] as const;
+
+const CHANNEL_HELP: Record<ReleaseChannel, string> = {
+  stable: "Stable: tested releases.",
+  nightly: "Nightly: the newest build of main. It is not tested and can have bugs that stop the sound.",
+};
 
 const TRANSPORT = { bluetooth: "Bluetooth (experimental)", wifi: "Wi-Fi Remote", demo: "Demo" } as const;
 
@@ -38,6 +48,7 @@ export default function Unit() {
   const toast = useToast();
   const themes = useLoad(() => client.themes(), client);
   const tabs = useLoad(() => client.tabs(), client);
+  const updates = useLoad(() => client.updates(), client);
   // Extensions can gain or lose a page on the Extensions screen: ask again on each return here.
   const { reload: reloadTabs } = tabs;
   useFocusEffect(
@@ -52,6 +63,14 @@ export default function Unit() {
       const next = await client.themeSelect(id);
       themes.set(next);
       followTheme(next);
+    } catch (error) {
+      toast.error(error);
+    }
+  };
+
+  const setChannel = async (channel: ReleaseChannel) => {
+    try {
+      updates.set(await client.updateChannel(channel));
     } catch (error) {
       toast.error(error);
     }
@@ -101,6 +120,28 @@ export default function Unit() {
         )}
       </Card>
       <T size={11.5} tone="faint">The unit changes to the theme at once, and the app follows it.</T>
+
+      <Section>Update channel</Section>
+      <Card style={{ padding: 12, gap: 10 }}>
+        {updates.data ? (
+          <>
+            <Segmented options={CHANNELS} value={updates.data.channel} onChange={(channel) => void setChannel(channel)} />
+            <T size={12.5} tone="muted">
+              {CHANNEL_HELP[updates.data.channel]}
+            </T>
+            {updates.data.nightly && updates.data.channel === "stable" ? (
+              <T size={12.5} tone="muted">
+                This unit runs a nightly build. Tetrad does not go back to an older stable release by itself. To go back now, on the unit tap CHECK TETRAD, then INSTALL STABLE.
+              </T>
+            ) : null}
+          </>
+        ) : updates.error ? (
+          <T tone="danger">{updates.error}</T>
+        ) : (
+          <Spinner />
+        )}
+      </Card>
+      <T size={11.5} tone="faint">Check and install updates on the unit: Settings › Tetrad › Tetrad Updates.</T>
 
       <Rows>
         <Row icon="archive" title="Backup" detail="Back up the unit to the phone, or send a backup back" chevron onPress={() => router.push("/backup")} />

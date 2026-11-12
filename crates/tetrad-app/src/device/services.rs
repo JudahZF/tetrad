@@ -67,7 +67,7 @@ use tetrad_services::updater::install::{
 };
 use tetrad_services::updater::paths;
 use tetrad_services::updater::state::{UpdaterState, UpdaterStatus};
-use tetrad_services::updater::tetrad::{self, Offer};
+use tetrad_services::updater::tetrad::{self, Channel, Found, Offer};
 use tetrad_services::wifi::events::{
     STOCK_ASSOCIATION_TIMEOUT_MS, WifiAction, WifiNotice, WifiStatus as LinkStatus,
 };
@@ -119,6 +119,7 @@ pub use self::products::{
 };
 pub(in crate::device) use self::products::{browse_scope, product_kind};
 pub use self::runs::{BatchEnd, BatchOperation, BatchView};
+pub use self::tetrad_update::CHANNEL_FILE;
 pub use self::updater::{ControlTransport, DownloadJob, Updater};
 pub use self::uploads::{
     BatchItem, CaptureDraft, CaptureOrigin, NO_IR_UPLOAD, PresetDraft, PresetFile, UploadEnd,
@@ -209,8 +210,8 @@ pub enum ServiceJob {
     Cloud(Handoff<CloudJob>),
     /// Backup packaging, transfer or restore ([`tetrad_services::backup`]).
     Backup(BackupJob),
-    /// Owned: the newest Tetrad release ([`tetrad::check`]).
-    TetradCheck,
+    /// Owned: the newest Tetrad release on the channel ([`tetrad::check`]).
+    TetradCheck(Channel),
     /// Owned: a Tetrad release downloaded, checked, installed and armed ([`tetrad::install`]).
     TetradInstall(Offer),
 }
@@ -240,7 +241,7 @@ impl ServiceJob {
             Self::Download(_)
             | Self::Install
             | Self::Backup(_)
-            | Self::TetradCheck
+            | Self::TetradCheck(_)
             | Self::TetradInstall(_) => Lane::Bulk,
         }
     }
@@ -261,7 +262,7 @@ pub enum ServiceNotice {
     Install(Result<InstallOutcome, JobError>),
     Cloud(Handoff<CloudReply>),
     Backup(Result<BackupDone, JobError>),
-    TetradChecked(Result<Option<Offer>, String>),
+    TetradChecked(Result<Found, String>),
     TetradInstalled(Result<(), String>),
 }
 
@@ -301,7 +302,7 @@ impl ServiceJob {
             Self::Download(_) => ServiceNotice::Download(Err(stopped)),
             Self::Install => ServiceNotice::Install(Err(stopped)),
             Self::Backup(_) => ServiceNotice::Backup(Err(stopped)),
-            Self::TetradCheck => ServiceNotice::TetradChecked(Err(stopped.to_string())),
+            Self::TetradCheck(_) => ServiceNotice::TetradChecked(Err(stopped.to_string())),
             Self::TetradInstall(_) => ServiceNotice::TetradInstalled(Err(stopped.to_string())),
             Self::Cloud(job) => ServiceNotice::Cloud(Handoff::new(
                 job.take().map_or_else(CloudReply::gone, CloudJob::lost),
@@ -337,6 +338,8 @@ pub struct Services {
     updater: Updater,
     /// Owned: the Tetrad Updates page.
     tetrad: tetrad_update::TetradUpdate,
+    /// The Update channel of Tetrad Updates, from [`tetrad_update::CHANNEL_FILE`].
+    tetrad_channel: Channel,
     /// NTP result and the device time it was taken at; the only wall clock.
     wall: Option<(i64, Duration)>,
     update_check_due: bool,
@@ -546,6 +549,7 @@ impl Services {
                 offer: None,
             },
             tetrad: Default::default(),
+            tetrad_channel: Channel::default(),
             wall: None,
             update_check_due: false,
             reported_status: UpdaterStatus::None,
@@ -739,12 +743,15 @@ impl Services {
         _now: Duration,
     ) -> Result<Vec<Effect>, ServiceError> {
         let io = lend(backends)?;
+        // Before the Wi-Fi: a failed bring-up must not leave the page on the wrong channel.
+        let loaded = self.load_tetrad_channel(io.files);
         wifi::bring_up(io.runner, io.files)?;
         wifi::initialize(io.supplicant)?;
-        Ok(vec![Effect::StartTimer {
+        let tick = Effect::StartTimer {
             timer: Timer::Services,
             after: TICK,
-        }])
+        };
+        Ok(loaded.into_iter().chain([tick]).collect())
     }
 
     pub fn on_notice(
@@ -910,6 +917,10 @@ impl Services {
             C::TetradUpdate { command } => match command {
                 TetradUpdateCommand::Check => Ok(self.check_tetrad_update()),
                 TetradUpdateCommand::Install => self.install_tetrad_update(),
+                TetradUpdateCommand::Channel(channel) => {
+                    let channel = tetrad_update::channel(channel);
+                    self.set_tetrad_channel(lend(backends)?.files, channel)
+                }
             },
             C::CloudLogin { email, password } => {
                 self.sign_in(backends, settings, &email, &password, now)

@@ -21,10 +21,13 @@ by `.github/workflows/release.yml` in the same way.
 
 ### Roll back from a nightly
 
-1. Use the stable channel. When a stable is newer than your nightly, Tetrad Updates offers it.
-2. A stable that is older than your nightly is not offered: an update never goes to an older
-   version. Install it over USB (`tetrad-usb install`, any signed version installs, an older
-   one too: [usb.md](usb.md#install-a-release-over-usb)) or over SSH with the release archive
+1. Set the Update channel to Stable (Settings → Tetrad → Tetrad Updates, or the phone app).
+   When a stable is newer than your nightly, CHECK TETRAD offers it as an update.
+2. A stable that is older than your nightly is never offered as an update. CHECK TETRAD shows
+   it as "Tetrad is newer than stable", and **INSTALL STABLE** installs it when you tap it
+   ([updates.md](updates.md#update-channel)). You can also install it over USB
+   (`tetrad-usb install`, any signed version installs, an older one too:
+   [usb.md](usb.md#install-a-release-over-usb)) or over SSH with the release archive
    (`scripts/install.sh update`, [install.md](install.md)).
 3. When the nightly does not start, the launcher starts stock CorOS. A USB install needs a
    running Tetrad, so install a stable over SSH (`scripts/install.sh update`).
@@ -111,15 +114,19 @@ later units.
 3. Take the newest version that is newer than the running version.
 4. Download the manifest and its signature. The manifest `version` must equal the tag version.
 
-**Nightly channel.** No released Tetrad has this channel yet: units up to 0.1.0-alpha.10 refuse
-a manifest with `channel`. These are the steps of the Update channel setting that comes next.
+**Nightly channel.** Units after 0.1.0-alpha.10 have it (the Update channel of Tetrad Updates,
+[updates.md](updates.md#update-channel)). Units up to 0.1.0-alpha.10 refuse a manifest with
+`channel`.
 
-1. Take each release whose tag is `nightly` or starts with `nightly-`. Today there is only
-   `nightly`.
-2. Take the newest by `published_at`.
-3. Download the manifest and its signature. The manifest must have `"channel": "nightly"`, and
-   its first pre-release identifier is `nightly`.
-4. Offer it when its version is newer than the running version by semver precedence.
+1. Take the release with the tag `nightly`. `nightly-*` tags are reserved and do not count.
+2. Download the manifest and its signature. The manifest must have `"channel": "nightly"`, and
+   the first pre-release identifier of its version must be `nightly`.
+3. Do the stable steps 1 to 3 too. Offer the newer of the nightly and that stable, when it is
+   newer than the running version by semver precedence.
+
+**Back to stable from a nightly.** On the stable channel, a unit that runs a nightly (the first
+pre-release identifier of its version is `nightly`) and finds no newer stable shows the newest
+stable as older. It installs it only when the user taps INSTALL STABLE.
 
 ### Rules that keep units in the field working
 

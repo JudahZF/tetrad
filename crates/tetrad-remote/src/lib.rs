@@ -13,7 +13,7 @@ mod server;
 pub use api::AUTH_DOMAIN;
 pub use api::{
     BackupOp, Call, EditorOp, ExtensionFiles, ExtensionsOp, FileEntry, LibraryOp, PIN_HEADER,
-    Reply, Request, TabInfo, ThemesOp,
+    Reply, Request, TabInfo, ThemesOp, UpdatesOp,
 };
 pub use http::{MAX_BODY, api_request, serve_one};
 pub use server::Server;

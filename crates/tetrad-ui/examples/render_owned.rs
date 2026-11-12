@@ -1894,9 +1894,21 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                 Control::Setting(SettingControl::Page(SettingsPage::Midi)),
             );
         }
-        "wifi" | "updates" | "update-ready" | "update-confirm" | "update-install" | "backups"
-        | "storage" | "storage-quarantine" | "groups" | "backup-name" | "backup-menu"
-        | "backup-update" | "tetrad-update" | "tetrad-updating" => {
+        "wifi"
+        | "updates"
+        | "update-ready"
+        | "update-confirm"
+        | "update-install"
+        | "backups"
+        | "storage"
+        | "storage-quarantine"
+        | "groups"
+        | "backup-name"
+        | "backup-menu"
+        | "backup-update"
+        | "tetrad-update"
+        | "tetrad-updating"
+        | "tetrad-update-older" => {
             let mut snapshot = ui.snapshot().clone();
             match view {
                 "update-ready" | "update-install" => {
@@ -1922,6 +1934,17 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                             }
                         },
                         online: true,
+                        channel: ReleaseChannel::Stable,
+                    };
+                }
+                "tetrad-update-older" => {
+                    snapshot.tetrad_update = TetradUpdateView {
+                        current_version: "0.1.1-nightly.20261112+abc1234".into(),
+                        state: TetradUpdateState::Older {
+                            version: "0.1.0".into(),
+                        },
+                        online: true,
+                        channel: ReleaseChannel::Stable,
                     };
                 }
                 "storage-quarantine" => {
@@ -1949,12 +1972,15 @@ fn render(view: &str, mut snapshot: UiSnapshot) -> Result<Frame, Box<dyn Error>>
                     SettingsPage::Backups
                 }
                 "storage" | "storage-quarantine" => SettingsPage::DeviceStorage,
-                "tetrad-update" | "tetrad-updating" => SettingsPage::TetradUpdates,
+                "tetrad-update" | "tetrad-updating" | "tetrad-update-older" => {
+                    SettingsPage::TetradUpdates
+                }
                 _ => SettingsPage::Updates,
             };
-            if page.group() == SettingsGroup::System {
+            let group = (SettingsGroup::ALL.iter()).position(|g| *g == page.group());
+            if let Some(group) = group.filter(|&group| group > 0) {
                 activate(&mut ui, Control::Setting(SettingControl::Groups));
-                activate(&mut ui, Control::Choose(1));
+                activate(&mut ui, Control::Choose(group as u16));
             }
             activate(&mut ui, Control::Setting(SettingControl::Page(page)));
             match view {

@@ -6775,7 +6775,7 @@ fn power_requests_wait_for_the_restore_extract() {
 #[test]
 fn a_tetrad_update_installs_arms_and_restarts() {
     use tetrad_extensions::catalog::sha256_hex;
-    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer, Source};
+    use tetrad_services::updater::tetrad::{Channel, FileEntry, Found, Manifest, Offer, Source};
     use tetrad_ui::{TetradUpdateCommand, TetradUpdateState, UiCommand};
     let mut services = Services::new();
     let mut b = Backends::default();
@@ -6792,7 +6792,10 @@ fn a_tetrad_update_installs_arms_and_restarts() {
         ms(0),
     ))
     .unwrap();
-    assert_eq!(check, [Effect::Service(ServiceJob::TetradCheck)]);
+    assert_eq!(
+        check,
+        [Effect::Service(ServiceJob::TetradCheck(Channel::Stable))]
+    );
     let entry = |body: &[u8]| FileEntry {
         size: body.len() as u64,
         sha256: sha256_hex(body),
@@ -6807,10 +6810,11 @@ fn a_tetrad_update_installs_arms_and_restarts() {
         source: Source::Release("v99.0.0".into()),
         manifest: Manifest {
             version: "99.0.0".parse().unwrap(),
+            channel: Channel::Stable,
             files: files.map(|(path, entry)| (path.to_owned(), entry)).into(),
         },
     };
-    let checked = ServiceNotice::TetradChecked(Ok(Some(offer)));
+    let checked = ServiceNotice::TetradChecked(Ok(Found::Newer(offer)));
     services
         .on_notice(&mut b, checked, &mut settings, ms(0))
         .unwrap();
@@ -6878,13 +6882,14 @@ fn a_tetrad_update_installs_arms_and_restarts() {
 /// not replace it, and a new USB upload withdraws it (its `.part` files are being replaced).
 #[test]
 fn a_usb_offer_survives_a_late_check_and_a_new_upload_withdraws_it() {
-    use tetrad_services::updater::tetrad::{FileEntry, Manifest, Offer, Source};
+    use tetrad_services::updater::tetrad::{Channel, FileEntry, Found, Manifest, Offer, Source};
     use tetrad_ui::{TetradUpdateCommand, TetradUpdateState, UiCommand};
     let mut services = Services::new();
     let mut b = Backends::default();
     let mut settings = settings();
     let manifest = |version: &str| Manifest {
         version: version.parse().unwrap(),
+        channel: Channel::Stable,
         files: [(
             "bin/tetrad".to_owned(),
             FileEntry {
@@ -6903,7 +6908,7 @@ fn a_usb_offer_survives_a_late_check_and_a_new_upload_withdraws_it() {
         source: Source::Release("v99.0.0".into()),
         manifest: manifest("99.0.0"),
     };
-    let checked = ServiceNotice::TetradChecked(Ok(Some(late)));
+    let checked = ServiceNotice::TetradChecked(Ok(Found::Newer(late)));
     services
         .on_notice(&mut b, checked, &mut settings, ms(5))
         .unwrap();
@@ -6915,4 +6920,96 @@ fn a_usb_offer_survives_a_late_check_and_a_new_upload_withdraws_it() {
 
     services.withdraw_usb_offer();
     assert_eq!(services.tetrad_update_view().state, TetradUpdateState::Idle);
+}
+
+/// The Update channel: no `updates.json` (a unit from before the setting) is Stable; a change
+/// is saved there and goes with the next check; a bad file gives Stable and a notice. An
+/// older stable found from a nightly installs only from UPDATE TETRAD (INSTALL STABLE).
+#[test]
+fn the_update_channel_is_saved_and_follows_the_check() {
+    use tetrad_app::device::services::CHANNEL_FILE;
+    use tetrad_services::updater::tetrad::{Channel, FileEntry, Found, Manifest, Offer, Source};
+    use tetrad_ui::{ReleaseChannel, TetradUpdateCommand, TetradUpdateState, UiCommand};
+    let mut services = Services::new();
+    let mut b = Backends::default();
+    let mut settings = settings();
+    let command = |command| UiCommand::TetradUpdate { command };
+
+    assert_eq!(services.load_tetrad_channel(&mut b.files), None);
+    assert_eq!(services.tetrad_channel(), Channel::Stable);
+    let nightly = command(TetradUpdateCommand::Channel(ReleaseChannel::Nightly));
+    services
+        .on_ui(&mut b, nightly, &mut settings, ms(0))
+        .unwrap();
+    assert_eq!(
+        b.files.get(CHANNEL_FILE).as_deref(),
+        Some(&br#"{"channel":"nightly"}"#[..])
+    );
+    assert_eq!(
+        services.tetrad_update_view().channel,
+        ReleaseChannel::Nightly
+    );
+    let check = command(TetradUpdateCommand::Check);
+    let check = services.on_ui(&mut b, check, &mut settings, ms(0)).unwrap();
+    assert_eq!(
+        check,
+        [Effect::Service(ServiceJob::TetradCheck(Channel::Nightly))]
+    );
+
+    // A boot reads the file; a later build may add fields.
+    let mut later = Services::new();
+    b.files
+        .put(CHANNEL_FILE, r#"{"channel":"nightly","next":1}"#);
+    assert_eq!(later.load_tetrad_channel(&mut b.files), None);
+    assert_eq!(later.tetrad_channel(), Channel::Nightly);
+    b.files.put(CHANNEL_FILE, r#"{"channel":"beta"}"#);
+    let mut bad = Services::new();
+    assert!(bad.load_tetrad_channel(&mut b.files).is_some());
+    assert_eq!(bad.tetrad_channel(), Channel::Stable);
+
+    // Back to Stable: a check finds the older stable; only UPDATE TETRAD installs it.
+    let stable = command(TetradUpdateCommand::Channel(ReleaseChannel::Stable));
+    services
+        .on_ui(&mut b, stable, &mut settings, ms(0))
+        .unwrap();
+    let check = command(TetradUpdateCommand::Check);
+    services.on_ui(&mut b, check, &mut settings, ms(0)).unwrap();
+    let older = Offer {
+        source: Source::Release("v0.1.0".into()),
+        manifest: Manifest {
+            version: "0.1.0".parse().unwrap(),
+            channel: Channel::Stable,
+            files: [(
+                "bin/tetrad".to_owned(),
+                FileEntry {
+                    size: 3,
+                    sha256: "0".repeat(64),
+                },
+            )]
+            .into(),
+        },
+    };
+    let checked = ServiceNotice::TetradChecked(Ok(Found::Older(older.clone())));
+    let effects = services
+        .on_notice(&mut b, checked, &mut settings, ms(5))
+        .unwrap();
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Service(_))));
+    assert_eq!(
+        services.tetrad_update_view().state,
+        TetradUpdateState::Older {
+            version: "0.1.0".into()
+        }
+    );
+    let install = command(TetradUpdateCommand::Install);
+    let install = services
+        .on_ui(&mut b, install, &mut settings, ms(6))
+        .unwrap();
+    assert_eq!(install, [Effect::Service(ServiceJob::TetradInstall(older))]);
+    // No channel change while the install runs.
+    let nightly = command(TetradUpdateCommand::Channel(ReleaseChannel::Nightly));
+    assert!(
+        services
+            .on_ui(&mut b, nightly, &mut settings, ms(7))
+            .is_err()
+    );
 }

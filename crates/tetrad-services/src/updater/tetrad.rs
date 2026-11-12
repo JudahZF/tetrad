@@ -2,8 +2,8 @@
 //! and armed. CorOS, the root file system and the boot hook do not change. Design:
 //! `docs/updates.md` (Tetrad updates).
 //!
-//! A release that the device can install has the asset [`MANIFEST`]: the version and the size
-//! and SHA-256 of each file in [`FILES`]. Each file is also an asset, named by its file name.
+//! A release that the device can install has the asset [`MANIFEST`]: the version, the
+//! [`Channel`] and the size and SHA-256 of each file in [`FILES`]. Each file is also an asset, named by its file name.
 //! [`SIGNATURE`] is the Ed25519 signature of the exact manifest bytes by the release key: the
 //! release workflow signs with the `TETRAD_RELEASE_KEY` secret, and the device checks it with
 //! [`RELEASE_KEY`] before it reads the manifest. So a release asset changed after the build
@@ -12,6 +12,12 @@
 //! the new binary supports the running CorOS (`tetrad run --check`), then move the files into
 //! place and arm the binary (`tetrad-launcher.sh arm`). A failure before the move removes the
 //! `.part` files and keeps the old Tetrad.
+//!
+//! [`check`] follows one [`Channel`] (docs/updates.md). Stable releases have the tags
+//! `v<semver>`; the nightly release is one pre-release with the tag [`NIGHTLY_TAG`], replaced
+//! by each build, with the version in its manifest only. Both are signed and installed the same way; a manifest of the wrong
+//! channel is refused. A check never offers an older release as an update: a nightly unit on
+//! the stable channel gets the newest stable as [`Found::Older`], to install only on request.
 //!
 //! A release can also come over USB ([`Source::Usb`], `docs/usb.md`): `tetrad-usb install`
 //! pushes the same signed manifest and files, the device writes each file as its `.part` and
@@ -27,7 +33,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use ed25519_dalek::{Signature, VerifyingKey};
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -39,6 +45,8 @@ use crate::http::{HttpClient, HttpError, HttpRequest, Method, Route};
 pub const REPOSITORY: &str = "JudahZF/tetrad";
 /// The release asset that makes a release installable on the device.
 pub const MANIFEST: &str = "tetrad-update.json";
+/// The tag of the nightly release (docs/releases.md).
+pub const NIGHTLY_TAG: &str = "nightly";
 /// The base64 Ed25519 signature of [`MANIFEST`].
 pub const SIGNATURE: &str = "tetrad-update.json.sig";
 /// The base64 Ed25519 key that signs releases. The release workflow checks that its secret
@@ -139,10 +147,34 @@ pub struct FileEntry {
     pub sha256: String,
 }
 
+/// The release channel that a check follows. (O) Stable: the tested releases. Nightly: the
+/// newest build of `main`, not tested.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    #[default]
+    Stable,
+    Nightly,
+}
+
+impl Channel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Nightly => "nightly",
+        }
+    }
+}
+
+/// Unknown fields are refused: a new field needs a new Tetrad first. Units up to
+/// 0.1.0-alpha.10 also refuse `channel`, so stable manifests leave it out (docs/releases.md).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub version: Version,
+    /// Absent in the manifests from before the channels: stable.
+    #[serde(default)]
+    pub channel: Channel,
     pub files: BTreeMap<String, FileEntry>,
 }
 
@@ -207,7 +239,11 @@ pub fn max_bytes(path: &str) -> Option<u64> {
 pub fn staged_manifest(running: &Version, files: BTreeMap<String, FileEntry>) -> Manifest {
     let mut version = running.clone();
     version.build = semver::BuildMetadata::new("http").unwrap_or_default();
-    Manifest { version, files }
+    Manifest {
+        version,
+        channel: Channel::default(),
+        files,
+    }
 }
 
 /// Where the files of an [`Offer`] come from.
@@ -255,29 +291,46 @@ struct ReleaseAsset {
     name: String,
 }
 
-/// The newest release in a GitHub release list that is newer than `current` and has
-/// [`MANIFEST`]: its tag and version. A pre-release counts only when `current` is a
-/// pre-release too, so a stable Tetrad stays on stable releases.
-pub fn newest(
-    json: &[u8],
-    current: &Version,
-) -> Result<Option<(String, Version)>, TetradUpdateError> {
-    let releases: Vec<Release> =
-        serde_json::from_slice(json).map_err(|e| TetradUpdateError::Releases(e.to_string()))?;
-    Ok(releases
-        .into_iter()
-        .filter(|release| !release.draft)
-        .filter(|release| release.assets.iter().any(|asset| asset.name == MANIFEST))
+impl Release {
+    fn installable(&self) -> bool {
+        !self.draft && self.assets.iter().any(|asset| asset.name == MANIFEST)
+    }
+}
+
+/// Whether `version` is a nightly build: its first pre-release identifier is `nightly`
+/// (`0.1.0-nightly.20261112.317+61697fa`, docs/releases.md).
+pub fn is_nightly(version: &Version) -> bool {
+    version.pre.split('.').next() == Some("nightly")
+}
+
+/// `a` is newer than `b` by semver precedence: build metadata (`+abc1234`) does not count.
+pub fn newer(a: &Version, b: &Version) -> bool {
+    a.cmp_precedence(b).is_gt()
+}
+
+fn releases(json: &[u8]) -> Result<Vec<Release>, TetradUpdateError> {
+    serde_json::from_slice(json).map_err(|e| TetradUpdateError::Releases(e.to_string()))
+}
+
+/// The newest stable release (tag `v<semver>`, with [`MANIFEST`]), newer than `current` or
+/// not. A pre-release (`-alpha.N`, `-rc.N`) counts only when `current` is a pre-release too, so
+/// a Tetrad on a plain version stays on plain versions. A nightly version never counts.
+fn newest_stable(releases: &[Release], current: &Version) -> Option<(String, Version)> {
+    (releases.iter())
+        .filter(|release| release.installable())
         .filter_map(|release| {
-            let version = release
-                .tag_name
-                .strip_prefix('v')?
+            let version = (release.tag_name.strip_prefix('v')?)
                 .parse::<Version>()
                 .ok()?;
-            let channel = version.pre.is_empty() || !current.pre.is_empty();
-            (channel && &version > current).then_some((release.tag_name, version))
+            let allowed = version.pre.is_empty() || !current.pre.is_empty();
+            (allowed && !is_nightly(&version)).then(|| (release.tag_name.clone(), version))
         })
-        .max_by(|a, b| a.1.cmp(&b.1)))
+        .max_by(|a, b| a.1.cmp_precedence(&b.1))
+}
+
+/// Whether the list has the nightly release, with [`MANIFEST`].
+fn has_nightly(releases: &[Release]) -> bool {
+    (releases.iter()).any(|release| release.installable() && release.tag_name == NIGHTLY_TAG)
 }
 
 fn get(http: &mut impl HttpClient, url: String, max: usize) -> Result<Vec<u8>, TetradUpdateError> {
@@ -296,23 +349,88 @@ fn get(http: &mut impl HttpClient, url: String, max: usize) -> Result<Vec<u8>, T
     }
 }
 
-/// The newest installable release that is newer than `current`, with its checked manifest.
+/// What [`check`] found on a channel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Found {
+    UpToDate,
+    /// A release that is newer than the running one.
+    Newer(Offer),
+    /// Stable channel, a nightly runs: the newest stable release, which is older than the
+    /// running nightly. (O) It installs only when the user asks; else the unit waits for a
+    /// stable release that is newer.
+    Older(Offer),
+}
+
+/// The checked manifest of release `tag`: the signature by `key`, then `version` (the tag's
+/// version, when the tag has one) and `channel`.
+fn offer(
+    http: &mut impl HttpClient,
+    key: &str,
+    tag: &str,
+    version: Option<&Version>,
+    channel: Channel,
+) -> Result<Offer, TetradUpdateError> {
+    let json = get(http, asset_url(tag, MANIFEST), MAX_MANIFEST_BYTES)?;
+    let signature = get(http, asset_url(tag, SIGNATURE), MAX_SIGNATURE_BYTES)?;
+    let manifest = Manifest::verify(&json, &signature, key, version)?;
+    if manifest.channel != channel {
+        return Err(TetradUpdateError::Manifest(format!(
+            "release {tag} is on the {} channel, not {}",
+            manifest.channel.name(),
+            channel.name()
+        )));
+    }
+    // A nightly that does not say so is never seen as one after its install, so the way back
+    // to stable (`Found::Older`) would not show.
+    if channel == Channel::Nightly && !is_nightly(&manifest.version) {
+        return Err(TetradUpdateError::Manifest(format!(
+            "version {} is not a nightly version",
+            manifest.version
+        )));
+    }
+    Ok(Offer {
+        source: Source::Release(tag.to_owned()),
+        manifest,
+    })
+}
+
+/// The newest release on `channel` for a unit that runs `current`, with its checked manifest.
+/// The nightly channel takes a stable release too when it is newer than the nightly.
+/// `key` signs the manifests: [`TRUSTED_KEY`] on a unit.
 pub fn check(
     http: &mut impl HttpClient,
+    key: &str,
     current: &Version,
-) -> Result<Option<Offer>, TetradUpdateError> {
+    channel: Channel,
+) -> Result<Found, TetradUpdateError> {
     let url =
         format!("https://api.github.com/repos/{REPOSITORY}/releases?per_page={RELEASES_PER_PAGE}");
-    let Some((tag, version)) = newest(&get(http, url, MAX_RELEASES_BYTES)?, current)? else {
-        return Ok(None);
+    let releases = releases(&get(http, url, MAX_RELEASES_BYTES)?)?;
+    let stable = newest_stable(&releases, current);
+    let newer_stable = stable
+        .clone()
+        .filter(|(_, version)| newer(version, current));
+    let nightly = match channel {
+        Channel::Stable => None,
+        Channel::Nightly if has_nightly(&releases) => {
+            Some(offer(http, key, NIGHTLY_TAG, None, Channel::Nightly)?)
+        }
+        Channel::Nightly => None,
     };
-    let json = get(http, asset_url(&tag, MANIFEST), MAX_MANIFEST_BYTES)?;
-    let signature = get(http, asset_url(&tag, SIGNATURE), MAX_SIGNATURE_BYTES)?;
-    let manifest = Manifest::verify(&json, &signature, TRUSTED_KEY, Some(&version))?;
-    Ok(Some(Offer {
-        source: Source::Release(tag),
-        manifest,
-    }))
+    let nightly = nightly.filter(|nightly| newer(nightly.version(), current));
+    Ok(match (nightly, newer_stable, stable) {
+        (Some(nightly), Some((tag, version)), _) if newer(&version, nightly.version()) => {
+            Found::Newer(offer(http, key, &tag, Some(&version), Channel::Stable)?)
+        }
+        (Some(nightly), _, _) => Found::Newer(nightly),
+        (None, Some((tag, version)), _) => {
+            Found::Newer(offer(http, key, &tag, Some(&version), Channel::Stable)?)
+        }
+        (None, None, Some((tag, version))) if channel == Channel::Stable && is_nightly(current) => {
+            Found::Older(offer(http, key, &tag, Some(&version), Channel::Stable)?)
+        }
+        (None, None, _) => Found::UpToDate,
+    })
 }
 
 fn home(path: &str) -> PathBuf {
@@ -467,10 +585,10 @@ mod tests {
         serde_json::json!({ "tag_name": tag, "draft": false, "body": format!("notes {tag}"), "assets": assets })
     }
 
-    /// The newest release with a manifest wins; older ones, releases without a manifest and
-    /// drafts do not count. A stable Tetrad never takes a pre-release.
+    /// The newest stable release with a manifest wins; releases without a manifest, drafts and
+    /// nightlies do not count. A Tetrad on a plain version never takes a pre-release.
     #[test]
-    fn newest_follows_semver_and_channel() {
+    fn stable_lookup_follows_semver_and_prereleases() {
         let mut draft = release("v0.3.0", true);
         draft["draft"] = true.into();
         let list = serde_json::json!([
@@ -479,14 +597,246 @@ mod tests {
             release("v0.1.0", true),
             release("v0.2.0-alpha.1", true),
             release("v0.1.0-alpha.3", true),
+            release("v0.3.0-nightly.20261112", true),
             release("nightly", true),
         ])
         .to_string();
-        let pick = |current| newest(list.as_bytes(), &v(current)).unwrap().map(|r| r.0);
+        let releases = releases(list.as_bytes()).unwrap();
+        let pick = |current| newest_stable(&releases, &v(current)).map(|r| r.0);
         assert_eq!(pick("0.1.0-alpha.3").as_deref(), Some("v0.2.0-alpha.1"));
         assert_eq!(pick("0.0.9").as_deref(), Some("v0.1.0"));
-        assert_eq!(pick("0.2.0-alpha.1"), None);
-        assert_eq!(pick("0.1.0"), None);
+        // The newest stable even when it is not newer: `check` decides what to offer.
+        assert_eq!(pick("0.2.0-alpha.1").as_deref(), Some("v0.2.0-alpha.1"));
+        assert_eq!(
+            pick("0.3.0-nightly.20261113").as_deref(),
+            Some("v0.2.0-alpha.1")
+        );
+        assert!(has_nightly(&releases));
+        let others =
+            serde_json::json!([release("nightly", false), release("nightly-20261112", true)]);
+        assert!(!has_nightly(
+            &super::releases(others.to_string().as_bytes()).unwrap()
+        ));
+    }
+
+    /// A nightly sorts after the stable it follows and before the next one; build metadata
+    /// does not make a build newer.
+    #[test]
+    fn nightly_versions_sort_between_stables() {
+        // Nightlies of a pre-release (`0.1.0-alpha.10`) take its core; of a release, the next
+        // patch. Two builds of one day sort by their UTC time (`.317` is 03:17).
+        let order = [
+            "0.1.0-alpha.10",
+            "0.1.0-nightly.20261112.317+61697fa",
+            "0.1.0-nightly.20261112.1305+0123abc",
+            "0.1.0-nightly.20261113.317+89abcde",
+            "0.1.0",
+            "0.1.1-nightly.20261114.317+abc1234",
+            "0.1.1",
+        ];
+        for pair in order.windows(2) {
+            assert!(newer(&v(pair[1]), &v(pair[0])), "{} > {}", pair[1], pair[0]);
+            assert!(
+                !newer(&v(pair[0]), &v(pair[1])),
+                "{} < {}",
+                pair[0],
+                pair[1]
+            );
+        }
+        let (a, b) = (
+            v("0.1.1-nightly.20261112+abc"),
+            v("0.1.1-nightly.20261112+def"),
+        );
+        assert!(!newer(&a, &b) && !newer(&b, &a));
+        assert!(is_nightly(&a));
+        for stable in [
+            "0.1.0-alpha.10.nightly.20261112",
+            "0.1.0",
+            "0.1.0-alpha.10",
+            "0.1.0+nightly",
+            "0.1.0-nightlyx.1",
+        ] {
+            assert!(!is_nightly(&v(stable)), "{stable}");
+        }
+    }
+
+    /// A signed manifest of `version` on `channel` (`None`: no `channel` field, as before the
+    /// channels), with the key that checks it.
+    fn signed(version: &str, channel: Option<&str>) -> (String, String, String) {
+        use ed25519_dalek::{Signer, SigningKey};
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let mut json =
+            serde_json::json!({ "version": version, "files": files_json(b"elf", b"sh") });
+        if let Some(channel) = channel {
+            json["channel"] = channel.into();
+        }
+        let json = json.to_string();
+        let signature = BASE64.encode(key.sign(json.as_bytes()).to_bytes());
+        (
+            BASE64.encode(key.verifying_key().to_bytes()),
+            json,
+            signature,
+        )
+    }
+
+    /// Runs [`check`] on `list` with the manifests that follow it served in order.
+    fn checked(
+        list: &serde_json::Value,
+        manifests: &[(&str, Option<&str>)],
+        current: &str,
+        channel: Channel,
+    ) -> (Result<Found, TetradUpdateError>, Vec<String>) {
+        let mut http = ScriptedHttp::default();
+        http.respond(200, list.to_string());
+        for &(version, manifest_channel) in manifests {
+            let (_, json, signature) = signed(version, manifest_channel);
+            http.respond(200, json).respond(200, signature);
+        }
+        let key = signed("0.0.0", None).0;
+        let found = check(&mut http, &key, &v(current), channel);
+        let urls = (http.requests.iter()).map(|r| r.url.clone()).collect();
+        (found, urls)
+    }
+
+    fn version_of(found: &Found) -> (&'static str, String) {
+        match found {
+            Found::UpToDate => ("up to date", String::new()),
+            Found::Newer(offer) => ("newer", offer.version().to_string()),
+            Found::Older(offer) => ("older", offer.version().to_string()),
+        }
+    }
+
+    /// The stable channel never reads a nightly; the nightly channel takes the newest of the
+    /// newest nightly and the stable releases. Nothing older is offered as an update.
+    #[test]
+    fn check_follows_the_channel() {
+        let list = serde_json::json!([release("nightly", true), release("v0.1.0-alpha.11", true)]);
+        let (found, urls) = checked(
+            &list,
+            &[("0.1.0-alpha.11", None)],
+            "0.1.0-alpha.10",
+            Channel::Stable,
+        );
+        assert_eq!(
+            version_of(&found.unwrap()),
+            ("newer", "0.1.0-alpha.11".into())
+        );
+        assert!(
+            urls.iter().all(|url| !url.contains("/nightly/")),
+            "{urls:?}"
+        );
+
+        let nightly = [("0.1.1-nightly.20261112+abc1234", Some("nightly"))];
+        let (found, urls) = checked(&list, &nightly, "0.1.0-alpha.10", Channel::Nightly);
+        assert_eq!(
+            version_of(&found.unwrap()),
+            ("newer", "0.1.1-nightly.20261112+abc1234".into())
+        );
+        assert_eq!(urls.len(), 3, "{urls:?}");
+        assert!(urls[1].ends_with("/download/nightly/tetrad-update.json"));
+
+        // The running nightly is the newest build.
+        let (found, _) = checked(
+            &list,
+            &nightly,
+            "0.1.1-nightly.20261112+abc1234",
+            Channel::Nightly,
+        );
+        assert_eq!(found.unwrap(), Found::UpToDate);
+
+        // A stable release newer than the newest nightly wins on the nightly channel.
+        let list = serde_json::json!([release("nightly", true), release("v0.1.1", true)]);
+        let both = [nightly[0], ("0.1.1", None)];
+        let (found, _) = checked(&list, &both, "0.1.0", Channel::Nightly);
+        assert_eq!(version_of(&found.unwrap()), ("newer", "0.1.1".into()));
+    }
+
+    /// Back to stable from a nightly: the older stable is found as [`Found::Older`], never as an
+    /// update. A stable unit with a newer version than every release is just up to date.
+    #[test]
+    fn a_nightly_on_the_stable_channel_gets_the_older_stable_on_request_only() {
+        let list = serde_json::json!([release("nightly", true), release("v0.1.0", true)]);
+        let stable = [("0.1.0", None)];
+        let (found, _) = checked(
+            &list,
+            &stable,
+            "0.1.1-nightly.20261112+abc1234",
+            Channel::Stable,
+        );
+        assert_eq!(version_of(&found.unwrap()), ("older", "0.1.0".into()));
+        // Part of the scheme: every 0.1.0 nightly sorts after 0.1.0-alpha.N.
+        let list = serde_json::json!([release("nightly", true), release("v0.1.0-alpha.11", true)]);
+        let alpha = [("0.1.0-alpha.11", None)];
+        let current = "0.1.0-nightly.20261112.317+61697fa";
+        let (found, _) = checked(&list, &alpha, current, Channel::Stable);
+        assert_eq!(
+            version_of(&found.unwrap()),
+            ("older", "0.1.0-alpha.11".into())
+        );
+        let (found, urls) = checked(&list, &[], "0.1.1-rc.1", Channel::Stable);
+        assert_eq!(found.unwrap(), Found::UpToDate);
+        assert_eq!(urls.len(), 1);
+        // A stable newer than the nightly is a normal update.
+        let list = serde_json::json!([release("v0.1.1", true)]);
+        let (found, _) = checked(
+            &list,
+            &[("0.1.1", None)],
+            "0.1.1-nightly.20261112",
+            Channel::Stable,
+        );
+        assert_eq!(version_of(&found.unwrap()), ("newer", "0.1.1".into()));
+    }
+
+    /// A manifest must be of the channel the check asked for, after a good signature: a
+    /// nightly tag with a stable manifest, or a stable tag with a nightly one, is refused.
+    #[test]
+    fn check_refuses_a_manifest_of_the_other_channel() {
+        let list = serde_json::json!([release("nightly", true)]);
+        let (found, _) = checked(
+            &list,
+            &[("0.1.1-nightly.1", None)],
+            "0.1.0",
+            Channel::Nightly,
+        );
+        assert!(
+            matches!(found, Err(TetradUpdateError::Manifest(e)) if e.contains("stable channel"))
+        );
+        let (found, _) = checked(
+            &list,
+            &[("0.1.1", Some("nightly"))],
+            "0.1.0",
+            Channel::Nightly,
+        );
+        assert!(
+            matches!(found, Err(TetradUpdateError::Manifest(e)) if e.contains("not a nightly"))
+        );
+        let list = serde_json::json!([release("v0.1.1", true)]);
+        let (found, _) = checked(
+            &list,
+            &[("0.1.1", Some("nightly"))],
+            "0.1.0",
+            Channel::Stable,
+        );
+        assert!(
+            matches!(found, Err(TetradUpdateError::Manifest(e)) if e.contains("nightly channel"))
+        );
+    }
+
+    /// `channel` is optional (stable) and has two values; any other value is refused.
+    #[test]
+    fn manifest_channel_defaults_to_stable() {
+        let files = files_json(b"elf", b"sh");
+        let parse = |channel: Option<&str>| {
+            let mut json = serde_json::json!({ "version": "0.2.0", "files": files });
+            if let Some(channel) = channel {
+                json["channel"] = channel.into();
+            }
+            Manifest::parse(json.to_string().as_bytes(), None).map(|m| m.channel)
+        };
+        assert_eq!(parse(None).unwrap(), Channel::Stable);
+        assert_eq!(parse(Some("stable")).unwrap(), Channel::Stable);
+        assert_eq!(parse(Some("nightly")).unwrap(), Channel::Nightly);
+        assert!(parse(Some("beta")).is_err());
     }
 
     fn files_json(binary: &[u8], script: &[u8]) -> serde_json::Value {

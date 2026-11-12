@@ -135,6 +135,12 @@ export const ThemesList: z.ZodType<T.ThemesList> = z.object({
   ),
 });
 
+export const UpdatesView: z.ZodType<T.UpdatesView> = z.object({
+  channel: z.enum(["stable", "nightly"]),
+  version: z.string(),
+  nightly: z.boolean(),
+});
+
 // ---------- mappings ----------
 
 const ModeView: z.ZodType<T.ModeView> = z.object({

@@ -1514,6 +1514,18 @@ pub struct TetradUpdateView {
     pub state: TetradUpdateState,
     /// Internet reachable.
     pub online: bool,
+    pub channel: ReleaseChannel,
+}
+
+/// Owned (Tetrad): the Update channel of the Tetrad Updates page. Not the CorOS
+/// [`UpdateChannel`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReleaseChannel {
+    /// Tested releases.
+    #[default]
+    Stable,
+    /// The newest build of `main`. Not tested; it can have bugs.
+    Nightly,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1527,6 +1539,11 @@ pub enum TetradUpdateState {
     Available {
         version: String,
         usb: bool,
+    },
+    /// Stable channel on a nightly build: the newest stable release is `version`, which is
+    /// older than the running nightly. It installs only when the user taps for it.
+    Older {
+        version: String,
     },
     /// `progress`: the share of the new binary on p4, `0.0..=1.0`.
     Installing {

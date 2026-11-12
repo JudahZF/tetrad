@@ -4,7 +4,7 @@
 use std::io::{self, Read, Write};
 
 use crate::api::{
-    BackupOp, EditorOp, ExtensionsOp, LibraryOp, PIN_HEADER, Reply, Request, ThemesOp,
+    BackupOp, EditorOp, ExtensionsOp, LibraryOp, PIN_HEADER, Reply, Request, ThemesOp, UpdatesOp,
 };
 
 const MAX_HEAD: usize = 8 * 1024;
@@ -366,6 +366,22 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
             pin: device(head.pin)?,
             op: EditorOp::Command { json: body },
         })),
+        ("GET", "/api/updates") => Ok(Route::Device(Request::Updates {
+            pin: device(head.pin)?,
+            op: UpdatesOp::View,
+        })),
+        ("POST", "/api/updates/channel") => {
+            let pin = device(head.pin)?;
+            let nightly = match query_value(&head.query, "channel")?.as_deref() {
+                Some("stable") => false,
+                Some("nightly") => true,
+                _ => return Err(Fail::Status(400, "channel must be stable or nightly")),
+            };
+            Ok(Route::Device(Request::Updates {
+                pin,
+                op: UpdatesOp::SetChannel { nightly },
+            }))
+        }
         (
             _,
             "/api/status"
@@ -387,7 +403,9 @@ fn route(head: Head, body: Vec<u8>) -> Result<Route, Fail> {
             | "/api/mappings"
             | "/api/mappings/command"
             | "/api/footswitch"
-            | "/api/footswitch/command",
+            | "/api/footswitch/command"
+            | "/api/updates"
+            | "/api/updates/channel",
         ) => Err(Fail::Status(405, "method not allowed")),
         (_, path) if PAGE_PATHS.contains(&path) => Err(Fail::Status(405, "method not allowed")),
         _ => Err(Fail::Status(404, "not found")),

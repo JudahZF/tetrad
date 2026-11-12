@@ -23,7 +23,9 @@ import type {
   NoticesReply,
   StatusReply,
   SupportFile,
+  ReleaseChannel,
   ThemesList,
+  UpdatesView,
 } from "./types";
 
 export type Transport = "bluetooth" | "wifi" | "demo";
@@ -98,6 +100,9 @@ export interface UnitClient {
   extensionMessage(extension: string, message: unknown): Promise<unknown>;
   themes(): Promise<ThemesList>;
   themeSelect(id: string): Promise<ThemesList>;
+  /** The Update channel and the running version. Check and install stay on the unit. */
+  updates(): Promise<UpdatesView>;
+  updateChannel(channel: ReleaseChannel): Promise<UpdatesView>;
   mappings(): Promise<MappingsView>;
   mappingCommand(command: MappingCommand): Promise<MappingsView>;
   footswitch(): Promise<FootswitchView>;

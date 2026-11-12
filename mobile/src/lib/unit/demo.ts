@@ -46,6 +46,7 @@ export class DemoClient extends BaseClient implements UnitClient {
   private readonly fileList = demoFiles();
   private readonly ext = demoExtensions();
   private readonly themeList = demoThemes();
+  private readonly updateState: T.UpdatesView = { channel: "stable", version: "0.1.0-alpha.10", nightly: false };
   private readonly fs = demoFootswitch();
   private readonly maps = demoMappings();
   private nextMapping = 2;
@@ -280,6 +281,17 @@ export class DemoClient extends BaseClient implements UnitClient {
       if (!this.themeList.themes.some((t) => t.id === id)) refuse(`No theme ${id}`);
       this.themeList.active = id;
       return this.themeList;
+    });
+  }
+
+  updates() {
+    return this.answer(() => this.updateState);
+  }
+
+  updateChannel(channel: T.ReleaseChannel) {
+    return this.answer(() => {
+      this.updateState.channel = channel;
+      return this.updateState;
     });
   }
 

@@ -6,7 +6,7 @@
 
 use tetrad_assets::Rgb;
 
-use crate::layout::{ButtonStyle, LARGE, Layout, Look, MEDIUM};
+use crate::layout::{ButtonStyle, CAPTION, LARGE, Layout, Look, MEDIUM};
 use crate::render::Align;
 use crate::settings::DeviceAction;
 use crate::*;
@@ -168,6 +168,10 @@ fn draw(l: &mut Layout, pane: Rect, page: &Page, style: ButtonStyle) -> (i32, i3
     (pane.x + 235, y)
 }
 
+/// Owned (Tetrad): what the Update channel buttons say. Shown on the page, under the text.
+const CHANNEL_HELP: &str = "Update channel. Stable: tested releases. Nightly: the newest \
+    build of main, not tested. A nightly can have bugs that stop the sound.";
+
 /// Owned (Tetrad): what the Tetrad Updates page shows. It names Tetrad in every title and
 /// button, and says that CorOS does not change.
 pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
@@ -232,6 +236,18 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
             ),
             install,
         ),
+        // (O) Back from Nightly to Stable is never automatic: the older release is offered by
+        // name, and the unit waits for a newer stable when nobody taps.
+        S::Older { version } => page(
+            "Tetrad is newer than stable",
+            format!(
+                "Tetrad: {current} (nightly)\nNewest stable release: {version}\n\nTetrad updates to stable when a stable release is\nnewer than this build. INSTALL STABLE goes back to\n{version} now. It can lose settings that this build added."
+            ),
+            Some((
+                "INSTALL STABLE",
+                Control::TetradUpdate(TetradUpdateCommand::Install),
+            )),
+        ),
         S::Installing { version, progress } => Page {
             progress: Some(progress.unwrap_or(0.0)),
             ..page(
@@ -258,14 +274,34 @@ pub(super) fn tetrad_page(u: &TetradUpdateView) -> Page {
 }
 
 /// Owned (Tetrad): the Tetrad Updates page. Its button is the blue primary button; the CorOS
-/// page keeps the stock black buttons.
+/// page keeps the stock black buttons. The Update channel buttons are at its right, with their
+/// help above them.
 pub(super) fn tetrad_layout(ui: &UiState, l: &mut Layout, pane: Rect) {
-    draw(
-        l,
-        pane,
-        &tetrad_page(&ui.snapshot.tetrad_update),
-        ButtonStyle::Primary,
+    let view = &ui.snapshot.tetrad_update;
+    let (x, y) = draw(l, pane, &tetrad_page(view), ButtonStyle::Primary);
+    let p = l.palette;
+    l.paragraph(
+        Rect::new(pane.x, y - 50, pane.width, 44),
+        CHANNEL_HELP,
+        CAPTION,
+        p.muted,
     );
+    let installing = matches!(view.state, TetradUpdateState::Installing { .. });
+    let channels = [
+        (ReleaseChannel::Stable, "STABLE"),
+        (ReleaseChannel::Nightly, "NIGHTLY"),
+    ];
+    for (i, (channel, label)) in channels.into_iter().enumerate() {
+        l.button(
+            Rect::new(x + i as i32 * 128, y, 120, 45),
+            Control::TetradUpdate(TetradUpdateCommand::Channel(channel)),
+            !installing,
+            label,
+            ButtonStyle::Tab {
+                selected: view.channel == channel,
+            },
+        );
+    }
 }
 
 /// Stock "Download update" title colour (`#FE5948`, string table).
@@ -399,6 +435,7 @@ mod tests {
             current_version: "0.1.0".into(),
             state,
             online,
+            channel: ReleaseChannel::Stable,
         };
         let installing = S::Installing {
             version: "0.2.0".into(),
@@ -468,6 +505,60 @@ mod tests {
         assert_eq!(failed.title, "The Tetrad update has failed.");
         assert!(failed.body.contains("SHA-256") && failed.body.contains("over USB"));
         assert_eq!(failed.button, None);
+    }
+
+    /// A nightly on the stable channel: the page names the older stable release and installs
+    /// it only from INSTALL STABLE. The channel buttons send the channel, and are off while an
+    /// install runs.
+    #[test]
+    fn tetrad_page_offers_the_older_stable_only_by_name() {
+        let older = TetradUpdateView {
+            current_version: "0.1.1-nightly.20261112".into(),
+            state: TetradUpdateState::Older {
+                version: "0.1.0".into(),
+            },
+            online: true,
+            channel: ReleaseChannel::Stable,
+        };
+        let page = tetrad_page(&older);
+        assert!(page.title.contains("Tetrad"));
+        assert!(
+            page.body.contains("0.1.1-nightly.20261112 (nightly)") && page.body.contains("0.1.0")
+        );
+        assert_eq!(
+            page.button,
+            Some((
+                "INSTALL STABLE",
+                Control::TetradUpdate(TetradUpdateCommand::Install)
+            ))
+        );
+
+        let open = |state| {
+            let mut ui = UiState::new();
+            let mut snapshot = ui.snapshot().clone();
+            snapshot.tetrad_update = TetradUpdateView {
+                state,
+                ..older.clone()
+            };
+            ui.set_snapshot(snapshot).unwrap();
+            ui.navigate(Screen::Settings(crate::SettingsPage::TetradUpdates));
+            ui
+        };
+        let nightly = Control::TetradUpdate(TetradUpdateCommand::Channel(ReleaseChannel::Nightly));
+        let mut ui = open(TetradUpdateState::Idle);
+        assert_eq!(
+            ui.handle_input(InputEvent::Activate(nightly)),
+            vec![UiCommand::TetradUpdate {
+                command: TetradUpdateCommand::Channel(ReleaseChannel::Nightly)
+            }]
+        );
+        let installing = TetradUpdateState::Installing {
+            version: "0.1.0".into(),
+            progress: None,
+        };
+        let ui = open(installing);
+        let region = (ui.hit_regions().into_iter()).find(|region| region.control == nightly);
+        assert_eq!(region.map(|region| region.enabled), Some(false));
     }
 
     /// `0x42483c`: DOWNLOAD UPDATE asks first only off the official channel; PROCEED sends

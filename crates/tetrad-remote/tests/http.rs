@@ -286,6 +286,14 @@ fn bad_file_requests_are_refused_without_a_device_call() {
             "HTTP/1.1 400 Bad Request",
         ),
         (post("/api/themes/select"), "HTTP/1.1 400 Bad Request"),
+        (
+            post("/api/updates/channel?channel=beta"),
+            "HTTP/1.1 400 Bad Request",
+        ),
+        (
+            get("/api/updates/channel"),
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
         (post("/api/library/nothing"), "HTTP/1.1 404 Not Found"),
         (
             get("/api/tabs/call?id=a.b"),
