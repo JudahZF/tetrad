@@ -12,7 +12,7 @@ use crate::view::{
     OutputPort, PreferredInstrument,
 };
 use crate::view::{DeviceGroup, ExpressionPedal, ExpressionSwitch, ExpressionTarget, Instrument};
-use crate::view::{MidiOutMessage, MidiOutTarget};
+use crate::view::{MidiOutMessage, MidiOutTarget, ReleaseChannel};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Screen {
@@ -780,6 +780,8 @@ pub enum TetradUpdateCommand {
     Check,
     /// Download, check, install and arm the offered release, then restart.
     Install,
+    /// The Update channel that CHECK TETRAD follows.
+    Channel(ReleaseChannel),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

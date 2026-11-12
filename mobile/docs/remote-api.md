@@ -96,6 +96,8 @@ All routes need the PIN header. "Reply" is the 200 body.
 | POST | `/api/themes/save` | – | JSON `ThemeFile` | `ThemesList` | `dev/remote_themes.rs:178-220` |
 | POST | `/api/themes/select` | `id` (theme id) | empty | `ThemesList` | `dev/remote_themes.rs:224-230` |
 | POST | `/api/themes/delete` | `id` (must be `file:<id>`) | empty | `ThemesList` | `dev/remote_themes.rs:234-263` |
+| GET | `/api/updates` | – | – | `UpdatesView` | `dev/remote.rs` (`remote_updates`) |
+| POST | `/api/updates/channel` | `channel` (`stable` or `nightly`; else 400) | empty | `UpdatesView` | `dev/remote.rs` (`remote_updates`) |
 | GET | `/api/mappings` | – | – | `MappingsView` | `dev/remote_mappings.rs:395-407` |
 | POST | `/api/mappings/command` | – | JSON `MappingCommand` | `MappingsView` | `dev/remote_mappings.rs:105-139` |
 | GET | `/api/footswitch` | – | – | `FootswitchView` | `dev/remote_footswitch.rs:170-186`, `:266-332` |
@@ -428,6 +430,20 @@ export interface ThemeFile {
 
 `/api/themes/delete` takes `id=file:<id>`; anything else is 422 `only theme files can be
 deleted`. Deleting the active theme selects Stock (`dev/remote_themes.rs:234-263`).
+
+```ts
+/** GET /api/updates and POST /api/updates/channel (docs/updates.md). The channel selects what
+ *  CHECK TETRAD looks for on the unit; nothing installs from the API. */
+export interface UpdatesView {
+  channel: "stable" | "nightly";
+  /** The running Tetrad, e.g. "0.1.0-alpha.10" or "0.1.0-nightly.20261112.317+61697fa". */
+  version: string;
+  /** The running Tetrad is a nightly build (a pre-release identifier is "nightly"). */
+  nightly: boolean;
+}
+```
+
+POST /api/updates/channel is refused (422) while a Tetrad install runs.
 
 Mappings and footswitch types are in §6 and §7.
 

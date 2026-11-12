@@ -2,14 +2,43 @@
 //! release run on the bulk worker ([`tetrad_services::updater::tetrad`]); a good install
 //! restarts the unit. CorOS does not change. A release can also come over USB
 //! (`device/usb.rs`): it is offered here, and UPDATE TETRAD on the unit installs it.
+//!
+//! The Update channel (Stable or Nightly) selects the releases that CHECK TETRAD looks for. It
+//! is kept in [`CHANNEL_FILE`], a file of its own, so older Tetrad builds never read it.
 
-use tetrad_services::updater::tetrad::{self, Manifest, Offer, Source};
-use tetrad_ui::{TetradUpdateState, TetradUpdateView};
+use serde::Deserialize;
+use tetrad_services::updater::tetrad::{self, Channel, Found, Manifest, Offer, Source};
+use tetrad_ui::{ReleaseChannel, TetradUpdateState, TetradUpdateView};
 
 use super::*;
 
 /// The running Tetrad.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The Update channel: `{"channel":"nightly"}`. No file, or no `channel`, is Stable.
+pub const CHANNEL_FILE: &str = "/media/p4/tetrad/updates.json";
+const MAX_CHANNEL_BYTES: u64 = 4 * 1024;
+
+/// [`CHANNEL_FILE`]. Unknown fields are ignored here, so a file from a later build still gives
+/// its channel, and a change of the channel keeps them (`set_tetrad_channel`).
+#[derive(Deserialize)]
+struct Stored {
+    #[serde(default)]
+    channel: Channel,
+}
+
+pub fn release_channel(channel: Channel) -> ReleaseChannel {
+    match channel {
+        Channel::Stable => ReleaseChannel::Stable,
+        Channel::Nightly => ReleaseChannel::Nightly,
+    }
+}
+
+pub fn channel(channel: ReleaseChannel) -> Channel {
+    match channel {
+        ReleaseChannel::Stable => Channel::Stable,
+        ReleaseChannel::Nightly => Channel::Nightly,
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) enum TetradUpdate {
@@ -18,6 +47,9 @@ pub(super) enum TetradUpdate {
     Checking,
     UpToDate,
     Available(Offer),
+    /// Stable channel on a nightly: the newest stable, older than the running nightly. UPDATE
+    /// TETRAD installs it only from a tap; the check never offers it as an update.
+    Older(Offer),
     Installing {
         offer: Offer,
         progress: Option<f32>,
@@ -41,7 +73,71 @@ impl Services {
             return Vec::new();
         }
         self.tetrad = TetradUpdate::Checking;
-        vec![Effect::Service(ServiceJob::TetradCheck)]
+        vec![Effect::Service(ServiceJob::TetradCheck(
+            self.tetrad_channel,
+        ))]
+    }
+
+    pub fn tetrad_channel(&self) -> Channel {
+        self.tetrad_channel
+    }
+
+    /// Reads [`CHANNEL_FILE`] at start. A file that cannot be read gives Stable and a notice.
+    pub fn load_tetrad_channel(&mut self, files: &mut impl Files) -> Option<Effect> {
+        let bytes = match files.read_bounded(Path::new(CHANNEL_FILE), MAX_CHANNEL_BYTES) {
+            Ok(None) => return None,
+            Ok(Some(bytes)) if bytes.len() as u64 > MAX_CHANNEL_BYTES => {
+                return Some(notice(format!("{CHANNEL_FILE}: the file is too large")));
+            }
+            Ok(Some(bytes)) => bytes,
+            Err(error) => return Some(notice(format!("{CHANNEL_FILE}: {error}"))),
+        };
+        match serde_json::from_slice::<Stored>(&bytes) {
+            Ok(stored) => {
+                self.tetrad_channel = stored.channel;
+                None
+            }
+            Err(error) => Some(notice(format!("{CHANNEL_FILE}: {error}; Stable is used"))),
+        }
+    }
+
+    /// The Update channel, saved in [`CHANNEL_FILE`]. An offer of the other channel goes away,
+    /// and the result of a running check is dropped (`tetrad_checked`). Refused while an
+    /// install runs.
+    pub fn set_tetrad_channel(
+        &mut self,
+        files: &mut impl Files,
+        channel: Channel,
+    ) -> Result<Vec<Effect>, ServiceError> {
+        if self.tetrad_installing() {
+            return Err(ServiceError::NotReady("a Tetrad install is running"));
+        }
+        if channel == self.tetrad_channel {
+            return Ok(Vec::new());
+        }
+        // The other fields of the file (from a later build) stay. A file that does not parse
+        // is replaced: its channel was read as Stable, with a notice.
+        let path = Path::new(CHANNEL_FILE);
+        let old = files.read_bounded(path, MAX_CHANNEL_BYTES)?;
+        let mut stored: serde_json::Map<String, serde_json::Value> = (old.as_deref())
+            .and_then(|bytes| serde_json::from_slice(bytes).ok())
+            .unwrap_or_default();
+        stored.insert("channel".into(), channel.name().into());
+        let bytes = serde_json::to_vec(&stored).unwrap_or_default();
+        (path.parent())
+            .map_or(Ok(()), |dir| files.create_dirs(dir))
+            .and_then(|()| files.write_atomic(path, &bytes))?;
+        self.tetrad_channel = channel;
+        // A USB offer is not of a channel: it stays.
+        let usb =
+            matches!(&self.tetrad, TetradUpdate::Available(offer) if offer.source == Source::Usb);
+        if !usb {
+            self.tetrad = TetradUpdate::Idle;
+        }
+        Ok(vec![notice(format!(
+            "Tetrad Updates: the Update channel is {}",
+            channel.name()
+        ))])
     }
 
     /// UPDATE TETRAD: download, check, install and arm the offered release. Refused while a
@@ -49,6 +145,7 @@ impl Services {
     pub fn install_tetrad_update(&mut self) -> Result<Vec<Effect>, ServiceError> {
         let offer = match &self.tetrad {
             TetradUpdate::Available(offer)
+            | TetradUpdate::Older(offer)
             | TetradUpdate::Failed {
                 offer: Some(offer), ..
             } => offer.clone(),
@@ -116,17 +213,30 @@ impl Services {
         }
     }
 
-    pub(super) fn tetrad_checked(&mut self, result: Result<Option<Offer>, String>) -> Vec<Effect> {
-        // A USB offer or an install that started since the check owns the state now.
-        if self.tetrad != TetradUpdate::Checking {
+    pub(super) fn tetrad_checked(
+        &mut self,
+        channel: Channel,
+        result: Result<Found, String>,
+    ) -> Vec<Effect> {
+        // A USB offer or an install that started since the check owns the state now. A check
+        // of the channel before a change never becomes an offer: a later check may be the one
+        // that `Checking` waits for.
+        if self.tetrad != TetradUpdate::Checking || channel != self.tetrad_channel {
             return Vec::new();
         }
         let (state, text) = match result {
-            Ok(Some(offer)) => {
+            Ok(Found::Newer(offer)) => {
                 let text = format!("Tetrad {} available", offer.version());
                 (TetradUpdate::Available(offer), text)
             }
-            Ok(None) => (
+            Ok(Found::Older(offer)) => {
+                let text = format!(
+                    "Tetrad {VERSION} is newer than the newest stable release, {}",
+                    offer.version()
+                );
+                (TetradUpdate::Older(offer), text)
+            }
+            Ok(Found::UpToDate) => (
                 TetradUpdate::UpToDate,
                 format!("Tetrad {VERSION} is up to date"),
             ),
@@ -163,9 +273,11 @@ impl Services {
             Err(error) => {
                 let text = format!("Tetrad update failed: {error}");
                 // A failed install removes the `.part` files, so a USB release must be
-                // pushed again; a GitHub release downloads again on retry.
+                // pushed again; a GitHub release downloads again on retry. The rolling nightly
+                // may have been replaced since the check (new hashes): check again instead.
                 let usb = offer.source == Source::Usb;
-                let offer = (!usb).then_some(offer);
+                let nightly = offer.source == Source::Release(tetrad::NIGHTLY_TAG.to_owned());
+                let offer = (!usb && !nightly).then_some(offer);
                 self.tetrad = TetradUpdate::Failed { error, offer, usb };
                 vec![notice(text)]
             }
@@ -191,6 +303,9 @@ impl Services {
                 version: offer.version().to_string(),
                 usb: offer.source == Source::Usb,
             },
+            TetradUpdate::Older(offer) => TetradUpdateState::Older {
+                version: offer.version().to_string(),
+            },
             TetradUpdate::Installing { offer, progress } => TetradUpdateState::Installing {
                 version: offer.version().to_string(),
                 progress: *progress,
@@ -205,12 +320,13 @@ impl Services {
             current_version: VERSION.to_owned(),
             state,
             online: self.online == Some(true),
+            channel: release_channel(self.tetrad_channel),
         }
     }
 }
 
 /// [`ServiceJob::TetradCheck`] on the worker.
-pub(super) fn check(http: &mut impl HttpClient) -> Result<Option<Offer>, String> {
+pub(super) fn check(http: &mut impl HttpClient, channel: Channel) -> Result<Found, String> {
     let current = (VERSION.parse()).map_err(|e| format!("the running version {VERSION}: {e}"))?;
-    tetrad::check(http, &current).map_err(|e| e.to_string())
+    tetrad::check(http, tetrad::TRUSTED_KEY, &current, channel).map_err(|e| e.to_string())
 }

@@ -281,6 +281,7 @@ impl<P: Platform> Device<P> {
             Request::Themes { op, .. } => self.remote_themes(op),
             Request::Mappings { op, .. } => self.remote_mappings(op),
             Request::Footswitch { op, .. } => self.remote_footswitch(op),
+            Request::Updates { op, .. } => self.remote_updates(op),
             #[cfg(feature = "dev")]
             Request::UpdateStatus { .. } => Reply::UpdateStatus {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -481,6 +482,34 @@ impl<P: Platform> Device<P> {
             }
             Err(error) => self.remote_update_refused(error.to_string()),
         }
+    }
+
+    /// The Update channel, set as the buttons of Tetrad Updates set it (the same refusals), and
+    /// the running version. A nightly build says so, for the app to explain the way back.
+    fn remote_updates(&mut self, op: tetrad_remote::UpdatesOp) -> Reply {
+        use tetrad_services::updater::tetrad;
+        use tetrad_ui::{ReleaseChannel, TetradUpdateCommand, UiCommand};
+        if let tetrad_remote::UpdatesOp::SetChannel { nightly } = op {
+            let channel = match nightly {
+                true => ReleaseChannel::Nightly,
+                false => ReleaseChannel::Stable,
+            };
+            let command = UiCommand::TetradUpdate {
+                command: TetradUpdateCommand::Channel(channel),
+            };
+            use tetrad_dsp_host::session::Clock;
+            let now = self.clock.now();
+            match self.handoff(super::ui::Handoff::Services(command), now) {
+                Ok(effects) => self.apply(Ok::<_, super::DeviceError>(effects)),
+                Err(error) => return Reply::Refused(error.to_string()),
+            }
+        }
+        let version = env!("CARGO_PKG_VERSION");
+        Reply::Json(serde_json::json!({
+            "channel": self.bridges.services.tetrad_channel().name(),
+            "version": version,
+            "nightly": version.parse().is_ok_and(|v| tetrad::is_nightly(&v)),
+        }))
     }
 
     /// The recent notices, newest last, without the private values (as in the support file).

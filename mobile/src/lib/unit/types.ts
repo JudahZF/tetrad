@@ -163,6 +163,16 @@ export interface ThemesList {
   fields: { key: PaletteRole; label: string; help: string; derived: boolean }[];
   themes: ThemeEntry[];
 }
+/** The Update channel of Settings › Tetrad › Tetrad Updates. */
+export type ReleaseChannel = "stable" | "nightly";
+/** GET /api/updates and POST /api/updates/channel. */
+export interface UpdatesView {
+  channel: ReleaseChannel;
+  /** The running Tetrad. */
+  version: string;
+  /** The running Tetrad is a nightly build. */
+  nightly: boolean;
+}
 export interface ThemeEntry {
   id: string;
   name: string;

@@ -339,6 +339,7 @@ Every call needs the PIN in the `X-Tetrad-Pin` header. Answers are JSON (an erro
 | Themes | `GET /api/themes`; `POST /api/themes/save` (a theme file), `/select?id=`, `/delete?id=` |
 | Notices | `GET /api/notices` |
 | Manage | `GET /api/extensions`; `POST /api/extensions/command` (JSON) |
+| Update channel (phone app) | `GET /api/updates`; `POST /api/updates/channel?channel=stable\|nightly` ([updates.md](updates.md#update-channel)) |
 | Support file | `GET /api/support` |
 
 ## IR files that work

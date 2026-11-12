@@ -128,19 +128,18 @@ in a QEMU virtual machine with a synthetic package and the real 4.1.1 package. B
 ## Tetrad updates
 
 Settings → Tetrad → Tetrad Updates updates Tetrad from its GitHub releases, with no computer.
-CorOS does not change. The page shows the running Tetrad version.
+CorOS does not change. The page shows the running Tetrad version and the Update channel.
 
-1. **CHECK TETRAD.** Tetrad reads the release list of `JudahZF/tetrad` from the GitHub API. It
-   takes the newest release that is newer than the running version and has the asset
-   `tetrad-update.json`. A stable Tetrad takes only stable releases. A pre-release Tetrad also
-   takes pre-releases. Drafts do not count. Only `v` tags count, so the nightly (tag
-   `nightly`) is never offered here. [releases.md](releases.md) has the channels and the full
-   contract.
-2. **The manifest.** `tetrad-update.json` gives the version and, for each of the four files
-   (`bin/tetrad` and the three launcher scripts), its size and SHA-256. Tetrad first checks
-   `tetrad-update.json.sig`, the Ed25519 signature of the manifest, against the release key that
-   is built into Tetrad (`RELEASE_KEY` in `crates/tetrad-services/src/updater/tetrad.rs`). It
-   refuses a manifest with a bad signature, another version or another list of files.
+1. **CHECK TETRAD.** Tetrad reads the release list of `JudahZF/tetrad` from the GitHub API and
+   takes the newest release on the [Update channel](#update-channel) that is newer than the
+   running version and has the asset `tetrad-update.json`. Drafts do not count.
+   [releases.md](releases.md) has the channels and the full contract.
+2. **The manifest.** `tetrad-update.json` gives the version, the channel and, for each of the
+   four files (`bin/tetrad` and the three launcher scripts), its size and SHA-256. Tetrad first
+   checks `tetrad-update.json.sig`, the Ed25519 signature of the manifest, against the release
+   key that is built into Tetrad (`RELEASE_KEY` in `crates/tetrad-services/src/updater/tetrad.rs`).
+   It refuses a manifest with a bad signature, another version, another channel or another list
+   of files.
 3. **UPDATE TETRAD.** Tetrad does the steps of `scripts/install.sh update` on the unit:
    1. It downloads each file over HTTPS from the release to `/media/p4/tetrad/<path>.part`, and
       checks its size and SHA-256. The progress bar shows the binary download.
@@ -151,11 +150,46 @@ CorOS does not change. The page shows the running Tetrad version.
    4. It restarts the unit.
 
 When a check in steps 1 or 2 fails, Tetrad deletes the `.part` files and the old Tetrad stays.
-The page shows the reason, and UPDATE TETRAD tries again. When `arm` fails after the move, the
+The page shows the reason, and UPDATE TETRAD tries again. After a failed nightly the page shows
+CHECK TETRAD instead, because each build replaces the nightly release and its hashes. When `arm` fails after the move, the
 md5 in `select` is the old one, so the unit starts stock CorOS until `tetrad-launcher.sh arm` runs.
 
 A Tetrad update and a CorOS update never run at the same time. Bring-up runs (`tetrad bringup`)
 refuse UPDATE TETRAD.
+
+### Update channel
+
+The two buttons at the bottom right of Tetrad Updates set the Update channel. The phone app
+can set it too (Unit tab, **Update channel**).
+
+| Channel | What CHECK TETRAD looks for |
+| --- | --- |
+| **Stable** (the default) | Tested releases: the tags `v<version>`. A Tetrad with a plain version (`0.1.0`) takes only plain versions. A pre-release Tetrad (`0.1.0-alpha.10`) also takes pre-releases (`-alpha`, `-rc`). |
+| **Nightly** | The newest build of `main`: the pre-release with the tag `nightly`, which each build replaces. It is not tested and can have bugs that stop the sound. When a stable release is newer than that build, Nightly takes the stable release. |
+
+Both channels have the same checks: the signed manifest, the SHA-256 of each file and
+`tetrad run --check`. A nightly has a version such as `0.1.0-nightly.20261112.317+61697fa` (the
+date and the UTC time of the build, then the commit). A change of the channel installs nothing.
+It only changes what the next CHECK TETRAD looks for, and a check that runs then is dropped. The
+channel buttons are off while an install runs.
+
+**From Nightly back to Stable.** Tetrad never installs an older release as an update. When a
+nightly runs and the newest stable release is older than it, CHECK TETRAD on Stable shows
+"Tetrad is newer than stable" with the stable version. Then:
+
+- Do nothing, and Tetrad stays on the nightly until a stable release that is newer comes out.
+  CHECK TETRAD then offers it as a normal update.
+- Or tap **INSTALL STABLE** to go back to that stable release now. An older Tetrad can lose the
+  settings that the nightly added.
+
+The channel is in `/media/p4/tetrad/updates.json`, for example `{"channel":"nightly"}`. No file,
+or no `channel`, means Stable, so a unit that updates from an older Tetrad stays on Stable.
+A change of the channel keeps the other fields of the file. Older Tetrad builds do not read
+this file.
+
+A manifest of the other channel is refused after the signature check. A stable manifest has
+no `channel` field (Tetrad 0.1.0-alpha.10 and earlier refuse one), and the nightly manifest has
+`"channel": "nightly"`: see [the update contract](releases.md#the-update-contract).
 
 The release workflow (`.github/workflows/release.yml`) publishes `tetrad-update.json`, its
 signature and the three scripts with each stable release and each nightly

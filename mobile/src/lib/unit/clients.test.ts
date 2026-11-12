@@ -46,6 +46,15 @@ describe("Remote (Wi-Fi)", () => {
     });
   });
 
+  it("sets the Update channel and says when the unit has none", async () => {
+    const view = { channel: "nightly", version: "0.1.0-nightly.20261112.317+61697fa", nightly: true };
+    const { fetchFn, calls } = fakeFetch((c) => (c.url.endsWith("/api/updates") ? { status: 404, json: { error: "not found" } } : { json: view }));
+    const client = new RemoteClient("192.168.1.20", "0427", fetchFn);
+    await expect(client.updateChannel("nightly")).resolves.toEqual(view);
+    expect(calls[0]).toMatchObject({ url: "http://192.168.1.20/api/updates/channel?channel=nightly", method: "POST" });
+    await expect(client.updates()).rejects.toMatchObject({ message: "This Tetrad has no Update channel. Update Tetrad on the unit first." });
+  });
+
   it("a refusal carries the unit's text; 401 asks for the PIN again", async () => {
     const { fetchFn } = fakeFetch((c) => (c.url.includes("irs") ? { status: 422, json: { error: "An IR name has 1 to 60 characters" } } : { status: 401, json: { error: "Wrong PIN" } }));
     const client = new RemoteClient("192.168.1.20", "1111", fetchFn);

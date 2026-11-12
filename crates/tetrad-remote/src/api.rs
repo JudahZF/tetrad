@@ -65,6 +65,8 @@ pub enum Request {
     Mappings { pin: String, op: EditorOp },
     /// The layouts of the Custom footswitch mode (docs/footswitch-modes.md).
     Footswitch { pin: String, op: EditorOp },
+    /// The Update channel of Tetrad Updates and the running version (docs/updates.md).
+    Updates { pin: String, op: UpdatesOp },
     /// Dev build: the running version, and the proof that the unit takes updates.
     #[cfg(feature = "dev")]
     UpdateStatus { pin: String },
@@ -127,7 +129,8 @@ impl Request {
             | Self::Extensions { pin, .. }
             | Self::Themes { pin, .. }
             | Self::Mappings { pin, .. }
-            | Self::Footswitch { pin, .. } => pin,
+            | Self::Footswitch { pin, .. }
+            | Self::Updates { pin, .. } => pin,
             #[cfg(feature = "dev")]
             Self::UpdateStatus { pin }
             | Self::UpdateBegin { pin, .. }
@@ -214,6 +217,15 @@ pub enum ThemesOp {
     Select { id: String },
     /// Removes the theme file of `file:<id>`.
     Delete { id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdatesOp {
+    View,
+    /// The channel that the next CHECK TETRAD follows: nightly, or stable. Nothing installs.
+    SetChannel {
+        nightly: bool,
+    },
 }
 
 /// An editor page of data that the device keeps: the view, and one edit as JSON text that the

@@ -7,6 +7,13 @@ All notable changes to Tetrad are in this file. The version numbers follow
 
 ### Added
 
+- Tetrad Updates has an **Update channel**: Stable (the default, tested releases) or Nightly
+  (the newest build of `main`, not tested). The phone app can set it on the Unit tab, and the
+  Remote API has `GET /api/updates` and `POST /api/updates/channel`. Both channels have the
+  same signature, SHA-256 and `tetrad run --check` checks. When a nightly runs and you go back
+  to Stable, Tetrad does not install the older stable release by itself: the page shows it,
+  and **INSTALL STABLE** installs it
+  ([docs/updates.md](docs/updates.md#update-channel)).
 - Plugin licences: the README says how the project treats licence bypasses, `TRADEMARKS.md`
   keeps the name and logo from builds that bypass them, and docs/extensions.md has
   [rules](docs/extensions.md#rules) for packages. `REVOKED_KEYS` lists repository signing keys
