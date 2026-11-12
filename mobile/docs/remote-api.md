@@ -443,7 +443,7 @@ export interface UpdatesView {
 }
 ```
 
-POST /api/updates/channel is refused (422) while a Tetrad update check or install runs.
+POST /api/updates/channel is refused (422) while a Tetrad install runs.
 
 Mappings and footswitch types are in §6 and §7.
 

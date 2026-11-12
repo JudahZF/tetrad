@@ -101,22 +101,16 @@ impl Services {
         }
     }
 
-    /// The Update channel, saved in [`CHANNEL_FILE`]. An offer of the other channel goes away.
-    /// Refused while a check runs, so its result is always of the channel shown, and while an
+    /// The Update channel, saved in [`CHANNEL_FILE`]. An offer of the other channel goes away,
+    /// and the result of a running check is dropped (`tetrad_checked`). Refused while an
     /// install runs.
     pub fn set_tetrad_channel(
         &mut self,
         files: &mut impl Files,
         channel: Channel,
     ) -> Result<Vec<Effect>, ServiceError> {
-        match self.tetrad {
-            TetradUpdate::Checking => {
-                return Err(ServiceError::NotReady("a Tetrad update check is running"));
-            }
-            TetradUpdate::Installing { .. } => {
-                return Err(ServiceError::NotReady("a Tetrad install is running"));
-            }
-            _ => {}
+        if self.tetrad_installing() {
+            return Err(ServiceError::NotReady("a Tetrad install is running"));
         }
         if channel == self.tetrad_channel {
             return Ok(Vec::new());
@@ -212,9 +206,15 @@ impl Services {
         }
     }
 
-    pub(super) fn tetrad_checked(&mut self, result: Result<Found, String>) -> Vec<Effect> {
-        // A USB offer or an install that started since the check owns the state now.
-        if self.tetrad != TetradUpdate::Checking {
+    pub(super) fn tetrad_checked(
+        &mut self,
+        channel: Channel,
+        result: Result<Found, String>,
+    ) -> Vec<Effect> {
+        // A USB offer or an install that started since the check owns the state now. A check
+        // of the channel before a change never becomes an offer: a later check may be the one
+        // that `Checking` waits for.
+        if self.tetrad != TetradUpdate::Checking || channel != self.tetrad_channel {
             return Vec::new();
         }
         let (state, text) = match result {

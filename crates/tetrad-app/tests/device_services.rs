@@ -6814,7 +6814,7 @@ fn a_tetrad_update_installs_arms_and_restarts() {
             files: files.map(|(path, entry)| (path.to_owned(), entry)).into(),
         },
     };
-    let checked = ServiceNotice::TetradChecked(Ok(Found::Newer(offer)));
+    let checked = ServiceNotice::TetradChecked(Channel::Stable, Ok(Found::Newer(offer)));
     services
         .on_notice(&mut b, checked, &mut settings, ms(0))
         .unwrap();
@@ -6908,7 +6908,7 @@ fn a_usb_offer_survives_a_late_check_and_a_new_upload_withdraws_it() {
         source: Source::Release("v99.0.0".into()),
         manifest: manifest("99.0.0"),
     };
-    let checked = ServiceNotice::TetradChecked(Ok(Found::Newer(late)));
+    let checked = ServiceNotice::TetradChecked(Channel::Stable, Ok(Found::Newer(late)));
     services
         .on_notice(&mut b, checked, &mut settings, ms(5))
         .unwrap();
@@ -6970,13 +6970,6 @@ fn the_update_channel_is_saved_and_follows_the_check() {
         check,
         [Effect::Service(ServiceJob::TetradCheck(Channel::Nightly))]
     );
-    // No change while the check runs, so its result is always of the channel shown.
-    let stable = command(TetradUpdateCommand::Channel(ReleaseChannel::Stable));
-    assert!(
-        services
-            .on_ui(&mut b, stable, &mut settings, ms(1))
-            .is_err()
-    );
     // The rolling nightly can be replaced between the check and the install: a failed
     // install keeps no retry with the old hashes, so the page offers CHECK TETRAD.
     let nightly = offer(
@@ -6984,7 +6977,7 @@ fn the_update_channel_is_saved_and_follows_the_check() {
         "0.1.1-nightly.20261112.317+abc1234",
         Channel::Nightly,
     );
-    let checked = ServiceNotice::TetradChecked(Ok(Found::Newer(nightly)));
+    let checked = ServiceNotice::TetradChecked(Channel::Nightly, Ok(Found::Newer(nightly.clone())));
     services
         .on_notice(&mut b, checked, &mut settings, ms(2))
         .unwrap();
@@ -7013,17 +7006,29 @@ fn the_update_channel_is_saved_and_follows_the_check() {
     assert!(bad.load_tetrad_channel(&mut b.files).is_some());
     assert_eq!(bad.tetrad_channel(), Channel::Stable);
 
-    // Back to Stable: a check finds the older stable; only UPDATE TETRAD installs it.
+    // Back to Stable while a Nightly check runs: that check's result is dropped, also when a
+    // new check (after a USB offer came and went, say) is the one that runs now.
+    let check = command(TetradUpdateCommand::Check);
+    services.on_ui(&mut b, check, &mut settings, ms(5)).unwrap();
     let stable = command(TetradUpdateCommand::Channel(ReleaseChannel::Stable));
     services
-        .on_ui(&mut b, stable, &mut settings, ms(0))
+        .on_ui(&mut b, stable, &mut settings, ms(6))
         .unwrap();
     let check = command(TetradUpdateCommand::Check);
-    services.on_ui(&mut b, check, &mut settings, ms(0)).unwrap();
+    services.on_ui(&mut b, check, &mut settings, ms(7)).unwrap();
+    let stale = ServiceNotice::TetradChecked(Channel::Nightly, Ok(Found::Newer(nightly)));
+    services
+        .on_notice(&mut b, stale, &mut settings, ms(8))
+        .unwrap();
+    assert_eq!(
+        services.tetrad_update_view().state,
+        TetradUpdateState::Checking
+    );
+    // The Stable check finds the older stable; only UPDATE TETRAD (INSTALL STABLE) installs it.
     let older = offer("v0.1.0", "0.1.0", Channel::Stable);
-    let checked = ServiceNotice::TetradChecked(Ok(Found::Older(older.clone())));
+    let checked = ServiceNotice::TetradChecked(Channel::Stable, Ok(Found::Older(older.clone())));
     let effects = services
-        .on_notice(&mut b, checked, &mut settings, ms(5))
+        .on_notice(&mut b, checked, &mut settings, ms(9))
         .unwrap();
     assert!(!effects.iter().any(|e| matches!(e, Effect::Service(_))));
     assert_eq!(
@@ -7034,7 +7039,7 @@ fn the_update_channel_is_saved_and_follows_the_check() {
     );
     let install = command(TetradUpdateCommand::Install);
     let install = services
-        .on_ui(&mut b, install, &mut settings, ms(6))
+        .on_ui(&mut b, install, &mut settings, ms(10))
         .unwrap();
     assert_eq!(install, [Effect::Service(ServiceJob::TetradInstall(older))]);
     // No channel change while the install runs.

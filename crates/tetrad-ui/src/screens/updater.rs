@@ -286,10 +286,7 @@ pub(super) fn tetrad_layout(ui: &UiState, l: &mut Layout, pane: Rect) {
         CAPTION,
         p.muted,
     );
-    let busy = matches!(
-        view.state,
-        TetradUpdateState::Checking | TetradUpdateState::Installing { .. }
-    );
+    let installing = matches!(view.state, TetradUpdateState::Installing { .. });
     let channels = [
         (ReleaseChannel::Stable, "STABLE"),
         (ReleaseChannel::Nightly, "NIGHTLY"),
@@ -298,7 +295,7 @@ pub(super) fn tetrad_layout(ui: &UiState, l: &mut Layout, pane: Rect) {
         l.button(
             Rect::new(x + i as i32 * 128, y, 120, 45),
             Control::TetradUpdate(TetradUpdateCommand::Channel(channel)),
-            !busy,
+            !installing,
             label,
             ButtonStyle::Tab {
                 selected: view.channel == channel,
@@ -511,8 +508,8 @@ mod tests {
     }
 
     /// A nightly on the stable channel: the page names the older stable release and installs
-    /// it only from INSTALL STABLE. The channel buttons send the channel, and are off while a
-    /// check or an install runs.
+    /// it only from INSTALL STABLE. The channel buttons send the channel, and are off while an
+    /// install runs.
     #[test]
     fn tetrad_page_offers_the_older_stable_only_by_name() {
         let older = TetradUpdateView {

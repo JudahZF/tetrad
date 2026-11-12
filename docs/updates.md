@@ -170,8 +170,8 @@ can set it too (Unit tab, **Update channel**).
 Both channels have the same checks: the signed manifest, the SHA-256 of each file and
 `tetrad run --check`. A nightly has a version such as `0.1.0-nightly.20261112.317+61697fa` (the
 date and the UTC time of the build, then the commit). A change of the channel installs nothing.
-It only changes what the next CHECK TETRAD looks for. The channel buttons are off while a check
-or an install runs.
+It only changes what the next CHECK TETRAD looks for, and a check that runs then is dropped. The
+channel buttons are off while an install runs.
 
 **From Nightly back to Stable.** Tetrad never installs an older release as an update. When a
 nightly runs and the newest stable release is older than it, CHECK TETRAD on Stable shows

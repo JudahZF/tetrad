@@ -262,7 +262,8 @@ pub enum ServiceNotice {
     Install(Result<InstallOutcome, JobError>),
     Cloud(Handoff<CloudReply>),
     Backup(Result<BackupDone, JobError>),
-    TetradChecked(Result<Found, String>),
+    /// The channel that was checked, and what the check found on it.
+    TetradChecked(Channel, Result<Found, String>),
     TetradInstalled(Result<(), String>),
 }
 
@@ -302,7 +303,9 @@ impl ServiceJob {
             Self::Download(_) => ServiceNotice::Download(Err(stopped)),
             Self::Install => ServiceNotice::Install(Err(stopped)),
             Self::Backup(_) => ServiceNotice::Backup(Err(stopped)),
-            Self::TetradCheck(_) => ServiceNotice::TetradChecked(Err(stopped.to_string())),
+            Self::TetradCheck(channel) => {
+                ServiceNotice::TetradChecked(channel, Err(stopped.to_string()))
+            }
             Self::TetradInstall(_) => ServiceNotice::TetradInstalled(Err(stopped.to_string())),
             Self::Cloud(job) => ServiceNotice::Cloud(Handoff::new(
                 job.take().map_or_else(CloudReply::gone, CloudJob::lost),
@@ -810,7 +813,7 @@ impl Services {
             ServiceNotice::Install(result) => self.installed(result),
             ServiceNotice::Cloud(reply) => self.cloud_done(&mut io, settings, reply.take(), now),
             ServiceNotice::Backup(result) => self.backup_done(io.files, settings, result, now),
-            ServiceNotice::TetradChecked(result) => self.tetrad_checked(result),
+            ServiceNotice::TetradChecked(channel, result) => self.tetrad_checked(channel, result),
             ServiceNotice::TetradInstalled(result) => self.tetrad_installed(result),
         }
         .into_iter()
