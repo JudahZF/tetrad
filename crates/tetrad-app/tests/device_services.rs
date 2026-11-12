@@ -6934,6 +6934,21 @@ fn the_update_channel_is_saved_and_follows_the_check() {
     let mut b = Backends::default();
     let mut settings = settings();
     let command = |command| UiCommand::TetradUpdate { command };
+    let offer = |tag: &str, version: &str, channel| Offer {
+        source: Source::Release(tag.into()),
+        manifest: Manifest {
+            version: version.parse().unwrap(),
+            channel,
+            files: [(
+                "bin/tetrad".to_owned(),
+                FileEntry {
+                    size: 3,
+                    sha256: "0".repeat(64),
+                },
+            )]
+            .into(),
+        },
+    };
 
     assert_eq!(services.load_tetrad_channel(&mut b.files), None);
     assert_eq!(services.tetrad_channel(), Channel::Stable);
@@ -6955,6 +6970,37 @@ fn the_update_channel_is_saved_and_follows_the_check() {
         check,
         [Effect::Service(ServiceJob::TetradCheck(Channel::Nightly))]
     );
+    // No change while the check runs, so its result is always of the channel shown.
+    let stable = command(TetradUpdateCommand::Channel(ReleaseChannel::Stable));
+    assert!(
+        services
+            .on_ui(&mut b, stable, &mut settings, ms(1))
+            .is_err()
+    );
+    // The rolling nightly can be replaced between the check and the install: a failed
+    // install keeps no retry with the old hashes, so the page offers CHECK TETRAD.
+    let nightly = offer(
+        "nightly",
+        "0.1.1-nightly.20261112.317+abc1234",
+        Channel::Nightly,
+    );
+    let checked = ServiceNotice::TetradChecked(Ok(Found::Newer(nightly)));
+    services
+        .on_notice(&mut b, checked, &mut settings, ms(2))
+        .unwrap();
+    let install = command(TetradUpdateCommand::Install);
+    services
+        .on_ui(&mut b, install, &mut settings, ms(3))
+        .unwrap();
+    let failed =
+        ServiceNotice::TetradInstalled(Err("bin/tetrad: the SHA-256 does not match".into()));
+    services
+        .on_notice(&mut b, failed, &mut settings, ms(4))
+        .unwrap();
+    assert!(matches!(
+        services.tetrad_update_view().state,
+        TetradUpdateState::Failed { retry: None, .. }
+    ));
 
     // A boot reads the file; a later build may add fields.
     let mut later = Services::new();
@@ -6974,21 +7020,7 @@ fn the_update_channel_is_saved_and_follows_the_check() {
         .unwrap();
     let check = command(TetradUpdateCommand::Check);
     services.on_ui(&mut b, check, &mut settings, ms(0)).unwrap();
-    let older = Offer {
-        source: Source::Release("v0.1.0".into()),
-        manifest: Manifest {
-            version: "0.1.0".parse().unwrap(),
-            channel: Channel::Stable,
-            files: [(
-                "bin/tetrad".to_owned(),
-                FileEntry {
-                    size: 3,
-                    sha256: "0".repeat(64),
-                },
-            )]
-            .into(),
-        },
-    };
+    let older = offer("v0.1.0", "0.1.0", Channel::Stable);
     let checked = ServiceNotice::TetradChecked(Ok(Found::Older(older.clone())));
     let effects = services
         .on_notice(&mut b, checked, &mut settings, ms(5))

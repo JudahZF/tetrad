@@ -101,15 +101,22 @@ impl Services {
         }
     }
 
-    /// The Update channel, saved in [`CHANNEL_FILE`]. An offer or a result of the other channel
-    /// goes away; refused while an install runs.
+    /// The Update channel, saved in [`CHANNEL_FILE`]. An offer of the other channel goes away.
+    /// Refused while a check runs, so its result is always of the channel shown, and while an
+    /// install runs.
     pub fn set_tetrad_channel(
         &mut self,
         files: &mut impl Files,
         channel: Channel,
     ) -> Result<Vec<Effect>, ServiceError> {
-        if self.tetrad_installing() {
-            return Err(ServiceError::NotReady("a Tetrad install is running"));
+        match self.tetrad {
+            TetradUpdate::Checking => {
+                return Err(ServiceError::NotReady("a Tetrad update check is running"));
+            }
+            TetradUpdate::Installing { .. } => {
+                return Err(ServiceError::NotReady("a Tetrad install is running"));
+            }
+            _ => {}
         }
         if channel == self.tetrad_channel {
             return Ok(Vec::new());
@@ -120,8 +127,7 @@ impl Services {
             .map_or(Ok(()), |dir| files.create_dirs(dir))
             .and_then(|()| files.write_atomic(path, &bytes))?;
         self.tetrad_channel = channel;
-        // A USB offer is not of a channel: it stays. A running check is of the old channel:
-        // its result is dropped (`tetrad_checked` takes only `Checking`).
+        // A USB offer is not of a channel: it stays.
         let usb =
             matches!(&self.tetrad, TetradUpdate::Available(offer) if offer.source == Source::Usb);
         if !usb {
@@ -260,9 +266,11 @@ impl Services {
             Err(error) => {
                 let text = format!("Tetrad update failed: {error}");
                 // A failed install removes the `.part` files, so a USB release must be
-                // pushed again; a GitHub release downloads again on retry.
+                // pushed again; a GitHub release downloads again on retry. The rolling nightly
+                // may have been replaced since the check (new hashes): check again instead.
                 let usb = offer.source == Source::Usb;
-                let offer = (!usb).then_some(offer);
+                let nightly = offer.source == Source::Release(tetrad::NIGHTLY_TAG.to_owned());
+                let offer = (!usb && !nightly).then_some(offer);
                 self.tetrad = TetradUpdate::Failed { error, offer, usb };
                 vec![notice(text)]
             }

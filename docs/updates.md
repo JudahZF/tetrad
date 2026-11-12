@@ -150,7 +150,8 @@ CorOS does not change. The page shows the running Tetrad version and the Update 
    4. It restarts the unit.
 
 When a check in steps 1 or 2 fails, Tetrad deletes the `.part` files and the old Tetrad stays.
-The page shows the reason, and UPDATE TETRAD tries again. When `arm` fails after the move, the
+The page shows the reason, and UPDATE TETRAD tries again. After a failed nightly the page shows
+CHECK TETRAD instead, because each build replaces the nightly release and its hashes. When `arm` fails after the move, the
 md5 in `select` is the old one, so the unit starts stock CorOS until `tetrad-launcher.sh arm` runs.
 
 A Tetrad update and a CorOS update never run at the same time. Bring-up runs (`tetrad bringup`)
@@ -169,7 +170,8 @@ can set it too (Unit tab, **Update channel**).
 Both channels have the same checks: the signed manifest, the SHA-256 of each file and
 `tetrad run --check`. A nightly has a version such as `0.1.0-nightly.20261112.317+61697fa` (the
 date and the UTC time of the build, then the commit). A change of the channel installs nothing.
-It only changes what the next CHECK TETRAD looks for.
+It only changes what the next CHECK TETRAD looks for. The channel buttons are off while a check
+or an install runs.
 
 **From Nightly back to Stable.** Tetrad never installs an older release as an update. When a
 nightly runs and the newest stable release is older than it, CHECK TETRAD on Stable shows
