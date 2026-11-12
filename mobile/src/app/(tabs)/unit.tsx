@@ -1,7 +1,7 @@
 /** Unit: the connected unit, its theme, its Update channel, and the pages of backup, extensions, notices and the support file. */
 
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { BUILTIN_THEMES } from "@/lib/themes";
 import type { ReleaseChannel, ThemeEntry } from "@/lib/unit/types";
@@ -68,11 +68,17 @@ export default function Unit() {
     }
   };
 
+  // One channel write at a time: a later reply can then never show an older channel.
+  const writingChannel = useRef(false);
   const setChannel = async (channel: ReleaseChannel) => {
+    if (writingChannel.current) return;
+    writingChannel.current = true;
     try {
       updates.set(await client.updateChannel(channel));
     } catch (error) {
       toast.error(error);
+    } finally {
+      writingChannel.current = false;
     }
   };
 
