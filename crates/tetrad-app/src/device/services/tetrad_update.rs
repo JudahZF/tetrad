@@ -6,7 +6,7 @@
 //! The Update channel (Stable or Nightly) selects the releases that CHECK TETRAD looks for. It
 //! is kept in [`CHANNEL_FILE`], a file of its own, so older Tetrad builds never read it.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tetrad_services::updater::tetrad::{self, Channel, Found, Manifest, Offer, Source};
 use tetrad_ui::{ReleaseChannel, TetradUpdateState, TetradUpdateView};
 
@@ -18,9 +18,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const CHANNEL_FILE: &str = "/media/p4/tetrad/updates.json";
 const MAX_CHANNEL_BYTES: u64 = 4 * 1024;
 
-/// [`CHANNEL_FILE`]. Unknown fields are ignored, so a file from a later build still gives its
-/// channel here.
-#[derive(Serialize, Deserialize)]
+/// [`CHANNEL_FILE`]. Unknown fields are ignored here, so a file from a later build still gives
+/// its channel, and a change of the channel keeps them (`set_tetrad_channel`).
+#[derive(Deserialize)]
 struct Stored {
     #[serde(default)]
     channel: Channel,
@@ -115,8 +115,15 @@ impl Services {
         if channel == self.tetrad_channel {
             return Ok(Vec::new());
         }
-        let bytes = serde_json::to_vec(&Stored { channel }).unwrap_or_default();
+        // The other fields of the file (from a later build) stay. A file that does not parse
+        // is replaced: its channel was read as Stable, with a notice.
         let path = Path::new(CHANNEL_FILE);
+        let old = files.read_bounded(path, MAX_CHANNEL_BYTES)?;
+        let mut stored: serde_json::Map<String, serde_json::Value> = (old.as_deref())
+            .and_then(|bytes| serde_json::from_slice(bytes).ok())
+            .unwrap_or_default();
+        stored.insert("channel".into(), channel.name().into());
+        let bytes = serde_json::to_vec(&stored).unwrap_or_default();
         (path.parent())
             .map_or(Ok(()), |dir| files.create_dirs(dir))
             .and_then(|()| files.write_atomic(path, &bytes))?;

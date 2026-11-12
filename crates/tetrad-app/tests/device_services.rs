@@ -7001,6 +7001,13 @@ fn the_update_channel_is_saved_and_follows_the_check() {
         .put(CHANNEL_FILE, r#"{"channel":"nightly","next":1}"#);
     assert_eq!(later.load_tetrad_channel(&mut b.files), None);
     assert_eq!(later.tetrad_channel(), Channel::Nightly);
+    later
+        .set_tetrad_channel(&mut b.files, Channel::Stable)
+        .unwrap();
+    assert_eq!(
+        b.files.get(CHANNEL_FILE).as_deref(),
+        Some(&br#"{"channel":"stable","next":1}"#[..])
+    );
     b.files.put(CHANNEL_FILE, r#"{"channel":"beta"}"#);
     let mut bad = Services::new();
     assert!(bad.load_tetrad_channel(&mut b.files).is_some());

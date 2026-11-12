@@ -184,7 +184,8 @@ nightly runs and the newest stable release is older than it, CHECK TETRAD on Sta
 
 The channel is in `/media/p4/tetrad/updates.json`, for example `{"channel":"nightly"}`. No file,
 or no `channel`, means Stable, so a unit that updates from an older Tetrad stays on Stable.
-Other fields are ignored. Older Tetrad builds do not read this file.
+A change of the channel keeps the other fields of the file. Older Tetrad builds do not read
+this file.
 
 A manifest of the other channel is refused after the signature check. A stable manifest has
 no `channel` field (Tetrad 0.1.0-alpha.10 and earlier refuse one), and the nightly manifest has
