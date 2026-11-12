@@ -6,7 +6,7 @@
 # gaps: what is missing or not tested. README.md, "Known gaps", has the full list.
 
 schema_version = 2
-release = "0.1.0-alpha.10"
+release = "0.1.0"
 coros = ["4.1.0", "4.1.1"]
 
 [[capability]]
@@ -85,9 +85,9 @@ gaps = "Tested from 4.1.0 to 4.1.1 only. A roll back to the other root partition
 
 [[capability]]
 id = "tetrad_updates"
-what = "Settings → Tetrad Updates: downloads the newest Tetrad release from GitHub, checks its Ed25519-signed manifest, the SHA-256 values and the CorOS support, arms it and restarts. CorOS does not change."
-tested = "host"
-gaps = "Not tested on a unit. The release key is a CI secret, so the signature does not protect against a change to the release workflow."
+what = "Settings → Tetrad Updates: downloads the newest Tetrad release of the Update channel (Stable or Nightly) from GitHub over Wi-Fi, checks its Ed25519-signed manifest, the SHA-256 values and the CorOS support, arms it and restarts. CorOS does not change."
+tested = "unit"
+gaps = "The Wi-Fi update from a stable GitHub release is tested on the test unit and on the units of a few testers. The Nightly channel and INSTALL STABLE are tested on the host only. The release key is a CI secret, so the signature does not protect against a change to the release workflow."
 
 [[capability]]
 id = "installer"
@@ -115,9 +115,9 @@ gaps = "Tested on one unit over USB audio: gain, saturator, slapback, a 187 ms a
 
 [[capability]]
 id = "custom_footswitch_mode"
-what = "A footswitch mode from an extension manifest (API 4): up to 4 pages of ten switches (A–D, Down, E–H, Tap) with system, page, block, preset (the loaded one or one chosen from a setlist), Send MIDI and extension command actions, a double press and combos of two adjacent switches, LEDs, a Gig View page, an editor with copy, move and copy page, Mappings control, a stored layout and per-preset layouts (preset field 7003)."
-tested = "host"
-gaps = "Not run on a unit: switch latency, the LED frames, the Bank Up hold, double presses and combos."
+what = "The Custom footswitch mode, in the place of Stomp mode: 4 pages of ten switches (A–D, Down, E–H, Tap); a press, a double press or a combo of two adjacent switches runs up to eight actions (system, page, block, preset, Send MIDI and extension commands, each with a Mappings mode); page 1 plays the preset's Stomp-mode data; LEDs, a Gig View page, an editor with copy, move and copy page, Mappings control, a stored layout (format 2) and per-preset switches."
+tested = "unit"
+gaps = "Tested on the test unit and on the units of a few testers. Not tested on a unit: double presses and combos. Switch latency is not measured."
 
 [[capability]]
 id = "extension_apps"

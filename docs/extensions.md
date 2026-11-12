@@ -252,7 +252,7 @@ the `leakyRelu` network activation ([Write a DSP block](#write-a-dsp-block)); AP
 older API still works. Use API 3 only to send releases: Tetrad before API 3 does not install
 API 3 packages, because it would take a release for a press. Use API 5 for a block that uses
 `leakyRelu`: Tetrad before API 5 refuses it. A package with a Remote page is format 3, which older
-hosts do not read.
+hosts do not read. Tetrad 0.1.x stays on API 8: each 0.1.x release runs an API 8 extension.
 Setting kinds: `choice` (a dropdown; `default` is an option index), `toggle` and `number`
 (`min`, `max`, `default`). The settings show on the extension's page and, while the extension
 is on, in Settings → Tetrad under the extension's `name`.
