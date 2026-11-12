@@ -142,10 +142,11 @@ already the newest commit of `main` and its release has a signature. Else it:
    pre-release that is not "latest". `gh release create` publishes only after all assets are
    uploaded. Between the delete and the new release, there is no nightly.
 
-A manual run (Actions → release → Run workflow) is a dry run: it builds a nightly and uploads a
-workflow artifact, with no signature and no release. With `publish` on `main`, it publishes the
-nightly at once, also when nothing changed. A dry run on another branch never signs: a unit
-installs any signed version over USB.
+A manual run (Actions → release → Run workflow) is a dry run: it builds and uploads a workflow
+artifact, with no signature and no release. On a branch it builds a nightly, on a `v` tag that
+stable. Only with `publish` on `main` does it publish, the nightly, at once, also when nothing
+changed. Only a tag push publishes a stable. A dry run never signs: a unit installs any signed
+version over USB.
 
 ## Cut a stable release
 

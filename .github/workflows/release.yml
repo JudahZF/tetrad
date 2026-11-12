@@ -17,8 +17,8 @@
 #                                     installs (crates/tetrad-services/src/updater/tetrad.rs)
 # The manifest is signed with the Ed25519 secret TETRAD_RELEASE_KEY (PEM); the device checks
 # the signature with RELEASE_KEY in tetrad.rs.
-# A manual run without `publish`, or on a branch other than main, is a dry run: it builds a
-# nightly and uploads a workflow artifact only. It does not sign: its artifact has
+# A manual run is a dry run, on a tag too, unless it has `publish` on main: it builds and
+# uploads a workflow artifact only. It does not sign: its artifact has
 # tetrad-update.json but no tetrad-update.json.sig.
 name: release
 
@@ -69,7 +69,9 @@ jobs:
             refs/tags/v*)
               [ "v$cargo" = "$GITHUB_REF_NAME" ] ||
                 { echo "::error::tag $GITHUB_REF_NAME is not v$cargo (Cargo.toml)"; exit 1; }
-              channel=stable version=$cargo tag=$GITHUB_REF_NAME publish=true ;;
+              # A manual run on a tag is a dry run too: only the tag push publishes.
+              channel=stable version=$cargo tag=$GITHUB_REF_NAME publish=false
+              [ "$EVENT" != push ] || publish=true ;;
             *)
               version=$(scripts/release.sh nightly-version "$cargo" "$(date -u +%Y%m%d)" \
                 "$(date -u +%H%M)" "$(git rev-parse --short=7 HEAD)")
@@ -166,9 +168,9 @@ jobs:
         env:
           TETRAD_RELEASE_KEY: ${{ secrets.TETRAD_RELEASE_KEY }}
         run: |
-          case $CHANNEL:$GITHUB_REF in
-            stable:refs/tags/v* | nightly:refs/heads/main) ;;
-            *) echo "::error::$CHANNEL is not signed on $GITHUB_REF"; exit 1 ;;
+          case $CHANNEL:$GITHUB_EVENT_NAME:$GITHUB_REF in
+            stable:push:refs/tags/v* | nightly:schedule:refs/heads/main | nightly:workflow_dispatch:refs/heads/main) ;;
+            *) echo "::error::$CHANNEL is not signed for $GITHUB_EVENT_NAME on $GITHUB_REF"; exit 1 ;;
           esac
           [ -n "$TETRAD_RELEASE_KEY" ] || { echo "::error::the TETRAD_RELEASE_KEY secret is not set"; exit 1; }
           key=$(mktemp)
