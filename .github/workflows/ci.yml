@@ -1,6 +1,7 @@
 # Host checks on each push and pull request: build, tests, Clippy, rustfmt and rustdoc, with
 # the qcdsp/ (JudahZF/qcdsp) and qc-dev/ (JudahZF/tetrad-toolchain) submodules, and the
-# typecheck, lint and tests of the phone app (mobile/). The device (ARM) build is in release.yml.
+# typecheck, lint and tests of the phone app (mobile/), and actionlint on the workflows. The device
+# (ARM) build is in release.yml.
 name: ci
 
 on:
@@ -63,13 +64,33 @@ jobs:
       - name: ShellCheck
         run: |
           shellcheck --severity=warning -s sh scripts/launcher/*.sh scripts/install.sh \
-            scripts/dev-update.sh scripts/build-dev.sh scripts/fetch-extensions.sh .cursor/install.sh
+            scripts/dev-update.sh scripts/build-dev.sh scripts/fetch-extensions.sh scripts/release.sh \
+            .cursor/install.sh
           shellcheck --severity=warning scripts/bringup/*.sh
 
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --workspace --no-deps
+
+  # The workflows, with ShellCheck on their `run` scripts: a broken release workflow shows only
+  # when a tag or the nightly runs.
+  actionlint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint 1.7.12
+        env:
+          URL: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" "$URL"
+          echo "$SHA256  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
 
   mobile:
     runs-on: ubuntu-24.04

@@ -1,6 +1,15 @@
 # Build the Tetrad device program `tetrad` for the Quad Cortex with the public toolchain in
-# qc-dev/ (https://github.com/JudahZF/tetrad-toolchain) and, for a `v*` tag, publish a GitHub
-# release with:
+# qc-dev/ (https://github.com/JudahZF/tetrad-toolchain) and publish it on one of two channels
+# (docs/releases.md has the contract that units read):
+#
+#   stable   a `v*` tag. The GitHub release of that tag; a tag with a hyphen (v0.2.0-rc.1) is
+#            a pre-release. The manifest has no "channel" key.
+#   nightly  main, each day at 03:17 UTC when main has a commit that the nightly does not have,
+#            or a manual run with `publish`. One rolling pre-release, tag `nightly`, replaced
+#            each time and never "latest". Version X.Y.Z-nightly.DATE.TIME+COMMIT, which the
+#            build stamps into Cargo.toml so that the binary reports it.
+#
+# Each release has:
 #   tetrad, tetrad.sha256             the ARM binary and its SHA-256
 #   tetrad.md5                        its md5, which a support file shows (docs/support.md)
 #   tetrad-<tag>-armv7.tar.gz (+ .sha256)  the layout that scripts/install.sh expects
@@ -8,23 +17,100 @@
 #                                     installs (crates/tetrad-services/src/updater/tetrad.rs)
 # The manifest is signed with the Ed25519 secret TETRAD_RELEASE_KEY (PEM); the device checks
 # the signature with RELEASE_KEY in tetrad.rs.
-# A manual run (workflow_dispatch) builds and uploads a workflow artifact only. It does not
-# sign: its artifact has tetrad-update.json but no tetrad-update.json.sig.
+# A manual run is a dry run, on a tag too, unless it has `publish` on main: it builds and
+# uploads a workflow artifact only. It does not sign: its artifact has
+# tetrad-update.json but no tetrad-update.json.sig.
 name: release
 
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the build as the nightly release (main only). Off, the run is a dry run.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Two runs never publish the nightly at the same time.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      channel: ${{ steps.plan.outputs.channel }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      publish: ${{ steps.plan.outputs.publish }}
+      build: ${{ steps.plan.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The device installs a release only when its manifest names the release's own version,
+      # so a tag must match the version in Cargo.toml (the version the new binary reports).
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          cargo=$(scripts/release.sh version)
+          case $GITHUB_REF in
+            refs/tags/v*)
+              [ "v$cargo" = "$GITHUB_REF_NAME" ] ||
+                { echo "::error::tag $GITHUB_REF_NAME is not v$cargo (Cargo.toml)"; exit 1; }
+              # A manual run on a tag is a dry run too: only the tag push publishes.
+              channel=stable version=$cargo tag=$GITHUB_REF_NAME publish=false
+              [ "$EVENT" != push ] || publish=true ;;
+            *)
+              version=$(scripts/release.sh nightly-version "$cargo" "$(date -u +%Y%m%d)" \
+                "$(date -u +%H%M)" "$(git rev-parse --short=7 HEAD)")
+              channel=nightly tag=nightly publish=false
+              if [ "$GITHUB_REF" = refs/heads/main ] &&
+                { [ "$EVENT" = schedule ] || [ "$PUBLISH" = true ]; }; then
+                publish=true
+              fi ;;
+          esac
+          build=true
+          # A scheduled run does nothing when the nightly is already this commit, complete.
+          if [ "$EVENT" = schedule ]; then
+            built=$(gh api "repos/$GITHUB_REPOSITORY/commits/nightly" --jq .sha 2>/dev/null || true)
+            if [ "$built" = "$GITHUB_SHA" ] &&
+              gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+                grep -qx tetrad-update.json.sig; then
+              build=false publish=false
+              echo "::notice::the nightly is already $GITHUB_SHA"
+            fi
+          fi
+          {
+            echo "channel=$channel"
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publish=$publish"
+            echo "build=$build"
+          } >> "$GITHUB_OUTPUT"
+          echo "channel $channel, version $version, tag $tag, publish $publish, build $build" >> "$GITHUB_STEP_SUMMARY"
+
   tetrad-arm:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      CHANNEL: ${{ needs.plan.outputs.channel }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,6 +124,12 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
+      # The binary reports CARGO_PKG_VERSION, so a nightly gets its version in Cargo.toml and in
+      # the workspace entries of Cargo.lock. The dependencies stay locked.
+      - name: Stamp the nightly version
+        if: env.CHANNEL == 'nightly'
+        run: nix develop path:./qc-dev --command scripts/release.sh stamp "$VERSION"
+
       - name: Build tetrad (armv7 hard-float, glibc 2.18)
         run: nix develop path:./qc-dev --command ./qc-dev/build-arm.sh . dist
 
@@ -46,13 +138,13 @@ jobs:
 
       - name: Make the release archive
         env:
-          NAME: tetrad-${{ github.ref_name }}-armv7
+          NAME: tetrad-${{ needs.plan.outputs.tag }}-armv7
         run: |
           mkdir -p "pkg/$NAME/bin" "pkg/$NAME/launcher" "pkg/$NAME/scripts" "pkg/$NAME/docs/images"
           install -m 755 dist/tetrad "pkg/$NAME/bin/tetrad"
           install -m 755 scripts/launcher/*.sh "pkg/$NAME/launcher/"
           install -m 755 scripts/install.sh scripts/qc-ssh-proxy.py "pkg/$NAME/scripts/"
-          install -m 644 docs/install.md docs/launcher.md docs/updates.md "pkg/$NAME/docs/"
+          install -m 644 docs/install.md docs/launcher.md docs/updates.md docs/releases.md "pkg/$NAME/docs/"
           install -m 644 docs/images/*.png "pkg/$NAME/docs/images/"
           install -m 644 README.md CHANGELOG.md LICENSE TRADEMARKS.md "pkg/$NAME/"
           tar -C pkg --owner=0 --group=0 --numeric-owner -czf "dist/$NAME.tar.gz" "$NAME"
@@ -63,35 +155,23 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # The device installs a release only when this manifest names its own version, so a tag
-      # must match the version in Cargo.toml (the version the new binary reports).
       - name: Make the Tetrad update manifest
         run: |
-          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
-          case $GITHUB_REF in
-            refs/tags/v*)
-              [ "v$version" = "$GITHUB_REF_NAME" ] ||
-                { echo "::error::tag $GITHUB_REF_NAME is not v$version (Cargo.toml)"; exit 1; } ;;
-          esac
-          scripts="tetrad-launch.sh tetrad-launcher.sh tetrad-update.sh"
-          for s in $scripts; do install -m 755 "scripts/launcher/$s" "dist/$s"; done
-          entry() {
-            jq -n --arg path "$1" --arg sha256 "$(sha256sum "$2" | cut -c1-64)" \
-              --argjson size "$(stat -c %s "$2")" '{($path): {size: $size, sha256: $sha256}}'
-          }
-          {
-            entry bin/tetrad dist/tetrad
-            for s in $scripts; do entry "launcher/$s" "dist/$s"; done
-          } | jq -s --arg version "$version" '{version: $version, files: add}' > dist/tetrad-update.json
+          scripts/release.sh manifest "$VERSION" "$CHANNEL" dist
           { echo '```json'; cat dist/tetrad-update.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      # Only a tag is a release. A manual run must not put the release key's signature on a
-      # branch build: a unit installs any signed version over USB (docs/usb.md).
+      # Only a v* tag or a nightly of main is a release. A dry run must not put the release
+      # key's signature on a branch build: a unit installs any signed version over USB
+      # (docs/usb.md).
       - name: Sign the Tetrad update manifest
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.plan.outputs.publish == 'true'
         env:
           TETRAD_RELEASE_KEY: ${{ secrets.TETRAD_RELEASE_KEY }}
         run: |
+          case $CHANNEL:$GITHUB_EVENT_NAME:$GITHUB_REF in
+            stable:push:refs/tags/v* | nightly:schedule:refs/heads/main | nightly:workflow_dispatch:refs/heads/main) ;;
+            *) echo "::error::$CHANNEL is not signed for $GITHUB_EVENT_NAME on $GITHUB_REF"; exit 1 ;;
+          esac
           [ -n "$TETRAD_RELEASE_KEY" ] || { echo "::error::the TETRAD_RELEASE_KEY secret is not set"; exit 1; }
           key=$(mktemp)
           trap 'rm -f "$key"' EXIT
@@ -117,15 +197,35 @@ jobs:
             dist/tetrad-update.json.sig
           if-no-files-found: error
 
-      - name: Publish the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the stable release
+        if: needs.plan.outputs.publish == 'true' && env.CHANNEL == 'stable'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
           flags=()
           case $TAG in *-*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag "${flags[@]}" \
             --title "Tetrad $TAG" --notes "See CHANGELOG.md. Install: docs/install.md." \
+            dist/tetrad dist/tetrad.sha256 dist/tetrad.md5 dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.sh \
+            dist/tetrad-update.json dist/tetrad-update.json.sig
+
+      # The tag `nightly` moves to this commit: the old release and tag go first. `gh release
+      # create` with assets makes a draft, uploads and then publishes, so a unit never sees a
+      # nightly without all its files. Units up to 0.1.0-alpha.10 read only `v` tags and the
+      # newest 30 releases: one rolling nightly takes one of the 30.
+      - name: Publish the nightly release
+        if: needs.plan.outputs.publish == 'true' && env.CHANNEL == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view nightly --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release delete nightly --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/nightly" > /dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly"
+          fi
+          gh release create nightly --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Tetrad nightly $VERSION" \
+            --notes "Untested build of main at $GITHUB_SHA. It can break. Channels and roll back: docs/releases.md." \
             dist/tetrad dist/tetrad.sha256 dist/tetrad.md5 dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.sh \
             dist/tetrad-update.json dist/tetrad-update.json.sig
