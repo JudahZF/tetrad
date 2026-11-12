@@ -14,7 +14,8 @@ stable release has a `v` tag and the untested `nightly` build of `main` is for t
 ### Upgrade notes
 
 - A unit on 0.1.0-alpha.5 to 0.1.0-alpha.10 gets 0.1.0 from its own Tetrad Updates
-  (Settings → Tetrad → Tetrad Updates, CHECK TETRAD). You do not need to install again. After
+  (Settings → Tetrad → Tetrad Updates, CHECK TETRAD; on 0.1.0-alpha.8 and earlier, Settings →
+  System → Tetrad Updates). You do not need to install again. After
   this update, the unit offers only stable releases until you set the Update channel to Nightly.
 - 0.1.x releases keep extension API 8 and footswitch layout format 2. An extension for API 8
   and a layout that 0.1.0 writes work with each later 0.1.x release.
@@ -142,7 +143,7 @@ stable release has a `v` tag and the untested `nightly` build of `main` is for t
   freezes the screen and the footswitches.
 - Releases: a manual run of the release workflow no longer signs a build with the release key.
   Only a `v` tag and the nightly of `main` are signed ([docs/releases.md](docs/releases.md)).
-- SQLite is 0.41.1 (libsqlite3-sys 0.39.1), which fixes the advisory RUSTSEC-2026-0459.
+- rusqlite is 0.41.1 (libsqlite3-sys 0.39.1), which fixes the advisory RUSTSEC-2026-0459.
 
 ## [0.1.0-alpha.10](https://github.com/JudahZF/tetrad/releases/tag/v0.1.0-alpha.10) (2026-11-02)
 
