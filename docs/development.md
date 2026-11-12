@@ -147,11 +147,14 @@ the code of the unit.
 
 ### Releases
 
-A `v*` tag runs `.github/workflows/release.yml`. It builds `tetrad`, checks it and
+[releases.md](releases.md) has the stable and nightly channels, the version scheme, the update
+contract that units read and the steps to cut a stable release.
+
+A `v*` tag, and each night `main`, run `.github/workflows/release.yml`. It builds `tetrad`, checks it and
 attaches `tetrad`, `tetrad.sha256`, the release archive `tetrad-<tag>-armv7.tar.gz` and its
 `.sha256` to the [GitHub release](https://github.com/JudahZF/tetrad/releases). The archive has `bin/tetrad`,
-`launcher/*.sh`, `scripts/install.sh`, `scripts/qc-ssh-proxy.py`, the install, launcher and
-update guides in `docs/`, the README images in `docs/images/`, `README.md`, `CHANGELOG.md` and
+`launcher/*.sh`, `scripts/install.sh`, `scripts/qc-ssh-proxy.py`, the install, launcher,
+update and release guides in `docs/`, the README images in `docs/images/`, `README.md`, `CHANGELOG.md` and
 `LICENSE`.
 
 ### Extensions

@@ -14,6 +14,11 @@ All notable changes to Tetrad are in this file. The version numbers follow
   does not load what it installed. The list is empty.
 - Releases have `tetrad.md5`, the md5 that a support file shows, to tell release builds from
   others ([docs/support.md](docs/support.md#release-builds-only)).
+- Nightly builds: each night, `main` is built, signed and published as the rolling pre-release
+  `nightly`, with a version such as `0.1.1-nightly.20261112.317+61697fa`. A nightly is not tested
+  on a unit and can break. Units up to 0.1.0-alpha.10 never offer it. Stable releases stay on
+  `v*` tags. [docs/releases.md](docs/releases.md) has the channels, the update contract, how to
+  roll back and how to cut a stable release.
 
 ### Changed
 

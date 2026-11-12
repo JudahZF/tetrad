@@ -133,7 +133,9 @@ CorOS does not change. The page shows the running Tetrad version.
 1. **CHECK TETRAD.** Tetrad reads the release list of `JudahZF/tetrad` from the GitHub API. It
    takes the newest release that is newer than the running version and has the asset
    `tetrad-update.json`. A stable Tetrad takes only stable releases. A pre-release Tetrad also
-   takes pre-releases. Drafts do not count.
+   takes pre-releases. Drafts do not count. Only `v` tags count, so the nightly (tag
+   `nightly`) is never offered here. [releases.md](releases.md) has the channels and the full
+   contract.
 2. **The manifest.** `tetrad-update.json` gives the version and, for each of the four files
    (`bin/tetrad` and the three launcher scripts), its size and SHA-256. Tetrad first checks
    `tetrad-update.json.sig`, the Ed25519 signature of the manifest, against the release key that
@@ -156,7 +158,8 @@ A Tetrad update and a CorOS update never run at the same time. Bring-up runs (`t
 refuse UPDATE TETRAD.
 
 The release workflow (`.github/workflows/release.yml`) publishes `tetrad-update.json`, its
-signature and the three scripts with each release. It signs with the repository secret
+signature and the three scripts with each stable release and each nightly
+([releases.md](releases.md)). It signs with the repository secret
 `TETRAD_RELEASE_KEY` (an Ed25519 key in PEM). It stops when the tag is not `v` and the version
 in `Cargo.toml`, when the secret is missing, or when the secret is not the key that
 `RELEASE_KEY` pins. Releases up to 0.1.0-alpha.3 have no manifest and no Tetrad Updates page:

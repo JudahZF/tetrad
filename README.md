@@ -8,7 +8,7 @@
 <p align="center">An open, community-built touch UI for the Neural DSP Quad Cortex.</p>
 
 <p align="center">
-  <a href="https://github.com/JudahZF/tetrad/releases"><img alt="Release" src="https://img.shields.io/github/v/release/JudahZF/tetrad?include_prereleases&label=release"></a>
+  <a href="https://github.com/JudahZF/tetrad/releases"><img alt="Release" src="https://img.shields.io/github/v/release/JudahZF/tetrad?include_prereleases&sort=semver&filter=v*&label=release"></a>
   <img alt="CorOS 4.1.0 and 4.1.1" src="https://img.shields.io/badge/CorOS-4.1.0%20%C2%B7%204.1.1-007ec6">
   <a href="LICENSE"><img alt="Licence: GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-4c1"></a>
   <a href="https://discord.gg/m8qP7RnuP"><img alt="Discord" src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white"></a>
@@ -91,7 +91,9 @@ Your presets sound the same. At every boot you choose Tetrad or stock CorOS.
 - **Tetrad over USB.** The `tetrad-usb` tool takes screenshots and sends a Tetrad release
   over the USB cable. See [docs/usb.md](docs/usb.md).
 - **Tetrad updates.** Update Tetrad from the touchscreen (Settings → Tetrad → Tetrad Updates).
-  CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates).
+  CorOS does not change. See [docs/updates.md](docs/updates.md#tetrad-updates). Stable
+  releases have `v` tags; the untested `nightly` build of `main` is for testers
+  ([docs/releases.md](docs/releases.md)).
 - **CorOS updates.** Update CorOS from the touchscreen (Settings → System → CorOS Updates). Tetrad
   stays installed. See [docs/updates.md](docs/updates.md).
 - **Neural Capture.** The capture screens and steps are there. Capture training on the unit is
@@ -104,8 +106,8 @@ with Cortex Control. See [Known gaps](#known-gaps) for what is not tested.
 
 1. **Check your unit.** You need an original Quad Cortex with CorOS 4.1.0 or 4.1.1, and root
    SSH access to it. Tetrad does not give you this access.
-2. **Download and install.** Download `tetrad-<version>-armv7.tar.gz` from
-   [Releases](https://github.com/JudahZF/tetrad/releases) and unpack it. In its folder, run:
+2. **Download and install.** Download `tetrad-<version>-armv7.tar.gz` of a `v` release (not
+   `nightly`) from [Releases](https://github.com/JudahZF/tetrad/releases) and unpack it. In its folder, run:
 
    ```sh
    scripts/install.sh --host qc install
