@@ -26,8 +26,8 @@ by `.github/workflows/release.yml` in the same way.
    version. Install it over USB (`tetrad-usb install`, any signed version installs, an older
    one too: [usb.md](usb.md#install-a-release-over-usb)) or over SSH with the release archive
    (`scripts/install.sh update`, [install.md](install.md)).
-3. When the nightly does not start, the launcher starts stock CorOS. Install a stable over USB
-   or SSH as in step 2.
+3. When the nightly does not start, the launcher starts stock CorOS. A USB install needs a
+   running Tetrad, so install a stable over SSH (`scripts/install.sh update`).
 
 Old nightlies are not kept. To test an older `main`, build it ([development.md](development.md)).
 
@@ -111,7 +111,8 @@ later units.
 3. Take the newest version that is newer than the running version.
 4. Download the manifest and its signature. The manifest `version` must equal the tag version.
 
-**Nightly channel.**
+**Nightly channel.** No released Tetrad has this channel yet: units up to 0.1.0-alpha.10 refuse
+a manifest with `channel`. These are the steps of the Update channel setting that comes next.
 
 1. Take each release whose tag is `nightly` or starts with `nightly-`. Today there is only
    `nightly`.

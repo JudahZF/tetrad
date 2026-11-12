@@ -8,8 +8,8 @@
 #       Prints the nightly version of a build of commit SHA at DATE (YYYYMMDD) and TIME (HHMM),
 #       in UTC, when Cargo.toml has VERSION: X.Y.Z-nightly.DATE.TIME+SHA. When VERSION is a
 #       pre-release (0.2.0-alpha.1), X.Y.Z is its core (0.2.0); when it is stable (0.1.0), the
-#       patch goes up one (0.1.1). So a nightly is newer than VERSION and older than the next
-#       stable.
+#       patch goes up one (0.1.1). So a nightly is older than the next stable, and newer than
+#       VERSION unless VERSION is an rc (`nightly` sorts before `rc`; docs/releases.md).
 #   release.sh stamp VERSION
 #       Writes VERSION into Cargo.toml and, with `cargo update --workspace`, into the workspace
 #       entries of Cargo.lock, so that `cargo build --locked` works and the binary reports
